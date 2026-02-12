@@ -1,0 +1,948 @@
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# Temporary debug logging for Spoolman integration setup diagnosis (remove once stable)
+logger:
+  default: info
+  logs:
+    custom_components.spoolman: debug
+    homeassistant.components.template: debug
+    homeassistant.helpers.template: debug
+
+# Dishwasher "last finished" – automation updates this when cycle completes
+input_datetime:
+  dishwasher_last_finished:
+    name: Dishwasher Last Finished
+    has_date: true
+    has_time: true
+  # P1S print times – persisted so they survive HA restart
+  p1s_print_start_time:
+    name: P1S Print Start Time
+    has_date: true
+    has_time: true
+  p1s_print_end_time:
+    name: P1S Print End Time
+    has_date: true
+    has_time: true
+
+# -----------------------------------------------------------------------------
+# AMS Slot Manager (Spoolman-backed). See AMS_SLOT_MANAGER.md.
+# Spoolman base URL for rest_command: set input_text.spoolman_base_url (e.g. http://192.168.x.x:8080)
+# or use the same host as your Spoolman integration. Placeholder filament: set ams_placeholder_filament_id.
+# -----------------------------------------------------------------------------
+
+# Slot → Spoolman spool ID (1–6 or ID from placeholder). Updated by ams_ensure_slot_spools.
+input_text:
+  spoolman_base_url:
+    name: Spoolman API base URL
+    initial: ""
+  ams_slot_1_spool_id:
+    name: AMS Slot 1 (AMS1_Slot1) – Spoolman spool ID
+  ams_slot_2_spool_id:
+    name: AMS Slot 2 (AMS1_Slot2) – Spoolman spool ID
+  ams_slot_3_spool_id:
+    name: AMS Slot 3 (AMS1_Slot3) – Spoolman spool ID
+  ams_slot_4_spool_id:
+    name: AMS Slot 4 (AMS1_Slot4) – Spoolman spool ID
+  ams_slot_5_spool_id:
+    name: AMS Slot 5 (AMS2_HT_Slot1) – Spoolman spool ID
+  ams_slot_6_spool_id:
+    name: AMS Slot 6 (AMS2_HT_Slot2) – Spoolman spool ID
+  p1s_last_active_tray:
+    name: P1S Last Active Tray
+    max: 100
+  p1s_last_tray_entity:
+    name: P1S Last Tray Entity
+    max: 100
+  p1s_trays_used_this_print:
+    name: P1S Trays used this print (comma-separated entity_ids)
+    max: 500
+
+# Spool profile tare (g): everything that is NOT filament. HA subtracts this from gross → remaining filament.
+# Bambu = plastic spool + silica container. Overture = cardboard + spool + silica + guides.
+input_number:
+  tare_bambu_lab_plastic:
+    name: Tare – Bambu (spool + silica) (g)
+    min: 0
+    max: 600
+    step: 1
+    unit_of_measurement: g
+    mode: box
+    initial: 296
+  tare_overture_cardboard:
+    name: Tare – Overture (cardboard + spool + silica + guides) (g)
+    min: 0
+    max: 600
+    step: 1
+    unit_of_measurement: g
+    mode: box
+    initial: 250
+  ams_placeholder_filament_id:
+    name: AMS placeholder filament ID
+    min: 1
+    max: 9999
+    step: 1
+    mode: box
+    initial: 1
+  ams_slot_1_gross_weight:
+    name: AMS Slot 1 – gross scale (g)
+    min: 0
+    max: 3000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_2_gross_weight:
+    name: AMS Slot 2 – gross scale (g)
+    min: 0
+    max: 3000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_3_gross_weight:
+    name: AMS Slot 3 – gross scale (g)
+    min: 0
+    max: 3000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_4_gross_weight:
+    name: AMS Slot 4 – gross scale (g)
+    min: 0
+    max: 3000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_5_gross_weight:
+    name: AMS Slot 5 (HT1) – gross scale (g)
+    min: 0
+    max: 3000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_6_gross_weight:
+    name: AMS Slot 6 (HT2) – gross scale (g)
+    min: 0
+    max: 3000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_1_tare_override:
+    name: AMS Slot 1 – tare override (g, custom only)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_2_tare_override:
+    name: AMS Slot 2 – tare override (g, custom only)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_3_tare_override:
+    name: AMS Slot 3 – tare override (g, custom only)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_4_tare_override:
+    name: AMS Slot 4 – tare override (g, custom only)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_5_tare_override:
+    name: AMS Slot 5 (HT1) – tare override (g, custom only)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_6_tare_override:
+    name: AMS Slot 6 (HT2) – tare override (g, custom only)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_1_extras_weight:
+    name: AMS Slot 1 – extras (silica/adapter) (g)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_2_extras_weight:
+    name: AMS Slot 2 – extras (silica/adapter) (g)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_3_extras_weight:
+    name: AMS Slot 3 – extras (silica/adapter) (g)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_4_extras_weight:
+    name: AMS Slot 4 – extras (silica/adapter) (g)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_5_extras_weight:
+    name: AMS Slot 5 (HT1) – extras (silica/adapter) (g)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_6_extras_weight:
+    name: AMS Slot 6 (HT2) – extras (silica/adapter) (g)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_assign_source_spool_id:
+    name: Assign from warehouse – source spool ID
+    min: 1
+    max: 9999
+    step: 1
+    mode: box
+# Legacy: remaining (g) per slot; AMS Slot Manager uses gross + tare instead.
+  spoolman_tray_1_remaining:
+    name: "Spoolman Tray 1 – set remaining (g)"
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  spoolman_tray_2_remaining:
+    name: "Spoolman Tray 2 – set remaining (g)"
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  spoolman_tray_3_remaining:
+    name: "Spoolman Tray 3 – set remaining (g)"
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  spoolman_tray_4_remaining:
+    name: "Spoolman Tray 4 – set remaining (g)"
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  spoolman_tray_5_remaining:
+    name: "Spoolman Tray 5 (HT1) – set remaining (g)"
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  spoolman_tray_6_remaining:
+    name: "Spoolman Tray 6 (HT2) – set remaining (g)"
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+
+# AMS Slot Manager: spool type per slot. HA subtracts that type's tare from gross → remaining.
+input_select:
+  ams_slot_1_spool_type:
+    name: AMS Slot 1 – spool type
+    options: ["Bambu Lab (plastic)", "Overture cardboard", "Custom"]
+    initial: "Bambu Lab (plastic)"
+  ams_slot_2_spool_type:
+    name: AMS Slot 2 – spool type
+    options: ["Bambu Lab (plastic)", "Overture cardboard", "Custom"]
+    initial: "Bambu Lab (plastic)"
+  ams_slot_3_spool_type:
+    name: AMS Slot 3 – spool type
+    options: ["Bambu Lab (plastic)", "Overture cardboard", "Custom"]
+    initial: "Bambu Lab (plastic)"
+  ams_slot_4_spool_type:
+    name: AMS Slot 4 – spool type
+    options: ["Bambu Lab (plastic)", "Overture cardboard", "Custom"]
+    initial: "Bambu Lab (plastic)"
+  ams_slot_5_spool_type:
+    name: AMS Slot 5 (HT1) – spool type
+    options: ["Bambu Lab (plastic)", "Overture cardboard", "Custom"]
+    initial: "Bambu Lab (plastic)"
+  ams_slot_6_spool_type:
+    name: AMS Slot 6 (HT2) – spool type
+    options: ["Bambu Lab (plastic)", "Overture cardboard", "Custom"]
+    initial: "Bambu Lab (plastic)"
+  ams_assign_source_spool:
+    name: Assign from warehouse – source spool
+    options: ["— Select spool —"]
+    initial: "— Select spool —"
+  ams_slot_1_select_spool:
+    name: Slot 1 – select spool
+    options: ["— Select spool —"]
+    initial: "— Select spool —"
+  ams_slot_2_select_spool:
+    name: Slot 2 – select spool
+    options: ["— Select spool —"]
+    initial: "— Select spool —"
+  ams_slot_3_select_spool:
+    name: Slot 3 – select spool
+    options: ["— Select spool —"]
+    initial: "— Select spool —"
+  ams_slot_4_select_spool:
+    name: Slot 4 – select spool
+    options: ["— Select spool —"]
+    initial: "— Select spool —"
+  ams_slot_5_select_spool:
+    name: Slot 5 – select spool
+    options: ["— Select spool —"]
+    initial: "— Select spool —"
+  ams_slot_6_select_spool:
+    name: Slot 6 – select spool
+    options: ["— Select spool —"]
+    initial: "— Select spool —"
+
+# Template sensors
+template:
+  - sensor:
+      - name: "Dishwasher Status"
+        unique_id: dishwasher_status_vt838979b
+        availability: >
+          {{ states('binary_sensor.vt838979b_dishwasher_is_clean') not in ['unknown', 'unavailable'] or states('sensor.vt838979b_dishwasher_operating_mode') not in ['unknown', 'unavailable'] }}
+        state: >
+          {% set operating_mode = states('sensor.vt838979b_dishwasher_operating_mode') %}
+          {% set is_clean = states('binary_sensor.vt838979b_dishwasher_is_clean') %}
+          {% set time_remaining = states('sensor.vt838979b_dishwasher_time_remaining') %}
+          {% set status = '' %}
+          {% if operating_mode and operating_mode not in ['unknown', 'unavailable', ''] %}
+            {% if 'Complete' in operating_mode or 'Idle' in operating_mode or 'Standby' in operating_mode %}
+              {% set status = 'Clean' %}
+            {% elif 'Running' in operating_mode or 'Washing' in operating_mode or 'Drying' in operating_mode or 'Rinsing' in operating_mode or 'Active' in operating_mode %}
+              {% set status = 'Running' %}
+            {% else %}
+              {% set status = operating_mode %}
+            {% endif %}
+          {% elif is_clean == 'on' %}
+            {% set status = 'Clean' %}
+          {% elif is_clean == 'off' %}
+            {% set status = 'Running' %}
+          {% else %}
+            {% set status = 'Unknown' %}
+          {% endif %}
+          {% if status == 'Running' and time_remaining and time_remaining not in ['unknown', 'unavailable', ''] %}
+            {% set time_float = time_remaining | float(0) %}
+            {% if time_float > 0 %}
+              {% set total_minutes = (time_float * 60) | int %}
+              {% set hours = (total_minutes / 60) | int %}
+              {% set minutes = total_minutes % 60 %}
+              {% if hours > 0 %}
+                {{ status }} ({{ hours }}h {{ minutes }}m)
+              {% else %}
+                {{ status }} ({{ minutes }} min)
+              {% endif %}
+            {% else %}
+              {{ status }}
+            {% endif %}
+          {% else %}
+            {{ status }}
+          {% endif %}
+        icon: >
+          {% set operating_mode = states('sensor.vt838979b_dishwasher_operating_mode') %}
+          {% set is_clean = states('binary_sensor.vt838979b_dishwasher_is_clean') %}
+          {% if operating_mode and ('Complete' in operating_mode or 'Idle' in operating_mode) %}
+            mdi:dishwasher
+          {% elif is_clean == 'on' %}
+            mdi:dishwasher
+          {% elif operating_mode and ('Running' in operating_mode or 'Washing' in operating_mode or 'Active' in operating_mode) %}
+            mdi:dishwasher-alert
+          {% elif is_clean == 'off' %}
+            mdi:dishwasher-alert
+          {% else %}
+            mdi:dishwasher-off
+          {% endif %}
+      - name: "Dishwasher Last Finished Time"
+        unique_id: dishwasher_last_finished_time_vt838979b
+        availability: >
+          {{ states('input_datetime.dishwasher_last_finished') not in ['unknown', 'unavailable', ''] or states('binary_sensor.vt838979b_dishwasher_is_clean') == 'on' }}
+        state: >
+          {% set input_val = states('input_datetime.dishwasher_last_finished') %}
+          {% set input_dt = input_val.replace(' ', 'T') | as_datetime if input_val and input_val not in ['unknown', 'unavailable', ''] else none %}
+          {% set input_ts = input_dt.timestamp() if input_dt else 0 %}
+          {% set is_clean = states('binary_sensor.vt838979b_dishwasher_is_clean') %}
+          {% set clean_changed = state_attr('binary_sensor.vt838979b_dishwasher_is_clean', 'last_changed') %}
+          {% set clean_ts = (clean_changed | as_timestamp | default(0)) if (is_clean == 'on' and clean_changed) else 0 %}
+          {% set effective_ts = [input_ts, clean_ts] | max %}
+          {% if effective_ts > 0 %}
+            {{ effective_ts | timestamp_custom('%Y-%m-%d %H:%M:%S', true) }}
+          {% elif input_val and input_val not in ['unknown', 'unavailable', ''] %}
+            {% set s = input_val %}
+            {% set ts = s.replace(' ', 'T') if ' ' in s else s %}
+            {% set tz_raw = now().strftime('%z') %}
+            {% set tz = tz_raw[:3] ~ ':' ~ tz_raw[3:] %}
+            {{ ts ~ tz if 'T' in ts and ('+' not in ts[-6:] and '-' not in ts[-6:]) else ts }}
+          {% else %}
+            {% set tz_raw = now().strftime('%z') %}
+            {% set tz = tz_raw[:3] ~ ':' ~ tz_raw[3:] %}
+            1970-01-01T00:00:00{{ tz }}
+          {% endif %}
+        device_class: timestamp
+        icon: mdi:clock-check
+      - name: "Dishwasher Last Finished Display"
+        unique_id: dishwasher_last_finished_display_vt838979b
+        availability: >
+          {{ states('input_datetime.dishwasher_last_finished') not in ['unknown', 'unavailable'] or states('binary_sensor.vt838979b_dishwasher_is_clean') == 'on' }}
+        state: >
+          {% set input_val = states('input_datetime.dishwasher_last_finished') %}
+          {% set input_dt = (input_val | string).replace(' ', 'T') | as_datetime if input_val and input_val not in ['unknown', 'unavailable', ''] else none %}
+          {% set input_ts = input_dt.timestamp() if input_dt else 0 %}
+          {% set is_clean = states('binary_sensor.vt838979b_dishwasher_is_clean') %}
+          {% set clean_changed = state_attr('binary_sensor.vt838979b_dishwasher_is_clean', 'last_changed') %}
+          {% set clean_ts = (clean_changed | as_timestamp | default(0)) if (is_clean == 'on' and clean_changed) else 0 %}
+          {% set effective_ts = [input_ts, clean_ts] | max %}
+          {% if effective_ts > 0 %}
+            {% set dt_str = effective_ts | timestamp_custom('%Y-%m-%d %H:%M:%S', true) %}
+            {% set dt_parsed = (dt_str | string).replace(' ', 'T') | as_datetime %}
+            {% if dt_parsed %}
+              {% set now_dt = now() %}
+              {% set dt_aware = dt_parsed.replace(tzinfo=now_dt.tzinfo) if not dt_parsed.tzinfo else dt_parsed %}
+              {% set diff = (now_dt - dt_aware).total_seconds() %}
+              {% set days = (diff / 86400) | int %}
+              {% set hours = ((diff % 86400) / 3600) | int %}
+              {% set minutes = ((diff % 3600) / 60) | int %}
+              {% if days > 0 %}
+                {{ dt_aware.strftime('%m/%d/%y') }} ({{ days }} day{{ 's' if days > 1 else '' }} ago)
+              {% elif hours > 0 %}
+                {{ dt_aware.strftime('%m/%d/%y') }} ({{ hours }} hour{{ 's' if hours > 1 else '' }} ago)
+              {% elif minutes > 0 %}
+                {{ dt_aware.strftime('%m/%d/%y') }} ({{ minutes }} minute{{ 's' if minutes > 1 else '' }} ago)
+              {% else %}
+                {{ dt_aware.strftime('%b %d, %Y at %I:%M %p') }} (just now)
+              {% endif %}
+            {% else %}
+              Never
+            {% endif %}
+          {% else %}
+            Never
+          {% endif %}
+        icon: mdi:clock-check
+      - name: "P1S Operator Status"
+        unique_id: p1s_operator_status_01p00c5a3101668
+        availability: >
+          {{ states('sensor.p1s_01p00c5a3101668_print_status') not in ['unknown', 'unavailable'] or states('binary_sensor.p1s_01p00c5a3101668_online') not in ['unknown', 'unavailable'] }}
+        state: >
+          {% set status = states('sensor.p1s_01p00c5a3101668_print_status') | lower %}
+          {% set online = states('binary_sensor.p1s_01p00c5a3101668_online') %}
+          {% set print_error = states('binary_sensor.p1s_01p00c5a3101668_print_error') %}
+          {% set hms_errors = states('binary_sensor.p1s_01p00c5a3101668_hms_errors') %}
+          {% set has_error = print_error == 'on' or hms_errors == 'on' %}
+          {% if online == 'off' or status == 'offline' or status in ['unknown', 'unavailable', ''] %}
+            offline
+          {% elif status == 'failed' or (has_error and status in ['idle', 'finish']) %}
+            failed_requires_intervention
+          {% elif status in ['finish', 'finished', 'completed'] %}
+            finished_success
+          {% elif status in ['running', 'printing'] %}
+            {% if has_error %}printing_attention_needed{% else %}printing_normally{% endif %}
+          {% elif status in ['pause', 'paused'] %}
+            {% if has_error %}paused_error{% else %}paused_user{% endif %}
+          {% elif status in ['prepare', 'init', 'slicing'] %}
+            printing_normally
+          {% elif status == 'idle' %}
+            idle_ready
+          {% else %}
+            unknown
+          {% endif %}
+        icon: >
+          {% set status = states('sensor.p1s_01p00c5a3101668_print_status') | lower %}
+          {% set online = states('binary_sensor.p1s_01p00c5a3101668_online') %}
+          {% set print_error = states('binary_sensor.p1s_01p00c5a3101668_print_error') %}
+          {% set hms_errors = states('binary_sensor.p1s_01p00c5a3101668_hms_errors') %}
+          {% set has_error = print_error == 'on' or hms_errors == 'on' %}
+          {% if online == 'off' or status == 'offline' %}mdi:printer-off
+          {% elif status == 'failed' or (has_error and status in ['idle', 'finish']) %}mdi:printer-alert
+          {% elif status in ['finish', 'finished', 'completed'] %}mdi:printer-3d-nozzle-check
+          {% elif status in ['running', 'printing'] and has_error %}mdi:printer-3d-nozzle-alert
+          {% elif status in ['running', 'printing'] %}mdi:printer-3d
+          {% elif status in ['pause', 'paused'] and has_error %}mdi:printer-alert
+          {% elif status in ['pause', 'paused'] %}mdi:printer-3d-paused
+          {% else %}mdi:printer-3d{% endif %}
+      # AMS Slot Manager: display name and remaining (g) per slot from persisted spool ID.
+      - name: "AMS Slot 1 – name"
+        unique_id: ams_slot_1_name
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_1_spool_id'), 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_1_spool_id'), 'name')) | default('Slot 1') }}"
+      - name: "AMS Slot 1 – remaining (g)"
+        unique_id: ams_slot_1_remaining_g
+        unit_of_measurement: g
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_1_spool_id'), 'remaining_weight') | default(states('sensor.spoolman_spool_' ~ states('input_text.ams_slot_1_spool_id'))) | float(0) | round(0) }}"
+      - name: "AMS Slot 2 – name"
+        unique_id: ams_slot_2_name
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_2_spool_id'), 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_2_spool_id'), 'name')) | default('Slot 2') }}"
+      - name: "AMS Slot 2 – remaining (g)"
+        unique_id: ams_slot_2_remaining_g
+        unit_of_measurement: g
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_2_spool_id'), 'remaining_weight') | default(states('sensor.spoolman_spool_' ~ states('input_text.ams_slot_2_spool_id'))) | float(0) | round(0) }}"
+      - name: "AMS Slot 3 – name"
+        unique_id: ams_slot_3_name
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_3_spool_id'), 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_3_spool_id'), 'name')) | default('Slot 3') }}"
+      - name: "AMS Slot 3 – remaining (g)"
+        unique_id: ams_slot_3_remaining_g
+        unit_of_measurement: g
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_3_spool_id'), 'remaining_weight') | default(states('sensor.spoolman_spool_' ~ states('input_text.ams_slot_3_spool_id'))) | float(0) | round(0) }}"
+      - name: "AMS Slot 4 – name"
+        unique_id: ams_slot_4_name
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_4_spool_id'), 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_4_spool_id'), 'name')) | default('Slot 4') }}"
+      - name: "AMS Slot 4 – remaining (g)"
+        unique_id: ams_slot_4_remaining_g
+        unit_of_measurement: g
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_4_spool_id'), 'remaining_weight') | default(states('sensor.spoolman_spool_' ~ states('input_text.ams_slot_4_spool_id'))) | float(0) | round(0) }}"
+      - name: "AMS Slot 5 – name"
+        unique_id: ams_slot_5_name
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_5_spool_id'), 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_5_spool_id'), 'name')) | default('AMS2 HT 1') }}"
+      - name: "AMS Slot 5 – remaining (g)"
+        unique_id: ams_slot_5_remaining_g
+        unit_of_measurement: g
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_5_spool_id'), 'remaining_weight') | default(states('sensor.spoolman_spool_' ~ states('input_text.ams_slot_5_spool_id'))) | float(0) | round(0) }}"
+      - name: "AMS Slot 6 – name"
+        unique_id: ams_slot_6_name
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_6_spool_id'), 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_6_spool_id'), 'name')) | default('AMS2 HT 2') }}"
+      - name: "AMS Slot 6 – remaining (g)"
+        unique_id: ams_slot_6_remaining_g
+        unit_of_measurement: g
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_6_spool_id'), 'remaining_weight') | default(states('sensor.spoolman_spool_' ~ states('input_text.ams_slot_6_spool_id'))) | float(0) | round(0) }}"
+      # Spool list for dropdown: extract spool ID from entity_id (sensor.spoolman_spool_<digits>).
+      # Filter by split('_') length to get only main spool entities, not children. No .append() (unsafe).
+      - name: "AMS Spool list – options"
+        unique_id: ams_spool_list_options
+        state: >
+          {% set ns = namespace(seen=[]) %}
+          {% for st in (states.sensor | list) %}
+            {% if st and st.entity_id %}
+              {% set eid = st.entity_id | string %}
+              {% set parts = eid.split('_') %}
+              {% if parts | length == 3 %}
+                {% if parts[0] == 'sensor.spoolman' and parts[1] == 'spool' %}
+                  {% set sid = parts[2] %}
+                  {% if sid and sid not in ns.seen %}
+                    {% set ns.seen = ns.seen + [sid] %}
+                  {% endif %}
+                {% endif %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.seen | length }}
+        attributes:
+          options: >
+            {% set ns = namespace(opts=[], seen=[]) %}
+            {% for st in (states.sensor | list) %}
+              {% if st and st.entity_id %}
+                {% set eid = st.entity_id | string %}
+                {% set parts = eid.split('_') %}
+                {% if parts | length == 3 %}
+                  {% if parts[0] == 'sensor.spoolman' and parts[1] == 'spool' %}
+                    {% set sid = parts[2] %}
+                    {% if sid and sid not in ns.seen %}
+                      {% set label = (state_attr(eid, 'filament_name') or state_attr(eid, 'name') or state_attr(eid, 'friendly_name') or ('Spool ' ~ sid)) | string %}
+                      {% set ns.seen = ns.seen + [sid] %}
+                      {% set ns.opts = ns.opts + [sid ~ ' - ' ~ label] %}
+                    {% endif %}
+                  {% endif %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.opts | sort }}
+      # Temporary debug: spool entities seen, options built. Remove once Slot 1 works.
+      - name: "AMS Spool list – debug"
+        unique_id: ams_spool_list_options_debug
+        state: "{{ (state_attr('sensor.ams_spool_list_options', 'options') or []) | length }}"
+        attributes:
+          spool_entities_seen: >
+            {% set ns = namespace(out=[]) %}
+            {% for st in (states.sensor | list) %}
+              {% if st and st.entity_id %}
+                {% set eid = st.entity_id | string %}
+                {% set parts = eid.split('_') %}
+                {% if parts | length == 3 %}
+                  {% if parts[0] == 'sensor.spoolman' and parts[1] == 'spool' %}
+                    {% set ns.out = ns.out + [eid] %}
+                  {% endif %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.out[:30] }}
+          options_sample: "{{ (state_attr('sensor.ams_spool_list_options', 'options') or [])[:15] }}"
+
+      # Fuel gauge: computed remaining grams from tray_weight * remain / 100
+      - name: "P1S Tray 1 Fuel Gauge Remaining"
+        unique_id: p1s_tray_1_fuel_gauge_remaining_g
+        unit_of_measurement: "g"
+        device_class: weight
+        state_class: measurement
+        state: >
+          {{ (state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'remain') | float(0) / 100) | round(1) }}
+
+      - name: "P1S Tray 2 Fuel Gauge Remaining"
+        unique_id: p1s_tray_2_fuel_gauge_remaining_g
+        unit_of_measurement: "g"
+        device_class: weight
+        state_class: measurement
+        state: >
+          {{ (state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'remain') | float(0) / 100) | round(1) }}
+
+      - name: "P1S Tray 3 Fuel Gauge Remaining"
+        unique_id: p1s_tray_3_fuel_gauge_remaining_g
+        unit_of_measurement: "g"
+        device_class: weight
+        state_class: measurement
+        state: >
+          {{ (state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'remain') | float(0) / 100) | round(1) }}
+
+      - name: "P1S Tray 4 Fuel Gauge Remaining"
+        unique_id: p1s_tray_4_fuel_gauge_remaining_g
+        unit_of_measurement: "g"
+        device_class: weight
+        state_class: measurement
+        state: >
+          {{ (state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'remain') | float(0) / 100) | round(1) }}
+
+      - name: "P1S Tray 5 Fuel Gauge Remaining"
+        unique_id: p1s_tray_5_fuel_gauge_remaining_g
+        unit_of_measurement: "g"
+        device_class: weight
+        state_class: measurement
+        state: >
+          {{ (state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'remain') | float(0) / 100) | round(1) }}
+
+      - name: "P1S Tray 6 Fuel Gauge Remaining"
+        unique_id: p1s_tray_6_fuel_gauge_remaining_g
+        unit_of_measurement: "g"
+        device_class: weight
+        state_class: measurement
+        state: >
+          {{ (state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'remain') | float(0) / 100) | round(1) }}
+
+cloud:
+
+# Google Assistant Config
+google_assistant:
+  project_id: home-assistant-12976
+  service_account: !include SERVICE_ACCOUNT.json
+  report_state: true
+  expose_by_default: false
+  exposed_domains:
+    - switch
+    - light
+  entity_config:
+# Nathaniel Bedroom    
+    light.nate_bedroom_table_lamp:
+      name: Nate Lamp
+      room: Nate Bedroom 
+    switch.nate_fan_light:
+      name: Nate Light
+      room: Nate Bedroom
+    fan.nate_fan:
+      name: Nate Fan
+      room: Nate Bedroom        
+# Miriam and Clara Bedroom     
+    switch.miriam_clara_bedroom_ceiling_fan_light:
+      name: Miriam and Clara Light
+      room: Miriam and Clara Room
+    fan.miriam_clara_bedroom_mc_ceiling_fan:
+      name: Miriam and Clara Fan
+      room: Miriam and Clara Room
+    switch.miriam_smart_plug:
+      name: Miriam Lamp
+      room: Miriam and Clara Room
+    switch.clara_smart_plug:
+      name: Clara Lamp
+      room: Miriam and Clara Room
+# Playroom
+    switch.miriam_clara_bedroom_ceiling_fan:
+      name: Playroom Light
+      room: Playroom
+    fan.playroom_ceiling_fan:
+      name: Playroom Fan
+      room: Playroom
+# Master Bedroom
+    light.jerry_bedroom_table_lamp:
+      name: Jerry Lamp
+      room: Master Bedroom
+    light.tricia_bedroom_table_lamp:
+      name: Tricia Lamp
+      room: Master Bedroom
+    fan.upstairs: 
+      name: Upstairs Air Purifier 
+      aliases: 
+        - Bedroom Air Purifier
+      room: Master Bedroom
+# Kitchen
+    light.kitchen_lights:
+      name: Kitchen Lights
+      room: Kitchen
+    light.kitchen_pendant_lights:
+      name: Kitchen Pendant Lights
+      room: Kitchen
+    switch.kitchen_table_light:
+      name: Kitchen Table Light
+      room: Kitchen
+    switch.kitchen_under_cabinet:
+      name: Kitchen Under Cabinet Lights
+      room: Kitchen
+    switch.in_wall_switch_on_off:
+      name: Kitchen Entry Light
+      room: Kitchen
+#Family Room
+    light.living_room_fireplace_lights:
+      name: Fireplace Lights
+      room: Family Room
+    switch.living_room_main_lights:
+      name: Family Room Light
+      aliases: Living Room Light
+      room: Family Room  
+    fan.living_room_ceiling_fan:
+      name: Family Room Fan
+      aliases: Living Room Fan
+      room: Family Room
+    switch.in_wall_outlet_tr_500s:
+      name: Foyer Lamp
+      room: Family Room
+    fan.living_room:
+      name: Family Room Air Purifier
+      aliases: 
+        - Living Room Air Purifier
+        - Downstairs Air Purifier
+# Office
+    switch.in_wall_outlet_tr_500s_6:
+      name: Office Lamp
+      room: Office
+    switch.office_sconces:
+      name: Office Light
+      room: Office
+# Basement
+    light.basement_bar_lights:
+      name: Basement Bar Lights
+      room: Basement
+    light.basement_tv_lights:
+      name: Basement TV Lights
+      room: Basement
+    light.basement_stairs_sconces:
+      name: Basement Stair Lights
+      room: Basement           
+    switch.basement_basement_hall_lights:
+      name: Basement Hall Lights
+      room: Basement
+    light.red_series_dimmer:
+      name: Basement Door Light
+      room: Basement
+# Outside
+    switch.exterior_flood_light:
+      name: Flood Light
+      room: Outside
+    switch.in_wall_switch_on_off_2:
+      name: Deck Light
+      room: Outside
+    switch.in_wall_outlet_tr_500s_3:
+      name: Fire Pit Lights
+      room: Outside
+    switch.in_wall_outlet_tr_500s_4:
+      name: Front Porch Outlet
+      room: Outside
+    switch.in_wall_switch_on_off_4:
+      name: Back Door Light
+      room: Outside
+# Christmas
+    switch.christmas_lights_2:
+      name: Christmas Lights
+      room: Outside
+    switch.wall_plug_switch:
+      name: Christmas Tree
+      room: Family Room  
+
+# Home Assistant Assist Voice Assistant Configuration
+# IMPORTANT: For Home Assistant Assist (native voice assistant), aliases are managed via UI:
+#   Settings → Voice Assistants → Assist → Expose → [select entity] → Aliases
+#
+# However, you can set entity aliases via homeassistant.customize section below.
+# These will help Assist recognize natural names for your devices.
+#
+# First, expose entities to Assist via UI:
+#   1. Go to Settings → Voice Assistants → Assist → Expose
+#   2. Filter by domain: light
+#   3. Enable all light entities you want to control via voice
+#   4. Set aliases in the UI OR they will use the aliases defined below (if configured)
+
+# Entity customizations for Assist aliases
+homeassistant:
+  customize:
+    # Bedroom Lights
+    light.jerry_bedroom_table_lamp:
+      aliases:
+        - "Jerry's lamp"
+        - "Jerry lamp"
+    light.tricia_bedroom_table_lamp:
+      aliases:
+        - "Tricia's lamp"
+        - "Tricia lamp"
+    light.nate_bedroom_table_lamp:
+      aliases:
+        - "Nate's lamp"
+        - "Nate lamp"
+    light.master_bedroom_fan_light:
+      aliases:
+        - "master bedroom fan light"
+        - "bedroom fan light"
+    # Living Room Lights
+    light.living_room_fireplace_lights:
+      aliases:
+        - "living room fireplace lights"
+        - "fireplace lights"
+    # Kitchen Lights
+    light.kitchen_lights:
+      aliases:
+        - "kitchen lights"
+        - "kitchen ceiling lights"
+    light.kitchen_pendant_lights:
+      aliases:
+        - "kitchen pendant lights"
+        - "pendant lights"
+    # Basement Lights
+    light.basement_bar_lights:
+      aliases:
+        - "basement bar lights"
+        - "bar lights"
+    light.basement_tv_lights:
+      aliases:
+        - "basement TV lights"
+        - "TV lights"
+    light.basement_stairs_sconces:
+      aliases:
+        - "basement stairs sconces"
+        - "stairs sconces"
+    light.red_series_dimmer:
+      aliases:
+        - "backdoor light"
+        - "basement door light"
+    light.officelamps:
+      aliases:
+        - "office lamps"
+        - "office lights"
+    # 3D Printer Lights
+    light.p1s_01p00c5a3101668_chamber_light:
+      aliases:
+        - "printer chamber light"
+        - "chamber light"
+
+# Plex Media Server Integration
+# Configured via UI: Settings → Devices & Services → Plex Media Server
+# If you need YAML config instead, uncomment and add token to secrets.yaml:
+# plex:
+#   token: !secret plex_token
+#   host: !secret plex_host
+#   port: 32400
+
+# Tapo C111: use Tapo integration entity camera.tapo_c111_live_view; stream via go2rtc (go2rtc.yaml).
+# Generic camera disabled to avoid two entities for same camera (can cause random stream errors).
+# To restore: uncomment below and set tapo_c111_stream_url in secrets.yaml, then --config --restart.
+# camera:
+#   - platform: generic
+#     name: Tapo C111 P1S external
+#     stream_source: !secret tapo_c111_stream_url
+
+# AMS Slot Manager: Spoolman REST API. Set input_text.spoolman_base_url (e.g. http://192.168.x.x:8080).
+rest_command:
+  ams_spoolman_get_spool:
+    url: "{{ states('input_text.spoolman_base_url') or 'http://localhost:8080' }}/api/v1/spool/{{ spool_id }}"
+    method: GET
+  ams_spoolman_create_placeholder:
+    url: "{{ states('input_text.spoolman_base_url') or 'http://localhost:8080' }}/api/v1/spool"
+    method: POST
+    content_type: "application/json"
+    payload: >
+      {
+        "filament_id": {{ placeholder_filament_id | int }},
+        "location": "HA_AMS_SLOT_{{ slot }}",
+        "comment": "HA_AMS_SLOT={{ slot }}",
+        "remaining_weight": 0,
+        "archived": false
+      }
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+# Lovelace: main dashboard in storage; stage and Bambu from YAML (deployed via scripts/manage_ha.sh)
+lovelace:
+  mode: storage
+  resources:
+    - url: /hacsfiles/mushroom-strategy/mushroom-strategy.js
+      type: module
+    - url: /hacsfiles/lovelace-mushroom/mushroom.js
+      type: module
+    - url: /hacsfiles/mini-graph-card/mini-graph-card-bundle.js
+      type: module
+    - url: /hacsfiles/button-card/button-card.js
+      type: module
+    - url: /hacsfiles/vacuum-card/vacuum-card.js
+      type: module
+    - url: /hacsfiles/lovelace-digital-clock/digital-clock.js
+      type: module
+    - url: /hacsfiles/clock-weather-card/clock-weather-card.js
+      type: module
+    - url: /hacsfiles/lovelace-layout-card/layout-card.js
+      type: module
+    - url: /hacsfiles/simple-thermostat/simple-thermostat.js
+      type: module
+    - url: /browser_mod.js
+      type: module
+    - url: /hacsfiles/weather-chart-card/weather-chart-card.js
+      type: module
+    - url: /hacsfiles/android-tv-card/universal-remote-card.min.js
+      type: module
+    - url: /hacsfiles/roku-card/roku-card.js
+      type: module
+    - url: /hacsfiles/week-planner-card/week-planner-card.js
+      type: module
+    - url: /hacsfiles/universal-remote-card/universal-remote-card.min.js
+      type: module
+    - url: /hacsfiles/custom-sonos-card/custom-sonos-card.js
+      type: module
+    - url: /hacsfiles/lovelace-card-mod/card-mod.js
+      type: module
+    - url: /local/button-card-persistent-styles.js
+      type: module
+    - url: /hacsfiles/lovelace-card-tools/card-tools.js
+      type: module
+    - url: /bambu_lab/ha-bambulab-cards.js
+      type: module
+    - url: /hacsfiles/lovelace-hui-element/hui-element.js
+      type: module
+    - url: /hacsfiles/config-template-card/config-template-card.js
+      type: module
+    - url: /hacsfiles/tabbed-card/tabbed-card.js
+      type: module
+    - url: /webrtc/webrtc-camera.js
+      type: module
+    - url: /hacsfiles/advanced-camera-card/advanced-camera-card.js
+      type: module
+  dashboards:
+    lovelace-stage:
+      mode: yaml
+      title: Stage
+      filename: ui-lovelace-stage.yaml
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+

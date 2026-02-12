@@ -1,0 +1,30 @@
+name,brand,material,color,status,location,remaining_g,empty_spool_g,notes
+BL PLA Basic Black,Bambu Lab,PLA Basic,Black,unknown,Shelf,,,
+BL PLA Basic Green,Bambu Lab,PLA Basic,Green,unknown,Shelf,,,
+BL PLA Basic Yellow,Bambu Lab,PLA Basic,Yellow,unknown,Shelf,,,
+BL PLA Basic Orange,Bambu Lab,PLA Basic,Orange,unknown,Shelf,,,
+BL PLA Basic Green Refill (new),Bambu Lab,PLA Basic,Green,new,Shelf,,,refill
+Overture PLA Space Gray,Overture,PLA,Space Gray,unknown,Shelf,,,
+BL PLA Basic Black (new),Bambu Lab,PLA Basic,Black,new,Shelf,,,
+BL PLA Basic Light Gray (low),Bambu Lab,PLA Basic,Light Gray,low,Shelf,,,almost empty
+BL PLA Red,Bambu Lab,PLA,Red,unknown,Shelf,,,
+Overture PETG Gray,Overture,PETG,Gray,unknown,Shelf,,,
+BL PLA Gray (low),Bambu Lab,PLA,Gray,low,Shelf,,,almost empty
+Overture PLA Dark Blue,Overture,PLA,Dark Blue,unknown,Shelf,,,
+BL PLA Blue/Green,Bambu Lab,PLA,Blue/Green,unknown,Shelf,,,
+Overture PLA White (new),Overture,PLA,White,new,Shelf,,,
+Overture PETG White (new),Overture,PETG,White,new,Shelf,,,
+Overture PETG Black (new),Overture,PETG,Black,new,Shelf,,,
+Overture PETG Red (new),Overture,PETG,Red,new,Shelf,,,
+BL PLA Basic White Refill (new),Bambu Lab,PLA Basic,White,new,Shelf,,,refill
+Overture PLA Black Refill (new),Overture,PLA,Black,new,Shelf,,,refill
+BL PLA Red Refill (new),Bambu Lab,PLA,Red,new,Shelf,,,refill
+BL PLA Basic Light Gray Refill (new),Bambu Lab,PLA Basic,Light Gray,new,Shelf,,,refill
+BL PLA Basic Brown Refill (new),Bambu Lab,PLA Basic,Brown,new,Shelf,,,refill
+Marswork PLA Black Refill,Marswork,PLA,Black,unknown,Shelf,,,refill (confirm if new)
+Overture PETG Black (AMS2 HT Slot 1),Overture,PETG,Black,in_use,AMS2_HT_Slot1,,,
+Overture PETG Clear (AMS2 HT Slot 2),Overture,PETG,Clear,in_use,AMS2_HT_Slot2,,,
+Overture PLA White (AMS1 Slot 1),Overture,PLA,White,in_use,AMS1_Slot1,,,
+Overture PLA Red (AMS1 Slot 2),Overture,PLA,Red,in_use,AMS1_Slot2,,,
+Overture PLA Black (AMS1 Slot 3),Overture,PLA,Black,in_use,AMS1_Slot3,,,
+BL PLA Light Blue (AMS1 Slot 4),Bambu Lab,PLA,Light Blue,in_use,AMS1_Slot4,,,(PLA Basic?)

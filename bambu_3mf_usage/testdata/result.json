@@ -1,0 +1,19 @@
+{
+  "matches": [
+    {
+      "slot": 1,
+      "spool_id": 11,
+      "used_g": 42.3
+    },
+    {
+      "slot": 2,
+      "spool_id": 27,
+      "used_g": 6.8
+    }
+  ],
+  "downloaded_file": "bambu_3mf_usage/testdata/test.3mf",
+  "notes": [
+    "Using --local-3mf (skip FTPS)",
+    "Using Metadata/slice_info.config"
+  ]
+}

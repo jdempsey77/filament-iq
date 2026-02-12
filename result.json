@@ -1,0 +1,21 @@
+{
+  "matches": [
+    {
+      "slot": 1,
+      "spool_id": 111,
+      "used_g": 24.08
+    },
+    {
+      "slot": 2,
+      "spool_id": 222,
+      "used_g": 1.37
+    }
+  ],
+  "downloaded_file": "/cache/3 Rulers - Dual Color.3mf",
+  "notes": [
+    "Matched by task_name",
+    "Downloaded",
+    "Using Metadata/slice_info.config",
+    "Parsed slice_info.config as XML"
+  ]
+}

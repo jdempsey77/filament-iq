@@ -1,0 +1,9 @@
+# go2rtc streams – deploy with: ./scripts/manage_ha.sh --go2rtc
+# Restart the go2rtc add-on after pushing for changes to take effect.
+# Stream keys must match the camera entity_id in Home Assistant (e.g. for WebRTC).
+#
+# Tapo C111 (P1S external): entity camera.tapo_c111_live_view
+# FFmpeg source with rotate=180 corrects upside-down stream (Tapo/RTSP sends inverted).
+streams:
+  camera.tapo_c111_live_view:
+    - "ffmpeg:rtsp://camera:PrinterCam2026@192.168.4.166:554/stream1?rtsp_transport=tcp#video=h264#rotate=180#audio=0"

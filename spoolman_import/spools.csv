@@ -1,0 +1,29 @@
+name,brand,material,color,status,location,remaining_g,empty_spool_g,notes,spool_id
+PLA Basic Black,Bambu Lab,PLA Basic,0d0c0c,active,Shelf,,,,1
+Basic Green,Bambu Lab,PLA Basic,0af568,active,Shelf,,,,2
+Basic Yellow,Bambu Lab,PLA Basic,fff200,active,AMS1_Slot4,944,296,,3
+Basic Orange,Bambu Lab,PLA Basic,f49510,active,Shelf,,,,4
+Bambu Green Refill,Bambu Lab,PLA Basic,24b337,active,Shelf,,,refill,5
+Space Gray,Overture,PLA,4d4d4d,active,Shelf,,,,6
+Basic Black (new),Bambu Lab,PLA Basic,0e0e0e,active,Shelf,,,,7
+Light Gray (low),Bambu Lab,PLA Basic,7c7b7b,active,Shelf,,,almost empty,8
+Basic Red,Bambu Lab,PLA,ef0a0a,active,Shelf,,,,9
+Overture Gray,Overture,PETG,5b5959,active,Shelf,,,,10
+BL PLA Gray,Bambu Lab,PLA,4b4848,active,AMS1_Slot1,950,296,,11
+Overture Dark Blue,Overture,PLA,0f36e4,active,Shelf,,,,12
+BL PLA Blue/Green,Bambu Lab,PLA,,active,Shelf,,,,13
+Overture White (new),Overture,PLA,fffefefc,active,Shelf,,,,14
+Overture PETG White (new),Bambu Lab,PETG,fffcfc,active,Shelf,,,,15
+Overture PETG Black (new),Overture,PETG,020202,active,Shelf,,,,16
+Overture PETG Red (new),Bambu Lab,PETG,de0a0a,active,Shelf,,,,17
+BL PLA Basic White Refill (new),Bambu Lab,PLA Basic,ffffff,active,Shelf,,,refill,18
+Overture PLA Black Refill (new),Overture,PLA,050505,active,Shelf,,,refill,19
+BL PLA Red Refill (new),Bambu Lab,PLA,ff0707,active,Shelf,,,refill,20
+BL PLA Basic Light Gray Refill (new),Bambu Lab,PLA Basic,939191,active,Shelf,,,refill,21
+BL PLA Basic Brown Refill (new),Bambu Lab,PLA Basic,5c3a3a,active,Shelf,,,refill,22
+Marswork PLA Black Refill,Bambu Lab,PLA,000000,active,AMS1_Slot3,882,296,refill (confirm if new),23
+Overture PETG Black (AMS2 HT Slot 1),Bambu Lab,PETG,080808,active,AMS2_HT_Slot1,413.5,226,,24
+Overture PETG Clear (AMS2 HT Slot 2),Bambu Lab,PETG,ffffff00,active,AMS2_HT_Slot2,989,130,,25
+Overture PLA White (AMS1 Slot 1),Bambu Lab,PLA,ffffff,active,Shelf,,,,26
+Overture PLA Red (AMS1 Slot 2),Bambu Lab,PLA,f90404,active,AMS1_Slot2,186,130,,27
+BL PLA Light Blue (AMS1 Slot 4),Bambu Lab,PLA,6e9ef2,active,Shelf,,,(PLA Basic?),29

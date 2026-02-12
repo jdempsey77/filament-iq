@@ -1,0 +1,796 @@
+- id: '1702865965561'
+  alias: Turn on Foyer Lamp
+  description: Turn on Foyer Lamp
+  triggers:
+  - trigger: sun
+    event: sunset
+    offset: -00:15:00
+  conditions: []
+  actions:
+  - type: turn_on
+    device_id: 1c3107ef7b3be01873f3dbaac1c98b9b
+    entity_id: 56261070abf8c56477122ae5af47e97a
+    domain: switch
+  mode: single
+- id: '1702866103870'
+  alias: Turn off Foyer Lamp
+  description: Turn off Foyer Lamp
+  triggers:
+  - trigger: sun
+    event: sunrise
+    offset: -00:15:00
+  conditions: []
+  actions:
+  - type: turn_off
+    device_id: 1c3107ef7b3be01873f3dbaac1c98b9b
+    entity_id: 56261070abf8c56477122ae5af47e97a
+    domain: switch
+  mode: single
+- id: '1703003484971'
+  alias: 'Leak Detected '
+  description: ''
+  triggers:
+  - trigger: state
+    entity_id:
+    - binary_sensor.dome_leak_sensor_water_leak_detected
+    from: 'off'
+    to: 'on'
+    for:
+      hours: 0
+      minutes: 0
+      seconds: 5
+  conditions: []
+  actions:
+  - action: notify.notify
+    data:
+      message: 'Leak detected by Water Heater '
+  mode: single
+- id: '1733098683379'
+  alias: Christmas Lights On
+  description: Turn on Christmas Lights
+  triggers:
+  - trigger: time
+    at: '17:30:00'
+  conditions: []
+  actions:
+  - action: switch.turn_on
+    metadata: {}
+    data: {}
+    target:
+      entity_id: switch.christmas_lights_2
+  mode: single
+- id: '1733098775016'
+  alias: Turn off Christmas Lights
+  description: Turn off Christmas Lights
+  triggers:
+  - trigger: time
+    at: 07:45:00
+  conditions: []
+  actions:
+  - action: switch.turn_off
+    metadata: {}
+    data: {}
+    target:
+      entity_id: switch.christmas_lights_2
+  mode: single
+- id: '1767563386611'
+  alias: turn on deck camera switch
+  description: ''
+  triggers:
+  - trigger: time
+    at: 01:00:00
+  conditions:
+  - condition: time
+    weekday:
+      - sun
+      - mon
+      - tue
+      - wed
+      - thu
+      - fri
+      - sat
+  actions:
+  - type: turn_off
+    device_id: 892bc5525de8912c4df185baa1245cc6
+    entity_id: ef2d91c8843104f9798a98fa9f6e46a0
+    domain: switch
+  mode: single
+- id: '1767890928116'
+  alias: Turn on Flood Light
+  description: ''
+  triggers:
+  - trigger: sun
+    event: sunset
+    offset: 0
+  conditions: []
+  actions:
+  - type: turn_on
+    device_id: a1b9c5fe654919942c0a43b9af351c5e
+    entity_id: 591e0e1fe86fb607127fb86b4fe80d0c
+    domain: switch
+  mode: single
+- id: '1767890966377'
+  alias: Turn off Flood Light
+  description: ''
+  triggers:
+  - trigger: sun
+    event: sunrise
+    offset: 0
+  conditions: []
+  actions:
+  - type: turn_off
+    device_id: a1b9c5fe654919942c0a43b9af351c5e
+    entity_id: 591e0e1fe86fb607127fb86b4fe80d0c
+    domain: switch
+  mode: single
+- id: '1768433215945'
+  alias: Washer Finished Notification (Kasa Power)
+  description: Send notification when washer power consumption drops (cycle finished)
+  triggers:
+  - entity_id: sensor.washer_current_consumption
+    below: 5
+    for:
+      minutes: 2
+    trigger: numeric_state
+  actions:
+  - device_id: 76f9f6f61b620d0b7770441aa36d884a
+    domain: mobile_app
+    type: notify
+    message: Your washer cycle has completed!
+    title: Wash Complete
+  - device_id: 0a72bbb4b92cba3f9f36fac8644e1eb9
+    domain: mobile_app
+    type: notify
+    message: Your washer cycle has completed!
+    title: Wash Complete
+  - device_id: feb4fabc462b127771de98db6b2ba36f
+    domain: mobile_app
+    type: notify
+    message: Your washer cycle has completed!
+    title: Wash Complete
+  mode: single
+- id: '1768441760689'
+  alias: Track Dishwasher Finish Time
+  description: Record timestamp when dishwasher cycle finishes
+  triggers:
+  - entity_id: binary_sensor.vt838979b_dishwasher_is_clean
+    from: 'off'
+    to: 'on'
+    trigger: state
+    for: '00:00:05'
+  - entity_id: sensor.vt838979b_dishwasher_operating_mode
+    trigger: state
+    to: 'off'
+    for: '00:00:05'
+  conditions:
+  - condition: or
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.vt838979b_dishwasher_is_clean
+        state: 'on'
+      - condition: template
+        value_template: "{{ trigger.entity_id == 'sensor.vt838979b_dishwasher_operating_mode' and (trigger.from_state.state in ['Running', 'Washing', 'Rinsing', 'Drying', 'Active'] or 'Running' in (trigger.from_state.state|string) or 'Washing' in (trigger.from_state.state|string)) }}"
+  actions:
+  - target:
+      entity_id: input_datetime.dishwasher_last_finished
+    data:
+      datetime: '{{ now().isoformat() }}'
+    action: input_datetime.set_datetime
+  mode: single
+- id: printer_air_purifier_lan
+  alias: Printer Air Purifier (LAN-proof)
+  description: Turn office air purifier on when printing/paused, off when idle/finished/failed. Logs unknown states.
+  triggers:
+  - trigger: state
+    entity_id: sensor.p1s_01p00c5a3101668_print_status
+  conditions: []
+  actions:
+  - choose:
+      - conditions:
+        - condition: template
+          value_template: "{{ trigger.to_state.state | lower in ['running', 'printing', 'pause', 'paused'] }}"
+        sequence:
+          - action: fan.turn_on
+            target:
+              entity_id: fan.office_air_purifier
+            data:
+              percentage: 75
+      - conditions:
+        - condition: template
+          value_template: "{{ trigger.to_state.state | lower in ['idle', 'standby', 'finish', 'finished', 'completed', 'failed', 'error'] }}"
+        sequence:
+          - action: fan.turn_off
+            target:
+              entity_id: fan.office_air_purifier
+    default:
+    - action: logbook.log
+      data:
+        name: Printer Air Purifier
+        message: "Unknown print_status '{{ trigger.to_state.state }}' - no action taken"
+  mode: single
+- id: p1s_operator_alert
+  alias: P1S Operator Alert
+  description: Notify when printer needs attention (failed or error during print)
+  triggers:
+  - trigger: state
+    entity_id: sensor.p1s_operator_status
+    to:
+    - failed_requires_intervention
+    - printing_attention_needed
+  conditions: []
+  actions:
+  - action: notify.persistent_notification
+    data:
+      title: "Printer needs attention"
+      message: "P1S status: {{ trigger.to_state.state }}"
+  mode: single
+- id: p1s_persist_print_times
+  alias: P1S – persist print start/end times
+  description: Capture start_time and end_time sensors to persistent helpers so they survive HA restart
+  triggers:
+  - trigger: state
+    entity_id: sensor.p1s_01p00c5a3101668_start_time
+  - trigger: state
+    entity_id: sensor.p1s_01p00c5a3101668_end_time
+  - trigger: state
+    entity_id: sensor.p1s_operator_status
+    to:
+    - printing_normally
+    - printing_attention_needed
+  conditions: []
+  actions:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: "{{ trigger.entity_id == 'sensor.p1s_01p00c5a3101668_start_time' and trigger.to_state.state not in ['unknown', 'unavailable', ''] }}"
+      sequence:
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.p1s_print_start_time
+        data:
+          datetime: "{{ trigger.to_state.state }}"
+    - conditions:
+      - condition: template
+        value_template: "{{ trigger.entity_id == 'sensor.p1s_01p00c5a3101668_end_time' and trigger.to_state.state not in ['unknown', 'unavailable', ''] }}"
+      sequence:
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.p1s_print_end_time
+        data:
+          datetime: "{{ trigger.to_state.state }}"
+    - conditions:
+      - condition: state
+        entity_id: sensor.p1s_operator_status
+        state:
+        - printing_normally
+        - printing_attention_needed
+      - condition: template
+        value_template: "{{ states('sensor.p1s_01p00c5a3101668_start_time') not in ['unknown', 'unavailable', ''] }}"
+      sequence:
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.p1s_print_start_time
+        data:
+          datetime: "{{ states('sensor.p1s_01p00c5a3101668_start_time') }}"
+      - condition: template
+        value_template: "{{ states('sensor.p1s_01p00c5a3101668_end_time') not in ['unknown', 'unavailable', ''] }}"
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.p1s_print_end_time
+        data:
+          datetime: "{{ states('sensor.p1s_01p00c5a3101668_end_time') }}"
+  mode: restart
+
+# -----------------------------------------------------------------------------
+# Spoolman filament tracking (Bambu P1S): low filament + subtract after print
+# -----------------------------------------------------------------------------
+# Which spool: printer active_tray when available, else input_select.active_filament_spool.
+# Spoolman reserved IDs 1–6 for AMS slots: slot 1 = spool 1, … slot 6 = spool 6.
+# Map printer tray display name → slot 1–6; spool_id comes from input_text.ams_slot_N_spool_id (persisted).
+# -----------------------------------------------------------------------------
+
+- id: spoolman_low_filament_warning
+  alias: Spoolman low filament warning
+  description: Notify when active spool remaining weight is below 50g (critical) or 100g (warning). Uses printer active_tray when available, else dropdown.
+  triggers:
+  - trigger: state
+    entity_id:
+      - input_select.active_filament_spool
+      - sensor.p1s_01p00c5a3101668_active_tray
+  - trigger: time
+    at: "09:00:00"
+  variables:
+    active_spool: "{% set tray = states('sensor.p1s_01p00c5a3101668_active_tray') %}{% set sel = states('input_select.active_filament_spool') %}{% if tray and tray not in ['', 'unknown', 'unavailable'] %}{{ tray }}{% else %}{{ sel }}{% endif %}"
+    # Map display name → slot 1–6. Add new names when you swap filament.
+    slot_num: "{% set s = active_spool %}{% if s == 'Overture PETG Black (AMS2 HT Slot 1)' %}5{% elif s == 'Overture PETG Clear (AMS2 HT Slot 2)' %}6{% elif s == 'Overture PLA White (AMS1 Slot 1)' %}1{% elif s == 'Overture PLA Red (AMS1 Slot 2)' or s == 'Bambu Lab - Red (AMS1 Slot 2)' or 'Slot 2' in s and 'Red' in s %}2{% elif s == 'Overture PLA Black (AMS1 Slot 3)' or s == 'Marsworks - Marswork PLA Black Refill' %}3{% elif s == 'Bambu Lab PLA Light Blue (AMS1 Slot 4)' %}4{% else %}0{% endif %}"
+    spool_id: "{{ states('input_text.ams_slot_' ~ slot_num ~ '_spool_id') }}"
+    remaining_g: "{{ states('sensor.ams_slot_' ~ slot_num ~ '_remaining_g') | float(0) }}"
+  conditions:
+  - condition: template
+    value_template: "{{ (slot_num | string) != '0' }}"
+  - condition: template
+    value_template: "{{ active_spool not in ['none', 'unknown', 'unavailable', '', none] }}"
+  - condition: template
+    value_template: "{{ remaining_g not in ['unknown', 'unavailable', ''] }}"
+  actions:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: "{{ remaining_g < 50 }}"
+      sequence:
+      - action: notify.persistent_notification
+        data:
+          title: "Spoolman – critical low filament (< 50 g)"
+          message: "Spool « {{ active_spool }} » has {{ remaining_g | round(1) }} g remaining."
+    - conditions:
+      - condition: template
+        value_template: "{{ remaining_g < 100 }}"
+      sequence:
+      - action: notify.persistent_notification
+        data:
+          title: "Spoolman – low filament (< 100 g)"
+          message: "Spool « {{ active_spool }} » has {{ remaining_g | round(1) }} g remaining."
+  mode: single
+
+- id: p1s_capture_active_tray_entity
+  alias: P1S – capture active tray entity during print
+  description: When print starts, clear trays-used list, wait until any tray reports active=true then store that tray entity for subtract-after-print.
+  trigger:
+    - platform: state
+      entity_id: sensor.p1s_01p00c5a3101668_print_status
+      to:
+        - running
+        - printing
+  action:
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.p1s_trays_used_this_print
+      data:
+        value: ""
+    - wait_template: >
+        {{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1','active') == true or
+           state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2','active') == true or
+           state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3','active') == true or
+           state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4','active') == true or
+           state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1','active') == true or
+           state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1','active') == true }}
+      timeout: "00:01:00"
+      continue_on_timeout: true
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1','active') == true }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.p1s_last_tray_entity
+              data:
+                value: "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+            - service: logbook.log
+              data:
+                name: P1S Tray Capture
+                message: "Captured tray entity: sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+        - conditions:
+            - condition: template
+              value_template: "{{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2','active') == true }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.p1s_last_tray_entity
+              data:
+                value: "sensor.p1s_01p00c5a3101668_ams_1_tray_2"
+            - service: logbook.log
+              data:
+                name: P1S Tray Capture
+                message: "Captured tray entity: sensor.p1s_01p00c5a3101668_ams_1_tray_2"
+        - conditions:
+            - condition: template
+              value_template: "{{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3','active') == true }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.p1s_last_tray_entity
+              data:
+                value: "sensor.p1s_01p00c5a3101668_ams_1_tray_3"
+            - service: logbook.log
+              data:
+                name: P1S Tray Capture
+                message: "Captured tray entity: sensor.p1s_01p00c5a3101668_ams_1_tray_3"
+        - conditions:
+            - condition: template
+              value_template: "{{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4','active') == true }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.p1s_last_tray_entity
+              data:
+                value: "sensor.p1s_01p00c5a3101668_ams_1_tray_4"
+            - service: logbook.log
+              data:
+                name: P1S Tray Capture
+                message: "Captured tray entity: sensor.p1s_01p00c5a3101668_ams_1_tray_4"
+        - conditions:
+            - condition: template
+              value_template: "{{ state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1','active') == true }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.p1s_last_tray_entity
+              data:
+                value: "sensor.p1s_01p00c5a3101668_ams_128_tray_1"
+            - service: logbook.log
+              data:
+                name: P1S Tray Capture
+                message: "Captured tray entity: sensor.p1s_01p00c5a3101668_ams_128_tray_1"
+        - conditions:
+            - condition: template
+              value_template: "{{ state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1','active') == true }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.p1s_last_tray_entity
+              data:
+                value: "sensor.p1s_01p00c5a3101668_ams_129_tray_1"
+            - service: logbook.log
+              data:
+                name: P1S Tray Capture
+                message: "Captured tray entity: sensor.p1s_01p00c5a3101668_ams_129_tray_1"
+      default:
+        - service: logbook.log
+          data:
+            name: P1S Tray Capture
+            message: "FAILED to capture tray entity (no tray active=true within 60s)."
+  mode: single
+
+# While print is running, append any tray that becomes active to the "trays used" list (for multi-color subtract).
+- id: p1s_record_trays_used_during_print
+  alias: P1S – record trays used during print
+  description: When a tray reports active=true during a print, add it to p1s_trays_used_this_print so we can split weight on finish.
+  triggers:
+    - trigger: state
+      entity_id:
+        - sensor.p1s_01p00c5a3101668_ams_1_tray_1
+        - sensor.p1s_01p00c5a3101668_ams_1_tray_2
+        - sensor.p1s_01p00c5a3101668_ams_1_tray_3
+        - sensor.p1s_01p00c5a3101668_ams_1_tray_4
+        - sensor.p1s_01p00c5a3101668_ams_128_tray_1
+        - sensor.p1s_01p00c5a3101668_ams_129_tray_1
+  conditions:
+    - condition: state
+      entity_id: sensor.p1s_01p00c5a3101668_print_status
+      state:
+        - running
+        - printing
+    - condition: template
+      value_template: "{{ state_attr(trigger.entity_id, 'active') == true }}"
+  actions:
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.p1s_trays_used_this_print
+      data:
+        value: >
+          {% set cur = states('input_text.p1s_trays_used_this_print') or '' %}
+          {% set tid = trigger.entity_id %}
+          {% if tid in cur %}{{ cur }}{% else %}{{ cur + (',' if cur else '') + tid }}{% endif %}
+  mode: restart
+
+# Fuel gauge: snapshot AMS tray remaining_filament at print start and finish (for usage estimation).
+- id: p1s_remaining_snapshot_init
+  alias: P1S – init remaining filament snapshots
+  description: Clear snapshot JSON helpers when print starts, then seed with currently-active trays
+  triggers:
+    - trigger: state
+      entity_id: sensor.p1s_01p00c5a3101668_print_status
+      to:
+        - running
+        - printing
+  actions:
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.p1s_tray_remaining_start_json
+      data:
+        value: "{}"
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.p1s_tray_remaining_end_json
+      data:
+        value: "{}"
+    - wait_for_trigger:
+        - trigger: template
+          value_template: >
+            {{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'active') == true
+               or state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'active') == true
+               or state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'active') == true
+               or state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'active') == true
+               or state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'active') == true
+               or state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'active') == true }}
+      timeout: 60
+      continue_on_timeout: true
+    - variables:
+        tray_entities:
+          - sensor.p1s_01p00c5a3101668_ams_1_tray_1
+          - sensor.p1s_01p00c5a3101668_ams_1_tray_2
+          - sensor.p1s_01p00c5a3101668_ams_1_tray_3
+          - sensor.p1s_01p00c5a3101668_ams_1_tray_4
+          - sensor.p1s_01p00c5a3101668_ams_128_tray_1
+          - sensor.p1s_01p00c5a3101668_ams_129_tray_1
+        fuel_gauge_sensors:
+          - sensor.p1s_tray_1_fuel_gauge_remaining
+          - sensor.p1s_tray_2_fuel_gauge_remaining
+          - sensor.p1s_tray_3_fuel_gauge_remaining
+          - sensor.p1s_tray_4_fuel_gauge_remaining
+          - sensor.p1s_tray_5_fuel_gauge_remaining
+          - sensor.p1s_tray_6_fuel_gauge_remaining
+        seeded_dict: >
+          {% set ns = namespace(result={}) %}
+          {% for i in range(6) %}
+            {% set tray = tray_entities[i] %}
+            {% set slot = (i + 1) | string %}
+            {% if state_attr(tray, 'active') == true %}
+              {% set remaining = states(fuel_gauge_sensors[i]) | float(0) %}
+              {% set ns.result = dict(ns.result, **{slot: remaining}) %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.result }}
+        seeded_count: "{{ seeded_dict | length }}"
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.p1s_tray_remaining_start_json
+      data:
+        value: "{{ seeded_dict | to_json }}"
+    - service: logbook.log
+      data:
+        name: P1S Filament Tracking
+        message: "Seeded start remaining for currently-active trays: {{ seeded_count }}"
+    - if:
+        - condition: template
+          value_template: "{{ seeded_count | int > 0 }}"
+      then:
+        - variables:
+            task_name: "{{ states('sensor.p1s_01p00c5a3101668_task_name') }}"
+            message_lines: >
+              {% set ns = namespace(lines=[]) %}
+              {% set ns.lines = ns.lines + ['Job: ' ~ task_name] %}
+              {% set ns.lines = ns.lines + [''] %}
+              {% for i in range(6) %}
+                {% set slot = (i + 1) | string %}
+                {% if slot in seeded_dict %}
+                  {% set tray = tray_entities[i] %}
+                  {% set tray_name = state_attr(tray, 'name') | default(tray) %}
+                  {% set remaining = seeded_dict[slot] | round(1) %}
+                  {% set ns.lines = ns.lines + [tray_name ~ ': ' ~ remaining ~ 'g'] %}
+                {% endif %}
+              {% endfor %}
+              {{ ns.lines | join('\n') }}
+        - service: notify.notify
+          data:
+            title: P1S filament at print start
+            message: "{{ message_lines }}"
+      else:
+        - service: logbook.log
+          data:
+            name: P1S Filament Tracking
+            message: No active trays detected at print start; will snapshot on first tray activation.
+  mode: single
+
+- id: p1s_remaining_snapshot_on_tray_first_active
+  alias: P1S – snapshot tray remaining on first active
+  description: Record tray remaining_filament when tray becomes active during print (first use only)
+  triggers:
+    - trigger: state
+      entity_id:
+        - sensor.p1s_01p00c5a3101668_ams_1_tray_1
+        - sensor.p1s_01p00c5a3101668_ams_1_tray_2
+        - sensor.p1s_01p00c5a3101668_ams_1_tray_3
+        - sensor.p1s_01p00c5a3101668_ams_1_tray_4
+        - sensor.p1s_01p00c5a3101668_ams_128_tray_1
+        - sensor.p1s_01p00c5a3101668_ams_129_tray_1
+  conditions:
+    - condition: template
+      value_template: "{{ states('sensor.p1s_01p00c5a3101668_print_status') in ['running', 'printing'] }}"
+    - condition: template
+      value_template: "{{ state_attr(trigger.entity_id, 'active') == true }}"
+  variables:
+    start_json_str: "{{ states('input_text.p1s_tray_remaining_start_json') }}"
+    start_dict: "{{ start_json_str | from_json if start_json_str and start_json_str != '' else {} }}"
+    tray_id: "{{ trigger.entity_id }}"
+    slot: >
+      {% if tray_id == 'sensor.p1s_01p00c5a3101668_ams_1_tray_1' %}"1"
+      {% elif tray_id == 'sensor.p1s_01p00c5a3101668_ams_1_tray_2' %}"2"
+      {% elif tray_id == 'sensor.p1s_01p00c5a3101668_ams_1_tray_3' %}"3"
+      {% elif tray_id == 'sensor.p1s_01p00c5a3101668_ams_1_tray_4' %}"4"
+      {% elif tray_id == 'sensor.p1s_01p00c5a3101668_ams_128_tray_1' %}"5"
+      {% elif tray_id == 'sensor.p1s_01p00c5a3101668_ams_129_tray_1' %}"6"
+      {% else %}"0"{% endif %}
+    fuel_gauge_sensor: >
+      {% if slot == "1" %}sensor.p1s_tray_1_fuel_gauge_remaining
+      {% elif slot == "2" %}sensor.p1s_tray_2_fuel_gauge_remaining
+      {% elif slot == "3" %}sensor.p1s_tray_3_fuel_gauge_remaining
+      {% elif slot == "4" %}sensor.p1s_tray_4_fuel_gauge_remaining
+      {% elif slot == "5" %}sensor.p1s_tray_5_fuel_gauge_remaining
+      {% elif slot == "6" %}sensor.p1s_tray_6_fuel_gauge_remaining
+      {% else %}none{% endif %}
+  actions:
+    - if:
+        - condition: template
+          value_template: "{{ slot not in start_dict }}"
+      then:
+        - variables:
+            remaining: "{{ states(fuel_gauge_sensor) | float(0) }}"
+            tray_name: "{{ state_attr(trigger.entity_id, 'name') | default(trigger.entity_id) }}"
+            tray_empty: "{{ state_attr(trigger.entity_id, 'empty') | default(false) }}"
+            updated_dict: "{{ start_dict | combine({slot: remaining}) }}"
+        - service: input_text.set_value
+          target:
+            entity_id: input_text.p1s_tray_remaining_start_json
+          data:
+            value: "{{ updated_dict | to_json }}"
+        - service: logbook.log
+          data:
+            name: P1S Filament Tracking
+            message: "Recorded start remaining for {{ tray_name }}: {{ remaining | round(1) }}g"
+        - variables:
+            task_name: "{{ states('sensor.p1s_01p00c5a3101668_task_name') }}"
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ tray_empty == false }}"
+                - condition: template
+                  value_template: "{{ remaining >= 1 }}"
+                - condition: template
+                  value_template: "{{ remaining < 50 }}"
+              sequence:
+                - service: notify.persistent_notification
+                  data:
+                    title: P1S – CRITICAL low filament
+                    message: "Job: {{ task_name }}. {{ tray_name }} has {{ remaining | round(1) }}g remaining."
+            - conditions:
+                - condition: template
+                  value_template: "{{ tray_empty == false }}"
+                - condition: template
+                  value_template: "{{ remaining >= 1 }}"
+                - condition: template
+                  value_template: "{{ remaining < 100 }}"
+              sequence:
+                - service: notify.persistent_notification
+                  data:
+                    title: P1S – low filament
+                    message: "Job: {{ task_name }}. {{ tray_name }} has {{ remaining | round(1) }}g remaining."
+  mode: queued
+  max: 10
+
+- id: p1s_remaining_snapshot_on_finish
+  alias: P1S – snapshot remaining on print finish
+  description: Record tray remaining_filament at print finish and notify with start→end delta
+  triggers:
+    - trigger: state
+      entity_id: sensor.p1s_01p00c5a3101668_print_status
+      to:
+        - finish
+        - finished
+        - completed
+  variables:
+    task_name: "{{ states('sensor.p1s_01p00c5a3101668_task_name') }}"
+    trays_used_csv: "{{ states('input_text.p1s_trays_used_this_print') }}"
+    trays_used: "{{ trays_used_csv.split(',') | map('trim') | select | list }}"
+    start_json_str: "{{ states('input_text.p1s_tray_remaining_start_json') }}"
+    start_dict: "{{ start_json_str | from_json if start_json_str and start_json_str != '' else {} }}"
+    tray_entities:
+      - sensor.p1s_01p00c5a3101668_ams_1_tray_1
+      - sensor.p1s_01p00c5a3101668_ams_1_tray_2
+      - sensor.p1s_01p00c5a3101668_ams_1_tray_3
+      - sensor.p1s_01p00c5a3101668_ams_1_tray_4
+      - sensor.p1s_01p00c5a3101668_ams_128_tray_1
+      - sensor.p1s_01p00c5a3101668_ams_129_tray_1
+    fuel_gauge_sensors:
+      - sensor.p1s_tray_1_fuel_gauge_remaining
+      - sensor.p1s_tray_2_fuel_gauge_remaining
+      - sensor.p1s_tray_3_fuel_gauge_remaining
+      - sensor.p1s_tray_4_fuel_gauge_remaining
+      - sensor.p1s_tray_5_fuel_gauge_remaining
+      - sensor.p1s_tray_6_fuel_gauge_remaining
+  actions:
+    - variables:
+        end_dict: >
+          {% set ns = namespace(result={}) %}
+          {% for tray in trays_used %}
+            {% for i in range(6) %}
+              {% if tray == tray_entities[i] %}
+                {% set slot = (i + 1) | string %}
+                {% set remaining = states(fuel_gauge_sensors[i]) | float(0) %}
+                {% set ns.result = dict(ns.result, **{slot: remaining}) %}
+              {% endif %}
+            {% endfor %}
+          {% endfor %}
+          {{ ns.result }}
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.p1s_tray_remaining_end_json
+      data:
+        value: "{{ end_dict | to_json }}"
+    - variables:
+        message_lines: >
+          {% set ns = namespace(lines=[]) %}
+          {% set ns.lines = ns.lines + ['Job: ' ~ task_name] %}
+          {% set ns.lines = ns.lines + [''] %}
+          {% for tray in trays_used %}
+            {% for i in range(6) %}
+              {% if tray == tray_entities[i] %}
+                {% set slot = (i + 1) | string %}
+                {% set tray_name = state_attr(tray, 'name') | default(tray) %}
+                {% set start_g = start_dict.get(slot, none) %}
+                {% set end_g = end_dict.get(slot, 0) %}
+                {% if start_g is not none %}
+                  {% set used_g = [0, start_g - end_g] | max %}
+                  {% set ns.lines = ns.lines + [tray_name ~ ': ' ~ (start_g | round(1)) ~ 'g → ' ~ (end_g | round(1)) ~ 'g (used ~' ~ (used_g | round(1)) ~ 'g)'] %}
+                {% else %}
+                  {% set ns.lines = ns.lines + [tray_name ~ ': end ' ~ (end_g | round(1)) ~ 'g (start not recorded)'] %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+          {% endfor %}
+          {{ ns.lines | join('\n') }}
+    - service: notify.persistent_notification
+      data:
+        title: P1S filament estimate (start→end)
+        message: "{{ message_lines }}"
+  mode: single
+
+# Reload automations when Spoolman fires a threshold event (info/warning/critical).
+# The Spoolman integration does not fire an event when spools are added/updated;
+# after swapping a spool and updating automations.yaml, deploy then either run
+# automation.reload from Developer Tools > Services, or wait for a threshold event.
+- id: spoolman_reload_automations_on_threshold
+  alias: Spoolman – reload automations on threshold event
+  description: When any spool hits a Spoolman threshold, reload automations so updated name→spool_id mappings are picked up.
+  triggers:
+  - trigger: event
+    event_type: spoolman_spool_threshold_exceeded
+  actions:
+  - action: automation.reload
+  mode: single
+
+# Populate all spool dropdowns (global + per-slot) from Spoolman entities (no REST).
+# Trigger on HA start and when options sensor changes; condition options non-empty.
+- id: ams_populate_spool_dropdown_on_rest_data
+  alias: AMS – populate all spool dropdowns from Spoolman entities
+  description: On start or when sensor.ams_spool_list_options changes, set all dropdowns (global + slots 1-6).
+  triggers:
+    - trigger: homeassistant
+      event: start
+    - trigger: state
+      entity_id:
+        - sensor.ams_spool_list_options
+  conditions:
+    - condition: template
+      value_template: "{{ (state_attr('sensor.ams_spool_list_options', 'options') or []) | length > 0 }}"
+  actions:
+    - action: input_select.set_options
+      target:
+        entity_id:
+          - input_select.ams_assign_source_spool
+          - input_select.ams_slot_1_select_spool
+          - input_select.ams_slot_2_select_spool
+          - input_select.ams_slot_3_select_spool
+          - input_select.ams_slot_4_select_spool
+          - input_select.ams_slot_5_select_spool
+          - input_select.ams_slot_6_select_spool
+      data:
+        options: "{{ ['— Select spool —'] + (state_attr('sensor.ams_spool_list_options', 'options') or []) }}"
+  mode: single
+
+# When user selects a spool from "Assign from warehouse" dropdown, set the numeric ID for scripts.
+- id: ams_assign_source_spool_from_select
+  alias: AMS – set source spool ID from dropdown selection
+  description: When Assign from warehouse source spool dropdown changes, set input_number.ams_assign_source_spool_id for assign script.
+  triggers:
+    - trigger: state
+      entity_id:
+        - input_select.ams_assign_source_spool
+  actions:
+    - action: input_number.set_value
+      target:
+        entity_id: input_number.ams_assign_source_spool_id
+      data:
+        value: "{{ (trigger.to_state.state.split(' - ')[0] if trigger.to_state.state != '— Select spool —' else 0) | int }}"
+  mode: single

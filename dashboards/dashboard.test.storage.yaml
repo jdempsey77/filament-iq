@@ -1,0 +1,242 @@
+# Paste this entire file into a storage-mode "Test" dashboard in HA:
+# Settings → Dashboards → Add dashboard (title: Test) → Open it → ⋮ → Edit dashboard → ⋮ → Raw configuration
+# Replace the contents with this file. Save and reload. You can then edit and see config directly in HA.
+#
+# Single-view dashboard for debugging Spool management cards. Back button goes to Stage printer;
+# change navigation_path in HA if you want a different target.
+title: Test
+views:
+  - title: Spool management
+    icon: mdi:database-cog-outline
+    path: spoolman
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        columns: 2
+        cards:
+          - type: button
+            name: Back to 3D Printer
+            icon: mdi:arrow-left
+            tap_action:
+              action: navigate
+              navigation_path: /lovelace-stage/printer
+          - type: button
+            name: Reload Spoolman
+            icon: mdi:refresh
+            tap_action:
+              action: call-service
+              service: script.reload_spoolman_integration
+      - type: grid
+        cards:
+          - type: markdown
+                content: "**Scale-first:** Enter **gross weight** (what's on the scale). Pick **spool type** (Bambu Lab / Overture cardboard / Custom). HA subtracts that tare → **remaining** and writes to Spoolman. **Assign from warehouse:** tap **Refresh list**, then select a spool from the dropdown; assign-to-slot script TBD. **Reload Spoolman** refreshes integration and list."
+            card_mod:
+              style: |
+                ha-card { border: none !important; box-shadow: none !important; }
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: vertical-stack
+            cards:
+              - type: entity
+                entity: sensor.ams_slot_1_name
+                name: Slot 1
+              - type: entity
+                entity: sensor.ams_slot_1_remaining_g
+                name: In Spoolman
+              - type: entity
+                entity: input_select.ams_slot_1_spool_type
+              - type: entity
+                entity: input_number.ams_slot_1_gross_weight
+              - type: entity
+                entity: input_number.ams_slot_1_tare_override
+                name: Tare override (Custom only)
+              - type: button
+                name: Update (gross − tare → Spoolman)
+                tap_action:
+                  action: call-service
+                  service: script.ams_update_slot_1
+                icon: mdi:upload
+          - type: vertical-stack
+            cards:
+              - type: conditional
+                conditions:
+                  - condition: not
+                    conditions:
+                      - condition: state
+                        entity: sensor.ams_slot_2_name
+                        state:
+                          - unknown
+                          - unavailable
+                card:
+                  type: entity
+                  entity: sensor.ams_slot_2_name
+                  name: Slot 2
+              - type: conditional
+                conditions:
+                  - condition: not
+                    conditions:
+                      - condition: state
+                        entity: sensor.ams_slot_2_remaining_g
+                        state:
+                          - unknown
+                          - unavailable
+                card:
+                  type: entity
+                  entity: sensor.ams_slot_2_remaining_g
+                  name: In Spoolman
+              - type: entity
+                entity: input_select.ams_slot_2_spool_type
+              - type: entity
+                entity: input_number.ams_slot_2_gross_weight
+              - type: entity
+                entity: input_number.ams_slot_2_tare_override
+                name: Tare override (Custom only)
+              - type: button
+                name: Update (gross − tare → Spoolman)
+                tap_action:
+                  action: call-service
+                  service: script.ams_update_slot_2
+                icon: mdi:upload
+          - type: vertical-stack
+            cards:
+              - type: entity
+                entity: sensor.ams_slot_3_name
+                name: Slot 3
+              - type: entity
+                entity: sensor.ams_slot_3_remaining_g
+                name: In Spoolman
+              - type: entity
+                entity: input_select.ams_slot_3_spool_type
+              - type: entity
+                entity: input_number.ams_slot_3_gross_weight
+              - type: entity
+                entity: input_number.ams_slot_3_tare_override
+                name: Tare override (Custom only)
+              - type: button
+                name: Update (gross − tare → Spoolman)
+                tap_action:
+                  action: call-service
+                  service: script.ams_update_slot_3
+                icon: mdi:upload
+          - type: vertical-stack
+            cards:
+              - type: conditional
+                conditions:
+                  - condition: not
+                    conditions:
+                      - condition: state
+                        entity: sensor.ams_slot_4_name
+                        state:
+                          - unknown
+                          - unavailable
+                card:
+                  type: entity
+                  entity: sensor.ams_slot_4_name
+                  name: Slot 4
+              - type: conditional
+                conditions:
+                  - condition: not
+                    conditions:
+                      - condition: state
+                        entity: sensor.ams_slot_4_remaining_g
+                        state:
+                          - unknown
+                          - unavailable
+                card:
+                  type: entity
+                  entity: sensor.ams_slot_4_remaining_g
+                  name: In Spoolman
+              - type: entity
+                entity: input_select.ams_slot_4_spool_type
+              - type: entity
+                entity: input_number.ams_slot_4_gross_weight
+              - type: entity
+                entity: input_number.ams_slot_4_tare_override
+                name: Tare override (Custom only)
+              - type: button
+                name: Update (gross − tare → Spoolman)
+                tap_action:
+                  action: call-service
+                  service: script.ams_update_slot_4
+                icon: mdi:upload
+          - type: vertical-stack
+            cards:
+              - type: entity
+                entity: sensor.ams_slot_5_name
+                name: AMS2 HT 1
+              - type: entity
+                entity: sensor.ams_slot_5_remaining_g
+                name: In Spoolman
+              - type: entity
+                entity: input_select.ams_slot_5_spool_type
+              - type: entity
+                entity: input_number.ams_slot_5_gross_weight
+              - type: entity
+                entity: input_number.ams_slot_5_tare_override
+                name: Tare override (Custom only)
+              - type: button
+                name: Update (gross − tare → Spoolman)
+                tap_action:
+                  action: call-service
+                  service: script.ams_update_slot_5
+                icon: mdi:upload
+          - type: vertical-stack
+            cards:
+              - type: conditional
+                conditions:
+                  - condition: not
+                    conditions:
+                      - condition: state
+                        entity: sensor.ams_slot_6_name
+                        state:
+                          - unknown
+                          - unavailable
+                card:
+                  type: entity
+                  entity: sensor.ams_slot_6_name
+                  name: AMS2 HT 2
+              - type: conditional
+                conditions:
+                  - condition: not
+                    conditions:
+                      - condition: state
+                        entity: sensor.ams_slot_6_remaining_g
+                        state:
+                          - unknown
+                          - unavailable
+                card:
+                  type: entity
+                  entity: sensor.ams_slot_6_remaining_g
+                  name: In Spoolman
+              - type: entity
+                entity: input_select.ams_slot_6_spool_type
+              - type: entity
+                entity: input_number.ams_slot_6_gross_weight
+              - type: entity
+                entity: input_number.ams_slot_6_tare_override
+                name: Tare override (Custom only)
+              - type: button
+                name: Update (gross − tare → Spoolman)
+                tap_action:
+                  action: call-service
+                  service: script.ams_update_slot_6
+                icon: mdi:upload
+      - type: grid
+        cards:
+          - type: vertical-stack
+            cards:
+              - type: markdown
+            content: "**Assign from warehouse** — Select a spool from the list (tap Refresh list if empty); assign-to-slot script TBD."
+            card_mod:
+              style: "ha-card { border: none !important; box-shadow: none !important; }"
+          - type: button
+            name: Refresh list
+            icon: mdi:format-list-bulleted
+            tap_action:
+              action: call-service
+              service: script.refresh_ams_spool_list
+          - type: entity
+            entity: input_select.ams_assign_source_spool

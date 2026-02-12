@@ -1,0 +1,507 @@
+# Scripts (included from configuration.yaml).
+# Root keys are script IDs (e.g. reload_spoolman_integration); each has alias, sequence, etc.
+#
+# Reload Spoolman (dashboard button): REQUIRED — replace YOUR_SPOOLMAN_ENTRY_ID below
+# with your Spoolman config entry ID. Get it: Settings → Devices & Services → Spoolman
+# → ⋮ → Configure; the URL ends with /integration/XXXXXXXX — that hex is entry_id.
+# Or in .storage/core.config_entries search for "spoolman" and copy "entry_id".
+# Then redeploy: ./scripts/manage_ha.sh --scripts (and restart HA if needed).
+#
+# yaml-language-server: $schema=
+# Reload Spoolman integration only. Do NOT run refresh_ams_spool_list here (causes spinners; dropdown is populated by automation when REST data arrives).
+reload_spoolman_integration:
+  alias: Reload Spoolman integration
+  sequence:
+    - action: homeassistant.reload_config_entry
+      data:
+        entry_id: "01KGX5YPH9CXR2Y1KZRVSP48V7"
+
+# Optional manual refresh: re-apply dropdown from template sensor options only (no Spoolman reload).
+refresh_ams_spool_list:
+  alias: Refresh AMS spool list (Assign from warehouse)
+  sequence:
+    - action: input_select.set_options
+      target:
+        entity_id: input_select.ams_assign_source_spool
+      data:
+        options: "{{ ['— Select spool —'] + (state_attr('sensor.ams_spool_list_options', 'options') or []) }}"
+
+# Assign the currently selected warehouse spool to a slot (sets input_text.ams_slot_N_spool_id).
+# No-op if no spool selected (source ID 0).
+ams_assign_to_slot_1:
+  alias: Assign selected spool to Slot 1
+  sequence:
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ states('input_number.ams_assign_source_spool_id') | int > 0 }}"
+          sequence:
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_1_spool_id
+              data:
+                value: "{{ states('input_number.ams_assign_source_spool_id') | int }}"
+ams_assign_to_slot_2:
+  alias: Assign selected spool to Slot 2
+  sequence:
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ states('input_number.ams_assign_source_spool_id') | int > 0 }}"
+          sequence:
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_2_spool_id
+              data:
+                value: "{{ states('input_number.ams_assign_source_spool_id') | int }}"
+ams_assign_to_slot_3:
+  alias: Assign selected spool to Slot 3
+  sequence:
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ states('input_number.ams_assign_source_spool_id') | int > 0 }}"
+          sequence:
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_3_spool_id
+              data:
+                value: "{{ states('input_number.ams_assign_source_spool_id') | int }}"
+ams_assign_to_slot_4:
+  alias: Assign selected spool to Slot 4
+  sequence:
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ states('input_number.ams_assign_source_spool_id') | int > 0 }}"
+          sequence:
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_4_spool_id
+              data:
+                value: "{{ states('input_number.ams_assign_source_spool_id') | int }}"
+ams_assign_to_slot_5:
+  alias: Assign selected spool to Slot 5 (AMS2 HT 1)
+  sequence:
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ states('input_number.ams_assign_source_spool_id') | int > 0 }}"
+          sequence:
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_5_spool_id
+              data:
+                value: "{{ states('input_number.ams_assign_source_spool_id') | int }}"
+ams_assign_to_slot_6:
+  alias: Assign selected spool to Slot 6 (AMS2 HT 2)
+  sequence:
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ states('input_number.ams_assign_source_spool_id') | int > 0 }}"
+          sequence:
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_6_spool_id
+              data:
+                value: "{{ states('input_number.ams_assign_source_spool_id') | int }}"
+
+# -----------------------------------------------------------------------------
+# AMS Slot Manager: scale-first update. remaining = max(0, gross - tare).
+# Tare from spool type (Bambu Lab / Overture cardboard) or per-slot override (Custom).
+# Spool ID from input_text.ams_slot_N_spool_id (persisted, may not be 1-6).
+# -----------------------------------------------------------------------------
+ams_update_slot_1:
+  alias: AMS Slot 1 – update weight (gross − tare → Spoolman)
+  sequence:
+    - variables:
+        spool_id: "{{ states('input_text.ams_slot_1_spool_id') }}"
+        gross: "{{ states('input_number.ams_slot_1_gross_weight') | float(0) }}"
+        stype: "{{ states('input_select.ams_slot_1_spool_type') }}"
+        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_1_tare_override') | float(0) }}{% endif %}"
+        remaining: "{{ [0, gross - tare] | max }}"
+    - service: spoolman.patch_spool
+      data:
+        id: "{{ spool_id | int }}"
+        remaining_weight: "{{ remaining }}"
+ams_update_slot_2:
+  alias: AMS Slot 2 – update weight (gross − tare → Spoolman)
+  sequence:
+    - variables:
+        spool_id: "{{ states('input_text.ams_slot_2_spool_id') }}"
+        gross: "{{ states('input_number.ams_slot_2_gross_weight') | float(0) }}"
+        stype: "{{ states('input_select.ams_slot_2_spool_type') }}"
+        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_2_tare_override') | float(0) }}{% endif %}"
+        remaining: "{{ [0, gross - tare] | max }}"
+    - service: spoolman.patch_spool
+      data:
+        id: "{{ spool_id | int }}"
+        remaining_weight: "{{ remaining }}"
+ams_update_slot_3:
+  alias: AMS Slot 3 – update weight (gross − tare → Spoolman)
+  sequence:
+    - variables:
+        spool_id: "{{ states('input_text.ams_slot_3_spool_id') }}"
+        gross: "{{ states('input_number.ams_slot_3_gross_weight') | float(0) }}"
+        stype: "{{ states('input_select.ams_slot_3_spool_type') }}"
+        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_3_tare_override') | float(0) }}{% endif %}"
+        remaining: "{{ [0, gross - tare] | max }}"
+    - service: spoolman.patch_spool
+      data:
+        id: "{{ spool_id | int }}"
+        remaining_weight: "{{ remaining }}"
+ams_update_slot_4:
+  alias: AMS Slot 4 – update weight (gross − tare → Spoolman)
+  sequence:
+    - variables:
+        spool_id: "{{ states('input_text.ams_slot_4_spool_id') }}"
+        gross: "{{ states('input_number.ams_slot_4_gross_weight') | float(0) }}"
+        stype: "{{ states('input_select.ams_slot_4_spool_type') }}"
+        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_4_tare_override') | float(0) }}{% endif %}"
+        remaining: "{{ [0, gross - tare] | max }}"
+    - service: spoolman.patch_spool
+      data:
+        id: "{{ spool_id | int }}"
+        remaining_weight: "{{ remaining }}"
+ams_update_slot_5:
+  alias: AMS Slot 5 (HT1) – update weight (gross − tare → Spoolman)
+  sequence:
+    - variables:
+        spool_id: "{{ states('input_text.ams_slot_5_spool_id') }}"
+        gross: "{{ states('input_number.ams_slot_5_gross_weight') | float(0) }}"
+        stype: "{{ states('input_select.ams_slot_5_spool_type') }}"
+        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_5_tare_override') | float(0) }}{% endif %}"
+        remaining: "{{ [0, gross - tare] | max }}"
+    - service: spoolman.patch_spool
+      data:
+        id: "{{ spool_id | int }}"
+        remaining_weight: "{{ remaining }}"
+ams_update_slot_6:
+  alias: AMS Slot 6 (HT2) – update weight (gross − tare → Spoolman)
+  sequence:
+    - variables:
+        spool_id: "{{ states('input_text.ams_slot_6_spool_id') }}"
+        gross: "{{ states('input_number.ams_slot_6_gross_weight') | float(0) }}"
+        stype: "{{ states('input_select.ams_slot_6_spool_type') }}"
+        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_6_tare_override') | float(0) }}{% endif %}"
+        remaining: "{{ [0, gross - tare] | max }}"
+    - service: spoolman.patch_spool
+      data:
+        id: "{{ spool_id | int }}"
+        remaining_weight: "{{ remaining }}"
+
+# Legacy: direct remaining (g). Prefer ams_update_slot_N with gross + spool type.
+update_spoolman_tray_1:
+  alias: Update Spoolman tray 1 remaining weight (legacy)
+  sequence:
+    - service: spoolman.patch_spool
+      data:
+        id: "{{ states('input_text.ams_slot_1_spool_id') | int }}"
+        remaining_weight: "{{ states('input_number.spoolman_tray_1_remaining') | float }}"
+update_spoolman_tray_2:
+  alias: Update Spoolman tray 2 remaining weight (legacy)
+  sequence:
+    - service: spoolman.patch_spool
+      data:
+        id: "{{ states('input_text.ams_slot_2_spool_id') | int }}"
+        remaining_weight: "{{ states('input_number.spoolman_tray_2_remaining') | float }}"
+update_spoolman_tray_3:
+  alias: Update Spoolman tray 3 remaining weight (legacy)
+  sequence:
+    - service: spoolman.patch_spool
+      data:
+        id: "{{ states('input_text.ams_slot_3_spool_id') | int }}"
+        remaining_weight: "{{ states('input_number.spoolman_tray_3_remaining') | float }}"
+update_spoolman_tray_4:
+  alias: Update Spoolman tray 4 remaining weight (legacy)
+  sequence:
+    - service: spoolman.patch_spool
+      data:
+        id: "{{ states('input_text.ams_slot_4_spool_id') | int }}"
+        remaining_weight: "{{ states('input_number.spoolman_tray_4_remaining') | float }}"
+update_spoolman_tray_5:
+  alias: Update Spoolman tray 5 (HT1) remaining weight (legacy)
+  sequence:
+    - service: spoolman.patch_spool
+      data:
+        id: "{{ states('input_text.ams_slot_5_spool_id') | int }}"
+        remaining_weight: "{{ states('input_number.spoolman_tray_5_remaining') | float }}"
+update_spoolman_tray_6:
+  alias: Update Spoolman tray 6 (HT2) remaining weight (legacy)
+  sequence:
+    - service: spoolman.patch_spool
+      data:
+        id: "{{ states('input_text.ams_slot_6_spool_id') | int }}"
+        remaining_weight: "{{ states('input_number.spoolman_tray_6_remaining') | float }}"
+
+# Combined assign + update scripts (one per slot). Parse dropdown, assign if valid, calculate remaining, update Spoolman.
+ams_slot_1_assign_and_update:
+  alias: Slot 1 – Assign & Update
+  sequence:
+    - variables:
+        selected: "{{ states('input_select.ams_slot_1_select_spool') }}"
+        spool_id: "{{ (selected.split(' - ')[0] if selected != '— Select spool —' else 0) | int }}"
+        old_spool_id: "{{ states('input_text.ams_slot_1_spool_id') | int(0) }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ spool_id > 0 }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_1_spool_id
+              data:
+                value: "{{ spool_id }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ old_spool_id > 0 and old_spool_id != spool_id }}"
+          sequence:
+            - service: spoolman.patch_spool
+              data:
+                id: "{{ old_spool_id }}"
+                location: "Shelf"
+    - variables:
+        final_spool_id: "{{ states('input_text.ams_slot_1_spool_id') | int }}"
+        gross: "{{ states('input_number.ams_slot_1_gross_weight') | float(0) }}"
+        stype: "{{ states('input_select.ams_slot_1_spool_type') }}"
+        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_1_tare_override') | float(0) }}{% endif %}"
+        extras: "{{ states('input_number.ams_slot_1_extras_weight') | float(0) }}"
+        remaining: "{% if stype == 'Bambu Lab (plastic)' or stype == 'Overture cardboard' %}{{ [0, gross - tare] | max }}{% else %}{{ [0, gross - tare - extras] | max }}{% endif %}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ final_spool_id > 0 }}"
+          sequence:
+            - service: spoolman.patch_spool
+              data:
+                id: "{{ final_spool_id }}"
+                remaining_weight: "{{ remaining | float | round(2) }}"
+                location: "AMS1_Slot1"
+            - service: script.reload_spoolman_integration
+
+ams_slot_2_assign_and_update:
+  alias: Slot 2 – Assign & Update
+  sequence:
+    - variables:
+        selected: "{{ states('input_select.ams_slot_2_select_spool') }}"
+        spool_id: "{{ (selected.split(' - ')[0] if selected != '— Select spool —' else 0) | int }}"
+        old_spool_id: "{{ states('input_text.ams_slot_2_spool_id') | int(0) }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ spool_id > 0 }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_2_spool_id
+              data:
+                value: "{{ spool_id }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ old_spool_id > 0 and old_spool_id != spool_id }}"
+          sequence:
+            - service: spoolman.patch_spool
+              data:
+                id: "{{ old_spool_id }}"
+                location: "Shelf"
+    - variables:
+        final_spool_id: "{{ states('input_text.ams_slot_2_spool_id') | int }}"
+        gross: "{{ states('input_number.ams_slot_2_gross_weight') | float(0) }}"
+        stype: "{{ states('input_select.ams_slot_2_spool_type') }}"
+        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_2_tare_override') | float(0) }}{% endif %}"
+        extras: "{{ states('input_number.ams_slot_2_extras_weight') | float(0) }}"
+        remaining: "{% if stype == 'Bambu Lab (plastic)' or stype == 'Overture cardboard' %}{{ [0, gross - tare] | max }}{% else %}{{ [0, gross - tare - extras] | max }}{% endif %}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ final_spool_id > 0 }}"
+          sequence:
+            - service: spoolman.patch_spool
+              data:
+                id: "{{ final_spool_id }}"
+                remaining_weight: "{{ remaining | float | round(2) }}"
+                location: "AMS1_Slot2"
+            - service: script.reload_spoolman_integration
+
+ams_slot_3_assign_and_update:
+  alias: Slot 3 – Assign & Update
+  sequence:
+    - variables:
+        selected: "{{ states('input_select.ams_slot_3_select_spool') }}"
+        spool_id: "{{ (selected.split(' - ')[0] if selected != '— Select spool —' else 0) | int }}"
+        old_spool_id: "{{ states('input_text.ams_slot_3_spool_id') | int(0) }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ spool_id > 0 }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_3_spool_id
+              data:
+                value: "{{ spool_id }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ old_spool_id > 0 and old_spool_id != spool_id }}"
+          sequence:
+            - service: spoolman.patch_spool
+              data:
+                id: "{{ old_spool_id }}"
+                location: "Shelf"
+    - variables:
+        final_spool_id: "{{ states('input_text.ams_slot_3_spool_id') | int }}"
+        gross: "{{ states('input_number.ams_slot_3_gross_weight') | float(0) }}"
+        stype: "{{ states('input_select.ams_slot_3_spool_type') }}"
+        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_3_tare_override') | float(0) }}{% endif %}"
+        extras: "{{ states('input_number.ams_slot_3_extras_weight') | float(0) }}"
+        remaining: "{% if stype == 'Bambu Lab (plastic)' or stype == 'Overture cardboard' %}{{ [0, gross - tare] | max }}{% else %}{{ [0, gross - tare - extras] | max }}{% endif %}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ final_spool_id > 0 }}"
+          sequence:
+            - service: spoolman.patch_spool
+              data:
+                id: "{{ final_spool_id }}"
+                remaining_weight: "{{ remaining | float | round(2) }}"
+                location: "AMS1_Slot3"
+            - service: script.reload_spoolman_integration
+
+ams_slot_4_assign_and_update:
+  alias: Slot 4 – Assign & Update
+  sequence:
+    - variables:
+        selected: "{{ states('input_select.ams_slot_4_select_spool') }}"
+        spool_id: "{{ (selected.split(' - ')[0] if selected != '— Select spool —' else 0) | int }}"
+        old_spool_id: "{{ states('input_text.ams_slot_4_spool_id') | int(0) }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ spool_id > 0 }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_4_spool_id
+              data:
+                value: "{{ spool_id }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ old_spool_id > 0 and old_spool_id != spool_id }}"
+          sequence:
+            - service: spoolman.patch_spool
+              data:
+                id: "{{ old_spool_id }}"
+                location: "Shelf"
+    - variables:
+        final_spool_id: "{{ states('input_text.ams_slot_4_spool_id') | int }}"
+        gross: "{{ states('input_number.ams_slot_4_gross_weight') | float(0) }}"
+        stype: "{{ states('input_select.ams_slot_4_spool_type') }}"
+        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_4_tare_override') | float(0) }}{% endif %}"
+        extras: "{{ states('input_number.ams_slot_4_extras_weight') | float(0) }}"
+        remaining: "{% if stype == 'Bambu Lab (plastic)' or stype == 'Overture cardboard' %}{{ [0, gross - tare] | max }}{% else %}{{ [0, gross - tare - extras] | max }}{% endif %}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ final_spool_id > 0 }}"
+          sequence:
+            - service: spoolman.patch_spool
+              data:
+                id: "{{ final_spool_id }}"
+                remaining_weight: "{{ remaining | float | round(2) }}"
+                location: "AMS1_Slot4"
+            - service: script.reload_spoolman_integration
+
+ams_slot_5_assign_and_update:
+  alias: Slot 5 – Assign & Update
+  sequence:
+    - variables:
+        selected: "{{ states('input_select.ams_slot_5_select_spool') }}"
+        spool_id: "{{ (selected.split(' - ')[0] if selected != '— Select spool —' else 0) | int }}"
+        old_spool_id: "{{ states('input_text.ams_slot_5_spool_id') | int(0) }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ spool_id > 0 }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_5_spool_id
+              data:
+                value: "{{ spool_id }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ old_spool_id > 0 and old_spool_id != spool_id }}"
+          sequence:
+            - service: spoolman.patch_spool
+              data:
+                id: "{{ old_spool_id }}"
+                location: "Shelf"
+    - variables:
+        final_spool_id: "{{ states('input_text.ams_slot_5_spool_id') | int }}"
+        gross: "{{ states('input_number.ams_slot_5_gross_weight') | float(0) }}"
+        stype: "{{ states('input_select.ams_slot_5_spool_type') }}"
+        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_5_tare_override') | float(0) }}{% endif %}"
+        extras: "{{ states('input_number.ams_slot_5_extras_weight') | float(0) }}"
+        remaining: "{% if stype == 'Bambu Lab (plastic)' or stype == 'Overture cardboard' %}{{ [0, gross - tare] | max }}{% else %}{{ [0, gross - tare - extras] | max }}{% endif %}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ final_spool_id > 0 }}"
+          sequence:
+            - service: spoolman.patch_spool
+              data:
+                id: "{{ final_spool_id }}"
+                remaining_weight: "{{ remaining | float | round(2) }}"
+                location: "AMS2_HT_Slot1"
+            - service: script.reload_spoolman_integration
+
+ams_slot_6_assign_and_update:
+  alias: Slot 6 – Assign & Update
+  sequence:
+    - variables:
+        selected: "{{ states('input_select.ams_slot_6_select_spool') }}"
+        spool_id: "{{ (selected.split(' - ')[0] if selected != '— Select spool —' else 0) | int }}"
+        old_spool_id: "{{ states('input_text.ams_slot_6_spool_id') | int(0) }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ spool_id > 0 }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_6_spool_id
+              data:
+                value: "{{ spool_id }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ old_spool_id > 0 and old_spool_id != spool_id }}"
+          sequence:
+            - service: spoolman.patch_spool
+              data:
+                id: "{{ old_spool_id }}"
+                location: "Shelf"
+    - variables:
+        final_spool_id: "{{ states('input_text.ams_slot_6_spool_id') | int }}"
+        gross: "{{ states('input_number.ams_slot_6_gross_weight') | float(0) }}"
+        stype: "{{ states('input_select.ams_slot_6_spool_type') }}"
+        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_6_tare_override') | float(0) }}{% endif %}"
+        extras: "{{ states('input_number.ams_slot_6_extras_weight') | float(0) }}"
+        remaining: "{% if stype == 'Bambu Lab (plastic)' or stype == 'Overture cardboard' %}{{ [0, gross - tare] | max }}{% else %}{{ [0, gross - tare - extras] | max }}{% endif %}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ final_spool_id > 0 }}"
+          sequence:
+            - service: spoolman.patch_spool
+              data:
+                id: "{{ final_spool_id }}"
+                remaining_weight: "{{ remaining | float | round(2) }}"
+                location: "AMS2_HT_Slot2"
+            - service: script.reload_spoolman_integration

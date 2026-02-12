@@ -1,0 +1,441 @@
+#!/usr/bin/env bash
+# Manage Home Assistant: deploy, validate, restart, check
+# Usage: ./scripts/manage_ha.sh [--stage|--promote|--check|--config|--automations|--scripts|--go2rtc|--all|--restart|--validate]
+#
+#   --check       Compare local stage vs HA
+#   --config      Deploy configuration.yaml and included files (scripts.yaml, scenes.yaml)
+#   --automations Deploy automations.yaml
+#   --scripts     Deploy scripts.yaml only
+#   --go2rtc      Deploy go2rtc.yaml (streams for WebRTC/cameras)
+#   --all         Deploy all config (config + automations + go2rtc) and restart HA
+#   --spoolman-export  Export Spoolman inventory to spools.csv (keep repo in sync)
+#   --spoolman-import  Import spools.csv into Spoolman (new spools only)
+#   --spoolman-update Push remaining_g/empty_spool_g from CSV to Spoolman (run export first to get spool_id)
+#   --stage       Deploy stage dashboard (ui-lovelace-stage.yaml). Workflow: stage → test → copy from repo to prod.
+#   --promote     Optional: copy stage YAML to ui-lovelace.yaml in HA (alternative to copying from repo)
+#   --restart     Restart HA (use with --config, or alone)
+#   --validate    Validate config via HA API (use with --config, or alone to check current)
+#
+# Requires: deploy.env (copy from deploy.env.example and fill in values)
+# Optional: HOME_ASSISTANT_URL, HOME_ASSISTANT_TOKEN for --validate, --restart
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+DEPLOY_ENV="$SCRIPT_DIR/deploy.env"
+STAGE_FILE="$REPO_ROOT/dashboards/dashboard.stage.yaml"
+CONFIG_FILE="$REPO_ROOT/configuration.yaml"
+AUTOMATIONS_FILE="$REPO_ROOT/automations.yaml"
+SCRIPTS_FILE="$REPO_ROOT/scripts.yaml"
+SCENES_FILE="$REPO_ROOT/scenes.yaml"
+GO2RTC_FILE="$REPO_ROOT/go2rtc.yaml"
+
+# Parse args
+TARGET="${1:-}"
+if [[ -z "$TARGET" || "$TARGET" == "--help" || "$TARGET" == "-h" ]]; then
+  echo "Usage: $0 [--stage|--promote|--check|--config|--automations|--scripts|--go2rtc|--all|--spoolman-export|--spoolman-import|--spoolman-update|--restart|--validate]"
+  echo ""
+  echo "  --check       Compare local stage vs HA"
+  echo "  --config      Deploy configuration.yaml and included files (scripts.yaml, scenes.yaml)"
+  echo "  --automations Deploy automations.yaml"
+  echo "  --scripts     Deploy scripts.yaml only"
+  echo "  --go2rtc      Deploy go2rtc.yaml (streams for WebRTC/cameras)"
+  echo "  --all         Deploy all config (config + automations + go2rtc) and restart HA"
+  echo "  --spoolman-export  Export Spoolman inventory to spools.csv (keep repo in sync)"
+  echo "  --spoolman-import  Import spools.csv into Spoolman (new spools only)"
+  echo "  --spoolman-update Push remaining_g/empty_spool_g from CSV to Spoolman (run export first to get spool_id)"
+  echo "  --stage       Deploy stage dashboard (then test; copy from repo to prod when ready)"
+  echo "  --promote     Optional: copy stage to ui-lovelace.yaml in HA"
+  echo "  --restart     Restart HA"
+  echo "  --validate    Validate config via HA API"
+  exit 0
+fi
+RESTART_AFTER=0
+VALIDATE_AFTER=0
+for arg in "$@"; do
+  [[ "$arg" == "--restart" ]] && RESTART_AFTER=1
+  [[ "$arg" == "--validate" ]] && VALIDATE_AFTER=1
+done
+
+do_validate() {
+  if [[ -z "$HOME_ASSISTANT_URL" || -z "$HOME_ASSISTANT_TOKEN" ]]; then
+    echo "Skipping validate (set HOME_ASSISTANT_URL and HOME_ASSISTANT_TOKEN in deploy.env)."
+    return 1
+  fi
+  echo "Validating configuration..."
+  local url="${HOME_ASSISTANT_URL}/api/config/core/check_config"
+  local resp
+  resp=$(curl -s -w "\n%{http_code}" -X POST \
+    -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{}' \
+    "$url")
+  local status
+  status=$(echo "$resp" | tail -n1)
+  resp=$(echo "$resp" | sed '$d')
+  if [[ -z "$resp" ]]; then
+    echo "Empty response from HA (HTTP $status). Check:"
+    echo "  - HOME_ASSISTANT_URL in deploy.env (e.g. http://192.168.4.124:8123)"
+    echo "  - HOME_ASSISTANT_TOKEN is valid"
+    echo "  - HA is reachable from this machine"
+    return 1
+  fi
+  if echo "$resp" | grep -qE '"result"\s*:\s*"valid"'; then
+    echo "Configuration is VALID."
+    return 0
+  else
+    echo "Configuration is INVALID. Raw API response:"
+    echo "$resp"
+    return 1
+  fi
+}
+
+do_restart() {
+  if [[ -n "$HOME_ASSISTANT_URL" && -n "$HOME_ASSISTANT_TOKEN" ]]; then
+    echo "Restarting Home Assistant..."
+    curl -s -X POST \
+      -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{}' \
+      "$HOME_ASSISTANT_URL/api/services/homeassistant/restart"
+    echo ""
+    echo "Restart initiated. HA may take a minute to come back."
+  else
+    echo "Skipping restart (set HOME_ASSISTANT_URL and HOME_ASSISTANT_TOKEN in deploy.env)."
+  fi
+}
+
+# Handle --validate alone (validate config currently on HA)
+if [[ "$TARGET" == "--validate" ]]; then
+  if [[ -f "$DEPLOY_ENV" ]]; then
+    set -a
+    source "$DEPLOY_ENV"
+    set +a
+  fi
+  do_validate || exit 1
+  exit 0
+fi
+
+# Handle --restart alone (just restart, no deploy)
+if [[ "$TARGET" == "--restart" ]]; then
+  if [[ -f "$DEPLOY_ENV" ]]; then
+    set -a
+    source "$DEPLOY_ENV"
+    set +a
+  fi
+  do_restart
+  exit 0
+fi
+
+# Handle --check (local stage vs HA)
+if [[ "$TARGET" == "--check" ]]; then
+  if [[ ! -f "$STAGE_FILE" ]]; then
+    echo "Error: stage file missing."
+    exit 1
+  fi
+  EXIT_CODE=0
+
+  if [[ -f "$DEPLOY_ENV" ]]; then
+    set -a
+    source "$DEPLOY_ENV"
+    set +a
+    if [[ -n "$SSH_HOST" && -n "$SSH_USER" ]]; then
+      SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
+      REMOTE_CONFIG="${REMOTE_CONFIG_PATH:-/config}"
+      REMOTE_CONFIG="${REMOTE_CONFIG%/}"
+      TMP_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t manage-ha-check)
+      trap "rm -rf $TMP_DIR" EXIT
+
+      echo "=== Local stage vs HA stage (ui-lovelace-stage.yaml) ==="
+      if scp -q $SSH_OPTS "$SSH_USER@$SSH_HOST:${REMOTE_CONFIG}/ui-lovelace-stage.yaml" "$TMP_DIR/ha-stage.yaml" 2>/dev/null; then
+        if diff -q "$STAGE_FILE" "$TMP_DIR/ha-stage.yaml" > /dev/null 2>&1; then
+          echo "SAME"
+        else
+          echo "DIFFERENT"
+          EXIT_CODE=1
+        fi
+      else
+        echo "Could not fetch (SSH failed or file missing)"
+      fi
+
+      echo ""
+      echo "(Main dashboard loads from storage; not compared)"
+    fi
+  else
+    echo "Add deploy.env to compare against HA"
+  fi
+
+  exit $EXIT_CODE
+fi
+
+# Handle --config (needs deploy.env)
+# Note: RESTART_AFTER is set by the arg loop above
+if [[ "$TARGET" == "--config" ]]; then
+  if [[ ! -f "$DEPLOY_ENV" ]]; then
+    echo "Error: $DEPLOY_ENV not found."
+    exit 1
+  fi
+  set -a
+  source "$DEPLOY_ENV"
+  set +a
+  : "${SSH_HOST:?Set SSH_HOST in deploy.env}"
+  : "${SSH_USER:?Set SSH_USER in deploy.env}"
+  : "${REMOTE_CONFIG_PATH:?Set REMOTE_CONFIG_PATH in deploy.env}"
+  SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
+  REMOTE_PATH="${REMOTE_CONFIG_PATH%/}/configuration.yaml"
+  echo "Deploying configuration.yaml to $SSH_USER@$SSH_HOST:$REMOTE_PATH"
+  scp $SSH_OPTS "$CONFIG_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_PATH"
+  if [[ -f "$SCRIPTS_FILE" ]]; then
+    echo "Deploying scripts.yaml to $SSH_USER@$SSH_HOST:${REMOTE_CONFIG_PATH%/}/scripts.yaml"
+    scp $SSH_OPTS "$SCRIPTS_FILE" "$SSH_USER@$SSH_HOST:${REMOTE_CONFIG_PATH%/}/scripts.yaml"
+  fi
+  if [[ -f "$SCENES_FILE" ]]; then
+    echo "Deploying scenes.yaml to $SSH_USER@$SSH_HOST:${REMOTE_CONFIG_PATH%/}/scenes.yaml"
+    scp $SSH_OPTS "$SCENES_FILE" "$SSH_USER@$SSH_HOST:${REMOTE_CONFIG_PATH%/}/scenes.yaml"
+  fi
+  if [[ -f "$REPO_ROOT/secrets.yaml" ]]; then
+    echo "Deploying secrets.yaml to $SSH_USER@$SSH_HOST:${REMOTE_CONFIG_PATH%/}/secrets.yaml"
+    scp $SSH_OPTS "$REPO_ROOT/secrets.yaml" "$SSH_USER@$SSH_HOST:${REMOTE_CONFIG_PATH%/}/secrets.yaml"
+  fi
+  echo "Done."
+  if [[ "$VALIDATE_AFTER" -eq 1 ]]; then
+    do_validate || exit 1
+  fi
+  if [[ "$RESTART_AFTER" -eq 1 ]]; then
+    do_restart
+  elif [[ "$VALIDATE_AFTER" -eq 0 ]]; then
+    echo "Restart Home Assistant for changes to take effect (or use --restart)."
+  fi
+  exit 0
+fi
+
+# Handle --automations (needs deploy.env)
+if [[ "$TARGET" == "--automations" ]]; then
+  if [[ ! -f "$DEPLOY_ENV" ]]; then
+    echo "Error: $DEPLOY_ENV not found."
+    exit 1
+  fi
+  set -a
+  source "$DEPLOY_ENV"
+  set +a
+  : "${SSH_HOST:?Set SSH_HOST in deploy.env}"
+  : "${SSH_USER:?Set SSH_USER in deploy.env}"
+  : "${REMOTE_CONFIG_PATH:?Set REMOTE_CONFIG_PATH in deploy.env}"
+  SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
+  REMOTE_PATH="${REMOTE_CONFIG_PATH%/}/automations.yaml"
+  echo "Deploying automations.yaml to $SSH_USER@$SSH_HOST:$REMOTE_PATH"
+  scp $SSH_OPTS "$AUTOMATIONS_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_PATH"
+  echo "Done."
+  if [[ "$RESTART_AFTER" -eq 1 ]]; then
+    do_restart
+  else
+    echo "Reload automations in HA (Developer Tools > YAML > Automations) or restart for changes to take effect."
+  fi
+  exit 0
+fi
+
+# Handle --scripts (needs deploy.env)
+if [[ "$TARGET" == "--scripts" ]]; then
+  if [[ ! -f "$DEPLOY_ENV" ]]; then
+    echo "Error: $DEPLOY_ENV not found."
+    exit 1
+  fi
+  if [[ ! -f "$SCRIPTS_FILE" ]]; then
+    echo "Error: $SCRIPTS_FILE not found."
+    exit 1
+  fi
+  set -a
+  source "$DEPLOY_ENV"
+  set +a
+  : "${SSH_HOST:?Set SSH_HOST in deploy.env}"
+  : "${SSH_USER:?Set SSH_USER in deploy.env}"
+  : "${REMOTE_CONFIG_PATH:?Set REMOTE_CONFIG_PATH in deploy.env}"
+  SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
+  REMOTE_PATH="${REMOTE_CONFIG_PATH%/}/scripts.yaml"
+  echo "Deploying scripts.yaml to $SSH_USER@$SSH_HOST:$REMOTE_PATH"
+  scp $SSH_OPTS "$SCRIPTS_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_PATH"
+  echo "Done."
+  echo "Restart Home Assistant for script changes to take effect (or use --restart)."
+  if [[ "$RESTART_AFTER" -eq 1 ]]; then
+    do_restart
+  fi
+  exit 0
+fi
+
+# Handle --go2rtc (needs deploy.env)
+if [[ "$TARGET" == "--go2rtc" ]]; then
+  if [[ ! -f "$DEPLOY_ENV" ]]; then
+    echo "Error: $DEPLOY_ENV not found."
+    exit 1
+  fi
+  if [[ ! -f "$GO2RTC_FILE" ]]; then
+    echo "Error: $GO2RTC_FILE not found."
+    exit 1
+  fi
+  set -a
+  source "$DEPLOY_ENV"
+  set +a
+  : "${SSH_HOST:?Set SSH_HOST in deploy.env}"
+  : "${SSH_USER:?Set SSH_USER in deploy.env}"
+  : "${REMOTE_CONFIG_PATH:?Set REMOTE_CONFIG_PATH in deploy.env}"
+  SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
+  REMOTE_GO2RTC_PATH="${REMOTE_GO2RTC_PATH:-${REMOTE_CONFIG_PATH%/}/go2rtc.yaml}"
+  echo "Deploying go2rtc.yaml to $SSH_USER@$SSH_HOST:$REMOTE_GO2RTC_PATH"
+  scp $SSH_OPTS "$GO2RTC_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_GO2RTC_PATH"
+  echo "Done."
+  echo "Restart the go2rtc add-on (Settings → Add-ons → go2rtc → Restart) for changes to take effect."
+  exit 0
+fi
+
+# Handle --all (deploy config + automations + go2rtc, then restart)
+if [[ "$TARGET" == "--all" ]]; then
+  if [[ ! -f "$DEPLOY_ENV" ]]; then
+    echo "Error: $DEPLOY_ENV not found."
+    exit 1
+  fi
+  set -a
+  source "$DEPLOY_ENV"
+  set +a
+  : "${SSH_HOST:?Set SSH_HOST in deploy.env}"
+  : "${SSH_USER:?Set SSH_USER in deploy.env}"
+  : "${REMOTE_CONFIG_PATH:?Set REMOTE_CONFIG_PATH in deploy.env}"
+  SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
+  REMOTE_BASE="${REMOTE_CONFIG_PATH%/}"
+
+  echo "=== Deploying all config and restarting ==="
+  echo "Deploying configuration.yaml to $SSH_USER@$SSH_HOST:$REMOTE_BASE/configuration.yaml"
+  scp $SSH_OPTS "$CONFIG_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_BASE/configuration.yaml"
+  if [[ -f "$SCRIPTS_FILE" ]]; then
+    echo "Deploying scripts.yaml to $SSH_USER@$SSH_HOST:$REMOTE_BASE/scripts.yaml"
+    scp $SSH_OPTS "$SCRIPTS_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_BASE/scripts.yaml"
+  fi
+  if [[ -f "$SCENES_FILE" ]]; then
+    echo "Deploying scenes.yaml to $SSH_USER@$SSH_HOST:$REMOTE_BASE/scenes.yaml"
+    scp $SSH_OPTS "$SCENES_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_BASE/scenes.yaml"
+  fi
+  if [[ -f "$REPO_ROOT/secrets.yaml" ]]; then
+    echo "Deploying secrets.yaml to $SSH_USER@$SSH_HOST:$REMOTE_BASE/secrets.yaml"
+    scp $SSH_OPTS "$REPO_ROOT/secrets.yaml" "$SSH_USER@$SSH_HOST:$REMOTE_BASE/secrets.yaml"
+  fi
+  echo "Deploying automations.yaml to $SSH_USER@$SSH_HOST:$REMOTE_BASE/automations.yaml"
+  scp $SSH_OPTS "$AUTOMATIONS_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_BASE/automations.yaml"
+  if [[ -f "$GO2RTC_FILE" ]]; then
+    REMOTE_GO2RTC_PATH="${REMOTE_GO2RTC_PATH:-$REMOTE_BASE/go2rtc.yaml}"
+    echo "Deploying go2rtc.yaml to $SSH_USER@$SSH_HOST:$REMOTE_GO2RTC_PATH"
+    scp $SSH_OPTS "$GO2RTC_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_GO2RTC_PATH"
+  fi
+  echo "Done deploying."
+  do_restart
+  exit 0
+fi
+
+# Handle --spoolman-export (Spoolman → spools.csv; needs deploy.env with SPOOLMAN_URL)
+if [[ "$TARGET" == "--spoolman-export" ]]; then
+  if [[ ! -f "$DEPLOY_ENV" ]]; then
+    echo "Error: $DEPLOY_ENV not found."
+    exit 1
+  fi
+  set -a
+  source "$DEPLOY_ENV"
+  set +a
+  if [[ -z "$SPOOLMAN_URL" ]]; then
+    echo "Error: SPOOLMAN_URL not set in deploy.env (e.g. http://host:7912)."
+    exit 1
+  fi
+  SPOOLMAN_DIR="$REPO_ROOT/spoolman_import"
+  if [[ ! -f "$SPOOLMAN_DIR/export_spools.py" ]]; then
+    echo "Error: $SPOOLMAN_DIR/export_spools.py not found."
+    exit 1
+  fi
+  echo "Exporting Spoolman inventory to spools.csv..."
+  (cd "$SPOOLMAN_DIR" && SPOOLMAN_URL="$SPOOLMAN_URL" PYTHONWARNINGS=ignore python3 export_spools.py -o spools.csv)
+  echo "Done. Commit spools.csv to keep the repo in sync."
+  exit 0
+fi
+
+# Handle --spoolman-import (spools.csv → Spoolman; new spools only)
+if [[ "$TARGET" == "--spoolman-import" ]]; then
+  if [[ ! -f "$DEPLOY_ENV" ]]; then
+    echo "Error: $DEPLOY_ENV not found."
+    exit 1
+  fi
+  set -a
+  source "$DEPLOY_ENV"
+  set +a
+  if [[ -z "$SPOOLMAN_URL" ]]; then
+    echo "Error: SPOOLMAN_URL not set in deploy.env (e.g. http://host:7912)."
+    exit 1
+  fi
+  SPOOLMAN_DIR="$REPO_ROOT/spoolman_import"
+  if [[ ! -f "$SPOOLMAN_DIR/import_spools.py" ]]; then
+    echo "Error: $SPOOLMAN_DIR/import_spools.py not found."
+    exit 1
+  fi
+  echo "Importing spools.csv into Spoolman (new spools only; existing names skipped)..."
+  (cd "$SPOOLMAN_DIR" && SPOOLMAN_URL="$SPOOLMAN_URL" PYTHONWARNINGS=ignore python3 import_spools.py spools.csv)
+  echo "Done."
+  exit 0
+fi
+
+# Handle --spoolman-update (push CSV weights to Spoolman; needs spool_id from export)
+if [[ "$TARGET" == "--spoolman-update" ]]; then
+  if [[ ! -f "$DEPLOY_ENV" ]]; then
+    echo "Error: $DEPLOY_ENV not found."
+    exit 1
+  fi
+  set -a
+  source "$DEPLOY_ENV"
+  set +a
+  if [[ -z "$SPOOLMAN_URL" ]]; then
+    echo "Error: SPOOLMAN_URL not set in deploy.env (e.g. http://host:7912)."
+    exit 1
+  fi
+  SPOOLMAN_DIR="$REPO_ROOT/spoolman_import"
+  if [[ ! -f "$SPOOLMAN_DIR/update_spools.py" ]]; then
+    echo "Error: $SPOOLMAN_DIR/update_spools.py not found."
+    exit 1
+  fi
+  echo "Pushing remaining_g/empty_spool_g from spools.csv to Spoolman..."
+  (cd "$SPOOLMAN_DIR" && SPOOLMAN_URL="$SPOOLMAN_URL" PYTHONWARNINGS=ignore python3 update_spools.py spools.csv)
+  echo "Done."
+  exit 0
+fi
+
+# Deploy target
+if [[ "$TARGET" == "--stage" ]]; then
+  SOURCE_FILE="$STAGE_FILE"
+  REMOTE_NAME="ui-lovelace-stage.yaml"
+elif [[ "$TARGET" == "--promote" ]]; then
+  SOURCE_FILE="$STAGE_FILE"
+  REMOTE_NAME="ui-lovelace.yaml"
+else
+  echo "Error: use --stage, --promote, --config, --automations, --scripts, --go2rtc, --all, --spoolman-export, --spoolman-import, or --spoolman-update."
+  exit 1
+fi
+
+# Load config
+if [[ -f "$DEPLOY_ENV" ]]; then
+  set -a
+  source "$DEPLOY_ENV"
+  set +a
+else
+  echo "Error: $DEPLOY_ENV not found. Copy deploy.env.example to deploy.env and fill in values."
+  exit 1
+fi
+
+# Required
+: "${SSH_HOST:?Set SSH_HOST in deploy.env}"
+: "${SSH_USER:?Set SSH_USER in deploy.env}"
+: "${REMOTE_CONFIG_PATH:?Set REMOTE_CONFIG_PATH in deploy.env}"
+
+SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
+REMOTE_PATH="${REMOTE_CONFIG_PATH%/}/$REMOTE_NAME"
+
+echo "Deploying $(basename "$SOURCE_FILE") to $SSH_USER@$SSH_HOST:$REMOTE_PATH"
+scp $SSH_OPTS "$SOURCE_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_PATH"
+echo "Copy complete."
+if [[ "$TARGET" == "--promote" ]]; then
+  echo "Stage YAML copied to ui-lovelace.yaml. Reload the dashboard or restart HA if needed."
+fi
+

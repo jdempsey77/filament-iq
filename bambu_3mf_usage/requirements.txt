@@ -1,0 +1,2 @@
+# Core CLI: stdlib + curl. Wrapper run_after_print.py needs requests for HA API.
+requests>=2.28.0,<3
