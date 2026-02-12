@@ -56,7 +56,7 @@ input_text:
     max: 100
   p1s_trays_used_this_print:
     name: P1S Trays used this print (comma-separated entity_ids)
-    max: 500
+    max: 255
 
 # Spool profile tare (g): everything that is NOT filament. HA subtracts this from gross → remaining filament.
 # Bambu = plastic spool + silica container. Overture = cardboard + spool + silica + guides.
