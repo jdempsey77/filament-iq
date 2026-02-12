@@ -591,7 +591,7 @@ template:
         device_class: weight
         state_class: measurement
         state: >
-          {{ (state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'remain') | float(0) / 100) | round(1) }}
+          {{ [0, (state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'remain') | float(0) / 100)] | max | round(1) }}
 
       - name: "P1S Tray 2 Fuel Gauge Remaining"
         unique_id: p1s_tray_2_fuel_gauge_remaining_g
@@ -599,7 +599,7 @@ template:
         device_class: weight
         state_class: measurement
         state: >
-          {{ (state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'remain') | float(0) / 100) | round(1) }}
+          {{ [0, (state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'remain') | float(0) / 100)] | max | round(1) }}
 
       - name: "P1S Tray 3 Fuel Gauge Remaining"
         unique_id: p1s_tray_3_fuel_gauge_remaining_g
@@ -607,7 +607,7 @@ template:
         device_class: weight
         state_class: measurement
         state: >
-          {{ (state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'remain') | float(0) / 100) | round(1) }}
+          {{ [0, (state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'remain') | float(0) / 100)] | max | round(1) }}
 
       - name: "P1S Tray 4 Fuel Gauge Remaining"
         unique_id: p1s_tray_4_fuel_gauge_remaining_g
@@ -615,7 +615,7 @@ template:
         device_class: weight
         state_class: measurement
         state: >
-          {{ (state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'remain') | float(0) / 100) | round(1) }}
+          {{ [0, (state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'remain') | float(0) / 100)] | max | round(1) }}
 
       - name: "P1S Tray 5 Fuel Gauge Remaining"
         unique_id: p1s_tray_5_fuel_gauge_remaining_g
@@ -623,7 +623,7 @@ template:
         device_class: weight
         state_class: measurement
         state: >
-          {{ (state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'remain') | float(0) / 100) | round(1) }}
+          {{ [0, (state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'remain') | float(0) / 100)] | max | round(1) }}
 
       - name: "P1S Tray 6 Fuel Gauge Remaining"
         unique_id: p1s_tray_6_fuel_gauge_remaining_g
@@ -631,7 +631,7 @@ template:
         device_class: weight
         state_class: measurement
         state: >
-          {{ (state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'remain') | float(0) / 100) | round(1) }}
+          {{ [0, (state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'remain') | float(0) / 100)] | max | round(1) }}
 
 cloud:
 
