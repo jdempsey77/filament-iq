@@ -67,58 +67,55 @@ Include at least:
 - HA API checks (commands or results)
 
 ### Deploy / Test Instructions
-- **Required:** Include a **table** of steps the user must run, based on which files were changed (see table below). List only the rows that apply to the current change.
-- Then add any extra verification steps (e.g. reload dashboard in browser, check Developer Tools → States).
+- Required deploy table (include only rows relevant to changed files)
+- Then extra verification steps
 
-**Deploy steps reference (use this table; include only rows for files you changed):**
+Deploy steps reference:
 
 | Files changed | Step you must run |
 |---------------|-------------------|
-| `dashboards/dashboard.stage.yaml` | Push stage dashboard: `./scripts/manage_ha.sh --stage` |
-| `automations.yaml` | Deploy and reload automations: `./scripts/manage_ha.sh --automations` (then in HA: **Settings → Automations → ⋮ → Reload**, or restart HA) |
-| `configuration.yaml`, `scripts.yaml`, `scenes.yaml` | Deploy config: `./scripts/manage_ha.sh --config` (restart HA if `configuration.yaml` or integrations changed) |
-| `scripts.yaml` only | Deploy scripts only: `./scripts/manage_ha.sh --scripts` |
-| `go2rtc.yaml` | Deploy go2rtc: `./scripts/manage_ha.sh --go2rtc` |
+| dashboards/dashboard.stage.yaml | ./scripts/manage_ha.sh --stage |
+| automations.yaml | ./scripts/manage_ha.sh --automations |
+| configuration.yaml, scripts.yaml, scenes.yaml | ./scripts/manage_ha.sh --config |
+| scripts.yaml only | ./scripts/manage_ha.sh --scripts |
+| go2rtc.yaml | ./scripts/manage_ha.sh --go2rtc |
 
 ---
 
 ## Home Assistant API Usage
 
-Use environment variables:
-- `HOME_ASSISTANT_URL`
-- `HOME_ASSISTANT_TOKEN`
+Use:
+- HOME_ASSISTANT_URL
+- HOME_ASSISTANT_TOKEN
 
 Preferred endpoints:
-- `/api/states` (entity validation)
-- `/api/services` (service validation)
-- `/api/config` (instance info)
-
-Generate `curl` commands or WebSocket calls as needed.
+- /api/states
+- /api/services
+- /api/config
 
 ---
 
 ## Validation Rules
 
 ### Dashboards
-- Card types must be valid (core or confirmed custom cards)
-- All `entity:` values must exist OR be explicitly marked as "expected new"
-- No duplicate `title`, `path`, or `id` fields where applicable
+- Valid card types only
+- All entities validated or explicitly marked expected-new
+- No duplicate titles, paths, ids
 
 ### Automations
-- No duplicate `id:` values
-- Triggers and actions must reference valid platforms and services
+- No duplicate id values
+- Valid triggers and services
 
 ### Configuration
-- Any edit requires a Home Assistant config check step
+- Any edit requires HA config validation step
 
 ---
 
 ## If You Get Stuck
 
-If validation fails or data is missing:
-- Stop
-- Explain precisely what is unknown
-- Propose the *smallest possible* next validation step
+Stop.
+Explain precisely what is missing.
+Propose the smallest next validation step.
 
 ---
 
@@ -126,63 +123,47 @@ If validation fails or data is missing:
 # Scoped Module: Bambu Lab P1S Printer Integration
 ############################################################
 
-Apply this module ONLY when the current task/prompt references any of:
+Apply this module ONLY when task references:
 - bambu
-- bambu lab
 - p1s
-- lan mode
-- cloud mode
+- lan/cloud mode
 - mqtt printer control
 - print_status
-- home assistant printer integration
 - bambu studio
 
-### Integration intent
-- Primary: telemetry and monitoring (status, progress, temps, operator status)
-- Connection: Cloud or LAN; dashboard hides pause/resume/speed controls when cloud (firmware blocks them)
-- Start print from HA: not supported; use Bambu Studio or printer UI
-- Chamber light: typically works in both modes
+### Integration Intent
+- Monitoring first
+- Cloud mode hides write controls
+- No start-print from HA
+- Chamber light usually safe
 
-### Additional hard constraints (in addition to global rules)
-- Do NOT invent entity_ids, IP addresses, firmware versions, endpoints, or printer capabilities.
-- Do NOT assume any printer control is writable unless confirmed via existing configs/logs or HA API responses.
-- Prefer inspecting repo YAML and HA APIs over guessing.
-- Keep diffs minimal and localized; do not refactor unrelated HA content.
+### Additional Constraints
+- Do NOT invent entity_ids or capabilities
+- Confirm write controls via HA APIs
+- Minimal diffs only
 
-### Execution rules (must follow global workflow)
-1) Plan: produce a phased migration plan with verification gates and rollback.
-2) Diff: implement only the smallest required YAML changes (automation hardening, dashboard fallbacks).
-3) Validate: use HA APIs to confirm entities/services exist and expected state transitions are seen.
-4) Deploy stage and verify: stage dashboard first; do not promote until verified.
+### Execution Rules
+Follow global workflow.
 
-### Automation design rules for printer workflows
-- Prefer a single automation with `choose:` over multiple narrow automations when it improves reliability.
-- Make printer automations tolerant of state vocabulary changes across integrations/firmware:
-  - printing/running
-  - paused/pause
-  - finished/finish/completed
-  - failed/error
-  - idle/standby
-- Log or notify on unknown/new states rather than failing silently.
-- If MQTT/control errors occur, interpret them as the printer rejecting the command; do not treat as a full failure unless a must-have control (pause/cancel/light) breaks.
+### Automation Design Rules
+- Prefer single automation with choose:
+- Tolerate vocabulary variations
+- Log unknown states
 
-### Dashboard design rules for migration
-- If entities are missing (e.g., target temp number entities), propose safe fallbacks:
-  - conditional cards that only render when entity exists
-  - hide/disable write controls and keep read-only telemetry
-- Do NOT remove useful telemetry; prefer graceful degradation.
+### Dashboard Rules
+- Use conditional fallbacks
+- Never remove telemetry unnecessarily
 
-### 3D printer dashboard: power switch (MANDATORY)
-- The power switch on the 3D printer page (e.g. `switch.officeoutlet01_3dprinter` or equivalent) MUST require confirmation before executing (toggle).
-- Use `tap_action.confirmation` with a clear text (e.g. "Toggle Printer Power?") so the user must confirm before the switch runs.
-- When refactoring the printer section or dashboard YAML, do NOT remove or simplify this confirmation; preserve or add it if missing.
+### 3D Printer Power Switch (MANDATORY)
+- Must use confirmation
+- Must not be removed
 
-### Verification checklist (include in Validation section)
-- Telemetry updates during active print: progress, remaining time, temps
-- Print status entity emits values and changes across state transitions
-- Chamber light control; pause/resume/speed only when mqtt_connection_mode is local
-- Cameras load in HA (internal + external)
+### Verification Checklist
+- Telemetry changes during print
+- Print status changes properly
+- Light works
+- Cameras load
 
-### Rollback expectations
-- Every change must include a clear rollback via git (revert commit or restore prior YAML)
+### Rollback Expectations
+- Every change must include a clear rollback path
 
