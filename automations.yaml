@@ -716,8 +716,7 @@
       target:
         entity_id: input_text.p1s_last_print_status_transition
       data:
-        value: >
-          {{ now().isoformat() }} | from={{ trigger.from_state.state | default('(none)') }} | to={{ trigger.to_state.state | default('(none)') }}
+        value: "{{ (now().isoformat() ~ ' | from=' ~ (trigger.from_state.state | default('(none)')) ~ ' | to=' ~ (trigger.to_state.state | default('(none)')))[:255] }}"
   mode: single
 
 - id: p1s_remaining_snapshot_on_finish
@@ -765,10 +764,11 @@
               data:
                 value: >
                   {% if trigger.entity_id == 'input_boolean.p1s_debug_finish_trigger' %}
-                  entered | ts={{ now().isoformat() }} | from=debug_script | to=debug | job_key={{ states('input_text.p1s_print_job_key') }}
+                  {% set v = 'entered | ts=' ~ now().isoformat() ~ ' | from=debug_script | to=debug | job_key=' ~ (states('input_text.p1s_print_job_key') or '') %}
                   {% else %}
-                  entered | ts={{ now().isoformat() }} | from={{ trigger.from_state.state | default('?') }} | to={{ trigger.to_state.state | default('?') }} | job_key={{ states('input_text.p1s_print_job_key') }}
+                  {% set v = 'entered | ts=' ~ now().isoformat() ~ ' | from=' ~ (trigger.from_state.state | default('?')) ~ ' | to=' ~ (trigger.to_state.state | default('?')) ~ ' | job_key=' ~ (states('input_text.p1s_print_job_key') or '') %}
                   {% endif %}
+                  {{ v[:255] }}
     # ALWAYS clear print mutex first (so it clears even on early exit)
     - service: input_boolean.turn_off
       target:
