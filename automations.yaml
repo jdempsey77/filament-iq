@@ -799,28 +799,35 @@
               - condition: template
                 value_template: "{{ start_g > 0 }}"
             then:
-              # Compute end value (fuel gauge > spoolman > -1)
-              - variables:
-                  fg: "{{ states('sensor.p1s_tray_' ~ repeat.index ~ '_fuel_gauge_remaining') | float(-1) }}"
-                  ams: "{{ states('sensor.ams_slot_' ~ repeat.index ~ '_remaining_g') | float(-1) }}"
-                  eff: "{{ fg if fg > 0 else (ams if ams > 0 else -1) }}"
-                  end_g_raw: "{{ [0, eff] | max | int }}"
-              - service: input_number.set_value
-                target:
-                  entity_id: "input_number.p1s_end_slot_{{ repeat.index }}_g"
-                data:
-                  value: "{{ end_g_raw }}"
+              # In debug mode: use pre-seeded end values; in real print: read sensors
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ trigger_state != 'debug' }}"
+                    sequence:
+                      # REAL PRINT: Compute end value (fuel gauge > spoolman > -1)
+                      - variables:
+                          fg: "{{ states('sensor.p1s_tray_' ~ repeat.index ~ '_fuel_gauge_remaining') | float(-1) }}"
+                          ams: "{{ states('sensor.ams_slot_' ~ repeat.index ~ '_remaining_g') | float(-1) }}"
+                          eff: "{{ fg if fg > 0 else (ams if ams > 0 else -1) }}"
+                          end_g_raw: "{{ [0, eff] | max | int }}"
+                      - service: input_number.set_value
+                        target:
+                          entity_id: "input_number.p1s_end_slot_{{ repeat.index }}_g"
+                        data:
+                          value: "{{ end_g_raw }}"
+                      # Reconcile check (only for real prints)
+                      - if:
+                          - condition: template
+                            value_template: "{{ eff < 0 }}"
+                        then:
+                          - service: input_boolean.turn_on
+                            target:
+                              entity_id: input_boolean.p1s_needs_reconcile
+              # DEBUG or REAL: read end_g and compute used_g
               - variables:
                   end_g: "{{ states('input_number.p1s_end_slot_' ~ repeat.index ~ '_g') | int(0) }}"
                   used_g: "{{ [0, start_g - end_g] | max }}"
-              # Reconcile check
-              - if:
-                  - condition: template
-                    value_template: "{{ eff < 0 }}"
-                then:
-                  - service: input_boolean.turn_on
-                    target:
-                      entity_id: input_boolean.p1s_needs_reconcile
               # Decrement if conditions met
               - if:
                   - condition: template
