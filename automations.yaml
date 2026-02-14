@@ -721,240 +721,32 @@
 
 - id: p1s_remaining_snapshot_on_finish
   alias: P1S – snapshot remaining on print finish
-  description: Record tray remaining_filament at print finish and notify with start→end delta
+  description: Record tray remaining_filament at print finish and notify with start→end delta (NO JSON PARSING)
   trigger:
     - platform: state
       entity_id: sensor.p1s_01p00c5a3101668_print_status
+      from:
+        - running
+        - printing
+        - pause
+        - paused
     - platform: state
       entity_id: input_boolean.p1s_debug_finish_trigger
       to: "on"
-  condition:
-    - condition: or
-      conditions:
-        - condition: template
-          value_template: "{{ trigger.entity_id == 'input_boolean.p1s_debug_finish_trigger' }}"
-        - condition: template
-          value_template: "{{ (trigger.from_state.state | default('') | lower | trim) in ['running', 'printing'] }}"
+  condition: []
   variables:
     trigger_state: "{{ 'debug' if trigger.entity_id == 'input_boolean.p1s_debug_finish_trigger' else (trigger.to_state.state | default('finish')) }}"
     task_name: "{{ states('sensor.p1s_01p00c5a3101668_task_name') }}"
-    raw_start: "{{ states('input_text.p1s_tray_remaining_start_json') | default('') }}"
-    start_dict: "{{ raw_start | from_json if raw_start not in ['unknown','unavailable','None','null',''] else {} }}"
-    start_keys: "{{ start_dict.keys() | list }}"
     is_failed: "{{ trigger_state in ['failed', 'error', 'canceled'] }}"
     should_decrement: "{{ not is_failed or states('input_boolean.p1s_decrement_on_failed') == 'on' }}"
-    tray_entities:
-      - sensor.p1s_01p00c5a3101668_ams_1_tray_1
-      - sensor.p1s_01p00c5a3101668_ams_1_tray_2
-      - sensor.p1s_01p00c5a3101668_ams_1_tray_3
-      - sensor.p1s_01p00c5a3101668_ams_1_tray_4
-      - sensor.p1s_01p00c5a3101668_ams_128_tray_1
-      - sensor.p1s_01p00c5a3101668_ams_129_tray_1
   action:
-    # DEBUG: Unconditional checkpoint to verify automation runs
-    - action: input_text.set_value
+    # FIRST ACTION: Unconditional checkpoint (proves automation runs)
+    - service: input_text.set_value
       target:
         entity_id: input_text.p1s_finish_automation_checkpoint
       data:
-        value: "entered"
-    # DEBUG: Checkpoint with details (when filament_debug_mode ON)
-    - choose:
-        - conditions:
-            - condition: state
-              entity_id: input_boolean.filament_debug_mode
-              state: "on"
-          sequence:
-            - action: input_text.set_value
-              target:
-                entity_id: input_text.p1s_finish_automation_checkpoint
-              data:
-                value: >
-                  {% if trigger.entity_id == 'input_boolean.p1s_debug_finish_trigger' %}
-                  {% set v = 'entered | ts=' ~ now().isoformat() ~ ' | from=debug_script | to=debug | job_key=' ~ (states('input_text.p1s_print_job_key') or '') %}
-                  {% else %}
-                  {% set v = 'entered | ts=' ~ now().isoformat() ~ ' | from=' ~ (trigger.from_state.state | default('?')) ~ ' | to=' ~ (trigger.to_state.state | default('?')) ~ ' | job_key=' ~ (states('input_text.p1s_print_job_key') or '') %}
-                  {% endif %}
-                  {{ v[:255] }}
-    # ALWAYS clear print mutex first (so it clears even on early exit)
-    - service: input_boolean.turn_off
-      target:
-        entity_id: input_boolean.p1s_print_active
-    - if:
-        - condition: template
-          value_template: "{{ start_dict | length == 0 }}"
-      then:
-        - action: input_text.set_value
-          target:
-            entity_id: input_text.p1s_init_seed_debug
-          data:
-            value: "finish | status={{ trigger_state }} | start_dict empty, skipping end snapshot"
-        - service: notify.persistent_notification
-          data:
-            title: "P1S Filament Tracking: Start Snapshot Empty"
-            message: "Print finished but no start snapshot was recorded (init automation may not have run for this print). Filament NOT decremented by HA. If another integration decremented a spool, verify it used the correct one. Manual reconciliation recommended."
-        - stop: "start_dict is empty, nothing to snapshot"
-    # DEBUG: Checkpoint after start_dict ok (when filament_debug_mode ON)
-    - choose:
-        - conditions:
-            - condition: state
-              entity_id: input_boolean.filament_debug_mode
-              state: "on"
-          sequence:
-            - action: input_text.set_value
-              target:
-                entity_id: input_text.p1s_finish_automation_checkpoint
-              data:
-                value: "after_start_dict | keys={{ start_keys | join(',') }}"
-    - variables:
-        # For debug trigger: use pre-seeded end_json; else compute from sensors
-        end_dict_json: >
-          {% if trigger.entity_id == 'input_boolean.p1s_debug_finish_trigger' %}
-          {{ states('input_text.p1s_tray_remaining_end_json') | default('{}') }}
-          {% else %}
-          {% set out = namespace(d={}) %}
-          {% for slot in start_keys %}
-            {% set slot_int = slot | int %}
-            {% if 1 <= slot_int <= 6 %}
-              {% set fg = states('sensor.p1s_tray_' ~ slot_int ~ '_fuel_gauge_remaining') | float(-1) %}
-              {% set ams = states('sensor.ams_slot_' ~ slot_int ~ '_remaining_g') | float(-1) %}
-              {% set eff = fg if fg > 0 else (ams if ams > 0 else -1) %}
-              {% set grams = [0, eff] | max | round(0) | int %}
-              {% set out.d = out.d | combine({slot: grams}) %}
-            {% endif %}
-          {% endfor %}
-          {{ out.d | tojson }}
-          {% endif %}
-        end_dict: "{{ end_dict_json | from_json if end_dict_json not in ['unknown','unavailable','None','null',''] else {} }}"
-        has_unknown_end: >
-          {% if trigger.entity_id == 'input_boolean.p1s_debug_finish_trigger' %}
-          {{ false }}
-          {% else %}
-          {% set ns = namespace(found=false) %}
-          {% for slot in start_keys %}
-            {% set slot_int = slot | int %}
-            {% if 1 <= slot_int <= 6 %}
-              {% set fg = states('sensor.p1s_tray_' ~ slot_int ~ '_fuel_gauge_remaining') | float(-1) %}
-              {% set ams = states('sensor.ams_slot_' ~ slot_int ~ '_remaining_g') | float(-1) %}
-              {% set eff = fg if fg > 0 else (ams if ams > 0 else -1) %}
-              {% if eff < 0 %}
-                {% set ns.found = true %}
-              {% endif %}
-            {% endif %}
-          {% endfor %}
-          {{ ns.found }}
-          {% endif %}
-    - action: input_text.set_value
-      target:
-        entity_id: input_text.p1s_tray_remaining_end_json
-      data:
-        value: "{{ end_dict_json }}"
-    # DEBUG: Checkpoint after end_dict built (when filament_debug_mode ON)
-    - choose:
-        - conditions:
-            - condition: state
-              entity_id: input_boolean.filament_debug_mode
-              state: "on"
-          sequence:
-            - action: input_text.set_value
-              target:
-                entity_id: input_text.p1s_finish_automation_checkpoint
-              data:
-                value: "after_end_dict | has_unknown={{ has_unknown_end }}"
-    # Check for reconcile conditions + Policy check
-    - if:
-        - condition: template
-          value_template: "{{ has_unknown_end }}"
-      then:
-        - service: input_boolean.turn_on
-          target:
-            entity_id: input_boolean.p1s_needs_reconcile
-        - service: notify.persistent_notification
-          data:
-            title: "P1S Filament Tracking: Reconcile Needed"
-            message: "Print finished but one or more slots had unknown end readings (fuel gauge & Spoolman both unavailable). Manual reconciliation required for accurate tracking."
-    # Policy: Skip decrement if failed print (unless override enabled)
-    - if:
-        - condition: template
-          value_template: "{{ not should_decrement }}"
-      then:
-        - service: notify.persistent_notification
-          data:
-            title: "P1S Print Failed - No Decrement"
-            message: "Print failed/canceled. Filament NOT decremented (policy: preserve accuracy). Enable 'Decrement on Failed' toggle if you want automatic decrement on failures."
-        - stop: "Failed print, skip decrement per policy"
-    # Proceed with decrement
-    - repeat:
-        for_each: "{{ start_keys }}"
-        sequence:
-          - variables:
-              slot: "{{ repeat.item }}"
-              spool_id: "{{ states('input_text.ams_slot_' ~ repeat.item ~ '_spool_id') | int(0) }}"
-              start_g: "{{ start_dict[repeat.item] | int(0) }}"
-              end_g: "{{ end_dict[repeat.item] | int(0) }}"
-              used_g: "{{ [0, (start_dict[repeat.item] | int(0)) - (end_dict[repeat.item] | int(0))] | max }}"
-          - condition:
-              - condition: template
-                value_template: "{{ spool_id > 0 and used_g > 0 }}"
-          # DEBUG: Checkpoint before spoolman (when filament_debug_mode ON)
-          - choose:
-              - conditions:
-                  - condition: state
-                    entity_id: input_boolean.filament_debug_mode
-                    state: "on"
-                sequence:
-                  - action: input_text.set_value
-                    target:
-                      entity_id: input_text.p1s_finish_automation_checkpoint
-                    data:
-                      value: "before_spoolman | slot={{ slot }} | spool_id={{ spool_id }} | used_g={{ used_g }}"
-          - service: spoolman.use_spool_filament
-            data:
-              id: "{{ spool_id }}"
-              use_weight: "{{ used_g }}"
-    - service: script.reload_spoolman_integration
-    # DEBUG: Checkpoint after reload (when filament_debug_mode ON)
-    - choose:
-        - conditions:
-            - condition: state
-              entity_id: input_boolean.filament_debug_mode
-              state: "on"
-          sequence:
-            - action: input_text.set_value
-              target:
-                entity_id: input_text.p1s_finish_automation_checkpoint
-              data:
-                value: "reload_done"
-    - variables:
-        message_lines: >
-          {% set ns = namespace(lines=[]) %}
-          {% set job_label = (task_name | replace('.gcode.3mf', '') | replace('.3mf', '') | trim) or task_name or '—' %}
-          {% set ns.lines = ns.lines + ['Print: ' ~ job_label] %}
-          {% set ns.lines = ns.lines + ['Status: ' ~ trigger_state] %}
-          {% set ns.lines = ns.lines + [''] %}
-          {% for slot in start_keys %}
-            {% set start_g = start_dict.get(slot, 0) %}
-            {% set end_g = end_dict.get(slot, 0) %}
-            {% set used_g = [0, start_g - end_g] | max %}
-            {% set ns.lines = ns.lines + ['Slot ' ~ slot ~ ': ' ~ (start_g | round(1)) ~ 'g → ' ~ (end_g | round(1)) ~ 'g (used ~' ~ (used_g | round(1)) ~ 'g)'] %}
-          {% endfor %}
-          {{ ns.lines | join('\n') }}
-    - service: notify.persistent_notification
-      data:
-        title: "P1S Filament Usage ({{ trigger_state }})"
-        message: "{{ message_lines }}"
-    # DEBUG: Checkpoint complete (when filament_debug_mode ON)
-    - choose:
-        - conditions:
-            - condition: state
-              entity_id: input_boolean.filament_debug_mode
-              state: "on"
-          sequence:
-            - action: input_text.set_value
-              target:
-                entity_id: input_text.p1s_finish_automation_checkpoint
-              data:
-                value: "complete"
-    # Reset debug trigger so script can fire again
+        value: "ENTERED_FIRST__BUILD_JSONFREE"
+    # Reset debug trigger early so it can fire again
     - choose:
         - conditions:
             - condition: template
@@ -963,6 +755,117 @@
             - service: input_boolean.turn_off
               target:
                 entity_id: input_boolean.p1s_debug_finish_trigger
+    # Clear print mutex (always, even on early exit)
+    - service: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.p1s_print_active
+    # Check if ANY slot has start data
+    - variables:
+        has_any_start: >
+          {{ states('input_number.p1s_start_slot_1_g')|int + 
+             states('input_number.p1s_start_slot_2_g')|int +
+             states('input_number.p1s_start_slot_3_g')|int +
+             states('input_number.p1s_start_slot_4_g')|int +
+             states('input_number.p1s_start_slot_5_g')|int +
+             states('input_number.p1s_start_slot_6_g')|int > 0 }}
+    - if:
+        - condition: template
+          value_template: "{{ not has_any_start }}"
+      then:
+        - service: notify.persistent_notification
+          data:
+            title: "P1S Filament Tracking: Start Snapshot Empty"
+            message: "Print finished but no start snapshot was recorded. Filament NOT decremented."
+        - service: input_text.set_value
+          target:
+            entity_id: input_text.p1s_finish_automation_checkpoint
+          data:
+            value: "no_start_data"
+        - stop: "No start data"
+    # Process each slot
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.p1s_finish_automation_checkpoint
+      data:
+        value: "processing_slots"
+    - repeat:
+        count: 6
+        sequence:
+          - variables:
+              slot_num: "{{ repeat.index }}"
+              start_g: "{{ states('input_number.p1s_start_slot_' ~ repeat.index ~ '_g') | int(0) }}"
+              spool_id: "{{ states('input_text.ams_slot_' ~ repeat.index ~ '_spool_id') | int(0) }}"
+          - if:
+              - condition: template
+                value_template: "{{ start_g > 0 }}"
+            then:
+              # Compute end value (fuel gauge > spoolman > -1)
+              - variables:
+                  fg: "{{ states('sensor.p1s_tray_' ~ repeat.index ~ '_fuel_gauge_remaining') | float(-1) }}"
+                  ams: "{{ states('sensor.ams_slot_' ~ repeat.index ~ '_remaining_g') | float(-1) }}"
+                  eff: "{{ fg if fg > 0 else (ams if ams > 0 else -1) }}"
+                  end_g_raw: "{{ [0, eff] | max | int }}"
+              - service: input_number.set_value
+                target:
+                  entity_id: "input_number.p1s_end_slot_{{ repeat.index }}_g"
+                data:
+                  value: "{{ end_g_raw }}"
+              - variables:
+                  end_g: "{{ states('input_number.p1s_end_slot_' ~ repeat.index ~ '_g') | int(0) }}"
+                  used_g: "{{ [0, start_g - end_g] | max }}"
+              # Reconcile check
+              - if:
+                  - condition: template
+                    value_template: "{{ eff < 0 }}"
+                then:
+                  - service: input_boolean.turn_on
+                    target:
+                      entity_id: input_boolean.p1s_needs_reconcile
+              # Decrement if conditions met
+              - if:
+                  - condition: template
+                    value_template: "{{ should_decrement and spool_id > 0 and used_g > 0 }}"
+                then:
+                  - service: input_text.set_value
+                    target:
+                      entity_id: input_text.p1s_finish_automation_checkpoint
+                    data:
+                      value: "slot{{ repeat.index }}_decrement_{{ used_g }}g"
+                  - service: spoolman.use_spool_filament
+                    data:
+                      id: "{{ spool_id }}"
+                      use_weight: "{{ used_g }}"
+    # Reload Spoolman
+    - service: script.reload_spoolman_integration
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.p1s_finish_automation_checkpoint
+      data:
+        value: "reload_done"
+    # Build notification
+    - variables:
+        message_lines: >
+          {% set job_label = (task_name | replace('.gcode.3mf', '') | replace('.3mf', '') | trim) or task_name or '—' %}
+          Print: {{ job_label }}
+          Status: {{ trigger_state }}
+          
+          {% for i in range(1, 7) %}
+          {% set start = states('input_number.p1s_start_slot_' ~ i ~ '_g')|int(0) %}
+          {% if start > 0 %}
+          {% set end = states('input_number.p1s_end_slot_' ~ i ~ '_g')|int(0) %}
+          {% set used = [0, start - end]|max %}
+          Slot {{ i }}: {{ start }}g → {{ end }}g (used ~{{ used }}g)
+          {% endif %}
+          {% endfor %}
+    - service: notify.persistent_notification
+      data:
+        title: "P1S Filament Usage ({{ trigger_state }})"
+        message: "{{ message_lines }}"
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.p1s_finish_automation_checkpoint
+      data:
+        value: "complete"
   mode: single
 
 # Detect mid-print spool mapping changes → set reconcile flag
