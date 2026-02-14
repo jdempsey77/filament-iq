@@ -106,6 +106,28 @@ do_restart() {
   fi
 }
 
+do_reload_automations() {
+  if [[ -n "$HOME_ASSISTANT_URL" && -n "$HOME_ASSISTANT_TOKEN" ]]; then
+    echo "Reloading automations via HA API..."
+    local resp
+    resp=$(curl -s -w "\n%{http_code}" -X POST \
+      -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{}' \
+      "${HOME_ASSISTANT_URL}/api/services/automation/reload")
+    local status
+    status=$(echo "$resp" | tail -n1)
+    if [[ "$status" == "200" ]]; then
+      echo "Automations reloaded successfully."
+    else
+      echo "Reload returned HTTP $status. Check HOME_ASSISTANT_URL and HOME_ASSISTANT_TOKEN in deploy.env."
+    fi
+  else
+    echo "Skipping auto-reload (set HOME_ASSISTANT_URL and HOME_ASSISTANT_TOKEN in deploy.env)."
+    echo "Reload automations manually: Developer Tools > YAML > Automations > Reload"
+  fi
+}
+
 # Handle --validate alone (validate config currently on HA)
 if [[ "$TARGET" == "--validate" ]]; then
   if [[ -f "$DEPLOY_ENV" ]]; then
@@ -230,7 +252,7 @@ if [[ "$TARGET" == "--automations" ]]; then
   if [[ "$RESTART_AFTER" -eq 1 ]]; then
     do_restart
   else
-    echo "Reload automations in HA (Developer Tools > YAML > Automations) or restart for changes to take effect."
+    do_reload_automations
   fi
   exit 0
 fi
