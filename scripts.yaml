@@ -10,22 +10,39 @@
 # yaml-language-server: $schema=
 # Reload Spoolman integration only. Do NOT run refresh_ams_spool_list here (causes spinners; dropdown is populated by automation when REST data arrives).
 # DEBUG: Simulate finish path without a real print. Requires filament_debug_mode ON for checkpoints.
-# Seeds start/end JSON, fires finish automation. Verify checkpoints in p1s_finish_automation_checkpoint.
+# Seeds start/end input_numbers (NO JSON), fires finish automation. Verify checkpoints reach COMPLETE.
 # Spoolman decrement only runs if ams_slot_1_spool_id/ams_slot_2_spool_id are set and > 0.
 p1s_debug_force_finish_path:
   alias: P1S Debug – force finish path (no print)
   sequence:
-    - action: input_text.set_value
+    # Set start values
+    - service: input_number.set_value
       target:
-        entity_id: input_text.p1s_tray_remaining_start_json
+        entity_id: input_number.p1s_start_slot_1_g
       data:
-        value: '{"1": 100, "2": 200}'
-    - action: input_text.set_value
+        value: 100
+    - service: input_number.set_value
       target:
-        entity_id: input_text.p1s_tray_remaining_end_json
+        entity_id: input_number.p1s_start_slot_2_g
       data:
-        value: '{"1": 90, "2": 150}'
-    - action: input_boolean.turn_on
+        value: 200
+    # Set end values
+    - service: input_number.set_value
+      target:
+        entity_id: input_number.p1s_end_slot_1_g
+      data:
+        value: 90
+    - service: input_number.set_value
+      target:
+        entity_id: input_number.p1s_end_slot_2_g
+      data:
+        value: 150
+    # Trigger finish automation
+    - service: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.p1s_debug_finish_trigger
+    - delay: "00:00:01"
+    - service: input_boolean.turn_on
       target:
         entity_id: input_boolean.p1s_debug_finish_trigger
 
