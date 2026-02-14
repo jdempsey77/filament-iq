@@ -1,8 +1,10 @@
-# Deploy secrets – never commit
-scripts/deploy.env
 secrets.yaml
-
-# Local secrets / env
+SERVICE_ACCOUNT.json
+.storage/
 scripts/deploy.env
-*.env
-*.env.*
+*.bak*
+*.backup
+.DS_Store
+*.tmp
+-H
+-d
