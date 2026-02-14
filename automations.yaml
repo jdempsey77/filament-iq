@@ -672,43 +672,37 @@
       sensor.p1s_01p00c5a3101668_ams_128_tray_1: 5
       sensor.p1s_01p00c5a3101668_ams_129_tray_1: 6
     slot_int: "{{ slot_map[trigger.entity_id] }}"
-    slot: "{{ slot_int | string }}"
-    raw_start: "{{ states('input_text.p1s_tray_remaining_start_json') | default('') }}"
-    existing: "{{ raw_start | from_json if raw_start not in ['unknown','unavailable','None','null',''] else {} }}"
     fg: "{{ states('sensor.p1s_tray_' ~ slot_int ~ '_fuel_gauge_remaining') | float(-1) }}"
     ams: "{{ states('sensor.ams_slot_' ~ slot_int ~ '_remaining_g') | float(-1) }}"
     eff: "{{ fg if fg > 0 else (ams if ams > 0 else -1) }}"
     grams: "{{ [0, eff] | max | round(0) | int }}"
-    not_present: "{{ slot not in existing }}"
-    current_keys: "{{ existing.keys() | list | join(',') }}"
+    already_set: "{{ states('input_number.p1s_start_slot_' ~ slot_int ~ '_g') | int(0) > 0 }}"
   action:
     - if:
         - condition: template
-          value_template: "{{ eff >= 0 and not_present }}"
+          value_template: "{{ eff >= 0 and not already_set }}"
       then:
-        - variables:
-            merged: "{{ existing | combine({slot: grams}) }}"
-        - action: input_text.set_value
+        - service: input_number.set_value
           target:
-            entity_id: input_text.p1s_tray_remaining_start_json
+            entity_id: "input_number.p1s_start_slot_{{ slot_int }}_g"
           data:
-            value: "{{ merged | tojson }}"
+            value: "{{ grams }}"
         - action: input_text.set_value
           target:
             entity_id: input_text.p1s_init_seed_debug
           data:
-            value: "tray={{ trigger.entity_id }} | slot={{ slot_int }} | fg={{ fg | round(0) | int }} | ams={{ ams | round(0) | int }} | eff={{ eff | round(0) | int }} | grams={{ grams }} | merged | keys={{ merged.keys() | list | join(',') }}"
+            value: "tray={{ trigger.entity_id }} | slot={{ slot_int }} | fg={{ fg | round(0) | int }} | ams={{ ams | round(0) | int }} | eff={{ eff | round(0) | int }} | grams={{ grams }} | written"
       else:
         - variables:
             skip_reason: >
               {% if eff < 0 %}eff<0
-              {% elif not not_present %}already_present
+              {% elif already_set %}already_set
               {% else %}unknown{% endif %}
         - action: input_text.set_value
           target:
             entity_id: input_text.p1s_init_seed_debug
           data:
-            value: "tray={{ trigger.entity_id }} | slot={{ slot_int }} | skip={{ skip_reason }} | keys={{ current_keys }}"
+            value: "tray={{ trigger.entity_id }} | slot={{ slot_int }} | skip={{ skip_reason }}"
   mode: queued
   max: 10
 
