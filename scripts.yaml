@@ -16,6 +16,30 @@ reload_spoolman_integration:
       data:
         entry_id: "01KGX5YPH9CXR2Y1KZRVSP48V7"
 
+# Add filament to Spoolman from test dashboard form (uses spoolman_new_filament_* helpers). Then reload integration.
+# If spoolman_base_url is empty, request goes to localhost:8080 and the filament won't appear in your Spoolman.
+spoolman_add_filament:
+  alias: Add filament to Spoolman
+  sequence:
+    - action: rest_command.ams_spoolman_create_filament
+    - action: script.reload_spoolman_integration
+    - action: notify.persistent_notification
+      data:
+        message: "Filament created and Spoolman reloaded."
+        title: Filament added to Spoolman
+
+# Add spool to Spoolman from test dashboard (uses spoolman_new_spool_* helpers). Only runs when a filament is selected (dropdown contains " - "). Then reload integration.
+spoolman_add_spool:
+  alias: Add spool to Spoolman
+  sequence:
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ (states('input_select.spoolman_new_spool_filament') or '') | trim != '' and ' - ' in (states('input_select.spoolman_new_spool_filament') or '') }}"
+          sequence:
+            - action: rest_command.ams_spoolman_create_spool
+            - action: script.reload_spoolman_integration
+
 # Optional manual refresh: re-apply dropdown from template sensor options only (no Spoolman reload).
 refresh_ams_spool_list:
   alias: Refresh AMS spool list (Assign from warehouse)
@@ -25,6 +49,24 @@ refresh_ams_spool_list:
         entity_id: input_select.ams_assign_source_spool
       data:
         options: "{{ ['— Select spool —'] + (state_attr('sensor.ams_spool_list_options', 'options') or []) }}"
+
+# Force Spoolman filaments fetch and repopulate "Add spool" filament dropdown. Use if dropdown is empty (wrong URL or sensor not yet updated).
+refresh_filament_dropdown:
+  alias: Refresh filament list (Add spool)
+  sequence:
+    - action: homeassistant.update_entity
+      target:
+        entity_id:
+          - sensor.spoolman_filaments_api
+          - sensor.spoolman_vendors_api
+          - sensor.spoolman_spools_api
+    - delay:
+        seconds: 2
+    - action: input_select.set_options
+      target:
+        entity_id: input_select.spoolman_new_spool_filament
+      data:
+        options: "{{ ['— Select filament —'] + (state_attr('sensor.ams_filament_list_options', 'options') or []) }}"
 
 # Assign the currently selected warehouse spool to a slot (sets input_text.ams_slot_N_spool_id).
 # No-op if no spool selected (source ID 0).
@@ -239,9 +281,13 @@ update_spoolman_tray_6:
 ams_slot_1_assign_and_update:
   alias: Slot 1 – Assign & Update
   sequence:
+    # Safety: Block if print is active
+    - condition: state
+      entity_id: input_boolean.p1s_print_active
+      state: 'off'
     - variables:
         selected: "{{ states('input_select.ams_slot_1_select_spool') }}"
-        spool_id: "{{ (selected.split(' - ')[0] if selected != '— Select spool —' else 0) | int }}"
+        spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
         old_spool_id: "{{ states('input_text.ams_slot_1_spool_id') | int(0) }}"
     - choose:
         - conditions:
@@ -284,9 +330,13 @@ ams_slot_1_assign_and_update:
 ams_slot_2_assign_and_update:
   alias: Slot 2 – Assign & Update
   sequence:
+    # Safety: Block if print is active
+    - condition: state
+      entity_id: input_boolean.p1s_print_active
+      state: 'off'
     - variables:
         selected: "{{ states('input_select.ams_slot_2_select_spool') }}"
-        spool_id: "{{ (selected.split(' - ')[0] if selected != '— Select spool —' else 0) | int }}"
+        spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
         old_spool_id: "{{ states('input_text.ams_slot_2_spool_id') | int(0) }}"
     - choose:
         - conditions:
@@ -329,9 +379,13 @@ ams_slot_2_assign_and_update:
 ams_slot_3_assign_and_update:
   alias: Slot 3 – Assign & Update
   sequence:
+    # Safety: Block if print is active
+    - condition: state
+      entity_id: input_boolean.p1s_print_active
+      state: 'off'
     - variables:
         selected: "{{ states('input_select.ams_slot_3_select_spool') }}"
-        spool_id: "{{ (selected.split(' - ')[0] if selected != '— Select spool —' else 0) | int }}"
+        spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
         old_spool_id: "{{ states('input_text.ams_slot_3_spool_id') | int(0) }}"
     - choose:
         - conditions:
@@ -374,9 +428,13 @@ ams_slot_3_assign_and_update:
 ams_slot_4_assign_and_update:
   alias: Slot 4 – Assign & Update
   sequence:
+    # Safety: Block if print is active
+    - condition: state
+      entity_id: input_boolean.p1s_print_active
+      state: 'off'
     - variables:
         selected: "{{ states('input_select.ams_slot_4_select_spool') }}"
-        spool_id: "{{ (selected.split(' - ')[0] if selected != '— Select spool —' else 0) | int }}"
+        spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
         old_spool_id: "{{ states('input_text.ams_slot_4_spool_id') | int(0) }}"
     - choose:
         - conditions:
@@ -419,9 +477,13 @@ ams_slot_4_assign_and_update:
 ams_slot_5_assign_and_update:
   alias: Slot 5 – Assign & Update
   sequence:
+    # Safety: Block if print is active
+    - condition: state
+      entity_id: input_boolean.p1s_print_active
+      state: 'off'
     - variables:
         selected: "{{ states('input_select.ams_slot_5_select_spool') }}"
-        spool_id: "{{ (selected.split(' - ')[0] if selected != '— Select spool —' else 0) | int }}"
+        spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
         old_spool_id: "{{ states('input_text.ams_slot_5_spool_id') | int(0) }}"
     - choose:
         - conditions:
@@ -464,9 +526,13 @@ ams_slot_5_assign_and_update:
 ams_slot_6_assign_and_update:
   alias: Slot 6 – Assign & Update
   sequence:
+    # Safety: Block if print is active
+    - condition: state
+      entity_id: input_boolean.p1s_print_active
+      state: 'off'
     - variables:
         selected: "{{ states('input_select.ams_slot_6_select_spool') }}"
-        spool_id: "{{ (selected.split(' - ')[0] if selected != '— Select spool —' else 0) | int }}"
+        spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
         old_spool_id: "{{ states('input_text.ams_slot_6_spool_id') | int(0) }}"
     - choose:
         - conditions:
