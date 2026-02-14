@@ -628,6 +628,18 @@
             entity_id: input_text.p1s_tray_remaining_start_json
           data:
             value: "{{ dict_to_seed | tojson }}"
+        # ALSO seed input_number helpers (JSON-free path)
+        - repeat:
+            count: 6
+            sequence:
+              - variables:
+                  slot_str: "{{ repeat.index | string }}"
+                  grams: "{{ dict_to_seed.get(slot_str, 0) | int }}"
+              - service: input_number.set_value
+                target:
+                  entity_id: "input_number.p1s_start_slot_{{ repeat.index }}_g"
+                data:
+                  value: "{{ grams }}"
     - service: logbook.log
       data:
         name: P1S Filament Tracking
