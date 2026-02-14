@@ -704,21 +704,12 @@
   alias: P1S – snapshot remaining on print finish
   description: Record tray remaining_filament at print finish and notify with start→end delta
   trigger:
+    # Fire on any print_status change; condition filters for "done" states (handles printing→idle, case variants)
     - platform: state
       entity_id: sensor.p1s_01p00c5a3101668_print_status
-      from: running
-      to:
-        - finish
-        - idle
-        - failed
-    - platform: state
-      entity_id: sensor.p1s_01p00c5a3101668_print_status
-      to:
-        - finish
-        - finished
-        - completed
-        - complete
-  condition: []
+  condition:
+    - condition: template
+      value_template: "{{ trigger.to_state.state | lower in ['finish', 'finished', 'completed', 'complete', 'idle', 'failed', 'error', 'standby'] }}"
   variables:
     trigger_state: "{{ trigger.to_state.state | default('finish') }}"
     task_name: "{{ states('sensor.p1s_01p00c5a3101668_task_name') }}"
