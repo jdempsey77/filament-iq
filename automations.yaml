@@ -700,6 +700,20 @@
   mode: queued
   max: 10
 
+# DEBUG: Log every print_status change (disable after capturing finish-state value)
+- id: p1s_debug_print_status_changes
+  alias: P1S – DEBUG log print_status changes
+  description: "Temporary: log print_status from→to to identify Bambu's finish vocabulary. Disable after debugging."
+  trigger:
+    - platform: state
+      entity_id: sensor.p1s_01p00c5a3101668_print_status
+  action:
+    - service: logbook.log
+      data:
+        name: P1S Print Status Debug
+        message: "print_status {{ trigger.from_state.state | default('(none)') }} → {{ trigger.to_state.state | default('(none)') }}"
+  mode: single
+
 - id: p1s_remaining_snapshot_on_finish
   alias: P1S – snapshot remaining on print finish
   description: Record tray remaining_filament at print finish and notify with start→end delta
@@ -709,7 +723,7 @@
       entity_id: sensor.p1s_01p00c5a3101668_print_status
   condition:
     - condition: template
-      value_template: "{{ trigger.to_state.state | lower in ['finish', 'finished', 'completed', 'complete', 'idle', 'failed', 'error', 'standby'] }}"
+      value_template: "{{ trigger.to_state.state | lower in ['finish', 'finished', 'completed', 'complete', 'idle', 'failed', 'error', 'standby', 'done'] }}"
   variables:
     trigger_state: "{{ trigger.to_state.state | default('finish') }}"
     task_name: "{{ states('sensor.p1s_01p00c5a3101668_task_name') }}"
