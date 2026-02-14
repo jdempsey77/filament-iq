@@ -751,7 +751,13 @@
       - sensor.p1s_01p00c5a3101668_ams_128_tray_1
       - sensor.p1s_01p00c5a3101668_ams_129_tray_1
   action:
-    # DEBUG: Checkpoint at entry (when filament_debug_mode ON)
+    # DEBUG: Unconditional checkpoint to verify automation runs
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.p1s_finish_automation_checkpoint
+      data:
+        value: "entered"
+    # DEBUG: Checkpoint with details (when filament_debug_mode ON)
     - choose:
         - conditions:
             - condition: state
