@@ -81,6 +81,12 @@ input_text:
   p1s_init_seed_debug:
     name: P1S init seed debug
     max: 255
+  p1s_last_print_status_transition:
+    name: P1S last print_status transition (debug)
+    max: 255
+  p1s_finish_automation_checkpoint:
+    name: P1S finish automation checkpoint (debug)
+    max: 255
   p1s_tray_remaining_start_json:
     name: P1S tray remaining start JSON
     max: 255
@@ -104,6 +110,12 @@ input_boolean:
     initial: false
   p1s_decrement_on_failed:
     name: P1S Decrement on Failed Print
+    initial: false
+  filament_debug_mode:
+    name: Filament Debug Mode (instrumentation)
+    initial: false
+  p1s_debug_finish_trigger:
+    name: P1S Debug Finish Trigger (script fires this)
     initial: false
 
 input_number:
@@ -147,6 +159,91 @@ input_number:
     unit_of_measurement: "g/cm³"
     mode: box
     initial: 1.24
+  # P1S Start/End snapshot (grams per slot) - eliminates JSON parsing
+  p1s_start_slot_1_g:
+    name: P1S Start Slot 1 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_start_slot_2_g:
+    name: P1S Start Slot 2 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_start_slot_3_g:
+    name: P1S Start Slot 3 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_start_slot_4_g:
+    name: P1S Start Slot 4 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_start_slot_5_g:
+    name: P1S Start Slot 5 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_start_slot_6_g:
+    name: P1S Start Slot 6 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_end_slot_1_g:
+    name: P1S End Slot 1 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_end_slot_2_g:
+    name: P1S End Slot 2 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_end_slot_3_g:
+    name: P1S End Slot 3 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_end_slot_4_g:
+    name: P1S End Slot 4 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_end_slot_5_g:
+    name: P1S End Slot 5 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_end_slot_6_g:
+    name: P1S End Slot 6 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
   spoolman_new_filament_weight:
     name: New filament – spool weight (g)
     min: 0
