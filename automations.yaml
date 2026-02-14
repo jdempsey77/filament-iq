@@ -725,6 +725,8 @@
     raw_start: "{{ states('input_text.p1s_tray_remaining_start_json') | default('') }}"
     start_dict: "{{ raw_start | from_json if raw_start not in ['unknown','unavailable','None','null',''] else {} }}"
     start_keys: "{{ start_dict.keys() | list }}"
+    is_failed: "{{ trigger_state in ['failed', 'error', 'canceled'] }}"
+    should_decrement: "{{ not is_failed or states('input_boolean.p1s_decrement_on_failed') == 'on' }}"
     tray_entities:
       - sensor.p1s_01p00c5a3101668_ams_1_tray_1
       - sensor.p1s_01p00c5a3101668_ams_1_tray_2
@@ -733,6 +735,10 @@
       - sensor.p1s_01p00c5a3101668_ams_128_tray_1
       - sensor.p1s_01p00c5a3101668_ams_129_tray_1
   action:
+    # ALWAYS clear print mutex first (so it clears even on early exit)
+    - service: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.p1s_print_active
     - if:
         - condition: template
           value_template: "{{ start_dict | length == 0 }}"
@@ -742,6 +748,10 @@
             entity_id: input_text.p1s_init_seed_debug
           data:
             value: "finish | status={{ trigger_state }} | start_dict empty, skipping end snapshot"
+        - service: notify.persistent_notification
+          data:
+            title: "P1S Filament Tracking: Start Snapshot Empty"
+            message: "Print finished but no start snapshot was recorded (init automation may not have run for this print). Filament NOT decremented by HA. If another integration decremented a spool, verify it used the correct one. Manual reconciliation recommended."
         - stop: "start_dict is empty, nothing to snapshot"
     - variables:
         end_dict_json: >
