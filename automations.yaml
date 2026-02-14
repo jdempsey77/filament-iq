@@ -830,6 +830,10 @@
                           - service: input_boolean.turn_on
                             target:
                               entity_id: input_boolean.p1s_needs_reconcile
+                          - service: notify.persistent_notification
+                            data:
+                              title: "P1S Filament Tracking: Reconcile Needed"
+                              message: "Print finished but slot {{ repeat.index }} had unknown end reading (fuel gauge & Spoolman both unavailable). Check 'P1S Needs Reconcile' flag in dashboard."
               # DEBUG or REAL: read end_g and compute used_g
               - variables:
                   end_g: "{{ states('input_number.p1s_end_slot_' ~ repeat.index ~ '_g') | int(0) }}"
