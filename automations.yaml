@@ -1011,6 +1011,27 @@
         options: "{{ ['— No vendor —'] + (state_attr('sensor.ams_vendor_list_options', 'options') or []) }}"
   mode: single
 
+# Rehydrate print active mutex after HA restart if print is still running
+- id: p1s_rehydrate_mutex_on_restart
+  alias: P1S – rehydrate print active mutex on HA restart
+  description: If HA restarts while print is active, restore mutex to ON to prevent manual slot mapping changes
+  trigger:
+    - platform: homeassistant
+      event: start
+  condition:
+    - condition: state
+      entity_id: sensor.p1s_01p00c5a3101668_print_status
+      state:
+        - running
+        - printing
+        - pause
+        - paused
+  action:
+    - service: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.p1s_print_active
+  mode: single
+
 # Auto-detect AMS tray changes and try to match to Spoolman spools on Shelf. If exactly one match, auto-assign; otherwise notify for manual assignment.
 - id: ams_tray_auto_detect_and_assign
   alias: AMS – auto-detect tray change and assign Spoolman spool
