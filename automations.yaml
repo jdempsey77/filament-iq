@@ -342,7 +342,7 @@
         - running
         - printing
   action:
-    - service: input_text.set_value
+    - action: input_text.set_value
       target:
         entity_id: input_text.p1s_trays_used_this_print
       data:
@@ -361,7 +361,7 @@
             - condition: template
               value_template: "{{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1','active') == true }}"
           sequence:
-            - service: input_text.set_value
+            - action: input_text.set_value
               target:
                 entity_id: input_text.p1s_last_tray_entity
               data:
@@ -374,7 +374,7 @@
             - condition: template
               value_template: "{{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2','active') == true }}"
           sequence:
-            - service: input_text.set_value
+            - action: input_text.set_value
               target:
                 entity_id: input_text.p1s_last_tray_entity
               data:
@@ -387,7 +387,7 @@
             - condition: template
               value_template: "{{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3','active') == true }}"
           sequence:
-            - service: input_text.set_value
+            - action: input_text.set_value
               target:
                 entity_id: input_text.p1s_last_tray_entity
               data:
@@ -400,7 +400,7 @@
             - condition: template
               value_template: "{{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4','active') == true }}"
           sequence:
-            - service: input_text.set_value
+            - action: input_text.set_value
               target:
                 entity_id: input_text.p1s_last_tray_entity
               data:
@@ -413,7 +413,7 @@
             - condition: template
               value_template: "{{ state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1','active') == true }}"
           sequence:
-            - service: input_text.set_value
+            - action: input_text.set_value
               target:
                 entity_id: input_text.p1s_last_tray_entity
               data:
@@ -426,7 +426,7 @@
             - condition: template
               value_template: "{{ state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1','active') == true }}"
           sequence:
-            - service: input_text.set_value
+            - action: input_text.set_value
               target:
                 entity_id: input_text.p1s_last_tray_entity
               data:
@@ -464,7 +464,7 @@
     - condition: template
       value_template: "{{ state_attr(trigger.entity_id, 'active') == true }}"
   action:
-    - service: input_text.set_value
+    - action: input_text.set_value
       target:
         entity_id: input_text.p1s_trays_used_this_print
       data:
@@ -502,7 +502,7 @@
     - service: input_boolean.turn_on
       target:
         entity_id: input_boolean.p1s_print_active
-    - service: input_text.set_value
+    - action: input_text.set_value
       target:
         entity_id: input_text.p1s_print_job_key
       data:
@@ -512,17 +512,17 @@
         entity_id: input_boolean.p1s_needs_reconcile
     - variables:
         debug_info: "print_status={{ states('sensor.p1s_01p00c5a3101668_print_status') }} | reset_start_end_json=1"
-    - service: input_text.set_value
+    - action: input_text.set_value
       target:
         entity_id: input_text.p1s_init_seed_debug
       data:
         value: "{{ debug_info }}"
-    - service: input_text.set_value
+    - action: input_text.set_value
       target:
         entity_id: input_text.p1s_tray_remaining_start_json
       data:
         value: "{}"
-    - service: input_text.set_value
+    - action: input_text.set_value
       target:
         entity_id: input_text.p1s_tray_remaining_end_json
       data:
@@ -614,7 +614,7 @@
             {% endif %}
           {% endfor %}
           {{ ns.lines | join(' | ') }}
-    - service: input_text.set_value
+    - action: input_text.set_value
       target:
         entity_id: input_text.p1s_init_seed_debug
       data:
@@ -623,7 +623,7 @@
         - condition: template
           value_template: "{{ dict_to_seed | length > 0 }}"
       then:
-        - service: input_text.set_value
+        - action: input_text.set_value
           target:
             entity_id: input_text.p1s_tray_remaining_start_json
           data:
@@ -676,12 +676,12 @@
       then:
         - variables:
             merged: "{{ existing | combine({slot: grams}) }}"
-        - service: input_text.set_value
+        - action: input_text.set_value
           target:
             entity_id: input_text.p1s_tray_remaining_start_json
           data:
             value: "{{ merged | tojson }}"
-        - service: input_text.set_value
+        - action: input_text.set_value
           target:
             entity_id: input_text.p1s_init_seed_debug
           data:
@@ -692,7 +692,7 @@
               {% if eff < 0 %}eff<0
               {% elif not not_present %}already_present
               {% else %}unknown{% endif %}
-        - service: input_text.set_value
+        - action: input_text.set_value
           target:
             entity_id: input_text.p1s_init_seed_debug
           data:
@@ -712,7 +712,7 @@
       entity_id: input_boolean.filament_debug_mode
       state: "on"
   action:
-    - service: input_text.set_value
+    - action: input_text.set_value
       target:
         entity_id: input_text.p1s_last_print_status_transition
       data:
@@ -759,7 +759,7 @@
               entity_id: input_boolean.filament_debug_mode
               state: "on"
           sequence:
-            - service: input_text.set_value
+            - action: input_text.set_value
               target:
                 entity_id: input_text.p1s_finish_automation_checkpoint
               data:
@@ -777,7 +777,7 @@
         - condition: template
           value_template: "{{ start_dict | length == 0 }}"
       then:
-        - service: input_text.set_value
+        - action: input_text.set_value
           target:
             entity_id: input_text.p1s_init_seed_debug
           data:
@@ -794,7 +794,7 @@
               entity_id: input_boolean.filament_debug_mode
               state: "on"
           sequence:
-            - service: input_text.set_value
+            - action: input_text.set_value
               target:
                 entity_id: input_text.p1s_finish_automation_checkpoint
               data:
@@ -837,7 +837,7 @@
           {% endfor %}
           {{ ns.found }}
           {% endif %}
-    - service: input_text.set_value
+    - action: input_text.set_value
       target:
         entity_id: input_text.p1s_tray_remaining_end_json
       data:
@@ -849,7 +849,7 @@
               entity_id: input_boolean.filament_debug_mode
               state: "on"
           sequence:
-            - service: input_text.set_value
+            - action: input_text.set_value
               target:
                 entity_id: input_text.p1s_finish_automation_checkpoint
               data:
@@ -896,7 +896,7 @@
                     entity_id: input_boolean.filament_debug_mode
                     state: "on"
                 sequence:
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     target:
                       entity_id: input_text.p1s_finish_automation_checkpoint
                     data:
@@ -913,7 +913,7 @@
               entity_id: input_boolean.filament_debug_mode
               state: "on"
           sequence:
-            - service: input_text.set_value
+            - action: input_text.set_value
               target:
                 entity_id: input_text.p1s_finish_automation_checkpoint
               data:
@@ -943,7 +943,7 @@
               entity_id: input_boolean.filament_debug_mode
               state: "on"
           sequence:
-            - service: input_text.set_value
+            - action: input_text.set_value
               target:
                 entity_id: input_text.p1s_finish_automation_checkpoint
               data:
