@@ -902,9 +902,12 @@
           {% if start > 0 %}
           {% set end = states('input_number.p1s_end_slot_' ~ i ~ '_g')|int(0) %}
           {% set used = [0, start - end]|max %}
-          Slot {{ i }}: {{ start }}g → {{ end }}g (used ~{{ used }}g)
+          {% set sid = states('input_text.ams_slot_' ~ i ~ '_spool_id')|int(0) %}
+          Slot {{ i }}: {{ start }}g → {{ end }}g (used ~{{ used }}g, spool {{ sid }})
           {% endif %}
           {% endfor %}
+          
+          Mapping: {{ states('input_text.p1s_last_mapping_json')[:200] }}
     - service: notify.persistent_notification
       data:
         title: "P1S Filament Usage ({{ trigger_state }})"
