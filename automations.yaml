@@ -823,11 +823,19 @@
           - variables:
               slot_num: "{{ repeat.index }}"
               start_g: "{{ states('input_number.p1s_start_slot_' ~ repeat.index ~ '_g') | int(0) }}"
-              spool_id: "{{ states('input_text.ams_slot_' ~ repeat.index ~ '_spool_id') | int(0) }}"
           - if:
               - condition: template
                 value_template: "{{ start_g > 0 }}"
             then:
+              # V1 AUTO-MAP: Call opinionated script to choose spool (if enabled)
+              - service: script.p1s_choose_spool_for_slot_v1
+                data:
+                  slot_number: "{{ repeat.index }}"
+                  material: "PLA"
+                  start_weight_g: "{{ start_g }}"
+              # Read the chosen spool_id (script sets ams_slot_N_spool_id)
+              - variables:
+                  spool_id: "{{ states('input_text.ams_slot_' ~ repeat.index ~ '_spool_id') | int(0) }}"
               # In debug mode: use pre-seeded end values; in real print: read sensors
               - choose:
                   - conditions:
