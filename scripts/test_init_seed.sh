@@ -2,8 +2,18 @@
 
 set -e
 
+# Source deploy.env if it exists
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$SCRIPT_DIR/deploy.env" ]]; then
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/deploy.env"
+fi
+
 if [[ -z "$HOME_ASSISTANT_URL" || -z "$HOME_ASSISTANT_TOKEN" ]]; then
   echo "ERROR: HOME_ASSISTANT_URL or HOME_ASSISTANT_TOKEN not set."
+  echo "Either export them or create scripts/deploy.env with:"
+  echo "  HOME_ASSISTANT_URL=http://your-ha:8123"
+  echo "  HOME_ASSISTANT_TOKEN=your-token"
   exit 1
 fi
 

@@ -7,25 +7,26 @@
 #   ./test_fuel_gauge.sh once
 #
 # Notes:
-# - Sources ./deploy.env (or path via DEPLOY_ENV)
+# - Sources scripts/deploy.env if it exists
 # - Requires: curl, jq
-# - Expects HOME_ASSISTANT_URL and HOME_ASSISTANT_TOKEN in deploy.env
+# - Expects HOME_ASSISTANT_URL and HOME_ASSISTANT_TOKEN in scripts/deploy.env
 
 set -euo pipefail
 
-DEPLOY_ENV="${DEPLOY_ENV:-./deploy.env}"
-
-if [[ -f "$DEPLOY_ENV" ]]; then
-  # shellcheck disable=SC1090
-  source "$DEPLOY_ENV"
-else
-  echo "ERROR: deploy.env not found at: $DEPLOY_ENV"
-  echo "Set DEPLOY_ENV=/path/to/deploy.env or run from repo root."
-  exit 1
+# Source deploy.env if it exists
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$SCRIPT_DIR/deploy.env" ]]; then
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/deploy.env"
 fi
 
-: "${HOME_ASSISTANT_URL:?HOME_ASSISTANT_URL is not set (in deploy.env)}"
-: "${HOME_ASSISTANT_TOKEN:?HOME_ASSISTANT_TOKEN is not set (in deploy.env)}"
+if [[ -z "$HOME_ASSISTANT_URL" || -z "$HOME_ASSISTANT_TOKEN" ]]; then
+  echo "ERROR: HOME_ASSISTANT_URL or HOME_ASSISTANT_TOKEN not set."
+  echo "Either export them or create scripts/deploy.env with:"
+  echo "  HOME_ASSISTANT_URL=http://your-ha:8123"
+  echo "  HOME_ASSISTANT_TOKEN=your-token"
+  exit 1
+fi
 
 need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "ERROR: missing command: $1"; exit 1; }; }
 need_cmd curl
@@ -87,6 +88,28 @@ once() {
   echo "end_json     = $end"
 }
 
+# List P1S tray entities and active_tray: state and active attribute (for debugging HT / name-match seeding)
+trays() {
+  local url="$HOME_ASSISTANT_URL/api/states"
+  echo "--- active_tray ---"
+  curl -s "${AUTH[@]}" "$url/sensor.p1s_01p00c5a3101668_active_tray" | jq -r '.state as $s | .attributes | "state=\"\($s)\" attributes=\(. | to_entries | map("\(.key)=\(.value)") | join(", "))"'
+  echo ""
+  echo "--- tray entities (state + active) ---"
+  for eid in \
+    sensor.p1s_01p00c5a3101668_ams_1_tray_1 \
+    sensor.p1s_01p00c5a3101668_ams_1_tray_2 \
+    sensor.p1s_01p00c5a3101668_ams_1_tray_3 \
+    sensor.p1s_01p00c5a3101668_ams_1_tray_4 \
+    sensor.p1s_01p00c5a3101668_ams_128_tray_1 \
+    sensor.p1s_01p00c5a3101668_ams_129_tray_1; do
+    curl -s "${AUTH[@]}" "$url/$eid" | jq -r 'if .state then "\(.entity_id) state=\"\(.state)\" active=\(.attributes.active // "n/a")" else "\(.entity_id) (missing)" end'
+  done
+  # If you have more HT trays (e.g. ams_128_tray_2), list all p1s*ams*tray*:
+  echo ""
+  echo "--- all p1s AMS tray entities (from search) ---"
+  curl -s "${AUTH[@]}" "$url" | jq -r '.[] | select(.entity_id | test("^sensor\\.p1s_.*_ams_[0-9]+_tray_[0-9]+$")) | "\(.entity_id) state=\"\(.state)\" active=\(.attributes.active // "n/a")"' 2>/dev/null || true
+}
+
 watch() {
   local duration="${1:-60}"
   local interval="${2:-2}"
@@ -115,12 +138,16 @@ case "$cmd" in
   watch)
     watch "${2:-60}" "${3:-2}"
     ;;
+  trays)
+    trays
+    ;;
   *)
     echo "Usage:"
     echo "  $0 preflight"
     echo "  $0 reset"
     echo "  $0 once"
     echo "  $0 watch [seconds] [interval]"
+    echo "  $0 trays   # list tray entities and active_tray (state + active attr)"
     exit 1
     ;;
 esac

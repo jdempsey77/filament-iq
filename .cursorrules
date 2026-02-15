@@ -163,7 +163,7 @@ Follow global workflow.
 - Print status changes properly
 - Light works
 - Cameras load
-
+- Must show the files changes in the summary
 ### Rollback Expectations
 - Every change must include a clear rollback path
 

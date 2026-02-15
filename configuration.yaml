@@ -87,6 +87,9 @@ input_text:
   p1s_finish_automation_checkpoint:
     name: P1S finish automation checkpoint (debug)
     max: 255
+  filament_test_last_result:
+    name: Filament Test Last Result (PASS/FAIL + details)
+    max: 255
   p1s_tray_remaining_start_json:
     name: P1S tray remaining start JSON
     max: 255
@@ -116,6 +119,9 @@ input_boolean:
     initial: false
   p1s_debug_finish_trigger:
     name: P1S Debug Finish Trigger (script fires this)
+    initial: false
+  filament_test_mode:
+    name: Filament Test Mode (disables real Spoolman calls)
     initial: false
 
 input_number:

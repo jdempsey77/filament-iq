@@ -180,8 +180,8 @@ for file in "${FILES_TO_CHECK[@]}"; do
         continue
     fi
     
-    # Try python3 first, fallback to basic check
-    if command -v python3 &> /dev/null; then
+    # Try python3 + PyYAML first; fallback to basic check if yaml module missing
+    if command -v python3 &> /dev/null && python3 -c "import yaml" 2>/dev/null; then
         if python3 -c "import yaml; yaml.safe_load(open('$file'))" 2>/dev/null; then
             log_success "Valid: $file"
         else
@@ -190,12 +190,12 @@ for file in "${FILES_TO_CHECK[@]}"; do
             YAML_VALID=0
         fi
     else
-        # Basic check - just look for obvious issues
+        # No python3 or no PyYAML - basic check only
         if grep -q "^[[:space:]]*\t" "$file"; then
             log_error "Tabs found in $file (YAML must use spaces)"
             YAML_VALID=0
         else
-            log_success "Basic check: $file"
+            log_success "Basic check: $file (install PyYAML for full validation)"
         fi
     fi
 done
