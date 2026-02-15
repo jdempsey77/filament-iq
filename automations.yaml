@@ -1108,7 +1108,11 @@
               {% set name = (state_attr(st.entity_id, 'filament_name') or state_attr(st.entity_id, 'name') or '') | string | lower %}
               {% set tray_lower = tray_text | lower %}
               {% set match_score = 0 %}
-              {% if vendor and vendor in tray_lower %}{% set match_score = match_score + 1 %}{% endif %}
+              {# Vendor: check full string OR first word (handles multi-word vendors like "Bambu Lab") #}
+              {% set vendor_first_word = vendor.split() | first if vendor else '' %}
+              {% if (vendor and vendor in tray_lower) or (vendor_first_word and vendor_first_word | length > 2 and vendor_first_word in tray_lower) %}
+                {% set match_score = match_score + 1 %}
+              {% endif %}
               {% if material and material in tray_lower %}{% set match_score = match_score + 1 %}{% endif %}
               {% if name and name in tray_lower %}{% set match_score = match_score + 1 %}{% endif %}
               {% if match_score >= 2 %}
