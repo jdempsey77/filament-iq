@@ -30,7 +30,7 @@ p1s_choose_spool_for_slot_v1:
   sequence:
     - variables:
         auto_enabled: "{{ states('input_boolean.p1s_auto_mode_opinionated') == 'on' }}"
-        binding_raw: "{{ states('input_text.p1s_slot_to_spool_binding_json') | default('{}') }}"
+        binding_raw: "{{ states('input_text.p1s_init_seed_debug') | default('{}') }}"
         binding_dict: >
           {% set s = binding_raw | trim %}
           {% if s.startswith('{') and s.endswith('}') %}
@@ -47,7 +47,7 @@ p1s_choose_spool_for_slot_v1:
       then:
         - service: input_text.set_value
           target:
-            entity_id: input_text.p1s_last_mapping_json
+            entity_id: input_text.p1s_finish_automation_checkpoint
           data:
             value: "slot={{ slot_number }} | auto_mode=OFF | no_action"
         - stop: "Auto mode disabled"
@@ -70,7 +70,7 @@ p1s_choose_spool_for_slot_v1:
                 value: "{{ bound_spool_id }}"
             - service: input_text.set_value
               target:
-                entity_id: input_text.p1s_last_mapping_json
+                entity_id: input_text.p1s_finish_automation_checkpoint
               data:
                 value: "slot={{ slot_number }} | spool_id={{ bound_spool_id }} | confidence=high | rule=binding_reused"
             - stop: "Binding reused"
@@ -110,20 +110,20 @@ p1s_choose_spool_for_slot_v1:
             updated_binding: "{{ binding_dict | combine({slot_str: chosen_spool_id | int}) }}"
         - service: input_text.set_value
           target:
-            entity_id: input_text.p1s_slot_to_spool_binding_json
+            entity_id: input_text.p1s_init_seed_debug
           data:
             value: "{{ updated_binding | tojson }}"
         # Log mapping result
         - service: input_text.set_value
           target:
-            entity_id: input_text.p1s_last_mapping_json
+            entity_id: input_text.p1s_finish_automation_checkpoint
           data:
             value: "slot={{ slot_number }} | mat={{ mat_lower }} | spool_id={{ chosen_spool_id }} | remaining={{ chosen.remaining }}g | confidence={{ confidence }} | rule={{ rule }} | candidates={{ candidates | length }}"
       else:
         # No spools available (should never happen)
         - service: input_text.set_value
           target:
-            entity_id: input_text.p1s_last_mapping_json
+            entity_id: input_text.p1s_finish_automation_checkpoint
           data:
             value: "slot={{ slot_number }} | ERROR | no_spools_available"
 
@@ -221,7 +221,7 @@ test_clear_binding:
   sequence:
     - service: input_text.set_value
       target:
-        entity_id: input_text.p1s_slot_to_spool_binding_json
+        entity_id: input_text.p1s_init_seed_debug
       data:
         value: "{}"
 
