@@ -9,6 +9,124 @@
 #
 # yaml-language-server: $schema=
 # Reload Spoolman integration only. Do NOT run refresh_ams_spool_list here (causes spinners; dropdown is populated by automation when REST data arrives).
+
+# V1 OPINIONATED AUTO-MAPPING: Choose spool for slot (deterministic, minimal logic)
+# Returns spool_id via ams_slot_N_spool_id helper. Called by finish automation for each slot.
+p1s_choose_spool_for_slot_v1:
+  alias: P1S Choose Spool for Slot (V1 Opinionated)
+  description: "Deterministic spool selection: binding > material+lightest > overall-lightest. Persists choice."
+  mode: queued
+  max: 10
+  fields:
+    slot_number:
+      description: "Slot number (1-6)"
+      example: "1"
+    material:
+      description: "Material (PLA, PETG, ABS, etc.)"
+      example: "PLA"
+    start_weight_g:
+      description: "Start weight in grams"
+      example: "500"
+  sequence:
+    - variables:
+        auto_enabled: "{{ states('input_boolean.p1s_auto_mode_opinionated') == 'on' }}"
+        binding_raw: "{{ states('input_text.p1s_slot_to_spool_binding_json') | default('{}') }}"
+        binding_dict: >
+          {% set s = binding_raw | trim %}
+          {% if s.startswith('{') and s.endswith('}') %}
+            {{ s | from_json }}
+          {% else %}
+            {{ {} }}
+          {% endif %}
+        slot_str: "{{ slot_number | string }}"
+        bound_spool_id: "{{ binding_dict.get(slot_str, 0) | int }}"
+    # If auto mode OFF: return null (do nothing)
+    - if:
+        - condition: template
+          value_template: "{{ not auto_enabled }}"
+      then:
+        - service: input_text.set_value
+          target:
+            entity_id: input_text.p1s_last_mapping_json
+          data:
+            value: "slot={{ slot_number }} | auto_mode=OFF | no_action"
+        - stop: "Auto mode disabled"
+    # Check if binding exists and spool exists
+    - if:
+        - condition: template
+          value_template: "{{ bound_spool_id > 0 }}"
+      then:
+        - variables:
+            spool_exists: >
+              {{ states('sensor.spoolman_spool_' ~ bound_spool_id) not in ['unavailable', 'unknown', ''] }}
+        - if:
+            - condition: template
+              value_template: "{{ spool_exists }}"
+          then:
+            - service: input_text.set_value
+              target:
+                entity_id: "input_text.ams_slot_{{ slot_number }}_spool_id"
+              data:
+                value: "{{ bound_spool_id }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.p1s_last_mapping_json
+              data:
+                value: "slot={{ slot_number }} | spool_id={{ bound_spool_id }} | confidence=high | rule=binding_reused"
+            - stop: "Binding reused"
+    # Choose by material + lightest, or fallback to overall-lightest
+    - variables:
+        mat_lower: "{{ (material | default('PLA') | lower | trim) }}"
+        all_spools: >
+          {% set ns = namespace(spools=[]) %}
+          {% for st in (states.sensor | selectattr('entity_id', 'match', '^sensor\\.spoolman_spool_\\d+$') | list) %}
+            {% set mat = (state_attr(st.entity_id, 'filament_material') or '') | string | lower %}
+            {% set rem = state_attr(st.entity_id, 'remaining_weight') | float(-1) %}
+            {% if rem >= 0 %}
+              {% set spool_id = st.entity_id.split('_')[-1] %}
+              {% set ns.spools = ns.spools + [{'id': spool_id, 'material': mat, 'remaining': rem}] %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.spools }}
+        material_matches: "{{ all_spools | selectattr('material', 'eq', mat_lower) | list }}"
+        candidates: "{{ material_matches if material_matches | length > 0 else all_spools }}"
+        sorted_candidates: "{{ candidates | sort(attribute='remaining') }}"
+        chosen: "{{ sorted_candidates[0] if sorted_candidates | length > 0 else none }}"
+        chosen_spool_id: "{{ chosen.id if chosen else 0 }}"
+        confidence: "{{ 'medium' if material_matches | length > 0 else 'low' }}"
+        rule: "{{ 'material_lightest' if material_matches | length > 0 else 'fallback_overall_lightest' }}"
+    - if:
+        - condition: template
+          value_template: "{{ chosen_spool_id | int > 0 }}"
+      then:
+        # Assign spool to slot
+        - service: input_text.set_value
+          target:
+            entity_id: "input_text.ams_slot_{{ slot_number }}_spool_id"
+          data:
+            value: "{{ chosen_spool_id }}"
+        # Update binding JSON (persist for next time)
+        - variables:
+            updated_binding: "{{ binding_dict | combine({slot_str: chosen_spool_id | int}) }}"
+        - service: input_text.set_value
+          target:
+            entity_id: input_text.p1s_slot_to_spool_binding_json
+          data:
+            value: "{{ updated_binding | tojson }}"
+        # Log mapping result
+        - service: input_text.set_value
+          target:
+            entity_id: input_text.p1s_last_mapping_json
+          data:
+            value: "slot={{ slot_number }} | mat={{ mat_lower }} | spool_id={{ chosen_spool_id }} | remaining={{ chosen.remaining }}g | confidence={{ confidence }} | rule={{ rule }} | candidates={{ candidates | length }}"
+      else:
+        # No spools available (should never happen)
+        - service: input_text.set_value
+          target:
+            entity_id: input_text.p1s_last_mapping_json
+          data:
+            value: "slot={{ slot_number }} | ERROR | no_spools_available"
+
 # DEBUG: Simulate finish path without a real print. Requires filament_debug_mode ON for checkpoints.
 # Seeds start/end input_numbers (NO JSON), fires finish automation. Verify checkpoints reach COMPLETE.
 # Spoolman decrement only runs if ams_slot_1_spool_id/ams_slot_2_spool_id are set and > 0.
