@@ -290,12 +290,12 @@ p1s_validate_persistence_infrastructure:
     - delay: "00:00:01"
     - variables:
         write_test: "{{ states('input_text.p1s_slot_to_spool_binding_json') | string }}"
-    # Restore original value
+    # Restore original value (if unavailable/unknown, restore '{}')
     - service: input_text.set_value
       target:
         entity_id: input_text.p1s_slot_to_spool_binding_json
       data:
-        value: "{{ binding_state_before }}"
+        value: "{{ (binding_state_before if binding_state_before not in ['', 'unavailable', 'unknown'] else '{}') | string }}"
     # Test 3: Log result
     - service: input_text.set_value
       target:
