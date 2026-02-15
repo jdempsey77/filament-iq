@@ -127,6 +127,104 @@ p1s_choose_spool_for_slot_v1:
           data:
             value: "slot={{ slot_number }} | ERROR | no_spools_available"
 
+# E2E VALIDATION: Test scenarios for V1 opinionated auto-mapping
+test_scenario_1_single_slot:
+  alias: "Test Scenario 1: Single Slot Print (35g)"
+  description: "Clear state, seed slot 1 (350g→315g), trigger finish, verify decrement"
+  sequence:
+    # Clear all start/end helpers
+    - repeat:
+        count: 6
+        sequence:
+          - service: input_number.set_value
+            target:
+              entity_id: "input_number.p1s_start_slot_{{ repeat.index }}_g"
+            data:
+              value: 0
+          - service: input_number.set_value
+            target:
+              entity_id: "input_number.p1s_end_slot_{{ repeat.index }}_g"
+            data:
+              value: 0
+    # Seed slot 1
+    - service: input_number.set_value
+      target:
+        entity_id: input_number.p1s_start_slot_1_g
+      data:
+        value: 350
+    - service: input_number.set_value
+      target:
+        entity_id: input_number.p1s_end_slot_1_g
+      data:
+        value: 315
+    # Trigger finish
+    - service: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.p1s_debug_finish_trigger
+    - delay: "00:00:01"
+    - service: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.p1s_debug_finish_trigger
+
+test_scenario_4_multi_slot:
+  alias: "Test Scenario 4: Multi-Slot Print"
+  description: "Seed slot 1 (300g→270g) + slot 2 (200g→165g), verify both processed"
+  sequence:
+    # Clear all
+    - repeat:
+        count: 6
+        sequence:
+          - service: input_number.set_value
+            target:
+              entity_id: "input_number.p1s_start_slot_{{ repeat.index }}_g"
+            data:
+              value: 0
+          - service: input_number.set_value
+            target:
+              entity_id: "input_number.p1s_end_slot_{{ repeat.index }}_g"
+            data:
+              value: 0
+    # Seed slot 1
+    - service: input_number.set_value
+      target:
+        entity_id: input_number.p1s_start_slot_1_g
+      data:
+        value: 300
+    - service: input_number.set_value
+      target:
+        entity_id: input_number.p1s_end_slot_1_g
+      data:
+        value: 270
+    # Seed slot 2
+    - service: input_number.set_value
+      target:
+        entity_id: input_number.p1s_start_slot_2_g
+      data:
+        value: 200
+    - service: input_number.set_value
+      target:
+        entity_id: input_number.p1s_end_slot_2_g
+      data:
+        value: 165
+    # Trigger
+    - service: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.p1s_debug_finish_trigger
+    - delay: "00:00:01"
+    - service: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.p1s_debug_finish_trigger
+
+test_clear_binding:
+  alias: "Test: Clear Binding JSON"
+  description: "Reset binding JSON to {} for determinism tests"
+  sequence:
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.p1s_slot_to_spool_binding_json
+      data:
+        value: "{}"
+
 # DEBUG: Simulate finish path without a real print. Requires filament_debug_mode ON for checkpoints.
 # Seeds start/end input_numbers (NO JSON), fires finish automation. Verify checkpoints reach COMPLETE.
 # Spoolman decrement only runs if ams_slot_1_spool_id/ams_slot_2_spool_id are set and > 0.
