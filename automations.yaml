@@ -517,6 +517,7 @@
         entity_id: input_text.p1s_init_seed_debug
       data:
         value: "{{ debug_info }}"
+    # Clear JSON helpers (legacy)
     - action: input_text.set_value
       target:
         entity_id: input_text.p1s_tray_remaining_start_json
@@ -527,6 +528,20 @@
         entity_id: input_text.p1s_tray_remaining_end_json
       data:
         value: "{}"
+    # Clear input_number helpers (ALL slots to 0)
+    - repeat:
+        count: 6
+        sequence:
+          - service: input_number.set_value
+            target:
+              entity_id: "input_number.p1s_start_slot_{{ repeat.index }}_g"
+            data:
+              value: 0
+          - service: input_number.set_value
+            target:
+              entity_id: "input_number.p1s_end_slot_{{ repeat.index }}_g"
+            data:
+              value: 0
     # Wait for printer to report which tray is in use (tray active or active_tray state), not Spoolman slot remaining
     - wait_template: >
         {{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'active') == true
@@ -774,6 +789,14 @@
              states('input_number.p1s_start_slot_4_g')|int +
              states('input_number.p1s_start_slot_5_g')|int +
              states('input_number.p1s_start_slot_6_g')|int > 0 }}
+        slots_with_data: >
+          {% set ns = namespace(slots=[]) %}
+          {% for i in range(1, 7) %}
+            {% if states('input_number.p1s_start_slot_' ~ i ~ '_g')|int(0) > 0 %}
+              {% set ns.slots = ns.slots + [i ~ ':' ~ states('input_number.p1s_start_slot_' ~ i ~ '_g')] %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.slots | join(', ') if ns.slots else 'none' }}
     - if:
         - condition: template
           value_template: "{{ not has_any_start }}"
@@ -781,19 +804,19 @@
         - service: notify.persistent_notification
           data:
             title: "P1S Filament Tracking: Start Snapshot Empty"
-            message: "Print finished but no start snapshot was recorded. Filament NOT decremented."
+            message: "Print finished but no start snapshot was recorded. Filament NOT decremented. Check init automation and tray detection."
         - service: input_text.set_value
           target:
             entity_id: input_text.p1s_finish_automation_checkpoint
           data:
-            value: "no_start_data"
+            value: "no_start_data | slots={{ slots_with_data }}"
         - stop: "No start data"
     # Process each slot
     - service: input_text.set_value
       target:
         entity_id: input_text.p1s_finish_automation_checkpoint
       data:
-        value: "processing_slots"
+        value: "processing_slots | {{ slots_with_data }}"
     - repeat:
         count: 6
         sequence:
