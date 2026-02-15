@@ -260,8 +260,8 @@ p1s_validate_persistence_infrastructure:
   description: "Confirms binding + mapping helpers exist and are writable. Returns PASS/FAIL."
   sequence:
     - variables:
-        binding_exists: "{{ states('input_text.p1s_slot_to_spool_binding_json') not in ['unavailable', 'unknown', ''] }}"
-        mapping_exists: "{{ states('input_text.p1s_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
+        binding_exists: "{{ states('input_text.p1s_slot_to_spool_binding_json') not in ['unavailable', 'unknown'] }}"
+        mapping_exists: "{{ states('input_text.p1s_last_mapping_json') not in ['unavailable', 'unknown'] }}"
         binding_state_before: "{{ states('input_text.p1s_slot_to_spool_binding_json') | default('', true) | string }}"
     # Test 1: Check existence
     - if:
