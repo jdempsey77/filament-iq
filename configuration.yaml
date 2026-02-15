@@ -90,12 +90,6 @@ input_text:
   filament_test_last_result:
     name: Filament Test Last Result (PASS/FAIL + details)
     max: 255
-  p1s_slot_to_spool_binding_json:
-    name: P1S Slot → Spool Binding (JSON)
-    max: 1024
-  p1s_last_mapping_json:
-    name: P1S Last Mapping Result
-    max: 2048
   p1s_tray_remaining_start_json:
     name: P1S tray remaining start JSON
     max: 255

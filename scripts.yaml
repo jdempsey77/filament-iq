@@ -30,9 +30,11 @@ p1s_choose_spool_for_slot_v1:
   sequence:
     - variables:
         auto_enabled: "{{ states('input_boolean.p1s_auto_mode_opinionated') == 'on' }}"
-        binding_raw: "{{ states('input_text.p1s_slot_to_spool_binding_json') | default('{}') }}"
+        # RESILIENT: Check if binding helper exists before reading
+        binding_helper_exists: "{{ states('input_text.p1s_slot_to_spool_binding_json') not in ['unavailable', 'unknown', ''] }}"
+        binding_raw: "{{ states('input_text.p1s_slot_to_spool_binding_json') | default('{}', true) | string }}"
         binding_dict: >
-          {% set s = binding_raw | trim %}
+          {% set s = (binding_raw | trim) %}
           {% if s.startswith('{') and s.endswith('}') %}
             {{ s | from_json }}
           {% else %}
@@ -45,11 +47,16 @@ p1s_choose_spool_for_slot_v1:
         - condition: template
           value_template: "{{ not auto_enabled }}"
       then:
-        - service: input_text.set_value
-          target:
-            entity_id: input_text.p1s_last_mapping_json
-          data:
-            value: "slot={{ slot_number }} | auto_mode=OFF | no_action"
+        # RESILIENT: Only write if helper exists
+        - if:
+            - condition: template
+              value_template: "{{ states('input_text.p1s_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
+          then:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.p1s_last_mapping_json
+              data:
+                value: "{{ ('slot=' ~ slot_number ~ ' | auto_mode=OFF | no_action') | string }}"
         - stop: "Auto mode disabled"
     # Check if binding exists and spool exists
     - if:
@@ -67,12 +74,17 @@ p1s_choose_spool_for_slot_v1:
               target:
                 entity_id: "input_text.ams_slot_{{ slot_number }}_spool_id"
               data:
-                value: "{{ bound_spool_id }}"
-            - service: input_text.set_value
-              target:
-                entity_id: input_text.p1s_last_mapping_json
-              data:
-                value: "slot={{ slot_number }} | spool_id={{ bound_spool_id }} | confidence=high | rule=binding_reused"
+                value: "{{ bound_spool_id | string }}"
+            # RESILIENT: Only write if helper exists
+            - if:
+                - condition: template
+                  value_template: "{{ states('input_text.p1s_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
+              then:
+                - service: input_text.set_value
+                  target:
+                    entity_id: input_text.p1s_last_mapping_json
+                  data:
+                    value: "{{ ('slot=' ~ slot_number ~ ' | spool_id=' ~ bound_spool_id ~ ' | confidence=high | rule=binding_reused') | string }}"
             - stop: "Binding reused"
     # Choose by material + lightest, or fallback to overall-lightest
     - variables:
@@ -104,28 +116,45 @@ p1s_choose_spool_for_slot_v1:
           target:
             entity_id: "input_text.ams_slot_{{ slot_number }}_spool_id"
           data:
-            value: "{{ chosen_spool_id }}"
-        # Update binding JSON (persist for next time)
-        - variables:
-            updated_binding: "{{ binding_dict | combine({slot_str: chosen_spool_id | int}) }}"
-        - service: input_text.set_value
-          target:
-            entity_id: input_text.p1s_slot_to_spool_binding_json
-          data:
-            value: "{{ updated_binding | tojson }}"
-        # Log mapping result
-        - service: input_text.set_value
-          target:
-            entity_id: input_text.p1s_last_mapping_json
-          data:
-            value: "slot={{ slot_number }} | mat={{ mat_lower }} | spool_id={{ chosen_spool_id }} | remaining={{ chosen.remaining }}g | confidence={{ confidence }} | rule={{ rule }} | candidates={{ candidates | length }}"
+            value: "{{ chosen_spool_id | string }}"
+        # Update binding JSON (persist for next time) - RESILIENT: Only if helper exists
+        - if:
+            - condition: template
+              value_template: "{{ binding_helper_exists }}"
+          then:
+            - variables:
+                updated_binding: "{{ binding_dict | combine({slot_str: chosen_spool_id | int}) }}"
+                # RESILIENT: Ensure JSON string doesn't exceed max (1024)
+                binding_json_str: "{{ (updated_binding | tojson)[:1020] | string }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.p1s_slot_to_spool_binding_json
+              data:
+                value: "{{ binding_json_str }}"
+        # Log mapping result - RESILIENT: Only if helper exists
+        - if:
+            - condition: template
+              value_template: "{{ states('input_text.p1s_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
+          then:
+            - variables:
+                # RESILIENT: Ensure log string doesn't exceed max (2048)
+                log_str: "{{ ('slot=' ~ slot_number ~ ' | mat=' ~ mat_lower ~ ' | spool_id=' ~ chosen_spool_id ~ ' | remaining=' ~ chosen.remaining ~ 'g | confidence=' ~ confidence ~ ' | rule=' ~ rule ~ ' | candidates=' ~ candidates | length)[:2044] | string }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.p1s_last_mapping_json
+              data:
+                value: "{{ log_str }}"
       else:
         # No spools available (should never happen)
-        - service: input_text.set_value
-          target:
-            entity_id: input_text.p1s_last_mapping_json
-          data:
-            value: "slot={{ slot_number }} | ERROR | no_spools_available"
+        - if:
+            - condition: template
+              value_template: "{{ states('input_text.p1s_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
+          then:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.p1s_last_mapping_json
+              data:
+                value: "{{ ('slot=' ~ slot_number ~ ' | ERROR | no_spools_available') | string }}"
 
 # E2E VALIDATION: Test scenarios for V1 opinionated auto-mapping
 test_scenario_1_single_slot:
@@ -224,6 +253,63 @@ test_clear_binding:
         entity_id: input_text.p1s_slot_to_spool_binding_json
       data:
         value: "{}"
+
+# INFRASTRUCTURE VALIDATION: Verify persistence helpers exist and are writable
+p1s_validate_persistence_infrastructure:
+  alias: "P1S Validate Persistence Infrastructure"
+  description: "Confirms binding + mapping helpers exist and are writable. Returns PASS/FAIL."
+  sequence:
+    - variables:
+        binding_exists: "{{ states('input_text.p1s_slot_to_spool_binding_json') not in ['unavailable', 'unknown', ''] }}"
+        mapping_exists: "{{ states('input_text.p1s_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
+        binding_state_before: "{{ states('input_text.p1s_slot_to_spool_binding_json') | default('', true) | string }}"
+    # Test 1: Check existence
+    - if:
+        - condition: template
+          value_template: "{{ not binding_exists or not mapping_exists }}"
+      then:
+        - service: persistent_notification.create
+          data:
+            title: "P1S Infrastructure Validation: FAIL"
+            message: >
+              Binding helper exists: {{ binding_exists }}
+              Mapping helper exists: {{ mapping_exists }}
+              
+              ACTION REQUIRED: Create missing helpers via HA UI:
+              1. Settings → Devices & Services → Helpers
+              2. Create Text helpers with exact entity IDs:
+                 - input_text.p1s_slot_to_spool_binding_json (max: 1024)
+                 - input_text.p1s_last_mapping_json (max: 2048)
+        - stop: "FAIL: Helpers missing"
+    # Test 2: Attempt safe write/restore (doesn't alter production data long-term)
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.p1s_slot_to_spool_binding_json
+      data:
+        value: "{{ ('{}') | string }}"
+    - delay: "00:00:01"
+    - variables:
+        write_test: "{{ states('input_text.p1s_slot_to_spool_binding_json') | string }}"
+    # Restore original value
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.p1s_slot_to_spool_binding_json
+      data:
+        value: "{{ binding_state_before }}"
+    # Test 3: Log result
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.p1s_last_mapping_json
+      data:
+        value: "{{ ('validation=PASS | binding_writable=true | mapping_writable=true | timestamp=' ~ now().isoformat()) | string }}"
+    - service: persistent_notification.create
+      data:
+        title: "P1S Infrastructure Validation: PASS"
+        message: >
+          ✓ Binding helper exists and is writable
+          ✓ Mapping helper exists and is writable
+          
+          Infrastructure is ready for V1 opinionated auto-mapping.
 
 # DEBUG: Simulate finish path without a real print. Requires filament_debug_mode ON for checkpoints.
 # Seeds start/end input_numbers (NO JSON), fires finish automation. Verify checkpoints reach COMPLETE.

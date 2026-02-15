@@ -836,6 +836,42 @@
               # Read the chosen spool_id (script sets ams_slot_N_spool_id)
               - variables:
                   spool_id: "{{ states('input_text.ams_slot_' ~ repeat.index ~ '_spool_id') | int(0) }}"
+              # RESILIENT FALLBACK: If mapping failed to assign spool, choose lowest remaining
+              - if:
+                  - condition: template
+                    value_template: "{{ spool_id == 0 }}"
+                then:
+                  - variables:
+                      fallback_spools: >
+                        {% set ns = namespace(spools=[]) %}
+                        {% for st in (states.sensor | selectattr('entity_id', 'match', '^sensor\\.spoolman_spool_\\d+$') | list) %}
+                          {% set rem = state_attr(st.entity_id, 'remaining_weight') | float(-1) %}
+                          {% if rem >= 0 %}
+                            {% set sid = st.entity_id.split('_')[-1] %}
+                            {% set ns.spools = ns.spools + [{'id': sid, 'remaining': rem}] %}
+                          {% endif %}
+                        {% endfor %}
+                        {{ ns.spools }}
+                      fallback_sorted: "{{ fallback_spools | sort(attribute='remaining') }}"
+                      fallback_spool: "{{ fallback_sorted[0] if fallback_sorted | length > 0 else none }}"
+                      fallback_spool_id: "{{ fallback_spool.id if fallback_spool else 0 }}"
+                  - if:
+                      - condition: template
+                        value_template: "{{ fallback_spool_id | int > 0 }}"
+                    then:
+                      - service: input_text.set_value
+                        target:
+                          entity_id: "input_text.ams_slot_{{ repeat.index }}_spool_id"
+                        data:
+                          value: "{{ fallback_spool_id | string }}"
+                      - variables:
+                          spool_id: "{{ fallback_spool_id | int }}"
+                      # Log fallback in checkpoint
+                      - service: input_text.set_value
+                        target:
+                          entity_id: input_text.p1s_finish_automation_checkpoint
+                        data:
+                          value: "{{ ('slot' ~ repeat.index ~ '_fallback_spool_' ~ fallback_spool_id) | string }}"
               # In debug mode: use pre-seeded end values; in real print: read sensors
               - choose:
                   - conditions:
@@ -907,7 +943,7 @@
           {% endif %}
           {% endfor %}
           
-          Mapping: {{ states('input_text.p1s_last_mapping_json')[:200] }}
+          Mapping: {{ states('input_text.p1s_last_mapping_json') | default('helper not found', true) | string | truncate(200) }}
     - service: notify.persistent_notification
       data:
         title: "P1S Filament Usage ({{ trigger_state }})"
