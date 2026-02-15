@@ -1069,8 +1069,13 @@
         - sensor.p1s_01p00c5a3101668_ams_128_tray_1
         - sensor.p1s_01p00c5a3101668_ams_129_tray_1
   condition:
+    # Only fire if state actually changed (not just republished)
     - condition: template
-      value_template: "{{ trigger.to_state.state not in ['Empty', 'unknown', 'unavailable', ''] and trigger.from_state.state != trigger.to_state.state }}"
+      value_template: >
+        {{ trigger.to_state.state not in ['Empty', 'unknown', 'unavailable', ''] 
+           and trigger.from_state is not none
+           and trigger.from_state.state != trigger.to_state.state 
+           and trigger.from_state.state not in ['unknown', 'unavailable', 'None', ''] }}
   action:
     - variables:
         tray_text: "{{ trigger.to_state.state | trim }}"
@@ -1083,6 +1088,15 @@
           sensor.p1s_01p00c5a3101668_ams_129_tray_1: { slot: 6, location: "AMS2_HT_Slot2" }
         slot_num: "{{ slot_map[trigger.entity_id].slot }}"
         ams_location: "{{ slot_map[trigger.entity_id].location }}"
+        # Check if tray text is specific enough (has color, weight, or distinguishing info)
+        # Generic examples: "Overture PLA", "eSUN ABS" (only vendor+material)
+        # Specific examples: "Overture PLA Black", "eSUN ABS+ White 1kg"
+        is_generic: >
+          {% set words = tray_text | lower | split() %}
+          {% set has_color = words | select('in', ['black', 'white', 'red', 'blue', 'green', 'yellow', 'orange', 'purple', 'gray', 'grey', 'pink', 'brown', 'transparent', 'clear', 'natural']) | list | length > 0 %}
+          {% set has_weight = words | select('search', '\\d+(g|kg|lb)') | list | length > 0 %}
+          {% set word_count = words | length %}
+          {{ not has_color and not has_weight and word_count <= 2 }}
         # Find all spools on Shelf that match the tray text (vendor/material/name fuzzy match)
         matching_spools: >
           {% set ns = namespace(matches=[]) %}
@@ -1099,19 +1113,29 @@
               {% if name and name in tray_lower %}{% set match_score = match_score + 1 %}{% endif %}
               {% if match_score >= 2 %}
                 {% set spool_id = st.entity_id.split('_')[-1] %}
-                {% set ns.matches = ns.matches + [spool_id] %}
+                {% set remaining = state_attr(st.entity_id, 'remaining_weight') | float(999999) %}
+                {% set ns.matches = ns.matches + [{'id': spool_id, 'remaining': remaining}] %}
               {% endif %}
             {% endif %}
           {% endfor %}
           {{ ns.matches }}
     - choose:
+        # Generic tray text → skip auto-assign, notify once
+        - conditions:
+            - condition: template
+              value_template: "{{ is_generic }}"
+          sequence:
+            - action: notify.persistent_notification
+              data:
+                title: "AMS Slot {{ slot_num }}: Manual Assignment Required"
+                message: "Detected '{{ tray_text }}' in {{ ams_location }}. Tray text is too generic for auto-matching (lacks color/weight). Go to Spool Management to manually assign."
         # Exactly one match → auto-assign
         - conditions:
             - condition: template
-              value_template: "{{ matching_spools | length == 1 }}"
+              value_template: "{{ not is_generic and matching_spools | length == 1 }}"
           sequence:
             - variables:
-                spool_id: "{{ matching_spools[0] }}"
+                spool_id: "{{ matching_spools[0].id }}"
             - action: input_text.set_value
               target:
                 entity_id: "input_text.ams_slot_{{ slot_num }}_spool_id"
@@ -1126,17 +1150,46 @@
               data:
                 title: "AMS Slot {{ slot_num }} Auto-Assigned"
                 message: "Detected '{{ tray_text }}' in {{ ams_location }}. Auto-assigned Spoolman spool {{ spool_id }}. Weigh the spool and tap 'Assign & Update' to set remaining weight."
-        # No matches or multiple → notify for manual assignment
+        # Multiple matches → pick least remaining if unique winner, else manual
         - conditions:
             - condition: template
-              value_template: "{{ matching_spools | length != 1 }}"
+              value_template: "{{ not is_generic and matching_spools | length > 1 }}"
           sequence:
-            - action: notify.persistent_notification
-              data:
-                title: "New Filament Detected in AMS Slot {{ slot_num }}"
-                message: >
-                  Detected '{{ tray_text }}' in {{ ams_location }}.
-                  {% if matching_spools | length == 0 %}No matching Spoolman spool found on Shelf.{% else %}Found {{ matching_spools | length }} possible matches (IDs: {{ matching_spools | join(', ') }}).{% endif %}
-                  Go to the Spool Management page to manually assign.
+            - variables:
+                sorted_matches: "{{ matching_spools | sort(attribute='remaining') }}"
+                least_remaining: "{{ sorted_matches[0].remaining }}"
+                second_least: "{{ sorted_matches[1].remaining if sorted_matches | length > 1 else 999999 }}"
+                is_unique_winner: "{{ least_remaining < (second_least - 50) }}"
+                winner_spool_id: "{{ sorted_matches[0].id if is_unique_winner else none }}"
+            - choose:
+                - conditions:
+                    - condition: template
+                      value_template: "{{ is_unique_winner }}"
+                  sequence:
+                    - action: input_text.set_value
+                      target:
+                        entity_id: "input_text.ams_slot_{{ slot_num }}_spool_id"
+                      data:
+                        value: "{{ winner_spool_id }}"
+                    - action: spoolman.patch_spool
+                      data:
+                        id: "{{ winner_spool_id | int }}"
+                        location: "{{ ams_location }}"
+                    - action: script.reload_spoolman_integration
+                    - action: notify.persistent_notification
+                      data:
+                        title: "AMS Slot {{ slot_num }} Auto-Assigned (Least Remaining)"
+                        message: "Detected '{{ tray_text }}' in {{ ams_location }}. Auto-assigned Spoolman spool {{ winner_spool_id }} (least remaining: {{ least_remaining | round(0) }}g). Verify and update weight if needed."
+              default:
+                - action: notify.persistent_notification
+                  data:
+                    title: "AMS Slot {{ slot_num }}: Manual Assignment Required"
+                    message: "Detected '{{ tray_text }}' in {{ ams_location }}. Found {{ matching_spools | length }} possible matches (IDs: {{ matching_spools | map(attribute='id') | join(', ') }}), but no clear winner. Go to Spool Management to manually assign."
+      default:
+        # No matches → notify
+        - action: notify.persistent_notification
+          data:
+            title: "AMS Slot {{ slot_num }}: Manual Assignment Required"
+            message: "Detected '{{ tray_text }}' in {{ ams_location }}. No matching Spoolman spool found on Shelf. Go to Spool Management to manually assign."
   mode: queued
   max: 10
