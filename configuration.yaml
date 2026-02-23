@@ -69,6 +69,14 @@ input_text:
   ams_slot_6_spool_id:
     name: AMS Slot 6 (AMS2_HT_Slot2) – Spoolman spool ID
     initial: "6"
+  ams_slot_5_unbound_reason:
+    name: "AMS Slot 5 Unbound Reason"
+    max: 100
+    initial: ""
+  ams_slot_6_unbound_reason:
+    name: "AMS Slot 6 Unbound Reason"
+    max: 100
+    initial: ""
   p1s_last_active_tray:
     name: P1S Last Active Tray
     max: 100
@@ -92,11 +100,11 @@ input_text:
     max: 255
   p1s_slot_to_spool_binding_json:
     name: P1S Slot to Spool Binding (JSON)
-    max: 1024
+    max: 255
     initial: "{}"
   p1s_last_mapping_json:
     name: P1S Last Mapping Result
-    max: 2048
+    max: 255
     initial: ""
   p1s_tray_remaining_start_json:
     name: P1S tray remaining start JSON
