@@ -8,3 +8,19 @@ scripts/deploy.env
 *.tmp
 -H
 -d
+
+# macOS
+.DS_Store
+
+# local secrets
+scripts/deploy.env
+.env
+**/.env
+
+# generated artifacts
+artifacts/
+snapshots/
+logs/
+patches/
+spool_cache.json
+gates_phase0_hard_output.txt
