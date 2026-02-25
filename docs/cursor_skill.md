@@ -1,201 +1,298 @@
-# Cursor Skill — Validation, Deployment, and Code Management (Authoritative)
+# Cursor Skill --- Validation, Deployment, and Code Management (Authoritative)
 
-This repository runs on strict, deterministic engineering discipline.
+This repository runs on strict, deterministic engineering discipline.\
 Cursor must follow this doc exactly.
+
+------------------------------------------------------------------------
 
 ## Goals
 
-- Prevent broken deployments
-- Prevent skipped testing / skipped gates
-- Prevent accidental loss of scripts or helper definitions
-- Ensure every deploy is auditable and reversible
-- Default to deterministic “run all gates” behavior
+-   Prevent broken deployments\
+-   Prevent skipped testing / skipped gates\
+-   Prevent accidental loss of scripts or helper definitions\
+-   Ensure every deploy is auditable and reversible\
+-   Default to deterministic "run all gates" behavior\
+-   Provide a safe, read-only investigation mode (ANALYZE)
 
-## Triggers (ALL CAPS) — script mapping
+------------------------------------------------------------------------
 
-When the user types one of these in ALL CAPS, Cursor must execute the corresponding workflow. **Never invent deployment steps.**
+## Triggers (ALL CAPS) --- script mapping
 
-| Trigger   | Action |
-|-----------|--------|
-| **TEST**  | Run `./scripts/skill_test.sh`. Output structured summary (STATUS, COMMANDS RUN, ARTIFACTS, NEXT ACTION). |
-| **DEPLOY**| Run `./scripts/skill_deploy.sh` (it runs TEST first, then `./scripts/manage_ha.sh` by change type). Output structured summary. |
-| **CHECKIN** | Follow CHECKIN workflow below (commit + audit summary). No standalone script. |
-| **GUARDRAILS** | Restate and enforce repo rules from this doc. No script. |
-| **ROLLBACK** | Provide safe rollback steps from this doc; use `./scripts/manage_ha.sh` for redeploy. No standalone script. |
-| **PHASE**  | Show current maturity posture (gates, flags, what TEST/DEPLOY enforce). No standalone script. |
+When the user types one of these in ALL CAPS, Cursor must execute the
+corresponding workflow. **Never invent deployment steps.**
 
-### TEST
-Run the full validation workflow and output PASS/FAIL with a checklist summary. **Implementation:** `./scripts/skill_test.sh`.
+  ------------------------------------------------------------------------
+  Trigger                                    Action
+  ------------------------------------------ -----------------------------
+  **TEST**                                   Run
+                                             `./scripts/skill_test.sh`.
+                                             Output structured summary
+                                             (STATUS, COMMANDS RUN,
+                                             ARTIFACTS, NEXT ACTION).
 
-### DEPLOY
-Run TEST first. If PASS, deploy using `./scripts/manage_ha.sh` based on change type, then run post-deploy verification. Output a deployment record. **Implementation:** `./scripts/skill_deploy.sh` (runs TEST then deploy).
+  **DEPLOY**                                 Run
+                                             `./scripts/skill_deploy.sh`
+                                             (it runs TEST first, then
+                                             `./scripts/manage_ha.sh` by
+                                             change type). Output
+                                             structured summary.
 
-### CHECKIN
-Create a clean, reviewable commit with an audit summary and validation notes.
+  **CHECKIN**                                Follow CHECKIN workflow below
+                                             (commit + audit summary). No
+                                             standalone script.
 
-### GUARDRAILS
-Restate and enforce repo rules (what is never allowed). Used to re-anchor Cursor if it drifts.
+  **GUARDRAILS**                             Restate and enforce repo
+                                             rules from this doc. No
+                                             script.
 
-### ROLLBACK
-Provide safe rollback steps (revert + redeploy known-good + re-validate).
+  **ROLLBACK**                               Provide safe rollback steps
+                                             from this doc; use
+                                             `./scripts/manage_ha.sh` for
+                                             redeploy. No standalone
+                                             script.
 
-### PHASE
-Show “current maturity posture”: phase gates available, feature flags, and which gates are enforced by TEST/DEPLOY.
+  **PHASE**                                  Show current maturity posture
+                                             (gates, flags, what
+                                             TEST/DEPLOY enforce). No
+                                             standalone script.
 
----
+  **ANALYZE**                                Perform strict read-only
+                                             investigation. No file edits.
+                                             No deploy. No service calls.
+                                             Output structured report
+                                             only.
+  ------------------------------------------------------------------------
 
-## Non-Negotiable Rules
+------------------------------------------------------------------------
 
-1. **Never deploy unless TEST passes.**
-2. **TEST runs ALL phase gates** (deterministic; no skipping for speed).
-3. **DEPLOY must use `./scripts/manage_ha.sh`** as the only deploy interface.
-4. **Every TEST/DEPLOY ends with a structured summary**:
-   - STATUS: PASS/FAIL
-   - COMMANDS RUN:
-   - ARTIFACTS / LOGS:
-   - NEXT ACTION:
-5. Any proposed code change must include:
-   - How it will be validated (which tests/gates)
-   - What “done” looks like
-6. Never delete/overwrite scripts or helper definitions without:
-   - A git commit preserving the change
-   - Updated validations/gates if behavior changes
-7. If post-deploy verification fails:
-   - Treat as a deployment failure
-   - Recommend ROLLBACK steps immediately
-8. **If DEPLOY fails because skill_deploy.sh or other skill scripts crashed or bugged, STOP.** Do not fix scripts and continue deploying in the same run. Then:
-   - (1) Propose a patch for the script bug.
-   - (2) Require TEST (run `./scripts/skill_test.sh`).
-   - (3) Require CHECKIN (commit the fix with audit summary).
-   - (4) Rerun DEPLOY only after CHECKIN.
-   DEPLOY must not amend commits or continue deploying in the same run after editing scripts.
+# Non-Negotiable Rules
 
----
+1.  **Never deploy unless TEST passes.**
+2.  **TEST runs ALL phase gates** (deterministic; no skipping for
+    speed).
+3.  **DEPLOY must use `./scripts/manage_ha.sh`** as the only deploy
+    interface.
+4.  **Every TEST/DEPLOY ends with a structured summary:**
+    -   STATUS: PASS/FAIL
+    -   COMMANDS RUN:
+    -   ARTIFACTS / LOGS:
+    -   NEXT ACTION:
+5.  Any proposed code change must include:
+    -   How it will be validated (which tests/gates)
+    -   What "done" looks like
+6.  Never delete/overwrite scripts or helper definitions without:
+    -   A git commit preserving the change
+    -   Updated validations/gates if behavior changes
+7.  If post-deploy verification fails:
+    -   Treat as a deployment failure
+    -   Recommend ROLLBACK steps immediately
+8.  **If DEPLOY fails because skill_deploy.sh or other skill scripts
+    crashed or bugged, STOP.**
+    -   (1) Propose a patch for the script bug.
 
-## TEST Workflow (Authoritative)
+    -   (2) Require TEST (`./scripts/skill_test.sh`).
 
-### 0) Preconditions
-- Repo is on the intended branch
-- Working tree is clean (or user explicitly approves running dirty)
+    -   (3) Require CHECKIN (commit the fix with audit summary).
 
-### 1) Preflights (must run)
-Run the repo’s preflight scripts that validate Home Assistant helper integrity and integration wiring.
-Examples (actual scripts may vary; update this list as canonical):
-- `./scripts/preflight_input_text.sh`
-- `./scripts/preflight_spoolman_filament_dropdown.sh`
-- `./scripts/preflight_ams_matching.sh`
-- `./scripts/preflight_spoolman_location_update.sh`
-- Helper integrity validation scripts (manifest sync/validate if present)
+    -   (4) Rerun DEPLOY only after CHECKIN.
 
-Expected outcome:
-- Each preflight prints PASS/FAIL and TEST fails on any FAIL.
+    -   DEPLOY must not amend commits or continue deploying in the same
+        run after editing scripts.
 
-### 2) Unit / integration tests (must run if present)
-- Python unit tests for AppDaemon / reconciliation logic (pytest)
-- Any additional scripted checks
+------------------------------------------------------------------------
 
-Expected outcome:
-- All tests pass.
+# TEST Workflow (Authoritative)
 
-### 3) Phase Gates (must run ALL)
-Phase gates represent system-level correctness (state model, RFID/non-RFID, snapshot logic, etc).
-TEST must run all gates deterministically.
+## 0) Preconditions
 
-Canonical examples (update to match what exists):
-- `./scripts/gate_phase0_rfid_regression.sh`
-- Any other `gate_phase*.sh` scripts
+-   Repo is on the intended branch\
+-   Working tree is clean (or user explicitly approves running dirty)
 
-Expected outcome:
-- All gates pass.
+## 1) Preflights (must run)
 
-### 4) Output format (required)
-At the end of TEST, output:
+Examples (update canonical list as needed):
 
-- STATUS: PASS/FAIL
-- COMMANDS RUN: (bulleted)
-- ARTIFACTS / LOGS: (paths to captured outputs)
-- FAILURES: (if any, include exact step + error)
-- NEXT ACTION: (minimal fix + re-run TEST)
+-   `./scripts/preflight_input_text.sh`
+-   `./scripts/preflight_spoolman_filament_dropdown.sh`
+-   `./scripts/preflight_ams_matching.sh`
+-   `./scripts/preflight_spoolman_location_update.sh`
+-   Helper integrity validation scripts (manifest sync/validate if
+    present)
 
----
+Expected outcome:\
+Each preflight prints PASS/FAIL and TEST fails on any FAIL.
 
-## DEPLOY Workflow (Authoritative)
+## 2) Unit / Integration Tests
 
-### 0) Always run TEST first
-DEPLOY must run TEST and abort if FAIL.
+-   Python unit tests (pytest) if present
+-   Any additional scripted checks
 
-### 1) Determine deploy target from change type
-Use git diff to decide. Deploy only via `./scripts/manage_ha.sh`.
+All must pass.
 
-Rules:
-- If AppDaemon code changed (e.g., `appdaemon/`): deploy with `--appdaemon`
-- If HA scripts changed (`scripts.yaml`, HA script files): deploy with `--scripts`
-- If HA config changed (`configuration.yaml`, `automations.yaml`, dashboards): deploy with `--config`
+## 3) Phase Gates (must run ALL)
 
-If multiple areas changed, deploy in the safest order:
-1) `--scripts`
-2) `--config`
-3) `--appdaemon`
-(Adjust if repo conventions differ.)
+Examples: - `./scripts/gate_phase0_rfid_regression.sh` - Any other
+`gate_phase*.sh`
 
-### 2) Post-deploy verification (must run)
-After deployment:
-- Confirm expected helper entities exist (and are writable when required)
-- Confirm AppDaemon is restarted when AppDaemon changes are deployed
-- Tail logs for known error signatures (websocket 502, DomainException, missing services)
-- Re-run relevant phase gate(s) in verification mode if available
-- Confirm system is stable (no repeating errors)
+All gates must pass.
 
-### 3) Deployment record (required)
-DEPLOY must produce a record including:
-- Date/time
-- Branch + git SHA
-- What changed (high level)
-- Commands executed (exact)
-- Verification results
-- Rollback command(s) if needed
+## 4) Required TEST Output
 
----
+-   STATUS: PASS/FAIL\
+-   COMMANDS RUN:\
+-   ARTIFACTS / LOGS:\
+-   FAILURES:\
+-   NEXT ACTION:
 
-## CHECKIN Workflow (Authoritative)
+------------------------------------------------------------------------
 
-CHECKIN produces a clean, reviewable commit:
-- Confirm branch name
-- Summarize changes (what/why)
-- List validation steps run (TEST results)
-- Commit message template:
+# DEPLOY Workflow (Authoritative)
 
-  `<area>: <short summary>`
-  - Why:
-  - Risk:
-  - Validated by:
+## 0) Always run TEST first
 
----
+Abort if TEST fails.
 
-## ROLLBACK Workflow (Authoritative)
+## 1) Determine Deploy Target from Change Type
 
-Rollback approach:
-1) Identify last known-good SHA
-2) `git revert` or `git reset --hard` (depending on policy)
-3) Re-deploy using `./scripts/manage_ha.sh` with the same target(s)
-4) Run TEST (or at least verification gates)
-5) Capture logs + record outcome
+Use `git diff` to detect area.
 
----
+Rules: - If `appdaemon/` changed → `--appdaemon` - If HA scripts changed
+→ `--scripts` - If HA config changed → `--config`
 
-## PHASE Workflow (Authoritative)
+If multiple areas changed, deploy in safest order:
 
-PHASE outputs:
-- List of phase gate scripts available
-- Feature flags and expected default values (if known)
-- Which gates are enforced by TEST/DEPLOY
-- Any temporary waivers (avoid if possible; must be explicit)
+1)  `--scripts`\
+2)  `--config`\
+3)  `--appdaemon`
 
----
+## 2) Post-Deploy Verification (Required)
 
-## Maintenance
+Must verify:
+
+-   Helper entities exist and are writable (if required)
+-   AppDaemon restarted if relevant
+-   Tail logs for known signatures:
+    -   websocket 502
+    -   DomainException
+    -   missing services
+-   Re-run relevant phase gates (verification mode if supported)
+-   Confirm no repeating errors
+
+## 3) Deployment Record (Required)
+
+Include:
+
+-   Date/time
+-   Branch + git SHA
+-   What changed
+-   Commands executed (exact)
+-   Verification results
+-   Rollback command(s)
+
+------------------------------------------------------------------------
+
+# CHECKIN Workflow (Authoritative)
+
+Produces clean commit:
+
+-   Confirm branch
+-   Summarize changes (what + why)
+-   List TEST results
+-   Commit template:
+
+```{=html}
+<!-- -->
+```
+    <area>: <short summary>
+
+    - Why:
+    - Risk:
+    - Validated by:
+
+------------------------------------------------------------------------
+
+# ROLLBACK Workflow (Authoritative)
+
+1)  Identify last known-good SHA\
+2)  `git revert` or `git reset --hard` (per policy)\
+3)  Re-deploy via `./scripts/manage_ha.sh`\
+4)  Run TEST (or verification gates)\
+5)  Capture logs + outcome
+
+------------------------------------------------------------------------
+
+# PHASE Workflow (Authoritative)
+
+Outputs:
+
+-   Phase gate scripts available
+-   Feature flags + default states (if known)
+-   Which gates TEST enforces
+-   Any temporary waivers (explicit only)
+
+------------------------------------------------------------------------
+
+# ANALYZE Workflow (Authoritative)
+
+ANALYZE is a **strict read-only investigation mode.**
+
+## Hard Rules (Non-Negotiable)
+
+ANALYZE must not:
+
+-   Edit files\
+-   Create files\
+-   Format files\
+-   Commit\
+-   Run TEST\
+-   Run DEPLOY\
+-   Run ROLLBACK\
+-   Call `./scripts/manage_ha.sh`\
+-   Restart services\
+-   Make service calls to HA/AppDaemon/Spoolman\
+-   Mutate Home Assistant or Spoolman state\
+-   Execute state-changing scripts
+
+ANALYZE must not mutate:
+
+-   Repo\
+-   Runtime system\
+-   Remote hosts\
+-   Home Assistant state\
+-   Spoolman state
+
+## Allowed Actions
+
+-   Read files\
+-   Trace control + data flow\
+-   Identify regressions and invariants\
+-   Identify likely root causes\
+-   Propose patch snippets (NOT applied)\
+-   Recommend next skill (TEST / CHECKIN / DEPLOY)
+
+## Required ANALYZE Output Format
+
+ANALYZE must output:
+
+-   Executive Summary
+-   Observed Evidence (files + symbols)
+-   System Walkthrough (data flow)
+-   Findings (ranked)
+-   Root Cause Hypothesis (with confidence level)
+-   Blast Radius / Risk
+-   Suggested Fix (patch snippets only)
+-   Suggested Validation (which TEST/gate to run)
+-   Next Action (explicit skill recommendation)
+
+ANALYZE must stop after delivering the report.\
+It must never automatically transition into another skill.
+
+------------------------------------------------------------------------
+
+# Maintenance
 
 When new gates/scripts are added:
-- Update this doc
-- Update the canonical TEST runner (if used)
-- Keep outputs deterministic and auditable
+
+-   Update this document\
+-   Update canonical TEST runner\
+-   Keep outputs deterministic and auditable

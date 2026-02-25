@@ -7,16 +7,17 @@ alwaysApply: true
 
 The authoritative workflow is **docs/cursor_skill.md**. Follow it exactly.
 
-## ALL CAPS triggers
+## ALL CAPS triggers (authoritative: docs/cursor_skill.md)
 
-When the user types any of these in **ALL CAPS**, execute the corresponding workflow:
+When the user types any of these in **ALL CAPS**, execute the corresponding workflow exactly as defined in **docs/cursor_skill.md**. Never invent deployment steps.
 
-- **TEST** → Run `./scripts/skill_test.sh`. Never skip or invent test steps.
-- **DEPLOY** → Run `./scripts/skill_deploy.sh` (it runs TEST first, then `./scripts/manage_ha.sh`). Never deploy without TEST passing. Never invent deployment steps. If DEPLOY fails because skill_deploy.sh or other skill scripts crashed/bugged: STOP; propose a patch → require TEST → require CHECKIN (commit the fix) → rerun DEPLOY only after CHECKIN. Do not amend commits or continue deploying in the same run after editing scripts.
-- **CHECKIN** → Follow CHECKIN workflow in docs/cursor_skill.md (commit + audit summary).
-- **GUARDRAILS** → Restate and enforce repo rules from docs/cursor_skill.md.
-- **ROLLBACK** → Provide rollback steps from docs/cursor_skill.md; redeploy only via `./scripts/manage_ha.sh`.
-- **PHASE** → Show current maturity posture (gates, flags, what TEST/DEPLOY enforce).
+- **TEST** → Run `./scripts/skill_test.sh`. Output structured summary: STATUS, COMMANDS RUN, ARTIFACTS, FAILURES (if any), NEXT ACTION.
+- **DEPLOY** → Run `./scripts/skill_deploy.sh` (runs TEST first, then `./scripts/manage_ha.sh` by change type). Output structured summary. Never deploy unless TEST passes.
+- **CHECKIN** → Follow CHECKIN workflow (commit + audit summary). No standalone script.
+- **GUARDRAILS** → Restate and enforce repo rules from docs/cursor_skill.md. No script.
+- **ROLLBACK** → Provide safe rollback steps from docs/cursor_skill.md; redeploy only via `./scripts/manage_ha.sh`. No standalone script.
+- **PHASE** → Show current maturity posture (gates, flags, what TEST/DEPLOY enforce). No standalone script.
+- **ANALYZE** → Strict read-only investigation. No file edits, no deploy, no service calls. Output structured report only (Executive Summary, Evidence, Findings, Root Cause Hypothesis, Suggested Fix as snippets only, Next Action). Do not mutate repo or runtime; do not run TEST/DEPLOY/ROLLBACK or call manage_ha.sh.
 
 Deploy only via `./scripts/manage_ha.sh`. No other deploy commands.
 
@@ -32,7 +33,8 @@ Always end with this structured block:
 STATUS:
 COMMANDS RUN:
 ARTIFACTS:
+FAILURES:     (if any; omit when none)
 NEXT ACTION:
 ```
 
-Fill each line; use PASS/FAIL for STATUS; list exact commands; point to log/artifact paths; give one clear next step.
+Fill each line; use PASS/FAIL for STATUS; list exact commands; point to log/artifact paths; list FAILURES when present; give one clear next step.
