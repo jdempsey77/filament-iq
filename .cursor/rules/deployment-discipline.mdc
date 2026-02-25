@@ -12,13 +12,17 @@ The authoritative workflow is **docs/cursor_skill.md**. Follow it exactly.
 When the user types any of these in **ALL CAPS**, execute the corresponding workflow:
 
 - **TEST** → Run `./scripts/skill_test.sh`. Never skip or invent test steps.
-- **DEPLOY** → Run `./scripts/skill_deploy.sh` (it runs TEST first, then `./scripts/manage_ha.sh`). Never deploy without TEST passing. Never invent deployment steps.
+- **DEPLOY** → Run `./scripts/skill_deploy.sh` (it runs TEST first, then `./scripts/manage_ha.sh`). Never deploy without TEST passing. Never invent deployment steps. If DEPLOY fails because skill_deploy.sh or other skill scripts crashed/bugged: STOP; propose a patch → require TEST → require CHECKIN (commit the fix) → rerun DEPLOY only after CHECKIN. Do not amend commits or continue deploying in the same run after editing scripts.
 - **CHECKIN** → Follow CHECKIN workflow in docs/cursor_skill.md (commit + audit summary).
 - **GUARDRAILS** → Restate and enforce repo rules from docs/cursor_skill.md.
 - **ROLLBACK** → Provide rollback steps from docs/cursor_skill.md; redeploy only via `./scripts/manage_ha.sh`.
 - **PHASE** → Show current maturity posture (gates, flags, what TEST/DEPLOY enforce).
 
 Deploy only via `./scripts/manage_ha.sh`. No other deploy commands.
+
+## Deploy-script failures: no fix-in-place
+
+If DEPLOY fails because **skill_deploy.sh or other skill scripts crashed or bugged**, STOP. Do not fix scripts and continue deploying in the same run. Then: (1) propose a patch, (2) require TEST, (3) require CHECKIN (commit the fix), (4) rerun DEPLOY only after CHECKIN. DEPLOY must not amend commits or continue deploying after editing scripts.
 
 ## Required output after TEST / DEPLOY
 

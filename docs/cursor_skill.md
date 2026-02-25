@@ -63,6 +63,12 @@ Show “current maturity posture”: phase gates available, feature flags, and w
 7. If post-deploy verification fails:
    - Treat as a deployment failure
    - Recommend ROLLBACK steps immediately
+8. **If DEPLOY fails because skill_deploy.sh or other skill scripts crashed or bugged, STOP.** Do not fix scripts and continue deploying in the same run. Then:
+   - (1) Propose a patch for the script bug.
+   - (2) Require TEST (run `./scripts/skill_test.sh`).
+   - (3) Require CHECKIN (commit the fix with audit summary).
+   - (4) Rerun DEPLOY only after CHECKIN.
+   DEPLOY must not amend commits or continue deploying in the same run after editing scripts.
 
 ---
 
