@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Gate: E2E Spoolman UUID pipeline.
-#  a) Clear input_text.spoolman_new_spool_uuid
-#  b) Call script.spoolman_set_new_spool_uuid; assert helper has UUID format
-#  c) Optionally call rest_command.ams_spoolman_create_spool and assert newest spool has extra.ha_spool_uuid (if SPOOLMAN_E2E=1 and Spoolman reachable)
-# Output: PASS/FAIL checklist + artifacts to GATE_ARTIFACT_DIR or .artifacts/skill/gates/<timestamp>
+#  a) Assert python_script in /api/services
+#  b) Clear input_text.spoolman_new_spool_uuid
+#  c) POST /api/services/python_script/gen_uuid with {"target": helper}
+#  d) Poll helper up to 5s; if empty dump diagnostics
+#  e) Optional (c)(d): rest_command + Spoolman newest spool extra.ha_spool_uuid (SPOOLMAN_E2E=1)
+# Output: PASS/FAIL checklist + artifacts.
 
 set -euo pipefail
 
@@ -38,25 +40,41 @@ UUID_REGEX='^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}
 log "=== $GATE_NAME ==="
 log "Artifact dir: $ARTIFACT_DIR"
 
-# --- (a) Clear helper ---
+# --- (a) python_script domain present ---
+services_json=$(curl -sS -H "$AUTH" "$HOME_ASSISTANT_URL/api/services" 2>/dev/null) || true
+echo "$services_json" > "$ARTIFACT_DIR/api_services.json"
+has_ps=$(echo "$services_json" | jq -r '
+  if type == "array" then ([.[] | select(.domain == "python_script")] | length > 0)
+  elif type == "object" then has("python_script")
+  else false end
+' 2>/dev/null || echo "false")
+if [[ "$has_ps" != "true" ]]; then
+  log_fail "python_script integration not loaded; reload python_script or restart HA"
+else
+  log_ok "python_script domain present in /api/services"
+fi
+
+# --- (b) Clear helper ---
 curl -sS -o /dev/null -X POST -H "$AUTH" -H "Content-Type: application/json" \
   -d "{\"entity_id\":\"$HELPER\",\"value\":\"\"}" \
   "$HOME_ASSISTANT_URL/api/services/input_text/set_value" 2>/dev/null || true
 sleep 1
 
-# --- (b) Call script, poll for UUID ---
-http_code=$(curl -sS -o "$ARTIFACT_DIR/script_response.txt" -w "%{http_code}" \
+# --- (c) Call python_script.gen_uuid directly ---
+http_code=$(curl -sS -o "$ARTIFACT_DIR/gen_uuid_response.txt" -w "%{http_code}" \
   -X POST -H "$AUTH" -H "Content-Type: application/json" \
-  -d '{"entity_id":"script.spoolman_set_new_spool_uuid"}' \
-  "$HOME_ASSISTANT_URL/api/services/script/turn_on" 2>/dev/null || echo "000")
+  -d "{\"target\":\"$HELPER\"}" \
+  "$HOME_ASSISTANT_URL/api/services/python_script/gen_uuid" 2>/dev/null || echo "000")
 
 if [[ "$http_code" != "200" ]]; then
-  log_fail "script.spoolman_set_new_spool_uuid returned HTTP $http_code (see $ARTIFACT_DIR/script_response.txt)"
+  log_fail "python_script.gen_uuid returned HTTP $http_code (see $ARTIFACT_DIR/gen_uuid_response.txt)"
 else
-  log_ok "script.spoolman_set_new_spool_uuid returned 200"
+  log_ok "python_script.gen_uuid returned 200"
 fi
 
+# --- (d) Poll for UUID; if empty dump diagnostics ---
 uuid_val=""
+state=""
 for attempt in 1 2 3 4 5; do
   sleep 1
   body=$(curl -sS -H "$AUTH" "$HOME_ASSISTANT_URL/api/states/$HELPER" 2>/dev/null) || true
@@ -71,11 +89,23 @@ done
 
 if [[ -z "$uuid_val" ]]; then
   log_fail "helper still empty/unavailable after 5s (state=${state:-empty})"
+  log "  --- diagnostics ---"
+  log "  python_script in /api/services: $has_ps"
+  log "  Helper state (last): $ARTIFACT_DIR/helper_state_5.json"
+  if command -v jq >/dev/null 2>&1; then
+    [[ -f "$ARTIFACT_DIR/helper_state_5.json" ]] && jq . "$ARTIFACT_DIR/helper_state_5.json" >> "$ARTIFACT_DIR/checklist.txt" 2>/dev/null || true
+  fi
+  if [[ -n "${SSH_HOST:-}" && -n "${SSH_USER:-}" ]] && command -v ssh >/dev/null 2>&1; then
+    ssh ${SSH_OPTS:--o StrictHostKeyChecking=accept-new} "$SSH_USER@$SSH_HOST" "ha core logs --no-log-file 2>/dev/null | tail -200" >> "$ARTIFACT_DIR/ha_core_logs_tail.txt" 2>/dev/null || true
+    log "  HA logs tail: $ARTIFACT_DIR/ha_core_logs_tail.txt"
+  else
+    log "  To capture HA logs: set HA_SSH_HOST and SSH access, or check HA UI Developer Tools -> Logs"
+  fi
+  log "  --- end diagnostics ---"
 fi
 
-# --- (c)(d) Optional: create spool via rest_command, assert newest has extra.ha_spool_uuid ---
+# --- (e) Optional: rest_command + Spoolman newest spool extra.ha_spool_uuid ---
 if [[ -n "${SPOOLMAN_E2E:-}" && "$SPOOLMAN_E2E" == "1" && -n "${SPOOLMAN_URL:-}" && -n "$uuid_val" ]]; then
-  # Call rest_command (uses current helper state)
   rc_code=$(curl -sS -o "$ARTIFACT_DIR/rest_command_response.txt" -w "%{http_code}" \
     -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
     "$HOME_ASSISTANT_URL/api/services/rest_command/ams_spoolman_create_spool" 2>/dev/null || echo "000")
@@ -94,7 +124,7 @@ if [[ -n "${SPOOLMAN_E2E:-}" && "$SPOOLMAN_E2E" == "1" && -n "${SPOOLMAN_URL:-}"
     fi
   fi
 else
-  log "  SKIP: (c)(d) set SPOOLMAN_E2E=1 and SPOOLMAN_URL for full E2E"
+  log "  SKIP: (e) set SPOOLMAN_E2E=1 and SPOOLMAN_URL for full E2E"
 fi
 
 # --- Summary ---

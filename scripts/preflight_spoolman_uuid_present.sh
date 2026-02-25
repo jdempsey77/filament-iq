@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Preflight: verify the UUID generation pipeline works end-to-end.
-#   1) Clear the helper to empty
-#   2) Call script.spoolman_set_new_spool_uuid via HA API
-#   3) Poll input_text.spoolman_new_spool_uuid for up to 5s
-#   4) Assert value matches UUID v4 regex
-# Exit: 0 on success, 1 on failure, 0 (SKIP) if HA unreachable or deploy.env missing.
+# Preflight: verify UUID pipeline (python_script.gen_uuid) works.
+# 1) Assert python_script domain present in /api/services
+# 2) Clear input_text.spoolman_new_spool_uuid
+# 3) Call POST /api/services/python_script/gen_uuid with {"target":"input_text.spoolman_new_spool_uuid"}
+# 4) Poll helper up to 5s; assert UUID v4 format
+# Exit: 0 on success, 1 on failure, 0 (SKIP) if deploy.env or HA unreachable.
 
 set -euo pipefail
 
@@ -24,26 +24,41 @@ fi
 AUTH="Authorization: Bearer $HOME_ASSISTANT_TOKEN"
 HELPER="input_text.spoolman_new_spool_uuid"
 
-# Step 1: Clear the helper so we know a fresh UUID was generated
-curl -sS -o /dev/null -X POST \
-  -H "$AUTH" -H "Content-Type: application/json" \
+# Step 1: Assert python_script service exists
+services_json=$(curl -sS -H "$AUTH" "$HOME_ASSISTANT_URL/api/services" 2>/dev/null) || true
+if [[ -z "$services_json" ]]; then
+  echo "PREFLIGHT_SPOOLMAN_UUID: FAIL — could not fetch /api/services"
+  exit 1
+fi
+has_ps=$(echo "$services_json" | jq -r '
+  if type == "array" then ([.[] | select(.domain == "python_script")] | length > 0)
+  elif type == "object" then has("python_script")
+  else false end
+' 2>/dev/null || echo "false")
+if [[ "$has_ps" != "true" ]]; then
+  echo "PREFLIGHT_SPOOLMAN_UUID: FAIL — python_script integration not loaded"
+  echo "  Reload python_script or restart HA."
+  exit 1
+fi
+
+# Step 2: Clear helper
+curl -sS -o /dev/null -X POST -H "$AUTH" -H "Content-Type: application/json" \
   -d "{\"entity_id\":\"$HELPER\",\"value\":\"\"}" \
   "$HOME_ASSISTANT_URL/api/services/input_text/set_value" 2>/dev/null || true
 sleep 1
 
-# Step 2: Fire the UUID generation script (script.turn_on with entity_id)
+# Step 3: Call python_script.gen_uuid directly
 http_code=$(curl -sS -o /dev/null -w "%{http_code}" \
   -X POST -H "$AUTH" -H "Content-Type: application/json" \
-  -d '{"entity_id":"script.spoolman_set_new_spool_uuid"}' \
-  "$HOME_ASSISTANT_URL/api/services/script/turn_on" 2>/dev/null || echo "000")
+  -d "{\"target\":\"$HELPER\"}" \
+  "$HOME_ASSISTANT_URL/api/services/python_script/gen_uuid" 2>/dev/null || echo "000")
 
 if [[ "$http_code" != "200" ]]; then
-  echo "PREFLIGHT_SPOOLMAN_UUID: FAIL — script returned HTTP $http_code"
-  echo "  Check: script.spoolman_set_new_spool_uuid defined in scripts.yaml?"
+  echo "PREFLIGHT_SPOOLMAN_UUID: FAIL — python_script.gen_uuid returned HTTP $http_code"
   exit 1
 fi
 
-# Step 3: Poll for up to 5s
+# Step 4: Poll for up to 5s
 uuid_regex='^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
 for attempt in 1 2 3 4 5; do
   sleep 1
@@ -55,8 +70,5 @@ for attempt in 1 2 3 4 5; do
   fi
 done
 
-# Step 4: Failed
 echo "PREFLIGHT_SPOOLMAN_UUID: FAIL — helper value after 5s: '${state:-empty}'"
-echo "  Root cause: python_script import restrictions or Jinja template error."
-echo "  Debug: check HA logs for python_script or template errors."
 exit 1

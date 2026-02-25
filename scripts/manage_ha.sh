@@ -585,7 +585,14 @@ if [[ "$TARGET" == "--python_scripts" ]]; then
   REMOTE_PS="${REMOTE_CONFIG_PATH%/}/python_scripts"
   echo "Deploying python_scripts/ to $SSH_USER@$SSH_HOST:$REMOTE_PS"
   ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" "mkdir -p $REMOTE_PS"
-  scp $SSH_OPTS "$PYTHON_SCRIPTS_DIR"/*.py "$SSH_USER@$SSH_HOST:$REMOTE_PS/"
+  for f in "$PYTHON_SCRIPTS_DIR"/*.py; do
+    [[ -f "$f" ]] || continue
+    fn=$(basename "$f")
+    scp $SSH_OPTS "$f" "$SSH_USER@$SSH_HOST:$REMOTE_PS/$fn"
+    echo "  copied: $fn -> $REMOTE_PS/$fn"
+  done
+  echo "Remote $REMOTE_PS contents:"
+  ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" "ls -la $REMOTE_PS/"
   echo "Done. Reload python_script integration in HA (Developer Tools -> YAML -> Python Scripts) if needed."
   exit 0
 fi
