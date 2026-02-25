@@ -371,9 +371,25 @@ spoolman_add_filament:
 spoolman_set_new_spool_uuid:
   alias: Generate spool UUID
   sequence:
-    - action: python_script.gen_uuid
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.spoolman_new_spool_uuid
       data:
-        target: input_text.spoolman_new_spool_uuid
+        value: >-
+          {%- set h = '0123456789abcdef' -%}
+          {%- set ns = namespace(u='') -%}
+          {%- for i in range(36) -%}
+            {%- if i in [8,13,18,23] -%}
+              {%- set ns.u = ns.u ~ '-' -%}
+            {%- elif i == 14 -%}
+              {%- set ns.u = ns.u ~ '4' -%}
+            {%- elif i == 19 -%}
+              {%- set ns.u = ns.u ~ ('89ab'|random) -%}
+            {%- else -%}
+              {%- set ns.u = ns.u ~ (h|random) -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ ns.u }}
 
 # Add spool to Spoolman from dashboard (uses spoolman_new_spool_* helpers).
 # Generates a UUID, waits for it, then POSTs to Spoolman with extra.ha_spool_uuid.
