@@ -110,9 +110,19 @@ done
 # ==============================================================================
 if [[ -f "$REPO_ROOT/pytest.ini" || -d "$REPO_ROOT/tests" ]]; then
   if [[ -n "${VENV_ACTIVATE:-}" && -f "${VENV_ACTIVATE:-}" ]]; then
+    # Prefer explicit venv if provided
     run_step "unit: pytest (venv)" "source '${VENV_ACTIVATE}' && python -m pytest -q" || true
   else
-    run_step "unit: pytest" "python -m pytest -q" || true
+    # macOS often has no 'python' shim; prefer python3 and only run if pytest is installed
+    if command -v python3 >/dev/null 2>&1; then
+      if python3 -c "import pytest" >/dev/null 2>&1; then
+        run_step "unit: pytest" "python3 -m pytest -q" || true
+      else
+        log "SKIP: pytest not installed for python3; skipping unit tests."
+      fi
+    else
+      log "SKIP: python3 not found; skipping unit tests."
+    fi
   fi
 else
   log "SKIP: pytest not configured (no pytest.ini and no ./tests directory)."
@@ -140,14 +150,16 @@ else
   done
 fi
 
-for g in "${GATES[@]}"; do
-  local_path="./scripts/$g"
-  if [[ -x "$REPO_ROOT/scripts/$g" ]]; then
-    run_step "gate: $g" "$local_path" || true
-  else
-    run_step "gate: $g" "bash '$local_path'" || true
-  fi
-done
+if [[ ${#GATES[@]} -gt 0 ]]; then
+  for g in "${GATES[@]}"; do
+    local_path="./scripts/$g"
+    if [[ -x "$REPO_ROOT/scripts/$g" ]]; then
+      run_step "gate: $g" "$local_path" || true
+    else
+      run_step "gate: $g" "bash '$local_path'" || true
+    fi
+  done
+fi
 
 # ==============================================================================
 # 4) Final summary + exit code
