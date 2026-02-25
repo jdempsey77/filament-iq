@@ -82,6 +82,7 @@ log "INFO: artifacts=$ART_ROOT"
 # 1) Preflights (canonical list — adjust as your repo standardizes)
 # ==============================================================================
 PREFLIGHTS=(
+  "./scripts/preflight_input_text_yaml_limits.sh"
   "./scripts/preflight_template_filters.sh"
   "./scripts/preflight_input_text_services.sh"
   "./scripts/preflight_input_text.sh"

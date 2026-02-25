@@ -1866,18 +1866,24 @@ class AmsRfidReconcile(hass.Hass):
             return
         raise ValueError(f"_set_helper: unsupported entity domain for entity_id={entity_id}")
 
-    _LAST_MAPPING_JSON_MAX = 2048
+    _LAST_MAPPING_JSON_MAX = 255
 
     def write_last_mapping_json(self, reason, mapping):
-        """Write compact JSON to input_text.p1s_last_mapping_json for notifications. Ensures length <= 2048."""
-        ts = datetime.datetime.now().isoformat()
-        payload = {"ts": ts, "reason": reason, "mapping": mapping}
-        out = json.dumps(payload, separators=(",", ":"))
-        if len(out) > self._LAST_MAPPING_JSON_MAX:
-            out = json.dumps({"ts": ts, "reason": reason[:64], "mapping": mapping, "_truncated": True}, separators=(",", ":"))
-            if len(out) > self._LAST_MAPPING_JSON_MAX:
-                out = out[: self._LAST_MAPPING_JSON_MAX - 1]
-        self._set_helper("input_text.p1s_last_mapping_json", out)
+        """Write compact JSON to input_text.p1s_last_mapping_json. Always <= 255 chars."""
+        ts = datetime.datetime.now().isoformat()[:19]
+        out = json.dumps({"ts": ts, "reason": reason, "mapping": mapping}, separators=(",", ":"))
+        if len(out) <= self._LAST_MAPPING_JSON_MAX:
+            self._set_helper("input_text.p1s_last_mapping_json", out)
+            return
+        out = json.dumps({"reason": reason[:32], "mapping": mapping}, separators=(",", ":"))
+        if len(out) <= self._LAST_MAPPING_JSON_MAX:
+            self._set_helper("input_text.p1s_last_mapping_json", out)
+            return
+        out = json.dumps({"mapping": mapping}, separators=(",", ":"))
+        if len(out) <= self._LAST_MAPPING_JSON_MAX:
+            self._set_helper("input_text.p1s_last_mapping_json", out)
+            return
+        self._set_helper("input_text.p1s_last_mapping_json", out[:self._LAST_MAPPING_JSON_MAX])
 
     def _apply_unbound_reason(self, slot, t, tray_meta, tag_uid, tray_empty, tray_state_str):
         """Set t[\"unbound_reason\"] and t[\"unbound_detail\"], log one INFO line, and write reason to helper."""
