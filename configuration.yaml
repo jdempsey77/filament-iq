@@ -116,6 +116,112 @@ input_text:
     name: P1S Print Job Key (mutex)
     max: 100
 
+    # AMS UI / mapping helpers (managed)
+  ams_slot_1_expected_spool_id:
+    name: AMS Slot 1 – Expected Spool ID
+    max: 50
+    initial: "0"
+  ams_slot_2_expected_spool_id:
+    name: AMS Slot 2 – Expected Spool ID
+    max: 50
+    initial: "0"
+  ams_slot_3_expected_spool_id:
+    name: AMS Slot 3 – Expected Spool ID
+    max: 50
+    initial: "0"
+  ams_slot_4_expected_spool_id:
+    name: AMS Slot 4 – Expected Spool ID
+    max: 50
+    initial: "0"
+  ams_slot_5_expected_spool_id:
+    name: AMS Slot 5 – Expected Spool ID
+    max: 50
+    initial: "0"
+  ams_slot_6_expected_spool_id:
+    name: AMS Slot 6 – Expected Spool ID
+    max: 50
+    initial: "0"
+
+  ams_slot_1_status:
+    name: AMS Slot 1 – Status
+    max: 100
+    initial: ""
+  ams_slot_2_status:
+    name: AMS Slot 2 – Status
+    max: 100
+    initial: ""
+  ams_slot_3_status:
+    name: AMS Slot 3 – Status
+    max: 100
+    initial: ""
+  ams_slot_4_status:
+    name: AMS Slot 4 – Status
+    max: 100
+    initial: ""
+  ams_slot_5_status:
+    name: AMS Slot 5 – Status
+    max: 100
+    initial: ""
+  ams_slot_6_status:
+    name: AMS Slot 6 – Status
+    max: 100
+    initial: ""
+
+  ams_slot_1_tray_signature:
+    name: AMS Slot 1 – Tray Signature
+    max: 255
+    initial: ""
+  ams_slot_2_tray_signature:
+    name: AMS Slot 2 – Tray Signature
+    max: 255
+    initial: ""
+  ams_slot_3_tray_signature:
+    name: AMS Slot 3 – Tray Signature
+    max: 255
+    initial: ""
+  ams_slot_4_tray_signature:
+    name: AMS Slot 4 – Tray Signature
+    max: 255
+    initial: ""
+  ams_slot_5_tray_signature:
+    name: AMS Slot 5 – Tray Signature
+    max: 255
+    initial: ""
+  ams_slot_6_tray_signature:
+    name: AMS Slot 6 – Tray Signature
+    max: 255
+    initial: ""
+
+  ams_slot_1_expected_color_hex:
+    name: AMS Slot 1 – Expected Color HEX
+    max: 9
+    initial: ""
+  ams_slot_2_expected_color_hex:
+    name: AMS Slot 2 – Expected Color HEX
+    max: 9
+    initial: ""
+  ams_slot_3_expected_color_hex:
+    name: AMS Slot 3 – Expected Color HEX
+    max: 9
+    initial: ""
+  ams_slot_4_expected_color_hex:
+    name: AMS Slot 4 – Expected Color HEX
+    max: 9
+    initial: ""
+  ams_slot_5_expected_color_hex:
+    name: AMS Slot 5 – Expected Color HEX
+    max: 9
+    initial: ""
+  ams_slot_6_expected_color_hex:
+    name: AMS Slot 6 – Expected Color HEX
+    max: 9
+    initial: ""
+
+  spoolman_new_spool_uuid:
+    name: New spool – UUID (generated)
+    max: 64
+    initial: ""
+
 # Spool profile tare (g): everything that is NOT filament. HA subtracts this from gross → remaining filament.
 # Bambu = plastic spool + silica container. Overture = cardboard + spool + silica + guides.
 
