@@ -1,0 +1,39 @@
+# Required HA helpers (input_text). Validated by scripts/validate_helpers.sh.
+# Add new helpers here when the repo relies on them; find_missing_helpers.sh locates definitions.
+required_helpers:
+  - input_text.ams_slot_1_spool_id
+  - input_text.ams_slot_1_expected_spool_id
+  - input_text.ams_slot_1_status
+  - input_text.ams_slot_2_spool_id
+  - input_text.ams_slot_2_expected_spool_id
+  - input_text.ams_slot_2_status
+  - input_text.ams_slot_3_spool_id
+  - input_text.ams_slot_3_expected_spool_id
+  - input_text.ams_slot_3_status
+  - input_text.ams_slot_4_spool_id
+  - input_text.ams_slot_4_expected_spool_id
+  - input_text.ams_slot_4_status
+  - input_text.ams_slot_5_spool_id
+  - input_text.ams_slot_5_expected_spool_id
+  - input_text.ams_slot_5_status
+  - input_text.ams_slot_6_spool_id
+  - input_text.ams_slot_6_expected_spool_id
+  - input_text.ams_slot_6_status
+  - input_text.ams_slot_1_tray_signature
+  - input_text.ams_slot_2_tray_signature
+  - input_text.ams_slot_3_tray_signature
+  - input_text.ams_slot_4_tray_signature
+  - input_text.ams_slot_5_tray_signature
+  - input_text.ams_slot_6_tray_signature
+  - input_text.ams_slot_1_expected_color_hex
+  - input_text.ams_slot_2_expected_color_hex
+  - input_text.ams_slot_3_expected_color_hex
+  - input_text.ams_slot_4_expected_color_hex
+  - input_text.ams_slot_5_expected_color_hex
+  - input_text.ams_slot_6_expected_color_hex
+  - input_text.spoolman_base_url
+  - input_text.spoolman_new_filament_name
+  - input_text.spoolman_new_filament_material
+  - input_text.spoolman_new_filament_color_hex
+  - input_text.spoolman_new_spool_location
+  - input_text.spoolman_new_spool_uuid
