@@ -30,3 +30,13 @@ id_ed25519_ha
 out.*
 *.log
 phase*_helper_check.txt
+.artifacts/
+
+# Local env/secrets (never commit)
+deploy.env
+deploy.env/
+.env
+.env.*
+# Local deploy env (never commit)
+scripts/deploy.env
+scripts/deploy.env.local

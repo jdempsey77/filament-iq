@@ -64,6 +64,21 @@ for arg in "$@"; do
   [[ "$arg" == "--validate" ]] && VALIDATE_AFTER=1
 done
 
+# Deploy guard: refuse deploy/restart if working tree is dirty (staged or unstaged)
+DEPLOY_FLAGS="--config --automations --scripts --go2rtc --all --appdaemon --stage --promote --restart --restart-all --appdaemon-restart"
+if [[ " $DEPLOY_FLAGS " == *" $TARGET "* ]]; then
+  status_out=$(cd "$REPO_ROOT" && git status --porcelain 2>/dev/null)
+  if [[ -n "$status_out" ]]; then
+    echo "Error: Refusing to run deploy/restart with a dirty working tree." >&2
+    echo "" >&2
+    echo "git status --porcelain:" >&2
+    echo "$status_out" >&2
+    echo "" >&2
+    echo "Commit or stash your changes, then run again." >&2
+    exit 1
+  fi
+fi
+
 do_validate() {
   if [[ -z "$HOME_ASSISTANT_URL" || -z "$HOME_ASSISTANT_TOKEN" ]]; then
     echo "Skipping validate (set HOME_ASSISTANT_URL and HOME_ASSISTANT_TOKEN in deploy.env)."
@@ -134,6 +149,34 @@ do_reload_automations() {
   fi
 }
 
+# Wait for HA to respond after restart (poll up to 60s)
+wait_for_ha() {
+  if [[ -z "$HOME_ASSISTANT_URL" || -z "$HOME_ASSISTANT_TOKEN" ]]; then
+    return
+  fi
+  local max=12
+  local i=0
+  echo "Waiting for Home Assistant to be ready..."
+  while [[ $i -lt $max ]]; do
+    if curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/config" | grep -q "200"; then
+      echo "HA is ready."
+      return
+    fi
+    sleep 5
+    (( i++ )) || true
+  done
+  echo "Warning: HA did not respond within 60s; helpers check may fail."
+}
+
+# Deploy gate: run helpers validation (after reload/restart). Exit non-zero on failure.
+do_validate_helpers() {
+  if [[ -z "$HOME_ASSISTANT_URL" || -z "$HOME_ASSISTANT_TOKEN" ]]; then
+    echo "Skipping helpers validation (set HOME_ASSISTANT_URL and HOME_ASSISTANT_TOKEN in deploy.env)."
+    return 0
+  fi
+  (cd "$REPO_ROOT" && ./scripts/validate_helpers.sh) || exit 1
+}
+
 # Resolve SSH target for AppDaemon: HA_SSH_HOST if set (else derive from HOME_ASSISTANT_URL), default root@host
 _resolve_appdaemon_ssh_target() {
   if [[ -n "${HA_SSH_HOST:-}" ]]; then
@@ -165,11 +208,11 @@ deploy_appdaemon() {
     echo "Error: could not create remote dir $remote_dir on host." >&2
     return 1
   fi
-  if ! rsync -av --delete "$apps_dir/" "$AD_SSH_TARGET:$remote_dir/"; then
-    echo "Error: rsync failed." >&2
+  if ! scp $opts -r "$apps_dir"/* "$AD_SSH_TARGET:$remote_dir/"; then
+    echo "Error: scp failed." >&2
     return 1
   fi
-  if ! ssh $opts "$AD_SSH_TARGET" "ha addons restart '${slug}'"; then
+  if ! ssh $opts "$AD_SSH_TARGET" "ha apps restart '${slug}'"; then
     echo "Error: addon restart failed." >&2
     return 1
   fi
@@ -180,7 +223,7 @@ deploy_appdaemon() {
 restart_appdaemon() {
   local slug="${APPDAEMON_ADDON_SLUG:-a0d7b954_appdaemon}"
   local opts="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
-  if ! ssh $opts "$AD_SSH_TARGET" "ha addons restart '${slug}'"; then
+  if ! ssh $opts "$AD_SSH_TARGET" "ha apps restart '${slug}'"; then
     echo "Error: AppDaemon addon restart failed." >&2
     return 1
   fi
@@ -212,6 +255,8 @@ if [[ "$TARGET" == "--restart" ]]; then
     set +a
   fi
   do_restart
+  wait_for_ha
+  do_validate_helpers
   exit 0
 fi
 
@@ -339,6 +384,8 @@ if [[ "$TARGET" == "--config" ]]; then
   fi
   if [[ "$RESTART_AFTER" -eq 1 ]]; then
     do_restart
+    wait_for_ha
+    do_validate_helpers
   elif [[ "$VALIDATE_AFTER" -eq 0 ]]; then
     echo "Restart Home Assistant for changes to take effect (or use --restart)."
   fi
@@ -364,8 +411,11 @@ if [[ "$TARGET" == "--automations" ]]; then
   echo "Done."
   if [[ "$RESTART_AFTER" -eq 1 ]]; then
     do_restart
+    wait_for_ha
+    do_validate_helpers
   else
     do_reload_automations
+    do_validate_helpers
   fi
   exit 0
 fi
@@ -394,6 +444,8 @@ if [[ "$TARGET" == "--scripts" ]]; then
   echo "Restart Home Assistant for script changes to take effect (or use --restart)."
   if [[ "$RESTART_AFTER" -eq 1 ]]; then
     do_restart
+    wait_for_ha
+    do_validate_helpers
   fi
   exit 0
 fi
@@ -462,6 +514,8 @@ if [[ "$TARGET" == "--all" ]]; then
   fi
   echo "Done deploying."
   do_restart
+  wait_for_ha
+  do_validate_helpers
   exit 0
 fi
 
