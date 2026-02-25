@@ -74,15 +74,27 @@ Three phases run sequentially after restart:
 | Phase | What it checks | Timeout | Failure |
 |-------|---------------|---------|---------|
 | **A** | `/api/config` returns HTTP 200 | `HA_WAIT_SECONDS` (default 180s) | WARN + continue |
-| **B1** | `/api/services` contains `input_text` domain with `set_value` | `HA_WAIT_INPUT_TEXT_SECONDS` (default 180s) | Hard fail (return 1) unless `HA_ALLOW_PARTIAL_STARTUP=1` |
-| **B2** | All required helpers from `helpers_manifest.yaml` are not restored/unavailable | `HA_WAIT_HELPERS_SECONDS` (default 420s) | Hard fail with evidence dump |
+| **B1** | `/api/services` contains `input_text` domain with `set_value` | `HA_WAIT_INPUT_TEXT_SECONDS` (default 180s) | Hard fail unless `HA_ALLOW_PARTIAL_STARTUP=1` |
+| **B2** | `validate_helpers.sh --json` exits 0 | `HA_WAIT_HELPERS_SECONDS` (default 420s) | Hard fail with status dump |
 
-**Phase B2 is progress-aware:**
-- Every poll cycle, counts zombies among the required helpers list in `helpers_manifest.yaml`.
-- Tracks the best (lowest) zombie count seen during the wait.
-- If zombie count improves (decreases), extends the deadline by +60s, capped at `HA_WAIT_HELPERS_MAX_SECONDS` (default 600s).
-- If zombie count is unchanged for `HA_WAIT_HELPERS_IDLE_SECONDS` (default 180s), fails early with a diagnostic evidence dump.
-- Declares ready only when `zombies_count == 0` and helpers exist.
+**Phase B2 delegates to `validate_helpers.sh --json`:**
+- Single source of truth: the same script used by `skill_test.sh` preflights.
+- Every poll cycle, runs `validate_helpers.sh --json` and parses the result.
+- Prints a one-line status each poll: `Phase B2: ok=X required=Y zombies=Z missing=M [ids...]`
+- Declares ready immediately when `validate_helpers.sh --json` exits 0 (ok==required, zombies==0, missing==0).
+- On timeout, prints the last JSON result (ok/required/zombies/missing + sample IDs).
+
+### validate_helpers.sh --json mode
+
+When called with `--json`, outputs a single line of JSON to stdout:
+
+```json
+{"required":36,"ok":36,"zombies":0,"missing":0,"zombie_ids":[],"missing_ids":[]}
+```
+
+- Skips the settle wait (caller handles timing).
+- `zombie_ids` and `missing_ids` include up to 5 entity IDs for diagnostics.
+- Exit 0 if `ok == required` and `zombies == 0` and `missing == 0`; exit 1 otherwise.
 
 ### Environment tunables
 
@@ -90,17 +102,9 @@ Three phases run sequentially after restart:
 |----------|---------|-------------|
 | `HA_WAIT_SECONDS` | 180 | Phase A timeout (seconds) |
 | `HA_WAIT_INPUT_TEXT_SECONDS` | 180 | Phase B1 timeout (seconds) |
-| `HA_WAIT_HELPERS_SECONDS` | 420 | Phase B2 base timeout (seconds) |
-| `HA_WAIT_HELPERS_IDLE_SECONDS` | 180 | Phase B2 idle limit (seconds) |
-| `HA_WAIT_HELPERS_MAX_SECONDS` | 600 | Phase B2 absolute max deadline (seconds) |
+| `HA_WAIT_HELPERS_SECONDS` | 420 | Phase B2 timeout (seconds) |
 | `HA_WAIT_SLEEP` | 3 | Poll interval (seconds) |
 | `HA_ALLOW_PARTIAL_STARTUP` | 0 | Set to 1 to WARN+continue on timeout |
-
-### validate_helpers.sh
-
-- **Settle:** Before validation, waits for `input_text.spoolman_base_url` to be stable.
-- **Output:** Always prints `ZOMBIES_COUNT:` and `MISSING_COUNT:` for machine-readable parsing.
-- **Hard FAIL** when `PASS:0` with required helpers expected, or when any zombies exist.
 
 ---
 

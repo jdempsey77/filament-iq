@@ -152,8 +152,8 @@ do_reload_automations() {
 # Wait for HA to respond after restart (three phases):
 #   Phase A:  /api/config HTTP 200               (HA_WAIT_SECONDS, default 180s)
 #   Phase B1: input_text service in /api/services (HA_WAIT_INPUT_TEXT_SECONDS, default 180s)
-#   Phase B2: required helpers stable, progress-aware (HA_WAIT_HELPERS_SECONDS, default 420s)
-# B2 extends deadline when zombies decrease; idle-fails when no progress for HA_WAIT_HELPERS_IDLE_SECONDS.
+#   Phase B2: validate_helpers.sh --json ready    (HA_WAIT_HELPERS_SECONDS, default 420s)
+# B2 delegates readiness to validate_helpers.sh to guarantee a single source of truth.
 wait_for_ha() {
   if [[ -z "$HOME_ASSISTANT_URL" || -z "$HOME_ASSISTANT_TOKEN" ]]; then
     return
@@ -220,92 +220,51 @@ wait_for_ha() {
   done
 
   # -------------------------------------------------------------------
-  # Phase B2: progress-aware wait for required helpers to stabilize
+  # Phase B2: delegate to validate_helpers.sh --json (single source of truth)
   # -------------------------------------------------------------------
-  if ! command -v jq >/dev/null 2>&1; then
-    echo "WARN: jq not available; skipping Phase B2 helper stability check." >&2
-    return
-  fi
-
   local b2_sec="${HA_WAIT_HELPERS_SECONDS:-420}"
-  local b2_idle_sec="${HA_WAIT_HELPERS_IDLE_SECONDS:-180}"
-  local b2_max_sec="${HA_WAIT_HELPERS_MAX_SECONDS:-600}"
-  local b2_deadline b2_idle_deadline
-
-  # Load required helpers from helpers_manifest.yaml
-  local manifest="$REPO_ROOT/helpers_manifest.yaml"
-  if [[ ! -f "$manifest" ]]; then
-    echo "WARN: helpers_manifest.yaml not found; skipping Phase B2." >&2
-    return
-  fi
-  local req_helpers=""
-  while IFS= read -r _line; do
-    _line="${_line#*- }"
-    _line="${_line// /}"
-    [[ -n "$_line" ]] && req_helpers="${req_helpers}${_line} "
-  done < <(sed -n '/^required_helpers:/,/^[^ ]/p' "$manifest" | grep '  - ' | sed 's/^[[:space:]]*-[[:space:]]*//')
-  if [[ -z "$req_helpers" ]]; then
-    echo "WARN: no required_helpers in manifest; skipping Phase B2." >&2
+  local vh_script="$REPO_ROOT/scripts/validate_helpers.sh"
+  if [[ ! -x "$vh_script" ]]; then
+    echo "WARN: validate_helpers.sh not found or not executable; skipping Phase B2." >&2
     return
   fi
 
-  echo "Waiting for Home Assistant (Phase B2: helpers stable, timeout ${b2_sec}s, idle ${b2_idle_sec}s, max ${b2_max_sec}s)..."
+  echo "Waiting for Home Assistant (Phase B2: validate_helpers.sh --json, timeout ${b2_sec}s)..."
   start_ts=$(date +%s)
-  b2_deadline=$(( start_ts + b2_sec ))
-  b2_idle_deadline=$(( start_ts + b2_idle_sec ))
-  local best_zombies=9999
-  local zombies_count helpers_found body
 
   while true; do
-    body=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/states" 2>/dev/null) || true
-    if [[ -z "$body" ]]; then
-      end_ts=$(date +%s); elapsed=$(( end_ts - start_ts ))
-      echo "  ... /api/states empty, retrying (${elapsed}s)"
-      sleep "$sleep_sec"
-      continue
-    fi
-
-    # Count zombies among REQUIRED helpers only
-    zombies_count=0
-    helpers_found=0
-    for _h in $req_helpers; do
-      local _st _re
-      _st=$(echo "$body" | jq -r --arg e "$_h" '.[] | select(.entity_id == $e) | .state // "MISSING"' 2>/dev/null)
-      if [[ -z "$_st" || "$_st" == "MISSING" ]]; then
-        zombies_count=$(( zombies_count + 1 ))
-        continue
-      fi
-      helpers_found=$(( helpers_found + 1 ))
-      _re=$(echo "$body" | jq -r --arg e "$_h" '.[] | select(.entity_id == $e) | .attributes.restored // false' 2>/dev/null)
-      if [[ "$_st" == "unavailable" || "$_re" == "true" ]]; then
-        zombies_count=$(( zombies_count + 1 ))
-      fi
-    done
+    local vh_json vh_rc
+    vh_json=$("$vh_script" --json 2>/dev/null) && vh_rc=0 || vh_rc=$?
 
     end_ts=$(date +%s); elapsed=$(( end_ts - start_ts ))
 
-    # Success: all required helpers present and healthy
-    if [[ $zombies_count -eq 0 && $helpers_found -gt 0 ]]; then
-      echo "Phase B2: all required helpers stable (${helpers_found} OK) after ${elapsed}s. HA is ready."
+    if [[ $vh_rc -eq 0 ]]; then
+      local _ok _req
+      _ok=$(echo "$vh_json" | jq -r '.ok // 0' 2>/dev/null || echo "0")
+      _req=$(echo "$vh_json" | jq -r '.required // 0' 2>/dev/null || echo "0")
+      echo "Phase B2: validate_helpers PASS (ok=${_ok} required=${_req}) after ${elapsed}s. HA is ready."
       return
     fi
 
-    # Progress tracking: if zombies decreased, extend deadline
-    if [[ $zombies_count -lt $best_zombies ]]; then
-      best_zombies=$zombies_count
-      local new_deadline=$(( end_ts + 60 ))
-      if [[ $new_deadline -gt $b2_deadline && $new_deadline -le $(( start_ts + b2_max_sec )) ]]; then
-        b2_deadline=$new_deadline
-        echo "  ... progress: zombies_count=${zombies_count} (improved), deadline extended to +$(( b2_deadline - start_ts ))s"
-      fi
-      b2_idle_deadline=$(( end_ts + b2_idle_sec ))
+    # Not ready yet — extract fields for status line
+    local _ok _req _z _m _z_ids _m_ids
+    if command -v jq >/dev/null 2>&1 && [[ -n "$vh_json" ]]; then
+      _ok=$(echo "$vh_json" | jq -r '.ok // 0' 2>/dev/null || echo "?")
+      _req=$(echo "$vh_json" | jq -r '.required // 0' 2>/dev/null || echo "?")
+      _z=$(echo "$vh_json" | jq -r '.zombies // 0' 2>/dev/null || echo "?")
+      _m=$(echo "$vh_json" | jq -r '.missing // 0' 2>/dev/null || echo "?")
+      _z_ids=$(echo "$vh_json" | jq -r '.zombie_ids[:3] | join(", ")' 2>/dev/null || echo "")
+      _m_ids=$(echo "$vh_json" | jq -r '.missing_ids[:3] | join(", ")' 2>/dev/null || echo "")
+    else
+      _ok="?" _req="?" _z="?" _m="?" _z_ids="" _m_ids=""
     fi
 
-    # Idle timeout: no improvement for b2_idle_sec
-    if [[ $end_ts -ge $b2_idle_deadline && $zombies_count -gt 0 ]]; then
-      echo "ERROR: Phase B2 idle timeout (${b2_idle_sec}s with no improvement)." >&2
-      echo "  zombies_count=${zombies_count} helpers_found=${helpers_found} best_seen=${best_zombies}" >&2
-      _b2_dump_evidence "$body"
+    # Timeout check
+    if [[ $elapsed -ge $b2_sec ]]; then
+      echo "ERROR: Phase B2 timeout (${b2_sec}s). validate_helpers not ready." >&2
+      echo "  ok=${_ok} required=${_req} zombies=${_z} missing=${_m}" >&2
+      [[ -n "$_z_ids" ]] && echo "  zombie_ids: ${_z_ids}" >&2
+      [[ -n "$_m_ids" ]] && echo "  missing_ids: ${_m_ids}" >&2
       if [[ "${HA_ALLOW_PARTIAL_STARTUP:-0}" == "1" ]]; then
         echo "  Continuing (HA_ALLOW_PARTIAL_STARTUP=1)." >&2
         return
@@ -313,57 +272,13 @@ wait_for_ha() {
       return 1
     fi
 
-    # Hard deadline
-    if [[ $end_ts -ge $b2_deadline ]]; then
-      echo "ERROR: Phase B2 timeout (deadline=$(( b2_deadline - start_ts ))s)." >&2
-      echo "  zombies_count=${zombies_count} helpers_found=${helpers_found} best_seen=${best_zombies}" >&2
-      _b2_dump_evidence "$body"
-      if [[ "${HA_ALLOW_PARTIAL_STARTUP:-0}" == "1" ]]; then
-        echo "  Continuing (HA_ALLOW_PARTIAL_STARTUP=1)." >&2
-        return
-      fi
-      return 1
-    fi
-
-    echo "  ... waiting: zombies=${zombies_count} found=${helpers_found} best=${best_zombies} (${elapsed}s)"
+    # Progress line
+    local _detail=""
+    [[ -n "$_z_ids" ]] && _detail=" z=[${_z_ids}]"
+    [[ -n "$_m_ids" ]] && _detail="${_detail} m=[${_m_ids}]"
+    echo "  Phase B2: ok=${_ok} required=${_req} zombies=${_z} missing=${_m}${_detail} (${elapsed}s)"
     sleep "$sleep_sec"
   done
-}
-
-_b2_dump_evidence() {
-  local body="$1"
-  echo "  --- Phase B2 evidence ---" >&2
-  # Sample up to 5 zombie helpers
-  local _sample_count=0
-  for _h in $req_helpers; do
-    local _st _re
-    _st=$(echo "$body" | jq -r --arg e "$_h" '.[] | select(.entity_id == $e) | .state // "MISSING"' 2>/dev/null)
-    _re=$(echo "$body" | jq -r --arg e "$_h" '.[] | select(.entity_id == $e) | .attributes.restored // false' 2>/dev/null)
-    if [[ -z "$_st" || "$_st" == "MISSING" || "$_st" == "unavailable" || "$_re" == "true" ]]; then
-      echo "    zombie: $_h state=${_st:-MISSING} restored=${_re:-?}" >&2
-      _sample_count=$(( _sample_count + 1 ))
-      [[ $_sample_count -ge 5 ]] && break
-    fi
-  done
-  # /api/config safe_mode / recovery_mode
-  local _cfg
-  _cfg=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/config" 2>/dev/null) || true
-  if [[ -n "$_cfg" ]]; then
-    local _safe _recov
-    _safe=$(echo "$_cfg" | jq -r '.safe_mode // "?"' 2>/dev/null)
-    _recov=$(echo "$_cfg" | jq -r '.recovery_mode // "?"' 2>/dev/null)
-    echo "    safe_mode=${_safe} recovery_mode=${_recov}" >&2
-  fi
-  # input_text service present?
-  local _svc_json _has_it
-  _svc_json=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/services" 2>/dev/null) || true
-  _has_it=$(echo "$_svc_json" | jq -r '
-    if type == "array" then ([.[] | select(.domain == "input_text")] | length > 0)
-    elif type == "object" then has("input_text")
-    else false end
-  ' 2>/dev/null || echo "false")
-  echo "    input_text_service_present=${_has_it}" >&2
-  echo "  --- end evidence ---" >&2
 }
 
 # Deploy gate: run helpers validation (after reload/restart). Exit non-zero on failure.
