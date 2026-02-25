@@ -69,3 +69,52 @@ After a config deploy and HA restart, helpers (e.g. `input_text.spoolman_base_ur
 
 - **manage_ha.sh Phase B:** Requires `/api/states` and (with jq) either input_text count >= 30 **or** both `input_text.spoolman_base_url` and `input_text.ams_slot_1_spool_id` with `state != "unavailable"` and `attributes.restored != true`. Timeout: `HA_WAIT_SECONDS` (default 180).
 - **validate_helpers.sh settle:** Before validation, waits for `input_text.spoolman_base_url` to have `state != "unavailable"` and `attributes.restored != true` (or timeout with WARN). No longer treats “HTTP 200 only” as ready.
+
+---
+
+## 6. Root cause: input_text integration not loading (has_input_text=false)
+
+When `/api/config` shows `components.has_input_text=false` and `/api/services` has **no** `input_text` domain (so `input_text.set_value` is missing), entities can still exist in the registry (e.g. `input_text_count=95`) but all are `restored: true` and `state: unavailable` (zombies). Automations then fail with “Action input_text.set_value not found.”
+
+**Why this happens:** Home Assistant’s startup has a “wrap-up” phase. The log message *“Something is blocking Home Assistant from wrapping up the start up phase. We're going to continue anyway.”* means some startup tasks did not complete. Pending tasks (e.g. Google Assistant `report_state` / `sync_google`) can block wrap-up. When HA continues anyway, the order of component setup can leave YAML-based integrations like `input_text` never finishing their async setup: the entity registry is populated from YAML, but the integration never registers its services, so entities stay restored/unavailable and the `input_text` domain never appears in `/api/services`. So: **blocking startup wrap-up can prevent the input_text integration from completing setup**, even though `configuration.yaml` is valid and `ha core check` passes.
+
+**Conditions:** This is nondeterministic (timing/event loop). It is more likely when GA or other integrations delay the wrap-up phase; it is **not** caused by safe_mode or recovery_mode in the reported evidence.
+
+---
+
+## 7. Remediation options (do not disable Google Assistant)
+
+1. **Google Assistant: avoid blocking wrap-up (preferred)**  
+   Reduce the chance that GA blocks startup wrap-up, without disabling GA:
+   - In GA integration or `configuration.yaml`, if there are options for **report_state** or **sync** behavior, set timeouts or make them non-blocking (e.g. “sync after startup” or increase timeouts) so HA can finish wrap-up.
+   - Check HA/GA docs for “report_state” / “sync_google” and startup; adjust only GA-related config, not other integrations.
+
+2. **Retry restart**  
+   If input_text still does not load after one restart, run `./scripts/manage_ha.sh --restart` again. The guardrails (Phase B + validate_helpers) will not declare “ready” until `input_text` service exists and helpers are stable (or timeout); use that to decide when to retry.
+
+3. **Watchdog / guardrails (implemented)**  
+   Phase B now requires `/api/services` to include the `input_text` domain and `set_value`, plus helper stability and a 5s stability recheck. validate_helpers treats PASS:0 with required helpers as a hard FAIL with an explicit reason. So TEST and deploy will not declare success when input_text is not loaded; manual or repeated restart is required until HA starts cleanly.
+
+---
+
+## 8. Manual test (reproducible)
+
+After a restart, verify input_text is loaded and helpers are not zombies:
+
+1. **input_text service present:**
+   ```bash
+   curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/services" | jq 'has("input_text") and (.["input_text"] | has("set_value"))'
+   ```
+   Expect: `true`.
+
+2. **Representative helpers not restored/unavailable:**
+   ```bash
+   curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/states/input_text.spoolman_base_url" | jq '{state, restored: .attributes.restored}'
+   ```
+   Expect: `state` not `"unavailable"`, `restored` not `true`.
+
+3. **Run repo checks:**
+   ```bash
+   ./scripts/validate_helpers.sh
+   ./scripts/skill_test.sh   # with clean tree
+   ```

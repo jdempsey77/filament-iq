@@ -83,6 +83,7 @@ log "INFO: artifacts=$ART_ROOT"
 # ==============================================================================
 PREFLIGHTS=(
   "./scripts/preflight_template_filters.sh"
+  "./scripts/preflight_input_text_services.sh"
   "./scripts/preflight_input_text.sh"
   "./scripts/preflight_spoolman_filament_dropdown.sh"
   "./scripts/preflight_ams_matching.sh"

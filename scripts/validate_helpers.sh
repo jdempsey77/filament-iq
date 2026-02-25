@@ -114,6 +114,10 @@ if [[ ${#zombies[@]} -gt 0 ]]; then
   echo "ZOMBIES (restored/unavailable): ${#zombies[@]}"
   for e in "${zombies[@]}"; do echo "  - $e"; done
 fi
+# Hard FAIL when PASS:0 but we expect helpers: input_text integration likely not loaded
+if [[ $ok -eq 0 && ${#required[@]} -gt 0 ]]; then
+  echo "FAIL: PASS:0 but required helpers expected. input_text integration may not be loaded (check /api/services for input_text domain and set_value)." >&2
+fi
 
 [[ ${#missing[@]} -eq 0 && ${#zombies[@]} -eq 0 ]] && exit 0
 exit 1

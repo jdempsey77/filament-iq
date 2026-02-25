@@ -178,29 +178,60 @@ wait_for_ha() {
     sleep "$sleep_sec"
   done
 
-  # Phase B: require helpers non-unavailable and not restored (or input_text count >= 30)
-  echo "Waiting for Home Assistant (Phase B: helpers stable, not restored/unavailable)..."
+  # Phase B: require (1) input_text domain + set_value in /api/services, (2) helpers present and not restored/unavailable, (3) stability across 2 samples 5s apart
+  echo "Waiting for Home Assistant (Phase B: input_text service + helpers stable)..."
   start_ts=$(date +%s)
+  phase_b_stable_sec=5
   while true; do
-    body=""
-    body=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/states" 2>/dev/null) || true
     ready=0
+    # (1) /api/services must include input_text domain and set_value
+    services_json=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/services" 2>/dev/null) || true
+    if command -v jq >/dev/null 2>&1 && [[ -n "$services_json" ]]; then
+      has_domain=$(echo "$services_json" | jq -r 'if type == "object" then (has("input_text") and (.["input_text"] | type == "object") and (.["input_text"] | has("set_value"))) else false end' 2>/dev/null || echo "false")
+      if [[ "$has_domain" != "true" ]]; then
+        end_ts=$(date +%s)
+        elapsed=$(( end_ts - start_ts ))
+        if [[ $elapsed -ge wait_sec ]]; then
+          echo "WARN: Phase B timeout (${wait_sec}s); input_text service still missing. Continuing anyway." >&2
+          return
+        fi
+        echo "  ... waiting for input_text domain + set_value in /api/services (${elapsed}s)"
+        sleep "$sleep_sec"
+        continue
+      fi
+    fi
+    # (2) Helpers present and not restored/unavailable (states)
+    body=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/states" 2>/dev/null) || true
     if [[ -n "$body" ]] && command -v jq >/dev/null 2>&1; then
       count=$(echo "$body" | jq '[.[] | select(.entity_id | startswith("input_text."))] | length' 2>/dev/null || echo "0")
-      if [[ -n "$count" && "${count:-0}" -ge 30 ]]; then
-        ready=1
-      else
-        state1=$(echo "$body" | jq -r '.[] | select(.entity_id == "input_text.spoolman_base_url") | .state // ""' 2>/dev/null)
-        rest1=$(echo "$body" | jq -r '.[] | select(.entity_id == "input_text.spoolman_base_url") | .attributes.restored // false' 2>/dev/null)
-        state2=$(echo "$body" | jq -r '.[] | select(.entity_id == "input_text.ams_slot_1_spool_id") | .state // ""' 2>/dev/null)
-        rest2=$(echo "$body" | jq -r '.[] | select(.entity_id == "input_text.ams_slot_1_spool_id") | .attributes.restored // false' 2>/dev/null)
-        if [[ "$state1" != "unavailable" && "$rest1" != "true" && "$state2" != "unavailable" && "$rest2" != "true" ]]; then
+      state1=$(echo "$body" | jq -r '.[] | select(.entity_id == "input_text.spoolman_base_url") | .state // ""' 2>/dev/null)
+      rest1=$(echo "$body" | jq -r '.[] | select(.entity_id == "input_text.spoolman_base_url") | .attributes.restored // false' 2>/dev/null)
+      state2=$(echo "$body" | jq -r '.[] | select(.entity_id == "input_text.ams_slot_1_spool_id") | .state // ""' 2>/dev/null)
+      rest2=$(echo "$body" | jq -r '.[] | select(.entity_id == "input_text.ams_slot_1_spool_id") | .attributes.restored // false' 2>/dev/null)
+      helpers_ok=0
+      if [[ "${count:-0}" -ge 30 ]]; then
+        helpers_ok=1
+      fi
+      if [[ "$state1" != "unavailable" && "$rest1" != "true" && "$state2" != "unavailable" && "$rest2" != "true" ]]; then
+        helpers_ok=1
+      fi
+      if [[ "$helpers_ok" -eq 1 ]]; then
+        # (3) Stability: second sample after phase_b_stable_sec
+        sleep "$phase_b_stable_sec"
+        body2=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/states" 2>/dev/null) || true
+        services2=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/services" 2>/dev/null) || true
+        has2=$(echo "$services2" | jq -r 'if type == "object" then (has("input_text") and (.["input_text"] | has("set_value"))) else false end' 2>/dev/null || echo "false")
+        state1b=$(echo "$body2" | jq -r '.[] | select(.entity_id == "input_text.spoolman_base_url") | .state // ""' 2>/dev/null)
+        rest1b=$(echo "$body2" | jq -r '.[] | select(.entity_id == "input_text.spoolman_base_url") | .attributes.restored // false' 2>/dev/null)
+        state2b=$(echo "$body2" | jq -r '.[] | select(.entity_id == "input_text.ams_slot_1_spool_id") | .state // ""' 2>/dev/null)
+        rest2b=$(echo "$body2" | jq -r '.[] | select(.entity_id == "input_text.ams_slot_1_spool_id") | .attributes.restored // false' 2>/dev/null)
+        if [[ "$has2" == "true" && "$state1b" != "unavailable" && "$rest1b" != "true" && "$state2b" != "unavailable" && "$rest2b" != "true" ]]; then
           ready=1
         fi
       fi
     fi
     if [[ "$ready" -eq 1 ]]; then
-      echo "Phase B: helpers stable (not restored/unavailable). HA is ready."
+      echo "Phase B: input_text service present, helpers stable (2 samples ${phase_b_stable_sec}s apart). HA is ready."
       return
     fi
     end_ts=$(date +%s)
@@ -209,7 +240,7 @@ wait_for_ha() {
       echo "WARN: Phase B timeout (${wait_sec}s); continuing anyway." >&2
       return
     fi
-    echo "  ... waiting for helpers stable (${elapsed}s)"
+    echo "  ... waiting for input_text service + helpers stable (${elapsed}s)"
     sleep "$sleep_sec"
   done
 }
