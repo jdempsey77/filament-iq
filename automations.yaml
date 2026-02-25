@@ -1139,10 +1139,11 @@
         # Check if tray text is specific enough (has color, weight, or distinguishing info)
         # Generic examples: "Overture PLA", "eSUN ABS" (only vendor+material)
         # Specific examples: "Overture PLA Black", "eSUN ABS+ White 1kg"
+        # Use .split() method (HA has no split filter); use regex_search for weight (HA 2026.x compatible)
         is_generic: >
-          {% set words = tray_text | lower | split() %}
+          {% set words = (tray_text | lower).split() %}
           {% set has_color = words | select('in', ['black', 'white', 'red', 'blue', 'green', 'yellow', 'orange', 'purple', 'gray', 'grey', 'pink', 'brown', 'transparent', 'clear', 'natural']) | list | length > 0 %}
-          {% set has_weight = words | select('search', '\\d+(g|kg|lb)') | list | length > 0 %}
+          {% set has_weight = (tray_text | lower) is regex_search('\\d+(g|kg|lb)') %}
           {% set word_count = words | length %}
           {{ not has_color and not has_weight and word_count <= 2 }}
         # Find all spools on Shelf that match the tray text (vendor/material/name fuzzy match)
