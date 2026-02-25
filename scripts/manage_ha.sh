@@ -149,23 +149,53 @@ do_reload_automations() {
   fi
 }
 
-# Wait for HA to respond after restart (poll up to 60s)
+# Wait for HA to respond after restart: Phase A /api/config, Phase B helper entity (deterministic).
+# HA_WAIT_SECONDS: max seconds per phase (default 180). On timeout: WARN and continue (do not exit).
 wait_for_ha() {
   if [[ -z "$HOME_ASSISTANT_URL" || -z "$HOME_ASSISTANT_TOKEN" ]]; then
     return
   fi
-  local max=12
-  local i=0
-  echo "Waiting for Home Assistant to be ready..."
-  while [[ $i -lt $max ]]; do
-    if curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/config" | grep -q "200"; then
-      echo "HA is ready."
+  local wait_sec="${HA_WAIT_SECONDS:-180}"
+  local sleep_sec="${HA_WAIT_SLEEP:-3}"
+  local start_ts end_ts elapsed code
+
+  # Phase A: poll /api/config until 200 or timeout
+  echo "Waiting for Home Assistant (Phase A: /api/config)..."
+  start_ts=$(date +%s)
+  while true; do
+    code=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/config" 2>/dev/null || echo "000")
+    if [[ "$code" == "200" ]]; then
+      echo "Phase A: /api/config returned 200."
+      break
+    fi
+    end_ts=$(date +%s)
+    elapsed=$(( end_ts - start_ts ))
+    if [[ $elapsed -ge wait_sec ]]; then
+      echo "WARN: Phase A timeout (${wait_sec}s); continuing anyway." >&2
       return
     fi
-    sleep 5
-    (( i++ )) || true
+    echo "  ... waiting for /api/config (${elapsed}s)"
+    sleep "$sleep_sec"
   done
-  echo "Warning: HA did not respond within 60s; helpers check may fail."
+
+  # Phase B: poll helper entity until 200 or timeout
+  echo "Waiting for Home Assistant (Phase B: input_text.spoolman_base_url)..."
+  start_ts=$(date +%s)
+  while true; do
+    code=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/states/input_text.spoolman_base_url" 2>/dev/null || echo "000")
+    if [[ "$code" == "200" ]]; then
+      echo "Phase B: helper entity returned 200. HA is ready."
+      return
+    fi
+    end_ts=$(date +%s)
+    elapsed=$(( end_ts - start_ts ))
+    if [[ $elapsed -ge wait_sec ]]; then
+      echo "WARN: Phase B timeout (${wait_sec}s); continuing anyway." >&2
+      return
+    fi
+    echo "  ... waiting for helper entity (${elapsed}s)"
+    sleep "$sleep_sec"
+  done
 }
 
 # Deploy gate: run helpers validation (after reload/restart). Exit non-zero on failure.
