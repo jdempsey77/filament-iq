@@ -943,7 +943,8 @@
           {% endif %}
           {% endfor %}
           
-          Mapping: {{ states('input_text.p1s_last_mapping_json') | default('helper not found', true) | string | truncate(200) }}
+          {% set mapping_val = states('input_text.p1s_last_mapping_json') %}
+          Mapping: {% if mapping_val in ['unavailable', 'unknown'] %}mapping unavailable{% elif not mapping_val %}no mapping yet{% else %}{{ mapping_val | string | truncate(200) }}{% endif %}
     - service: notify.persistent_notification
       data:
         title: "P1S Filament Usage ({{ trigger_state }})"
