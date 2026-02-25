@@ -147,16 +147,20 @@ else
   [[ "$NEEDS_GO2RTC" -eq 1 ]] && HA_TARGETS+=("--go2rtc")
 fi
 
-# Deduplicate HA targets (bash 3.2)
-DEDUPED=()
-for t in "${HA_TARGETS[@]}"; do
-  found=0
-  for u in "${DEDUPED[@]}"; do
-    [[ "$t" == "$u" ]] && found=1
+# Deduplicate HA targets (bash 3.2; set -u safe when empty)
+declare -a DEDUPED=()
+if [[ ${#HA_TARGETS[@]} -gt 0 ]]; then
+  for t in "${HA_TARGETS[@]}"; do
+    found=0
+    if [[ ${#DEDUPED[@]} -gt 0 ]]; then
+      for u in "${DEDUPED[@]}"; do
+        [[ "$t" == "$u" ]] && found=1
+      done
+    fi
+    [[ $found -eq 0 ]] && DEDUPED+=("$t")
   done
-  [[ $found -eq 0 ]] && DEDUPED+=("$t")
-done
-HA_TARGETS=("${DEDUPED[@]}")
+  HA_TARGETS=("${DEDUPED[@]}")
+fi
 
 hr
 log "DECISION:"
@@ -184,24 +188,26 @@ DEPLOY_RECORD="$ART_ROOT/deploy_record.txt"
 # ------------------------------------------------------------------------------
 # 5) Deploy HA targets first
 # ------------------------------------------------------------------------------
-for t in "${HA_TARGETS[@]}"; do
-  hr
-  log "STEP: deploy HA $t"
-  log "CMD : ./scripts/manage_ha.sh $t"
-  set +e
-  ./scripts/manage_ha.sh "$t" >"$LOG_DIR/manage_ha_${t#--}.out" 2>&1
-  RC=$?
-  set -e
-  if [[ $RC -ne 0 ]]; then
+if [[ ${#HA_TARGETS[@]} -gt 0 ]]; then
+  for t in "${HA_TARGETS[@]}"; do
     hr
-    log "STATUS: FAIL"
-    log "Reason: manage_ha.sh $t failed (rc=$RC)"
-    log "See   : $LOG_DIR/manage_ha_${t#--}.out"
-    log "ROLLBACK HINT: revert commit(s) and rerun DEPLOY, or redeploy last known-good SHA."
-    exit 1
-  fi
-  log "RESULT: deploy HA $t PASS"
-done
+    log "STEP: deploy HA $t"
+    log "CMD : ./scripts/manage_ha.sh $t"
+    set +e
+    ./scripts/manage_ha.sh "$t" >"$LOG_DIR/manage_ha_${t#--}.out" 2>&1
+    RC=$?
+    set -e
+    if [[ $RC -ne 0 ]]; then
+      hr
+      log "STATUS: FAIL"
+      log "Reason: manage_ha.sh $t failed (rc=$RC)"
+      log "See   : $LOG_DIR/manage_ha_${t#--}.out"
+      log "ROLLBACK HINT: revert commit(s) and rerun DEPLOY, or redeploy last known-good SHA."
+      exit 1
+    fi
+    log "RESULT: deploy HA $t PASS"
+  done
+fi
 
 # ------------------------------------------------------------------------------
 # 6) Deploy AppDaemon if needed
