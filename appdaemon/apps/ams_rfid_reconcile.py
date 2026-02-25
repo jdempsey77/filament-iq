@@ -19,10 +19,12 @@ Fail-closed behavior:
 
 To stamp HA_SIG: PATCH spool comment to HA_SIG=bambu|filament_id=<id>|type=<type>|color_hex=<hex> (lowercase).
 Example: HA_SIG=bambu|filament_id=gfa00|type=pla|color_hex=c12e1f
+Convergence: _converge_ha_sig runs for every RESOLVED_UNIQUE slot (when not status_only); uses tray_meta only (no input_text helpers). Idempotent: one PATCH only when comment != ha_sig.
 """
 
 import datetime
 import json
+import math
 import os
 import re
 import sys
@@ -88,6 +90,127 @@ LEGACY_LOCATION_PATTERN = re.compile(r"AMS2_HT_|HT1|HT2", re.IGNORECASE)
 # 4) Otherwise: CONFLICT.
 NEXT_MAN_MIN_MARGIN_G = 200  # Only choose lowest when clearly lower than next
 FULL_SPOOL_G = 950           # Treat as "full" for deterministic full-vs-full pick
+
+# Terminal slot statuses (stringly-typed in HA; use constants for comparisons).
+STATUS_OK = "OK"
+STATUS_OK_FIXED_EXPECTED = "OK: FIXED_EXPECTED"
+STATUS_MISMATCH = "CONFLICT: MISMATCH"
+STATUS_UNBOUND_NO_TAG = "UNBOUND: no_tag"
+STATUS_UNBOUND_TRAY_UNAVAILABLE = "UNBOUND: TRAY_UNAVAILABLE"
+STATUS_UNBOUND_MANUAL_CREATE = "UNBOUND: manual_create_required"
+STATUS_UNBOUND_ACTION_REQUIRED = "UNBOUND: ACTION_REQUIRED"
+STATUS_UNBOUND_FLOW_B_PARTIAL = "UNBOUND: FLOW_B_PARTIAL"
+STATUS_CONFLICT_DUPLICATE_UID = "CONFLICT: DUPLICATE_UID"
+STATUS_CONFLICT_MISSING_CANONICAL = "CONFLICT: missing_canonical_location"
+STATUS_CONFLICT_AMBIGUOUS_METADATA = "CONFLICT: AMBIGUOUS_METADATA_NO_UNREGISTERED"
+STATUS_PENDING_RFID_READ = "PENDING_RFID_READ"
+STATUS_UNIQUELY_RESOLVED = frozenset({STATUS_OK, STATUS_MISMATCH})
+
+# Seconds to wait after tray change before treating missing tag_uid as non-RFID
+RFID_PENDING_SECONDS = 20  # fid>0 and status in this set → may converge HA_SIG
+
+# Unbound reason codes (actionable classification for UNBOUND slots).
+UNBOUND_TRAY_EMPTY = "UNBOUND_TRAY_EMPTY"
+UNBOUND_NO_TAG_UID = "UNBOUND_NO_TAG_UID"
+UNBOUND_NO_RFID_TAG_ALL_ZERO = "UNBOUND_NO_RFID_TAG_ALL_ZERO"
+UNBOUND_TAG_UID_INELIGIBLE_LOCATION_NEW = "UNBOUND_TAG_UID_INELIGIBLE_LOCATION_NEW"
+UNBOUND_TAG_UID_NO_MATCH = "UNBOUND_TAG_UID_NO_MATCH"
+UNBOUND_TAG_UID_AMBIGUOUS = "UNBOUND_TAG_UID_AMBIGUOUS"
+UNBOUND_TRAY_UNAVAILABLE = "UNBOUND_TRAY_UNAVAILABLE"
+UNBOUND_ERROR = "UNBOUND_ERROR"
+
+
+def _classify_unbound_reason(tray_meta, tag_uid, candidate_ids, ineligible_new_count, tray_empty=False, tray_state_str="", raw_tag_uid=None):
+    """
+    Classify why a slot is UNBOUND. Returns (reason, detail) for logging and transcripts.
+    tray_empty: True if tray state is empty; tray_state_str used for Empty/unknown/unavailable.
+    raw_tag_uid: raw tray attribute (to distinguish all-zero from blank when canonicalizer returns "").
+    """
+    if tray_empty or (str(tray_state_str or "").strip().lower() == "empty"):
+        return (UNBOUND_TRAY_EMPTY, "tray_empty")
+    if str(tray_state_str or "").strip().lower() in ("unknown", "unavailable", ""):
+        return (UNBOUND_TRAY_UNAVAILABLE, "tray_unavailable")
+    raw_norm = str(raw_tag_uid or "").strip().replace(" ", "").replace('"', "").lower()
+    if raw_norm == "0000000000000000":
+        return (UNBOUND_NO_RFID_TAG_ALL_ZERO, "non_rfid_tray")
+    tag = str(tag_uid or "").strip().replace(" ", "").replace('"', "").lower()
+    if not tag:
+        return (UNBOUND_NO_TAG_UID, "tag_uid_blank")
+    eligible_count = len(candidate_ids) if candidate_ids else 0
+    if eligible_count == 0 and (ineligible_new_count or 0) > 0:
+        return (UNBOUND_TAG_UID_INELIGIBLE_LOCATION_NEW, f"eligible=0 ineligible_new={ineligible_new_count or 0}")
+    if eligible_count == 0:
+        return (UNBOUND_TAG_UID_NO_MATCH, f"eligible=0 ineligible_new={ineligible_new_count or 0}")
+    if eligible_count > 1:
+        return (UNBOUND_TAG_UID_AMBIGUOUS, f"eligible={eligible_count}")
+    return (UNBOUND_ERROR, f"eligible={eligible_count}")
+
+
+def _is_uniquely_resolved(status: str, final_spool_id: int) -> bool:
+    """True when slot has a unique spool and terminal status is OK or MISMATCH (converge-eligible)."""
+    return (final_spool_id or 0) > 0 and status in STATUS_UNIQUELY_RESOLVED
+
+
+def _should_converge_ha_sig(status_only: bool, status: str, final_spool_id: int) -> bool:
+    """True when we should run central HA signature convergence (not status_only and uniquely resolved)."""
+    return not status_only and _is_uniquely_resolved(status, final_spool_id)
+
+
+# Color tolerance: reduce false CONFLICT: MISMATCH when tray and spool hex are visually similar.
+COLOR_DISTANCE_THRESHOLD = 90  # Euclidean RGB distance; <= this → not a color mismatch.
+
+_HEX_6_RE = re.compile(r"^[0-9a-fA-F]{6}$")
+
+
+def _normalize_hex_color(s: str):
+    """
+    Normalize color hex to 6-char lowercase RRGGBB, or None if invalid.
+    Accepts #RRGGBB, RRGGBB, AARRGGBB (first 2 = alpha), RRGGBBAA (last 2 = alpha).
+    For 8-hex: if first two chars are ff/00 assume AARRGGBB and use last 6; else assume RRGGBBAA and use first 6.
+    """
+    if s is None:
+        return None
+    raw = str(s).strip().lower().replace("#", "")
+    if not raw:
+        return None
+    if len(raw) == 6 and _HEX_6_RE.match(raw):
+        return raw
+    if len(raw) == 8 and re.match(r"^[0-9a-f]{8}$", raw):
+        if raw[:2] in ("ff", "00"):
+            return raw[2:8]  # AARRGGBB → RRGGBB
+        return raw[:6]  # RRGGBBAA → RRGGBB
+    return None
+
+
+def _hex_to_rgb(hex6: str):
+    """Convert 6-char hex to (r, g, b) ints 0–255. Caller must pass valid hex6."""
+    return (
+        int(hex6[0:2], 16),
+        int(hex6[2:4], 16),
+        int(hex6[4:6], 16),
+    )
+
+
+def _rgb_distance(a_rgb, b_rgb) -> float:
+    """Euclidean distance in RGB space; max ~441."""
+    return math.sqrt(
+        (a_rgb[0] - b_rgb[0]) ** 2
+        + (a_rgb[1] - b_rgb[1]) ** 2
+        + (a_rgb[2] - b_rgb[2]) ** 2
+    )
+
+
+def _colors_close(tray_hex: str, spool_hex: str, threshold: float = COLOR_DISTANCE_THRESHOLD):
+    """
+    Return (close: bool, distance: float, threshold: float).
+    If either hex normalizes to None, returns (False, -1.0, threshold) so caller keeps strict behavior.
+    """
+    t = _normalize_hex_color(tray_hex)
+    p = _normalize_hex_color(spool_hex)
+    if t is None or p is None:
+        return (False, -1.0, threshold)
+    dist = _rgb_distance(_hex_to_rgb(t), _hex_to_rgb(p))
+    return (dist <= threshold, dist, threshold)
 
 
 def _safe_float(val, default):
@@ -175,6 +298,7 @@ class AmsRfidReconcile(hass.Hass):
         self.safety_poll_seconds = int(self.args.get("safety_poll_seconds", 600))
         self.debug_logs = bool(self.args.get("debug_logs", False))
         self.strict_mode_reregister = bool(self.args.get("strict_mode_reregister", False))
+        self._color_distance_threshold = int(self.args.get("color_distance_threshold", COLOR_DISTANCE_THRESHOLD))
         self.evidence_log_path = str(self.args.get("evidence_log_path", "/config/ams_rfid_reconcile_evidence.log"))
         self.evidence_log_enabled = True
         self.last_slot_status = {}
@@ -182,6 +306,7 @@ class AmsRfidReconcile(hass.Hass):
         self.debounce_reasons = []
         self._active_run = None
         self._missing_helper_warned = set()
+        self._pending_helper_warned = set()
         self._ensure_evidence_path_writable()
 
         for slot, entity_id in TRAY_ENTITY_BY_SLOT.items():
@@ -217,15 +342,22 @@ class AmsRfidReconcile(hass.Hass):
         self._schedule_reconcile(reason)
 
     def _on_reconcile_all_event(self, event_name, data, kwargs):
-        """Reconcile statuses only (no Spoolman writes). Fired by script.reconcile_all_ams_slots."""
+        """Reconcile; when status_only=False, perform Spoolman writes (location, comment stamp). Fired by script.reconcile_all_ams_slots."""
         payload = data or {}
         reason = str(payload.get("reason", "manual_ui"))
         printer = str(payload.get("printer", ""))
         ts = str(payload.get("ts", ""))
-        self.log(f"AMS_RECONCILE_ALL received reason={reason} printer={printer} ts={ts}")
-        self._run_reconcile(reason, status_only=True)
+        status_only = payload.get("status_only", True)
+        if not isinstance(status_only, bool):
+            status_only = True
+        self.log(f"AMS_RECONCILE_ALL received reason={reason} printer={printer} ts={ts} status_only={status_only}")
+        self._run_reconcile(reason, status_only=status_only)
 
     def _on_tray_state_change(self, entity, attribute, old, new, kwargs):
+        slot = next((s for s, e in TRAY_ENTITY_BY_SLOT.items() if e == entity), None)
+        if slot is not None:
+            until_utc = datetime.datetime.utcnow() + datetime.timedelta(seconds=RFID_PENDING_SECONDS)
+            self._set_rfid_pending_until(slot, until_utc)
         self._schedule_reconcile(f"tray_update:{entity}")
 
     def _on_create_spool_event(self, event_name, data, kwargs):
@@ -351,7 +483,7 @@ class AmsRfidReconcile(hass.Hass):
             raw_tag = attrs.get("tag_uid")
             tag_uid = self._canonicalize_tag_uid(raw_tag)
             tray_meta = self._tray_meta(attrs, tray.get("state", ""))
-            status = "UNBOUND (no tag)"
+            status = "UNBOUND (no tag)"  # initial; updated to STATUS_* in branches
             resolved_spool_id = 0
 
             tray_state_str = str(tray.get("state", "")).strip().lower() if isinstance(tray, dict) else ""
@@ -376,7 +508,15 @@ class AmsRfidReconcile(hass.Hass):
                 "writes_performed": [],
                 "final_spool_id": 0,
                 "final_location": "",
+                "raw_tag_uid": str(raw_tag) if raw_tag is not None else "",
             }
+
+            # Tray change detection (preferred: tray_signature change) → start 20s pending window
+            new_sig = self._build_tray_signature(tray_meta, tray.get("state", ""), tag_uid or "")
+            current_sig = (self.get_state(f"input_text.ams_slot_{slot}_tray_signature") or "") or ""
+            if isinstance(current_sig, str) and new_sig != current_sig:
+                until_utc = datetime.datetime.utcnow() + datetime.timedelta(seconds=RFID_PENDING_SECONDS)
+                self._set_rfid_pending_until(slot, until_utc)
 
             # Deterministic invariant: empty tray → clear sticky expected state (physical slots 1–4 only).
             if tray_empty:
@@ -388,7 +528,7 @@ class AmsRfidReconcile(hass.Hass):
                     f"slot={slot} is in TRAY_ENTITY_BY_SLOT but missing from CANONICAL_LOCATION_BY_SLOT; cannot persist (missing_canonical_location)",
                     level="ERROR",
                 )
-                status = "CONFLICT: missing_canonical_location"
+                status = STATUS_CONFLICT_MISSING_CANONICAL
                 conflict += 1
                 t["decision"], t["reason"], t["action"] = "CONFLICT", "missing_canonical_location", "missing_canonical_location"
                 self._record_no_write(slot, "missing_canonical_location", {"slot": slot})
@@ -400,11 +540,62 @@ class AmsRfidReconcile(hass.Hass):
                 })
             # Tray unavailable/unknown: set UNBOUND:TRAY_UNAVAILABLE and skip rest
             elif tray_state_str in ("unknown", "unavailable", ""):
-                status = "UNBOUND: TRAY_UNAVAILABLE"
+                status = STATUS_UNBOUND_TRAY_UNAVAILABLE
                 t["decision"], t["reason"], t["action"] = "UNBOUND", "TRAY_UNAVAILABLE", "unbound_tray_unavailable"
                 self._record_no_write(slot, "tray_unavailable")
             elif not tag_uid:
-                status = "UNBOUND: no_tag"
+                helper_spool_id = self._safe_int(self.get_state(f"input_text.ams_slot_{slot}_spool_id"), 0)
+                helper_expected = self._safe_int(self.get_state(f"input_text.ams_slot_{slot}_expected_spool_id"), 0)
+
+                # Bound invariant: spool_id == expected_spool_id > 0 -> slot is bound; must NOT be PENDING_RFID_READ.
+                if helper_spool_id > 0 and helper_expected > 0 and helper_spool_id == helper_expected:
+                    status = "NON_RFID_REGISTERED"
+                    t["decision"], t["reason"], t["action"] = "NON_RFID", "bound_invariant", "nonrfid_registered"
+                    self._set_helper(f"input_text.ams_slot_{slot}_rfid_pending_until", "")
+                    self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                    self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
+                    t["final_slot_status"] = status
+                    t["final_spool_id"] = helper_spool_id
+                    self._active_run["validation_transcripts"].append(t)
+                    if validation_mode:
+                        self._log_validation_transcript(t)
+                    continue
+
+                # Non-RFID stable state: spool_id already set and expected_spool_id 0/empty -> treat as assigned non-RFID slot (no rfid_pending_until required)
+                if not tray_empty:
+                    if helper_spool_id > 0 and helper_expected == 0:
+                        status = "NON_RFID_REGISTERED"
+                        t["decision"], t["reason"], t["action"] = "NON_RFID", "non_rfid_stable", "nonrfid_registered"
+                        if not status_only:
+                            self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", str(helper_spool_id))
+                        self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
+                        t["final_slot_status"] = status
+                        t["final_spool_id"] = helper_spool_id
+                        self._active_run["validation_transcripts"].append(t)
+                        if validation_mode:
+                            self._log_validation_transcript(t)
+                        continue
+                # PENDING_RFID_READ only when a real RFID read is expected AND an expiry exists (pending_until in future)
+                if not tray_empty:
+                    pending_until = self._get_rfid_pending_until(slot)
+                    now_utc = datetime.datetime.utcnow()
+                    if pending_until is not None and now_utc < pending_until:
+                        status = STATUS_PENDING_RFID_READ
+                        t["decision"], t["reason"], t["action"] = "PENDING", "rfid_pending", "pending_rfid_read"
+                        self.log(
+                            f"RFID_PENDING_ACTIVE slot={slot} now={now_utc.isoformat()}Z pending_until={pending_until.isoformat()}Z empty={tray_empty} canonical_tag_uid={tag_uid!r}",
+                            level="DEBUG",
+                        )
+                        self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._log_slot_status_change(slot, status, tag_uid or "", 0, tray_meta)
+                        self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str)
+                        t["final_slot_status"] = status
+                        self._active_run["validation_transcripts"].append(t)
+                        if validation_mode:
+                            self._log_validation_transcript(t)
+                        continue
+                status = STATUS_UNBOUND_NO_TAG
                 t["decision"], t["reason"], t["action"] = "UNBOUND", "no_tag", "unbound_no_tag"
                 self._record_no_write(slot, "no_tag_uid")
                 # Phase 1 non-RFID: when flag ON and tray is non-RFID present, set NON_RFID_UNREGISTERED and skip RFID unbound handling.
@@ -431,7 +622,7 @@ class AmsRfidReconcile(hass.Hass):
                             self._log_validation_transcript(t)
                         continue
             elif tag_uid in duplicate_uids:
-                status = "CONFLICT: DUPLICATE_UID"
+                status = STATUS_CONFLICT_DUPLICATE_UID
                 conflict += 1
                 dup_ids = list(set(tag_to_spools.get(tag_uid, [])))
                 t["decision"], t["reason"], t["action"] = "CONFLICT", "DUPLICATE_UID", "conflict_duplicate_uid"
@@ -486,7 +677,20 @@ class AmsRfidReconcile(hass.Hass):
                     if not self._is_tray_hex_authoritative(tray_hex):
                         color_mismatch = False
                     else:
-                        color_mismatch = (spool_color != "" and tray_hex != spool_color)
+                        thresh = getattr(self, "_color_distance_threshold", COLOR_DISTANCE_THRESHOLD)
+                        close, dist, thresh = _colors_close(tray_hex, spool_color, thresh)
+                        if close:
+                            color_mismatch = False
+                            if self.debug_logs:
+                                self.log(
+                                    f"COLOR_TOLERANCE_ACCEPTED slot={slot} dist={dist:.1f} threshold={thresh} tray={tray_hex} spool={spool_color}",
+                                    level="DEBUG",
+                                )
+                        elif dist >= 0:
+                            color_mismatch = True
+                        else:
+                            # One or both unparseable: preserve strict behavior
+                            color_mismatch = (spool_color != "" and tray_hex != spool_color)
                     mismatch_detected = (expected_vs_resolved_mismatch or color_mismatch) if uid_matched else False
                     if uid_matched and mismatch_detected:
                         if expected_vs_resolved_mismatch and not color_mismatch:
@@ -496,10 +700,8 @@ class AmsRfidReconcile(hass.Hass):
                                     slot, resolved_spool_id, tag_uid, source="expected_autofix",
                                     tray_meta=tray_meta, tray_state=tray.get("state", ""),
                                 )
-                                self._stamp_ha_sig_if_needed(
-                                    slot, resolved_spool_id, tray_meta, spool_index, expected_spool_id=expected_spool_id
-                                )
-                            status = "OK: FIXED_EXPECTED"
+                            t["converge_reason"] = "expected_autofix"
+                            status = STATUS_OK_FIXED_EXPECTED
                             ok += 1
                             t["decision"], t["reason"], t["action"] = "OK", "FIXED_EXPECTED", "expected_autofix"
                             t["uid_lookup_count"], t["final_spool_id"], t["selected_spool_id"] = 1, resolved_spool_id, resolved_spool_id
@@ -517,10 +719,10 @@ class AmsRfidReconcile(hass.Hass):
                                 f"expected_mismatch={expected_vs_resolved_mismatch} tray_hex='{tray_hex}' spool_color='{spool_color}' color_mismatch={color_mismatch}",
                                 level="WARNING",
                             )
-                            status = "CONFLICT: MISMATCH"
+                            status = STATUS_MISMATCH
                             mismatch += 1
                             t["decision"], t["reason"], t["action"] = "CONFLICT", "MISMATCH", "conflict_mismatch"
-                            t["uid_lookup_count"] = 1
+                            t["uid_lookup_count"], t["final_spool_id"], t["selected_spool_id"] = 1, resolved_spool_id, resolved_spool_id
                             self._record_no_write(
                                 slot,
                                 "mismatch_expected_or_color",
@@ -532,10 +734,8 @@ class AmsRfidReconcile(hass.Hass):
                                 slot, resolved_spool_id, tag_uid, source="known_binding",
                                 tray_meta=tray_meta, tray_state=tray.get("state", ""),
                             )
-                            self._stamp_ha_sig_if_needed(
-                                slot, resolved_spool_id, tray_meta, spool_index, expected_spool_id=expected_spool_id
-                            )
-                        status = "OK"
+                        t["converge_reason"] = "known_binding"
+                        status = STATUS_OK
                         ok += 1
                         t["decision"], t["reason"], t["action"] = "OK", "known_binding", "known_uid_bind"
                         t["uid_lookup_count"], t["final_spool_id"], t["selected_spool_id"] = 1, resolved_spool_id, resolved_spool_id
@@ -548,7 +748,7 @@ class AmsRfidReconcile(hass.Hass):
                         expected_hex = self._normalize_tray_hex(self.get_state(f"input_text.ams_slot_{slot}_expected_color_hex"))
                         self._maybe_log_color_warning(slot, expected_hex, tray_hex)
                 elif len(mapped_ids) > 1:
-                    status = "CONFLICT: DUPLICATE_UID"
+                    status = STATUS_CONFLICT_DUPLICATE_UID
                     conflict += 1
                     t["decision"], t["reason"], t["action"] = "CONFLICT", "DUPLICATE_UID", "conflict_duplicate_uid"
                     t["uid_lookup_count"], t["metadata_candidate_ids"] = len(mapped_ids), mapped_ids
@@ -563,7 +763,8 @@ class AmsRfidReconcile(hass.Hass):
                     self._notify_conflict(slot, tag_uid, tray_meta, mapped_ids, "DUPLICATE_UID")
                     self._record_no_write(slot, "conflict_multiple_bound_matches", {"matches": mapped_ids})
                 else:
-                    candidate_ids = self._find_deterministic_candidates(spools, tray_meta, slot=slot)
+                    candidate_ids, ineligible_new_count = self._find_deterministic_candidates(spools, tray_meta, slot=slot)
+                    t["ineligible_new_count"] = ineligible_new_count
                     if len(candidate_ids) == 1:
                         resolved_spool_id = candidate_ids[0]
                         t["uid_lookup_count"], t["metadata_candidate_ids"] = 0, candidate_ids
@@ -578,10 +779,8 @@ class AmsRfidReconcile(hass.Hass):
                                 slot, resolved_spool_id, tag_uid, source="auto_register_metadata_match",
                                 tray_meta=tray_meta, tray_state=tray.get("state", ""),
                             )
-                            self._stamp_ha_sig_if_needed(
-                                slot, resolved_spool_id, tray_meta, spool_index, candidate_ids=candidate_ids
-                            )
-                        status = "OK"
+                        t["converge_reason"] = "auto_register_metadata_match"
+                        status = STATUS_OK
                         ok += 1
                         self._record_decision(
                             slot,
@@ -684,10 +883,8 @@ class AmsRfidReconcile(hass.Hass):
                                     slot, resolved_spool_id, tag_uid, source=_source,
                                     tray_meta=tray_meta, tray_state=tray.get("state", ""),
                                 )
-                                self._stamp_ha_sig_if_needed(
-                                    slot, resolved_spool_id, tray_meta, spool_index, candidate_ids=candidate_ids
-                                )
-                            status = "OK"
+                            t["converge_reason"] = "auto_register_tiebreak"
+                            status = STATUS_OK
                             ok += 1
                             self._record_decision(
                                 slot,
@@ -752,7 +949,7 @@ class AmsRfidReconcile(hass.Hass):
                                         f"ha_sig={ha_sig} error={loc_exc}",
                                         level="WARNING",
                                     )
-                                    status = "UNBOUND: FLOW_B_PARTIAL"
+                                    status = STATUS_UNBOUND_FLOW_B_PARTIAL
                                     t["decision"], t["reason"], t["action"] = "UNBOUND", "FLOW_B_PARTIAL", "flow_b_partial"
                                     t["uid_lookup_count"], t["metadata_candidate_ids"] = 0, [resolved_spool_id]
                                     self._active_run["unknown_tags"].append({
@@ -762,6 +959,7 @@ class AmsRfidReconcile(hass.Hass):
                                     self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                                     self._log_slot_status_change(slot, status, tag_uid, 0, tray_meta)
                                     t["final_slot_status"] = status
+                                    self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str)
                                     unbound += 1
                                     self._active_run["validation_transcripts"].append(t)
                                     if validation_mode:
@@ -774,15 +972,8 @@ class AmsRfidReconcile(hass.Hass):
                                     "spool_id": resolved_spool_id,
                                     "ha_sig": ha_sig,
                                 })
-                                self._stamp_ha_sig_if_needed(
-                                    slot,
-                                    resolved_spool_id,
-                                    tray_meta,
-                                    spool_index,
-                                    expected_spool_id=exp_spool if exp_spool > 0 else None,
-                                    candidate_ids=[resolved_spool_id],
-                                )
-                            status = "OK"
+                            t["converge_reason"] = "flow_b_ha_sig"
+                            status = STATUS_OK
                             ok += 1
                             t["uid_lookup_count"], t["metadata_candidate_ids"] = 0, [resolved_spool_id]
                             t["decision"], t["reason"], t["action"] = "OK", "flow_b_ha_sig", "flow_b_ha_sig_bound"
@@ -802,7 +993,7 @@ class AmsRfidReconcile(hass.Hass):
                             self.log(
                                 f"FLOW_B_AMBIGUOUS slot={slot} tag_uid={tag_uid} ha_sig={ha_sig} candidates={cids}"
                             )
-                            status = "UNBOUND: ACTION_REQUIRED"
+                            status = STATUS_UNBOUND_ACTION_REQUIRED
                             t["uid_lookup_count"], t["metadata_candidate_ids"] = 0, candidate_ids
                             t["decision"], t["reason"], t["action"] = "UNBOUND", "ACTION_REQUIRED", "unbound_flow_b_ambiguous"
                             self._active_run["unknown_tags"].append({"slot": slot, "tag_uid": tag_uid, "reason": "flow_b_ambiguous", "candidates": cids})
@@ -813,7 +1004,7 @@ class AmsRfidReconcile(hass.Hass):
                                 self.log(f"FLOW_B_NONE slot={slot} tag_uid={tag_uid} ha_sig={ha_sig}")
                             filament_id = self._find_filament_for_tray(tray_meta)
                             if filament_id <= 0:
-                                status = "UNBOUND: manual_create_required"
+                                status = STATUS_UNBOUND_MANUAL_CREATE
                                 unbound += 1
                                 t["uid_lookup_count"], t["metadata_candidate_ids"] = 0, candidate_ids
                                 t["decision"], t["reason"], t["action"] = "UNBOUND", "manual_create_required", "unbound_manual_create_required"
@@ -825,7 +1016,7 @@ class AmsRfidReconcile(hass.Hass):
                                 )
                                 self._notify_unbound(slot, tag_uid, tray_meta, candidate_ids)
                             else:
-                                status = "UNBOUND: ACTION_REQUIRED"
+                                status = STATUS_UNBOUND_ACTION_REQUIRED
                                 t["uid_lookup_count"], t["metadata_candidate_ids"] = 0, candidate_ids
                                 t["decision"], t["reason"], t["action"] = "UNBOUND", "ACTION_REQUIRED", "unbound_action_required"
                                 self._active_run["unknown_tags"].append({"slot": slot, "tag_uid": tag_uid, "reason": "no_uid_match_no_create"})
@@ -842,14 +1033,20 @@ class AmsRfidReconcile(hass.Hass):
                                 self._notify_unbound(slot, tag_uid, tray_meta, candidate_ids or [])
 
             if status.startswith("UNBOUND"):
-                unbound += 1 if status != "UNBOUND: manual_create_required" else 0
-                if status == "UNBOUND: no_tag" and not status_only:
+                unbound += 1 if status != STATUS_UNBOUND_MANUAL_CREATE else 0
+                if status == STATUS_UNBOUND_NO_TAG and not status_only:
                     self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
 
             self._set_helper(f"input_text.ams_slot_{slot}_status", status)
             self._log_slot_status_change(slot, status, tag_uid, resolved_spool_id, tray_meta)
 
             t["final_slot_status"] = status
+            if status.startswith("UNBOUND"):
+                self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str)
+            # Central HA signature convergence: single call site; reason from path (expected_autofix, known_binding, etc.) or "converge".
+            fid = int(t.get("final_spool_id") or 0)
+            if _should_converge_ha_sig(status_only, status, fid):
+                self._converge_ha_sig(slot, fid, tray_meta, spool_index, reason=t.get("converge_reason") or "converge")
             slot_writes = self._active_run["writes"][writes_before_slot:]
             t["writes_performed"] = []
             for w in slot_writes:
@@ -862,19 +1059,19 @@ class AmsRfidReconcile(hass.Hass):
                 else:
                     t["writes_performed"].append(k + ":" + str(p.get("entity_id", p.get("path", ""))))
             if not t["decision"]:
-                t["decision"] = "OK" if status == "OK" else ("UNBOUND" if status.startswith("UNBOUND") else "CONFLICT")
+                t["decision"] = "OK" if status == STATUS_OK else ("UNBOUND" if status.startswith("UNBOUND") else "CONFLICT")
                 t["reason"] = status
-                if status == "UNBOUND: no_tag":
+                if status == STATUS_UNBOUND_NO_TAG:
                     t["action"] = "unbound_no_tag"
-                elif status == "UNBOUND: manual_create_required":
+                elif status == STATUS_UNBOUND_MANUAL_CREATE:
                     t["action"] = "unbound_manual_create_required"
-                elif status == "CONFLICT: DUPLICATE_UID":
+                elif status == STATUS_CONFLICT_DUPLICATE_UID:
                     t["action"] = "conflict_duplicate_uid"
-                elif status == "CONFLICT: MISMATCH":
+                elif status == STATUS_MISMATCH:
                     t["action"] = "conflict_mismatch"
-                elif "AMBIGUOUS" in status or status == "CONFLICT: AMBIGUOUS_METADATA_NO_UNREGISTERED":
+                elif "AMBIGUOUS" in status or status == STATUS_CONFLICT_AMBIGUOUS_METADATA:
                     t["action"] = "conflict_ambiguous"
-                elif status == "OK":
+                elif status == STATUS_OK:
                     t["action"] = "known_uid_bind"
                 else:
                     t["action"] = "conflict_ambiguous" if t["decision"] == "CONFLICT" else "unknown"
@@ -1180,7 +1377,8 @@ class AmsRfidReconcile(hass.Hass):
             if len(narrowed) == 1:
                 candidates = narrowed
 
-        return [self._safe_int(s.get("id"), 0) for s in candidates]
+        ineligible_new_count = len(excluded_new_ids)
+        return ([self._safe_int(s.get("id"), 0) for s in candidates], ineligible_new_count)
 
     def _resolve_color_for_ha_sig(self, tray_meta, slot=None, spool_index=None, expected_spool_id=None, candidate_ids=None):
         """
@@ -1245,38 +1443,35 @@ class AmsRfidReconcile(hass.Hass):
             return None
         return f"HA_SIG=bambu|filament_id={fid}|type={t}|color_hex={color}"
 
-    def _stamp_ha_sig_if_needed(
-        self,
-        slot,
-        resolved_spool_id,
-        tray_meta,
-        spool_index,
-        expected_spool_id=None,
-        candidate_ids=None,
-    ):
+    def _converge_ha_sig(self, slot, resolved_spool_id, tray_meta, spool_index, reason="converge"):
         """
-        After successful bind: compute HA_SIG; if not None and spool comment != HA_SIG, PATCH comment.
-        Idempotent; logs HA_SIG_STAMPED only when comment actually changes.
+        Idempotent HA signature convergence: compute ha_sig from tray_meta (no input_text helpers);
+        if spool.comment != ha_sig, PATCH comment. Only logs when patch occurs (or DEBUG when sig None).
+        Updates spool_index cache when PATCHing so later reads see the new comment.
         """
         ha_sig = self._compute_ha_sig(
             tray_meta,
             slot=slot,
             spool_index=spool_index,
-            expected_spool_id=expected_spool_id
-            if (expected_spool_id is not None and self._safe_int(expected_spool_id, 0) > 0)
-            else (self._safe_int(self.get_state(f"input_text.ams_slot_{slot}_expected_spool_id"), 0) or None),
-            candidate_ids=candidate_ids if candidate_ids is not None else [resolved_spool_id],
+            expected_spool_id=resolved_spool_id,
+            candidate_ids=[resolved_spool_id],
         )
-        if ha_sig is None:
+        if not ha_sig or not str(ha_sig).strip():
+            self.log(
+                f"HA_SIG_STAMP_SKIPPED reason=empty_sig slot={slot} spool_id={resolved_spool_id} why=missing_filament_id_or_type_or_color",
+                level="DEBUG",
+            )
             return
         spool = spool_index.get(resolved_spool_id) or self._spoolman_get(f"/api/v1/spool/{resolved_spool_id}")
         if not isinstance(spool, dict):
             return
-        current_comment = (spool.get("comment") or "").strip()
-        if current_comment == ha_sig:
+        comment_now = (spool.get("comment") or "").strip()
+        if comment_now == ha_sig:
             return
         self._spoolman_patch(f"/api/v1/spool/{resolved_spool_id}", {"comment": ha_sig})
-        self.log(f"HA_SIG_STAMPED spool_id={resolved_spool_id} ha_sig={ha_sig}")
+        if isinstance(spool_index, dict) and resolved_spool_id in spool_index:
+            spool_index[resolved_spool_id]["comment"] = ha_sig
+        self.log(f"HA_SIG_STAMPED slot={slot} spool_id={resolved_spool_id} ha_sig={ha_sig} reason={reason}")
 
     def _find_flow_b_candidates(self, spools, ha_sig):
         """
@@ -1562,6 +1757,45 @@ class AmsRfidReconcile(hass.Hass):
                 level="WARNING",
             )
 
+    def _get_rfid_pending_until(self, slot):
+        """Return UTC datetime when RFID pending window ends for slot, or None if not set/invalid.
+        Reads input_text.ams_slot_{slot}_rfid_pending_until (ISO8601 UTC, e.g. 2026-02-23T23:59:59Z).
+        Parses ...Z and ...+00:00; strips optional fractional seconds. Compare with datetime (now_utc < pending_until).
+        If helper is missing, log WARNING once per slot and treat as no pending window."""
+        entity_id = f"input_text.ams_slot_{slot}_rfid_pending_until"
+        raw = self.get_state(entity_id)
+        if raw is None:
+            if slot not in self._pending_helper_warned:
+                self._pending_helper_warned.add(slot)
+                self.log(
+                    f"RFID pending helper missing: {entity_id}; create via UI (Settings → Helpers). Treating as no pending window.",
+                    level="WARNING",
+                )
+            return None
+        if not isinstance(raw, str):
+            return None
+        raw = str(raw).strip()
+        if not raw:
+            return None
+        # Normalize: remove Z or +00:00, then strip optional fractional seconds (e.g. .123456)
+        s = raw.rstrip("Z").replace("+00:00", "").strip()
+        if "." in s:
+            s = s.split(".")[0]
+        if len(s) < 19:
+            return None
+        s = s[:19]
+        try:
+            return datetime.datetime.strptime(s, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=None)
+        except ValueError:
+            return None
+
+    def _set_rfid_pending_until(self, slot, until_utc):
+        """Set RFID pending window end for slot (until_utc: naive UTC datetime).
+        Writes ISO8601 UTC to input_text.ams_slot_{slot}_rfid_pending_until."""
+        entity_id = f"input_text.ams_slot_{slot}_rfid_pending_until"
+        dt_str = until_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._set_helper(entity_id, dt_str)
+
     def _clear_expected_for_slot(self, slot, reason):
         """Clear sticky expected state for a slot when tray is empty. Idempotent: only writes if not already cleared."""
         prefix = f"input_text.ams_slot_{slot}_"
@@ -1590,8 +1824,13 @@ class AmsRfidReconcile(hass.Hass):
         self._append_evidence_line(msg)
 
     def _set_helper(self, entity_id, value):
+        next_value = "" if value is None else str(value).strip()
+        if "unbound_reason" in entity_id:
+            self.log(f"_SET_HELPER_ENTER entity_id={entity_id} next_value={next_value}", level="INFO")
         state_raw = self.get_state(entity_id)
         if state_raw is None:
+            if "unbound_reason" in entity_id:
+                self.log(f"_SET_HELPER_SKIP_MISSING entity_id={entity_id}", level="INFO")
             if entity_id not in self._missing_helper_warned:
                 self.log(f"helper {entity_id} missing in HA configuration", level="WARNING")
                 self._missing_helper_warned.add(entity_id)
@@ -1599,12 +1838,49 @@ class AmsRfidReconcile(hass.Hass):
             return
 
         current = str(state_raw).strip()
-        next_value = str(value).strip()
         if current == next_value:
-            self._record_no_write(entity_id, "helper_already_equal", {"entity_id": entity_id, "value": next_value})
+            if "unbound_reason" in entity_id:
+                # Bypass equality skip: AppDaemon cache can be stale; always write for unbound_reason.
+                self.log(f"_SET_HELPER_BYPASS_EQUAL entity_id={entity_id} cached_cur={current} forcing_write", level="DEBUG")
+            else:
+                self._record_no_write(entity_id, "helper_already_equal", {"entity_id": entity_id, "value": next_value})
+                return
+
+        # Route by entity domain: input_text.* -> input_text/set_value, text.* -> text/set_value.
+        if entity_id.startswith("input_text."):
+            self.call_service("input_text/set_value", entity_id=entity_id, value=next_value)
+            if "unbound_reason" in entity_id:
+                self.log(f"_SET_HELPER_WROTE entity_id={entity_id} service=input_text/set_value value={next_value}", level="INFO")
+            self._record_write("ha_helper_set", {"entity_id": entity_id, "value": next_value})
             return
-        self.call_service("input_text/set_value", entity_id=entity_id, value=next_value)
-        self._record_write("ha_helper_set", {"entity_id": entity_id, "value": next_value})
+        if entity_id.startswith("text."):
+            self.call_service("text/set_value", entity_id=entity_id, value=next_value)
+            if "unbound_reason" in entity_id:
+                self.log(f"_SET_HELPER_WROTE entity_id={entity_id} service=text/set_value value={next_value}", level="INFO")
+            self._record_write("ha_helper_set", {"entity_id": entity_id, "value": next_value})
+            return
+        raise ValueError(f"_set_helper: unsupported entity domain for entity_id={entity_id}")
+
+    def _apply_unbound_reason(self, slot, t, tray_meta, tag_uid, tray_empty, tray_state_str):
+        """Set t[\"unbound_reason\"] and t[\"unbound_detail\"], log one INFO line, and write reason to helper."""
+        reason, detail = _classify_unbound_reason(
+            tray_meta,
+            tag_uid or "",
+            t.get("metadata_candidate_ids", []) or [],
+            t.get("ineligible_new_count", 0),
+            tray_empty=tray_empty,
+            tray_state_str=tray_state_str or "",
+            raw_tag_uid=t.get("raw_tag_uid"),
+        )
+        t["unbound_reason"] = reason
+        t["unbound_detail"] = detail
+        self.log(
+            f"UNBOUND_REASON slot={slot} reason={reason} tag_uid={tag_uid or ''} detail={detail}",
+            level="INFO",
+        )
+        entity_id = f"input_text.ams_slot_{slot}_unbound_reason"
+        self.log(f"UNBOUND_HELPER_WRITE_ATTEMPT slot={slot} entity_id={entity_id} value={reason}", level="INFO")
+        self._set_helper(entity_id, reason)
 
     def _log_slot_status_change(self, slot, status, tag_uid, spool_id, tray_meta):
         prev = self.last_slot_status.get(slot)
