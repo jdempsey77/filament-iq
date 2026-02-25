@@ -1372,6 +1372,9 @@ homeassistant:
 #     name: Tapo C111 P1S external
 #     stream_source: !secret tapo_c111_stream_url
 
+# Enable python_scripts/ directory for UUID generation etc.
+python_script:
+
 # AMS Slot Manager: Spoolman REST API. Set input_text.spoolman_base_url (e.g. http://192.168.x.x:8080).
 rest_command:
   ams_spoolman_get_spool:
@@ -1406,7 +1409,9 @@ rest_command:
     url: "http://192.168.4.124:7912/api/v1/spool"
     method: POST
     content_type: "application/json"
-    payload: "{{ {'filament_id': ((states('input_select.spoolman_new_spool_filament') or '').split(' - ')[0] | trim | int(1)) if ' - ' in (states('input_select.spoolman_new_spool_filament') or '') else (states('input_number.spoolman_new_spool_filament_id') | int(1)), 'location': (states('input_text.spoolman_new_spool_location') | default('') | trim) or 'Shelf', 'remaining_weight': states('input_number.spoolman_new_spool_remaining_weight') | float(0), 'archived': false} | tojson }}"
+    payload: >-
+      {% set uuid_val = states('input_text.spoolman_new_spool_uuid') | default('') | trim %}
+      {{ {'filament_id': ((states('input_select.spoolman_new_spool_filament') or '').split(' - ')[0] | trim | int(1)) if ' - ' in (states('input_select.spoolman_new_spool_filament') or '') else (states('input_number.spoolman_new_spool_filament_id') | int(1)), 'location': (states('input_text.spoolman_new_spool_location') | default('') | trim) or 'Shelf', 'remaining_weight': states('input_number.spoolman_new_spool_remaining_weight') | float(0), 'archived': false, 'extra': {'ha_spool_uuid': '"' ~ uuid_val ~ '"'} if uuid_val else {}} | tojson }}
 # Load frontend themes from the themes folder
 frontend:
   themes: !include_dir_merge_named themes

@@ -367,7 +367,16 @@ spoolman_add_filament:
         message: "Filament created and Spoolman reloaded."
         title: Filament added to Spoolman
 
-# Add spool to Spoolman from test dashboard (uses spoolman_new_spool_* helpers). Only runs when a filament is selected (dropdown contains " - "). Then reload integration.
+# Generate a UUID4 and write to input_text.spoolman_new_spool_uuid.
+spoolman_set_new_spool_uuid:
+  alias: Generate spool UUID
+  sequence:
+    - action: python_script.gen_uuid
+      data:
+        target: input_text.spoolman_new_spool_uuid
+
+# Add spool to Spoolman from dashboard (uses spoolman_new_spool_* helpers).
+# Generates a UUID, waits for it, then POSTs to Spoolman with extra.ha_spool_uuid.
 spoolman_add_spool:
   alias: Add spool to Spoolman
   sequence:
@@ -376,6 +385,9 @@ spoolman_add_spool:
             - condition: template
               value_template: "{{ (states('input_select.spoolman_new_spool_filament') or '') | trim != '' and ' - ' in (states('input_select.spoolman_new_spool_filament') or '') }}"
           sequence:
+            - action: script.spoolman_set_new_spool_uuid
+            - wait_template: "{{ states('input_text.spoolman_new_spool_uuid') not in ['', 'unknown', 'unavailable'] }}"
+              timeout: "00:00:10"
             - action: rest_command.ams_spoolman_create_spool
             - action: script.reload_spoolman_integration
 
