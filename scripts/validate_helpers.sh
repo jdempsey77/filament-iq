@@ -44,14 +44,22 @@ if [[ ${#required[@]} -eq 0 ]]; then
   exit 1
 fi
 
-# Helper settle: wait for HA to expose helpers after restart (avoids PASS:0/MISSING:36 race)
+# Helper settle: wait for HA helpers to be stable (not restored/unavailable), not just HTTP 200
 SETTLE_SECONDS="${SETTLE_SECONDS:-60}"
 SETTLE_SLEEP="${SETTLE_SLEEP:-3}"
 PROBE_URL="${HOME_ASSISTANT_URL}/api/states/input_text.spoolman_base_url"
 start_ts=$(date +%s)
 while true; do
-  code=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$PROBE_URL" 2>/dev/null || echo "000")
-  if [[ "$code" == "200" ]]; then
+  body=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$PROBE_URL" 2>/dev/null) || true
+  stable=0
+  if [[ -n "$body" ]] && echo "$body" | jq -e . >/dev/null 2>&1; then
+    state=$(echo "$body" | jq -r '.state // ""')
+    restored=$(echo "$body" | jq -r '.attributes.restored // false')
+    if [[ "$state" != "unavailable" && "$restored" != "true" ]]; then
+      stable=1
+    fi
+  fi
+  if [[ "$stable" -eq 1 ]]; then
     break
   fi
   now_ts=$(date +%s)

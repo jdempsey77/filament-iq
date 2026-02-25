@@ -178,13 +178,29 @@ wait_for_ha() {
     sleep "$sleep_sec"
   done
 
-  # Phase B: poll helper entity until 200 or timeout
-  echo "Waiting for Home Assistant (Phase B: input_text.spoolman_base_url)..."
+  # Phase B: require helpers non-unavailable and not restored (or input_text count >= 30)
+  echo "Waiting for Home Assistant (Phase B: helpers stable, not restored/unavailable)..."
   start_ts=$(date +%s)
   while true; do
-    code=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/states/input_text.spoolman_base_url" 2>/dev/null || echo "000")
-    if [[ "$code" == "200" ]]; then
-      echo "Phase B: helper entity returned 200. HA is ready."
+    body=""
+    body=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/states" 2>/dev/null) || true
+    ready=0
+    if [[ -n "$body" ]] && command -v jq >/dev/null 2>&1; then
+      count=$(echo "$body" | jq '[.[] | select(.entity_id | startswith("input_text."))] | length' 2>/dev/null || echo "0")
+      if [[ -n "$count" && "${count:-0}" -ge 30 ]]; then
+        ready=1
+      else
+        state1=$(echo "$body" | jq -r '.[] | select(.entity_id == "input_text.spoolman_base_url") | .state // ""' 2>/dev/null)
+        rest1=$(echo "$body" | jq -r '.[] | select(.entity_id == "input_text.spoolman_base_url") | .attributes.restored // false' 2>/dev/null)
+        state2=$(echo "$body" | jq -r '.[] | select(.entity_id == "input_text.ams_slot_1_spool_id") | .state // ""' 2>/dev/null)
+        rest2=$(echo "$body" | jq -r '.[] | select(.entity_id == "input_text.ams_slot_1_spool_id") | .attributes.restored // false' 2>/dev/null)
+        if [[ "$state1" != "unavailable" && "$rest1" != "true" && "$state2" != "unavailable" && "$rest2" != "true" ]]; then
+          ready=1
+        fi
+      fi
+    fi
+    if [[ "$ready" -eq 1 ]]; then
+      echo "Phase B: helpers stable (not restored/unavailable). HA is ready."
       return
     fi
     end_ts=$(date +%s)
@@ -193,7 +209,7 @@ wait_for_ha() {
       echo "WARN: Phase B timeout (${wait_sec}s); continuing anyway." >&2
       return
     fi
-    echo "  ... waiting for helper entity (${elapsed}s)"
+    echo "  ... waiting for helpers stable (${elapsed}s)"
     sleep "$sleep_sec"
   done
 }
