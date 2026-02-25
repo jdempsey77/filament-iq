@@ -21,8 +21,8 @@ ART_ROOT="${SKILL_ARTIFACTS_DIR:-$REPO_ROOT/.artifacts/skill/$TS}"
 LOG_DIR="$ART_ROOT/logs"
 mkdir -p "$LOG_DIR"
 
-PASS_STEPS=()
-FAIL_STEPS=()
+declare -a PASS_STEPS=()
+declare -a FAIL_STEPS=()
 
 log() { printf '%s\n' "$*" | tee -a "$LOG_DIR/skill_test.log"; }
 hr()  { log "--------------------------------------------------------------------------------"; }
@@ -176,12 +176,12 @@ log "LOGS  : $LOG_DIR"
 log ""
 
 log "CHECKLIST:"
-for s in "${PASS_STEPS[@]}"; do
-  log "  ✅ $s"
-done
-for s in "${FAIL_STEPS[@]}"; do
-  log "  ❌ $s"
-done
+if [[ ${#PASS_STEPS[@]} -gt 0 ]]; then
+  for s in "${PASS_STEPS[@]}"; do log "  ✅ $s"; done
+fi
+if [[ ${#FAIL_STEPS[@]} -gt 0 ]]; then
+  for s in "${FAIL_STEPS[@]}"; do log "  ❌ $s"; done
+fi
 
 log ""
 log "ARTIFACT INDEX:"
