@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Manage Home Assistant: deploy, validate, restart, check
-# Usage: ./scripts/manage_ha.sh [--stage|--promote|--check|--config|--automations|--scripts|--go2rtc|--all|--restart|--validate]
+# Usage: ./scripts/manage_ha.sh [--stage|--promote|--check|--config|--automations|--scripts|--go2rtc|--all|--restart|--validate|--appdaemon|--appdaemon-restart|--restart-all]
 #
 #   --check       Compare local stage vs HA
 #   --config      Deploy configuration.yaml and included files (scripts.yaml, scenes.yaml)
@@ -15,6 +15,9 @@
 #   --promote     Optional: copy stage YAML to ui-lovelace.yaml in HA (alternative to copying from repo)
 #   --restart     Restart HA (use with --config, or alone)
 #   --validate    Validate config via HA API (use with --config, or alone to check current)
+#   --appdaemon   Deploy AppDaemon apps (appdaemon/apps -> /addon_configs/<slug>/apps) and restart addon
+#   --appdaemon-restart  Restart AppDaemon addon only
+#   --restart-all Restart HA core and AppDaemon addon
 #
 # Requires: deploy.env (copy from deploy.env.example and fill in values)
 # Optional: HOME_ASSISTANT_URL, HOME_ASSISTANT_TOKEN for --validate, --restart
@@ -34,7 +37,7 @@ GO2RTC_FILE="$REPO_ROOT/go2rtc.yaml"
 # Parse args
 TARGET="${1:-}"
 if [[ -z "$TARGET" || "$TARGET" == "--help" || "$TARGET" == "-h" ]]; then
-  echo "Usage: $0 [--stage|--promote|--check|--config|--automations|--scripts|--go2rtc|--all|--spoolman-export|--spoolman-import|--spoolman-update|--restart|--validate]"
+  echo "Usage: $0 [--stage|--promote|--check|--config|--automations|--scripts|--go2rtc|--all|--spoolman-export|--spoolman-import|--spoolman-update|--restart|--validate|--appdaemon|--appdaemon-restart|--restart-all]"
   echo ""
   echo "  --check       Compare local stage vs HA"
   echo "  --config      Deploy configuration.yaml and included files (scripts.yaml, scenes.yaml)"
@@ -49,6 +52,9 @@ if [[ -z "$TARGET" || "$TARGET" == "--help" || "$TARGET" == "-h" ]]; then
   echo "  --promote     Optional: copy stage to ui-lovelace.yaml in HA"
   echo "  --restart     Restart HA"
   echo "  --validate    Validate config via HA API"
+  echo "  --appdaemon   Deploy AppDaemon apps (appdaemon/apps -> /addon_configs/<slug>/apps) and restart addon"
+  echo "  --appdaemon-restart  Restart AppDaemon addon only"
+  echo "  --restart-all Restart HA core and AppDaemon addon"
   exit 0
 fi
 RESTART_AFTER=0
@@ -128,6 +134,65 @@ do_reload_automations() {
   fi
 }
 
+# Resolve SSH target for AppDaemon: HA_SSH_HOST if set (else derive from HOME_ASSISTANT_URL), default root@host
+_resolve_appdaemon_ssh_target() {
+  if [[ -n "${HA_SSH_HOST:-}" ]]; then
+    if [[ "$HA_SSH_HOST" == *"@"* ]]; then
+      AD_SSH_TARGET="$HA_SSH_HOST"
+    else
+      AD_SSH_TARGET="root@${HA_SSH_HOST}"
+    fi
+  else
+    local url="${HOME_ASSISTANT_URL:-}"
+    url="${url#*://}"
+    url="${url%%/*}"
+    url="${url%:*}"
+    [[ -z "$url" ]] && url="localhost"
+    AD_SSH_TARGET="root@${url}"
+  fi
+}
+
+deploy_appdaemon() {
+  local apps_dir="$REPO_ROOT/appdaemon/apps"
+  if [[ ! -d "$apps_dir" ]]; then
+    echo "Error: $apps_dir not found." >&2
+    return 1
+  fi
+  local slug="${APPDAEMON_ADDON_SLUG:-a0d7b954_appdaemon}"
+  local remote_dir="/addon_configs/${slug}/apps"
+  local opts="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
+  if ! ssh $opts "$AD_SSH_TARGET" "mkdir -p $remote_dir"; then
+    echo "Error: could not create remote dir $remote_dir on host." >&2
+    return 1
+  fi
+  if ! rsync -av --delete "$apps_dir/" "$AD_SSH_TARGET:$remote_dir/"; then
+    echo "Error: rsync failed." >&2
+    return 1
+  fi
+  if ! ssh $opts "$AD_SSH_TARGET" "ha addons restart '${slug}'"; then
+    echo "Error: addon restart failed." >&2
+    return 1
+  fi
+  echo "AppDaemon apps deployed and addon restarted."
+  return 0
+}
+
+restart_appdaemon() {
+  local slug="${APPDAEMON_ADDON_SLUG:-a0d7b954_appdaemon}"
+  local opts="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
+  if ! ssh $opts "$AD_SSH_TARGET" "ha addons restart '${slug}'"; then
+    echo "Error: AppDaemon addon restart failed." >&2
+    return 1
+  fi
+  echo "AppDaemon addon restarted."
+  return 0
+}
+
+restart_ha_core_then_restart_appdaemon() {
+  do_restart
+  restart_appdaemon
+}
+
 # Handle --validate alone (validate config currently on HA)
 if [[ "$TARGET" == "--validate" ]]; then
   if [[ -f "$DEPLOY_ENV" ]]; then
@@ -147,6 +212,54 @@ if [[ "$TARGET" == "--restart" ]]; then
     set +a
   fi
   do_restart
+  exit 0
+fi
+
+# Handle --appdaemon (deploy apps + restart addon)
+if [[ "$TARGET" == "--appdaemon" ]]; then
+  if [[ ! -f "$DEPLOY_ENV" ]]; then
+    echo "Error: $DEPLOY_ENV not found." >&2
+    exit 1
+  fi
+  set -a
+  source "$DEPLOY_ENV"
+  set +a
+  APPDAEMON_ADDON_SLUG="${APPDAEMON_ADDON_SLUG:-a0d7b954_appdaemon}"
+  SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
+  _resolve_appdaemon_ssh_target
+  deploy_appdaemon || exit 1
+  exit 0
+fi
+
+# Handle --appdaemon-restart (restart addon only)
+if [[ "$TARGET" == "--appdaemon-restart" ]]; then
+  if [[ ! -f "$DEPLOY_ENV" ]]; then
+    echo "Error: $DEPLOY_ENV not found." >&2
+    exit 1
+  fi
+  set -a
+  source "$DEPLOY_ENV"
+  set +a
+  APPDAEMON_ADDON_SLUG="${APPDAEMON_ADDON_SLUG:-a0d7b954_appdaemon}"
+  SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
+  _resolve_appdaemon_ssh_target
+  restart_appdaemon || exit 1
+  exit 0
+fi
+
+# Handle --restart-all (HA core + AppDaemon addon)
+if [[ "$TARGET" == "--restart-all" ]]; then
+  if [[ ! -f "$DEPLOY_ENV" ]]; then
+    echo "Error: $DEPLOY_ENV not found." >&2
+    exit 1
+  fi
+  set -a
+  source "$DEPLOY_ENV"
+  set +a
+  APPDAEMON_ADDON_SLUG="${APPDAEMON_ADDON_SLUG:-a0d7b954_appdaemon}"
+  SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
+  _resolve_appdaemon_ssh_target
+  restart_ha_core_then_restart_appdaemon || exit 1
   exit 0
 fi
 
@@ -432,7 +545,7 @@ elif [[ "$TARGET" == "--promote" ]]; then
   SOURCE_FILE="$STAGE_FILE"
   REMOTE_NAME="ui-lovelace.yaml"
 else
-  echo "Error: use --stage, --promote, --config, --automations, --scripts, --go2rtc, --all, --spoolman-export, --spoolman-import, or --spoolman-update."
+  echo "Error: use --stage, --promote, --check, --config, --automations, --scripts, --go2rtc, --all, --spoolman-export, --spoolman-import, --spoolman-update, --restart, --validate, --appdaemon, --appdaemon-restart, or --restart-all."
   exit 1
 fi
 
