@@ -11,13 +11,24 @@ Cursor must follow this doc exactly.
 - Ensure every deploy is auditable and reversible
 - Default to deterministic “run all gates” behavior
 
-## Triggers (ALL CAPS)
+## Triggers (ALL CAPS) — script mapping
+
+When the user types one of these in ALL CAPS, Cursor must execute the corresponding workflow. **Never invent deployment steps.**
+
+| Trigger   | Action |
+|-----------|--------|
+| **TEST**  | Run `./scripts/skill_test.sh`. Output structured summary (STATUS, COMMANDS RUN, ARTIFACTS, NEXT ACTION). |
+| **DEPLOY**| Run `./scripts/skill_deploy.sh` (it runs TEST first, then `./scripts/manage_ha.sh` by change type). Output structured summary. |
+| **CHECKIN** | Follow CHECKIN workflow below (commit + audit summary). No standalone script. |
+| **GUARDRAILS** | Restate and enforce repo rules from this doc. No script. |
+| **ROLLBACK** | Provide safe rollback steps from this doc; use `./scripts/manage_ha.sh` for redeploy. No standalone script. |
+| **PHASE**  | Show current maturity posture (gates, flags, what TEST/DEPLOY enforce). No standalone script. |
 
 ### TEST
-Run the full validation workflow and output PASS/FAIL with a checklist summary.
+Run the full validation workflow and output PASS/FAIL with a checklist summary. **Implementation:** `./scripts/skill_test.sh`.
 
 ### DEPLOY
-Run TEST first. If PASS, deploy using `./scripts/manage_ha.sh` based on change type, then run post-deploy verification. Output a deployment record.
+Run TEST first. If PASS, deploy using `./scripts/manage_ha.sh` based on change type, then run post-deploy verification. Output a deployment record. **Implementation:** `./scripts/skill_deploy.sh` (runs TEST then deploy).
 
 ### CHECKIN
 Create a clean, reviewable commit with an audit summary and validation notes.

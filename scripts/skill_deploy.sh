@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ==============================================================================
+# skill_deploy.sh (bash 3.2 compatible)
+# Deterministic deploy entrypoint:
+#   - requires clean working tree (unless SKIP_GIT_CLEAN=1)
+#   - runs ./scripts/skill_test.sh (must PASS)
+#   - detects change type and deploys using ./scripts/manage_ha.sh only
+#   - runs post-deploy verification scripts (if present)
+#   - produces a deployment record under ./.artifacts/skill/<ts>/
+# ==============================================================================
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -21,6 +31,7 @@ hr
 log "DEPLOY: starting"
 log "INFO: branch=$BRANCH sha=$SHA"
 log "INFO: artifacts=$ART_ROOT"
+log "INFO: logs=$LOG_DIR"
 
 # ------------------------------------------------------------------------------
 # 0) Preconditions: clean tree unless explicitly overridden
@@ -58,7 +69,7 @@ fi
 log "RESULT: TEST PASS ✅"
 
 # ------------------------------------------------------------------------------
-# 2) Determine change set base ref
+# 2) Determine base ref for change detection
 # ------------------------------------------------------------------------------
 BASE_REF=""
 if git rev-parse --verify --quiet "origin/$BRANCH" >/dev/null; then
@@ -68,7 +79,7 @@ else
 fi
 
 CHANGED_FILE_LIST="$LOG_DIR/changed_files.txt"
-git diff --name-only "$BASE_REF"...HEAD | tee "$CHANGED_FILE_LIST" >/dev/null || true
+git diff --name-only "$BASE_REF"...HEAD >"$CHANGED_FILE_LIST" 2>/dev/null || true
 
 hr
 log "STEP: change detection"
@@ -76,7 +87,7 @@ log "BASE_REF: $BASE_REF"
 log "Changed files saved to: $CHANGED_FILE_LIST"
 
 # ------------------------------------------------------------------------------
-# 3) Decide deploy targets (your manage_ha.sh flags)
+# 3) Decide deploy targets (aligned to manage_ha.sh --help)
 # ------------------------------------------------------------------------------
 NEEDS_APPDAEMON=0
 NEEDS_AUTOMATIONS=0
@@ -85,9 +96,9 @@ NEEDS_SCRIPTS_ONLY=0
 NEEDS_CONFIG=0
 NEEDS_ALL=0
 
-# If lots changed, prefer --all (safer, restarts HA).
 CHANGED_COUNT="$(wc -l <"$CHANGED_FILE_LIST" 2>/dev/null | tr -d ' ' || echo 0)"
 
+# Read changed files line-by-line (bash 3.2 safe)
 while IFS= read -r f; do
   [[ -z "$f" ]] && continue
 
@@ -96,49 +107,37 @@ while IFS= read -r f; do
     NEEDS_APPDAEMON=1
   fi
 
-  # Automations
-  if [[ "$f" == "automations.yaml" ]]; then
-    NEEDS_AUTOMATIONS=1
-  fi
+  # Automations / go2rtc
+  [[ "$f" == "automations.yaml" ]] && NEEDS_AUTOMATIONS=1
+  [[ "$f" == "go2rtc.yaml" ]] && NEEDS_GO2RTC=1
 
-  # go2rtc
-  if [[ "$f" == "go2rtc.yaml" ]]; then
-    NEEDS_GO2RTC=1
-  fi
-
-  # scripts.yaml only changes can be narrow
-  if [[ "$f" == "scripts.yaml" ]]; then
-    NEEDS_SCRIPTS_ONLY=1
-  fi
+  # scripts.yaml only (narrow)
+  [[ "$f" == "scripts.yaml" ]] && NEEDS_SCRIPTS_ONLY=1
 
   # General HA config bundle
-  if [[ "$f" == "configuration.yaml" || "$f" == "scenes.yaml" || "$f" == "secrets.yaml" || "$f" == "templates.yaml" || "$f" == "ui-lovelace.yaml" || "$f" == dashboards/* || "$f" == lovelace/* ]]; then
-    NEEDS_CONFIG=1
-  fi
-
-  # Deploy tooling changes: doesn't necessarily require HA deploy, but does affect workflow
-  if [[ "$f" == scripts/* ]]; then
-    : # no-op; keep for future heuristics
-  fi
+  case "$f" in
+    configuration.yaml|scenes.yaml|secrets.yaml|templates.yaml|ui-lovelace.yaml)
+      NEEDS_CONFIG=1
+      ;;
+    dashboards/*|lovelace/*)
+      NEEDS_CONFIG=1
+      ;;
+  esac
 done < "$CHANGED_FILE_LIST"
 
-# Heuristic: if more than 6 files changed and includes any HA config areas, use --all
+# Heuristics: if multiple HA areas changed, prefer --all (safer, includes restart)
+if [[ "$NEEDS_CONFIG" -eq 1 && ( "$NEEDS_AUTOMATIONS" -eq 1 || "$NEEDS_GO2RTC" -eq 1 ) ]]; then
+  NEEDS_ALL=1
+fi
 if [[ "$CHANGED_COUNT" -ge 7 && ( "$NEEDS_CONFIG" -eq 1 || "$NEEDS_AUTOMATIONS" -eq 1 || "$NEEDS_GO2RTC" -eq 1 ) ]]; then
   NEEDS_ALL=1
 fi
 
-# If configuration.yaml changed, config deploy is required; if automations/go2rtc changed too,
-# --all is cleaner and ensures restart.
-if [[ "$NEEDS_CONFIG" -eq 1 && ( "$NEEDS_AUTOMATIONS" -eq 1 || "$NEEDS_GO2RTC" -eq 1 ) ]]; then
-  NEEDS_ALL=1
-fi
-
 HA_TARGETS=()
+
 if [[ "$NEEDS_ALL" -eq 1 ]]; then
   HA_TARGETS+=("--all")
 else
-  # Prefer minimal targets when safe
-  # If config changed, use --config (covers included files like scripts.yaml, scenes.yaml)
   if [[ "$NEEDS_CONFIG" -eq 1 ]]; then
     HA_TARGETS+=("--config")
   else
@@ -148,24 +147,24 @@ else
   [[ "$NEEDS_GO2RTC" -eq 1 ]] && HA_TARGETS+=("--go2rtc")
 fi
 
-# Deduplicate HA targets (bash-safe)
+# Deduplicate HA targets (bash 3.2)
 DEDUPED=()
 for t in "${HA_TARGETS[@]}"; do
-  skip=0
+  found=0
   for u in "${DEDUPED[@]}"; do
-    [[ "$t" == "$u" ]] && skip=1
+    [[ "$t" == "$u" ]] && found=1
   done
-  [[ $skip -eq 0 ]] && DEDUPED+=("$t")
+  [[ $found -eq 0 ]] && DEDUPED+=("$t")
 done
 HA_TARGETS=("${DEDUPED[@]}")
 
 hr
 log "DECISION:"
-log "  HA targets     : ${HA_TARGETS[*]:-(none)}"
+log "  HA targets      : ${HA_TARGETS[*]:-(none)}"
 log "  AppDaemon deploy: $NEEDS_APPDAEMON"
 
 # ------------------------------------------------------------------------------
-# 4) Write deployment record header
+# 4) Deployment record
 # ------------------------------------------------------------------------------
 DEPLOY_RECORD="$ART_ROOT/deploy_record.txt"
 {
@@ -227,7 +226,7 @@ if [[ "$NEEDS_APPDAEMON" -eq 1 ]]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 7) Post-deploy verification (minimal but real)
+# 7) Post-deploy verification (run if present)
 # ------------------------------------------------------------------------------
 hr
 log "STEP: post-deploy verification"

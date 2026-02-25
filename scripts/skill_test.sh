@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ==============================================================================
-# skill_test.sh
+# skill_test.sh (bash 3.2 compatible)
 # Deterministic repo validation entrypoint:
 #   - repo sanity checks (branch, clean tree unless overridden)
 #   - preflight scripts (helpers/integrations)
@@ -24,9 +24,8 @@ mkdir -p "$LOG_DIR"
 PASS_STEPS=()
 FAIL_STEPS=()
 
-log()  { printf '%s\n' "$*" | tee -a "$LOG_DIR/skill_test.log"; }
-hr()   { log "--------------------------------------------------------------------------------"; }
-die()  { log "ERROR: $*"; exit 1; }
+log() { printf '%s\n' "$*" | tee -a "$LOG_DIR/skill_test.log"; }
+hr()  { log "--------------------------------------------------------------------------------"; }
 
 run_step() {
   # run_step "Human name" "command string"
@@ -80,7 +79,7 @@ log "INFO: branch=$BRANCH sha=$SHA"
 log "INFO: artifacts=$ART_ROOT"
 
 # ==============================================================================
-# 1) Preflights (canonical list — add/remove here as you standardize)
+# 1) Preflights (canonical list — adjust as your repo standardizes)
 # ==============================================================================
 PREFLIGHTS=(
   "./scripts/preflight_input_text.sh"
@@ -100,7 +99,6 @@ for p in "${PREFLIGHTS[@]}"; do
   if [[ -x "$REPO_ROOT/${p#./}" ]]; then
     run_step "preflight: $p" "$p" || true
   elif [[ -f "$REPO_ROOT/${p#./}" ]]; then
-    # If file exists but not executable, run via bash.
     run_step "preflight: $p" "bash '$p'" || true
   else
     log "SKIP: preflight not found: $p"
@@ -111,7 +109,6 @@ done
 # 2) Unit tests (pytest if present)
 # ==============================================================================
 if [[ -f "$REPO_ROOT/pytest.ini" || -d "$REPO_ROOT/tests" ]]; then
-  # If you use a venv, you can set VENV_ACTIVATE=path/to/venv/bin/activate
   if [[ -n "${VENV_ACTIVATE:-}" && -f "${VENV_ACTIVATE:-}" ]]; then
     run_step "unit: pytest (venv)" "source '${VENV_ACTIVATE}' && python -m pytest -q" || true
   else
@@ -122,13 +119,16 @@ else
 fi
 
 # ==============================================================================
-# 3) Phase gates (ALL gates discovered)
-#    Default: any executable scripts matching gate_*.sh in ./scripts
+# 3) Phase gates (ALL gates discovered) — bash 3.2 compatible (no mapfile)
 # ==============================================================================
 GATE_DIR="$REPO_ROOT/scripts"
 GATE_GLOB="${GATE_GLOB:-gate_*.sh}"
 
-mapfile -t GATES < <(cd "$GATE_DIR" && ls -1 $GATE_GLOB 2>/dev/null | sort || true)
+GATES=()
+if ls "$GATE_DIR"/$GATE_GLOB >/dev/null 2>&1; then
+  # shellcheck disable=SC2206
+  GATES=( $(cd "$GATE_DIR" && ls -1 $GATE_GLOB 2>/dev/null | sort) )
+fi
 
 log ""
 log "DISCOVERY: Phase gates (pattern scripts/$GATE_GLOB):"
@@ -171,7 +171,6 @@ for s in "${FAIL_STEPS[@]}"; do
   log "  ❌ $s"
 done
 
-# Helpful single-file pointers
 log ""
 log "ARTIFACT INDEX:"
 log "  - $LOG_DIR/skill_test.log"

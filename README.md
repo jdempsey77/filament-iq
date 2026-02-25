@@ -2,7 +2,38 @@
 
 This repo holds Home Assistant configuration: dashboards, automations, and related YAML.
 
-**If this folder is not yet a git repo**, you can turn it into one with: `git init` (from this directory). Ensure `scripts/deploy.env` is in `.gitignore` so secrets are not committed.
+**If this folder is not yet a git repo**, you can turn it into one with: `git init` (from this directory). Ensure local env/secrets files are ignored (e.g. `scripts/deploy.env.local`, `.env*`) so secrets are not committed.
+
+## 🚦 Development workflow (authoritative)
+
+Use the repo’s deterministic workflows for validation and deployment:
+
+### Validate (required before deploy)
+
+```bash
+./scripts/skill_test.sh
+```
+
+- Runs preflights
+- Runs unit tests (if present)
+- Runs all Phase Gates (deterministic)
+- Writes artifacts/logs under `.artifacts/skill/`
+
+### Deploy (safe, auditable)
+
+```bash
+./scripts/skill_deploy.sh
+```
+
+- Runs `skill_test.sh` first (must PASS)
+- Deploys via `./scripts/manage_ha.sh` only (targets selected based on changes)
+- Runs post-deploy verification and produces a deployment record
+
+### Rules of the road
+
+The authoritative rules (including the ALL‑CAPS triggers for Cursor: `TEST`, `DEPLOY`, `CHECKIN`, `GUARDRAILS`, `ROLLBACK`, `PHASE`) live in:
+
+- `docs/cursor_skill.md`
 
 ## Contents
 
@@ -14,8 +45,8 @@ This repo holds Home Assistant configuration: dashboards, automations, and relat
 
 ## Deploy via SSH
 
-1. Copy `scripts/deploy.env.example` to `scripts/deploy.env` and fill in your SSH host, user, and config path.
-2. **Dashboard workflow:** Deploy stage (`--stage`), test at `/lovelace-stage`, then when happy copy the repo contents (e.g. `dashboards/dashboard.stage.yaml`) into production from the repo. No `--promote`; prod is updated by copying from the repo.
+1. Copy `scripts/deploy.env.example` to `scripts/deploy.env.local` and fill in your SSH host, user, and config path.
+2. **Dashboard workflow:** Deploy stage (`--stage`), test at `/lovelace-stage`, then when happy copy the repo contents (e.g. `dashboards/dashboard.stage.yaml`) into production from the repo. Production is typically updated by copying from the repo. (There is also an optional `--promote` command in `manage_ha.sh` if you want to copy Stage → `ui-lovelace.yaml` on HA, but manual promotion from the repo is the default.)
 
 ### Deploying changes to Home Assistant
 
