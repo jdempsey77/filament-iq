@@ -31,10 +31,11 @@ curl -sS -o /dev/null -X POST \
   "$HOME_ASSISTANT_URL/api/services/input_text/set_value" 2>/dev/null || true
 sleep 1
 
-# Step 2: Fire the UUID generation script
+# Step 2: Fire the UUID generation script (script.turn_on with entity_id)
 http_code=$(curl -sS -o /dev/null -w "%{http_code}" \
-  -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
-  "$HOME_ASSISTANT_URL/api/services/script/spoolman_set_new_spool_uuid" 2>/dev/null || echo "000")
+  -X POST -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"entity_id":"script.spoolman_set_new_spool_uuid"}' \
+  "$HOME_ASSISTANT_URL/api/services/script/turn_on" 2>/dev/null || echo "000")
 
 if [[ "$http_code" != "200" ]]; then
   echo "PREFLIGHT_SPOOLMAN_UUID: FAIL — script returned HTTP $http_code"

@@ -46,8 +46,9 @@ sleep 1
 
 # --- (b) Call script, poll for UUID ---
 http_code=$(curl -sS -o "$ARTIFACT_DIR/script_response.txt" -w "%{http_code}" \
-  -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
-  "$HOME_ASSISTANT_URL/api/services/script/spoolman_set_new_spool_uuid" 2>/dev/null || echo "000")
+  -X POST -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"entity_id":"script.spoolman_set_new_spool_uuid"}' \
+  "$HOME_ASSISTANT_URL/api/services/script/turn_on" 2>/dev/null || echo "000")
 
 if [[ "$http_code" != "200" ]]; then
   log_fail "script.spoolman_set_new_spool_uuid returned HTTP $http_code (see $ARTIFACT_DIR/script_response.txt)"
