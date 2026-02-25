@@ -187,7 +187,7 @@ wait_for_ha() {
     # (1) /api/services must include input_text domain and set_value
     services_json=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/services" 2>/dev/null) || true
     if command -v jq >/dev/null 2>&1 && [[ -n "$services_json" ]]; then
-      has_domain=$(echo "$services_json" | jq -r 'if type == "object" then (has("input_text") and (.["input_text"] | type == "object") and (.["input_text"] | has("set_value"))) else false end' 2>/dev/null || echo "false")
+      has_domain=$(echo "$services_json" | jq -r 'if type == "array" then ([.[] | select(.domain == "input_text") | .services | has("set_value")] | any) elif type == "object" then (has("input_text") and (.["input_text"] | type == "object") and (.["input_text"] | has("set_value"))) else false end' 2>/dev/null || echo "false")
       if [[ "$has_domain" != "true" ]]; then
         end_ts=$(date +%s)
         elapsed=$(( end_ts - start_ts ))

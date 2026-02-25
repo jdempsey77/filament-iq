@@ -28,7 +28,13 @@ if [[ -z "$services_json" ]]; then
 fi
 
 if command -v jq >/dev/null 2>&1; then
-  has=$(echo "$services_json" | jq -r 'if type == "object" then (has("input_text") and (.["input_text"] | type == "object") and (.["input_text"] | has("set_value"))) else false end' 2>/dev/null || echo "false")
+  has=$(echo "$services_json" | jq -r '
+    if type == "array" then
+      [.[] | select(.domain == "input_text") | .services | has("set_value")] | any
+    elif type == "object" then
+      has("input_text") and (.["input_text"] | type == "object") and (.["input_text"] | has("set_value"))
+    else false end
+  ' 2>/dev/null || echo "false")
   if [[ "$has" != "true" ]]; then
     echo "PREFLIGHT_INPUT_TEXT_SERVICES: FAIL — input_text domain or set_value missing in /api/services (input_text integration may not have loaded)"
     exit 1
