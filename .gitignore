@@ -24,3 +24,9 @@ logs/
 patches/
 spool_cache.json
 gates_phase0_hard_output.txt
+
+# local secrets & artifacts
+id_ed25519_ha
+out.*
+*.log
+phase*_helper_check.txt
