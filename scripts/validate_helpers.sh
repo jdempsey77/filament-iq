@@ -44,6 +44,25 @@ if [[ ${#required[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# Helper settle: wait for HA to expose helpers after restart (avoids PASS:0/MISSING:36 race)
+SETTLE_SECONDS="${SETTLE_SECONDS:-60}"
+SETTLE_SLEEP="${SETTLE_SLEEP:-3}"
+PROBE_URL="${HOME_ASSISTANT_URL}/api/states/input_text.spoolman_base_url"
+start_ts=$(date +%s)
+while true; do
+  code=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$PROBE_URL" 2>/dev/null || echo "000")
+  if [[ "$code" == "200" ]]; then
+    break
+  fi
+  now_ts=$(date +%s)
+  elapsed=$(( now_ts - start_ts ))
+  if [[ $elapsed -ge SETTLE_SECONDS ]]; then
+    echo "WARN: helper settle timeout (${SETTLE_SECONDS}s); proceeding anyway" >&2
+    break
+  fi
+  sleep "$SETTLE_SLEEP"
+done
+
 # Fetch all states once
 states_json="$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/states")"
 if ! echo "$states_json" | jq -e . >/dev/null 2>&1; then
