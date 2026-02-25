@@ -104,7 +104,7 @@ input_text:
     initial: "{}"
   p1s_last_mapping_json:
     name: P1S Last Mapping Result
-    max: 255
+    max: 2048
     initial: ""
   p1s_tray_remaining_start_json:
     name: P1S tray remaining start JSON
