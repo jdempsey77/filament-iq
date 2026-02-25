@@ -43,6 +43,7 @@ if [[ -z "$TARGET" || "$TARGET" == "--help" || "$TARGET" == "-h" ]]; then
   echo "  --config      Deploy configuration.yaml and included files (scripts.yaml, scenes.yaml)"
   echo "  --automations Deploy automations.yaml"
   echo "  --scripts     Deploy scripts.yaml only"
+  echo "  --python_scripts  Deploy python_scripts/ to HA config (no restart)"
   echo "  --go2rtc      Deploy go2rtc.yaml (streams for WebRTC/cameras)"
   echo "  --all         Deploy all config (config + automations + go2rtc) and restart HA"
   echo "  --spoolman-export  Export Spoolman inventory to spools.csv (keep repo in sync)"
@@ -65,7 +66,7 @@ for arg in "$@"; do
 done
 
 # Deploy guard: refuse deploy/restart if working tree is dirty (staged or unstaged)
-DEPLOY_FLAGS="--config --automations --scripts --go2rtc --all --appdaemon --stage --promote --restart --restart-all --appdaemon-restart"
+DEPLOY_FLAGS="--config --automations --scripts --python_scripts --go2rtc --all --appdaemon --stage --promote --restart --restart-all --appdaemon-restart"
 if [[ " $DEPLOY_FLAGS " == *" $TARGET "* ]]; then
   status_out=$(cd "$REPO_ROOT" && git status --porcelain 2>/dev/null)
   if [[ -n "$status_out" ]]; then
@@ -560,6 +561,32 @@ if [[ "$TARGET" == "--scripts" ]]; then
     wait_for_ha
     do_validate_helpers
   fi
+  exit 0
+fi
+
+# Handle --python_scripts (deploy python_scripts/ to HA config; no restart required for reload)
+if [[ "$TARGET" == "--python_scripts" ]]; then
+  if [[ ! -f "$DEPLOY_ENV" ]]; then
+    echo "Error: $DEPLOY_ENV not found."
+    exit 1
+  fi
+  PYTHON_SCRIPTS_DIR="$REPO_ROOT/python_scripts"
+  if [[ ! -d "$PYTHON_SCRIPTS_DIR" ]]; then
+    echo "Error: python_scripts directory not found at $PYTHON_SCRIPTS_DIR"
+    exit 1
+  fi
+  set -a
+  source "$DEPLOY_ENV"
+  set +a
+  : "${SSH_HOST:?Set SSH_HOST in deploy.env}"
+  : "${SSH_USER:?Set SSH_USER in deploy.env}"
+  : "${REMOTE_CONFIG_PATH:?Set REMOTE_CONFIG_PATH in deploy.env}"
+  SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
+  REMOTE_PS="${REMOTE_CONFIG_PATH%/}/python_scripts"
+  echo "Deploying python_scripts/ to $SSH_USER@$SSH_HOST:$REMOTE_PS"
+  ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" "mkdir -p $REMOTE_PS"
+  scp $SSH_OPTS "$PYTHON_SCRIPTS_DIR"/*.py "$SSH_USER@$SSH_HOST:$REMOTE_PS/"
+  echo "Done. Reload python_script integration in HA (Developer Tools -> YAML -> Python Scripts) if needed."
   exit 0
 fi
 
