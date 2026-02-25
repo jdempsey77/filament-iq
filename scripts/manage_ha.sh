@@ -149,111 +149,221 @@ do_reload_automations() {
   fi
 }
 
-# Wait for HA to respond after restart: Phase A /api/config, Phase B helper entity (deterministic).
-# HA_WAIT_SECONDS: max seconds per phase (default 180). On timeout: WARN and continue (do not exit).
+# Wait for HA to respond after restart (three phases):
+#   Phase A:  /api/config HTTP 200               (HA_WAIT_SECONDS, default 180s)
+#   Phase B1: input_text service in /api/services (HA_WAIT_INPUT_TEXT_SECONDS, default 180s)
+#   Phase B2: required helpers stable, progress-aware (HA_WAIT_HELPERS_SECONDS, default 420s)
+# B2 extends deadline when zombies decrease; idle-fails when no progress for HA_WAIT_HELPERS_IDLE_SECONDS.
 wait_for_ha() {
   if [[ -z "$HOME_ASSISTANT_URL" || -z "$HOME_ASSISTANT_TOKEN" ]]; then
     return
   fi
-  local wait_sec="${HA_WAIT_SECONDS:-180}"
   local sleep_sec="${HA_WAIT_SLEEP:-3}"
   local start_ts end_ts elapsed code
 
-  # Phase A: poll /api/config until 200 or timeout
-  echo "Waiting for Home Assistant (Phase A: /api/config)..."
+  # Phase A: poll /api/config until 200 or timeout (uses HA_WAIT_SECONDS for backward compat)
+  local phase_a_sec="${HA_WAIT_SECONDS:-180}"
+  echo "Waiting for Home Assistant (Phase A: /api/config, timeout ${phase_a_sec}s)..."
   start_ts=$(date +%s)
   while true; do
     code=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/config" 2>/dev/null || echo "000")
     if [[ "$code" == "200" ]]; then
-      echo "Phase A: /api/config returned 200."
+      end_ts=$(date +%s); elapsed=$(( end_ts - start_ts ))
+      echo "Phase A: /api/config returned 200 after ${elapsed}s."
       break
     fi
-    end_ts=$(date +%s)
-    elapsed=$(( end_ts - start_ts ))
-    if [[ $elapsed -ge wait_sec ]]; then
-      echo "WARN: Phase A timeout (${wait_sec}s); continuing anyway." >&2
+    end_ts=$(date +%s); elapsed=$(( end_ts - start_ts ))
+    if [[ $elapsed -ge $phase_a_sec ]]; then
+      echo "WARN: Phase A timeout (${phase_a_sec}s); continuing anyway." >&2
       return
     fi
     echo "  ... waiting for /api/config (${elapsed}s)"
     sleep "$sleep_sec"
   done
 
-  # Phase B: require (1) input_text domain + set_value in /api/services, (2) helpers present and not restored/unavailable, (3) stability across 2 samples 5s apart
-  echo "Waiting for Home Assistant (Phase B: input_text service + helpers stable)..."
+  # -------------------------------------------------------------------
+  # Phase B1: wait for input_text domain + set_value in /api/services
+  # -------------------------------------------------------------------
+  local b1_sec="${HA_WAIT_INPUT_TEXT_SECONDS:-180}"
+  echo "Waiting for Home Assistant (Phase B1: input_text service, timeout ${b1_sec}s)..."
   start_ts=$(date +%s)
-  phase_b_stable_sec=5
   while true; do
-    ready=0
-    # (1) /api/services must include input_text domain and set_value
+    local services_json has_domain
     services_json=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/services" 2>/dev/null) || true
     if command -v jq >/dev/null 2>&1 && [[ -n "$services_json" ]]; then
-      has_domain=$(echo "$services_json" | jq -r 'if type == "array" then ([.[] | select(.domain == "input_text") | .services | has("set_value")] | any) elif type == "object" then (has("input_text") and (.["input_text"] | type == "object") and (.["input_text"] | has("set_value"))) else false end' 2>/dev/null || echo "false")
-      if [[ "$has_domain" != "true" ]]; then
-        end_ts=$(date +%s)
-        elapsed=$(( end_ts - start_ts ))
-        if [[ $elapsed -ge wait_sec ]]; then
-          if [[ "${HA_ALLOW_PARTIAL_STARTUP:-0}" == "1" ]]; then
-            echo "WARN: Phase B timeout (${wait_sec}s); input_text service still missing. Continuing (HA_ALLOW_PARTIAL_STARTUP=1)." >&2
-            return
-          fi
-          echo "ERROR: Phase B timeout (${wait_sec}s); input_text service still missing. HA is in partial startup." >&2
-          echo "  input_text.set_value not registered; helpers will be zombies." >&2
-          echo "  Fix: deploy config and restart again, or set HA_ALLOW_PARTIAL_STARTUP=1 to override." >&2
-          return 1
-        fi
-        echo "  ... waiting for input_text domain + set_value in /api/services (${elapsed}s)"
-        sleep "$sleep_sec"
-        continue
+      has_domain=$(echo "$services_json" | jq -r '
+        if type == "array" then
+          ([.[] | select(.domain == "input_text") | .services | has("set_value")] | any)
+        elif type == "object" then
+          (has("input_text") and (.["input_text"] | type == "object") and (.["input_text"] | has("set_value")))
+        else false end
+      ' 2>/dev/null || echo "false")
+      if [[ "$has_domain" == "true" ]]; then
+        end_ts=$(date +%s); elapsed=$(( end_ts - start_ts ))
+        echo "Phase B1: input_text.set_value present after ${elapsed}s."
+        break
       fi
     fi
-    # (2) Helpers present and not restored/unavailable (states)
-    body=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/states" 2>/dev/null) || true
-    if [[ -n "$body" ]] && command -v jq >/dev/null 2>&1; then
-      count=$(echo "$body" | jq '[.[] | select(.entity_id | startswith("input_text."))] | length' 2>/dev/null || echo "0")
-      state1=$(echo "$body" | jq -r '.[] | select(.entity_id == "input_text.spoolman_base_url") | .state // ""' 2>/dev/null)
-      rest1=$(echo "$body" | jq -r '.[] | select(.entity_id == "input_text.spoolman_base_url") | .attributes.restored // false' 2>/dev/null)
-      state2=$(echo "$body" | jq -r '.[] | select(.entity_id == "input_text.ams_slot_1_spool_id") | .state // ""' 2>/dev/null)
-      rest2=$(echo "$body" | jq -r '.[] | select(.entity_id == "input_text.ams_slot_1_spool_id") | .attributes.restored // false' 2>/dev/null)
-      helpers_ok=0
-      if [[ "${count:-0}" -ge 30 ]]; then
-        helpers_ok=1
-      fi
-      if [[ "$state1" != "unavailable" && "$rest1" != "true" && "$state2" != "unavailable" && "$rest2" != "true" ]]; then
-        helpers_ok=1
-      fi
-      if [[ "$helpers_ok" -eq 1 ]]; then
-        # (3) Stability: second sample after phase_b_stable_sec
-        sleep "$phase_b_stable_sec"
-        body2=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/states" 2>/dev/null) || true
-        services2=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/services" 2>/dev/null) || true
-        has2=$(echo "$services2" | jq -r 'if type == "object" then (has("input_text") and (.["input_text"] | has("set_value"))) else false end' 2>/dev/null || echo "false")
-        state1b=$(echo "$body2" | jq -r '.[] | select(.entity_id == "input_text.spoolman_base_url") | .state // ""' 2>/dev/null)
-        rest1b=$(echo "$body2" | jq -r '.[] | select(.entity_id == "input_text.spoolman_base_url") | .attributes.restored // false' 2>/dev/null)
-        state2b=$(echo "$body2" | jq -r '.[] | select(.entity_id == "input_text.ams_slot_1_spool_id") | .state // ""' 2>/dev/null)
-        rest2b=$(echo "$body2" | jq -r '.[] | select(.entity_id == "input_text.ams_slot_1_spool_id") | .attributes.restored // false' 2>/dev/null)
-        if [[ "$has2" == "true" && "$state1b" != "unavailable" && "$rest1b" != "true" && "$state2b" != "unavailable" && "$rest2b" != "true" ]]; then
-          ready=1
-        fi
-      fi
-    fi
-    if [[ "$ready" -eq 1 ]]; then
-      echo "Phase B: input_text service present, helpers stable (2 samples ${phase_b_stable_sec}s apart). HA is ready."
-      return
-    fi
-    end_ts=$(date +%s)
-    elapsed=$(( end_ts - start_ts ))
-    if [[ $elapsed -ge wait_sec ]]; then
+    end_ts=$(date +%s); elapsed=$(( end_ts - start_ts ))
+    if [[ $elapsed -ge $b1_sec ]]; then
       if [[ "${HA_ALLOW_PARTIAL_STARTUP:-0}" == "1" ]]; then
-        echo "WARN: Phase B timeout (${wait_sec}s); helpers not stable. Continuing (HA_ALLOW_PARTIAL_STARTUP=1)." >&2
+        echo "WARN: Phase B1 timeout (${b1_sec}s); input_text service missing. Continuing (HA_ALLOW_PARTIAL_STARTUP=1)." >&2
         return
       fi
-      echo "ERROR: Phase B timeout (${wait_sec}s); helpers not stable. HA is in partial startup." >&2
-      echo "  Fix: deploy config and restart again, or set HA_ALLOW_PARTIAL_STARTUP=1 to override." >&2
+      echo "ERROR: Phase B1 timeout (${b1_sec}s); input_text service still missing." >&2
+      echo "  input_text.set_value not registered; helpers will be zombies." >&2
+      echo "  Fix: deploy config and restart, or set HA_ALLOW_PARTIAL_STARTUP=1." >&2
       return 1
     fi
-    echo "  ... waiting for input_text service + helpers stable (${elapsed}s)"
+    echo "  ... waiting for input_text service (${elapsed}s)"
     sleep "$sleep_sec"
   done
+
+  # -------------------------------------------------------------------
+  # Phase B2: progress-aware wait for required helpers to stabilize
+  # -------------------------------------------------------------------
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "WARN: jq not available; skipping Phase B2 helper stability check." >&2
+    return
+  fi
+
+  local b2_sec="${HA_WAIT_HELPERS_SECONDS:-420}"
+  local b2_idle_sec="${HA_WAIT_HELPERS_IDLE_SECONDS:-180}"
+  local b2_max_sec="${HA_WAIT_HELPERS_MAX_SECONDS:-600}"
+  local b2_deadline b2_idle_deadline
+
+  # Load required helpers from helpers_manifest.yaml
+  local manifest="$REPO_ROOT/helpers_manifest.yaml"
+  if [[ ! -f "$manifest" ]]; then
+    echo "WARN: helpers_manifest.yaml not found; skipping Phase B2." >&2
+    return
+  fi
+  local req_helpers=""
+  while IFS= read -r _line; do
+    _line="${_line#*- }"
+    _line="${_line// /}"
+    [[ -n "$_line" ]] && req_helpers="${req_helpers}${_line} "
+  done < <(sed -n '/^required_helpers:/,/^[^ ]/p' "$manifest" | grep '  - ' | sed 's/^[[:space:]]*-[[:space:]]*//')
+  if [[ -z "$req_helpers" ]]; then
+    echo "WARN: no required_helpers in manifest; skipping Phase B2." >&2
+    return
+  fi
+
+  echo "Waiting for Home Assistant (Phase B2: helpers stable, timeout ${b2_sec}s, idle ${b2_idle_sec}s, max ${b2_max_sec}s)..."
+  start_ts=$(date +%s)
+  b2_deadline=$(( start_ts + b2_sec ))
+  b2_idle_deadline=$(( start_ts + b2_idle_sec ))
+  local best_zombies=9999
+  local zombies_count helpers_found body
+
+  while true; do
+    body=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/states" 2>/dev/null) || true
+    if [[ -z "$body" ]]; then
+      end_ts=$(date +%s); elapsed=$(( end_ts - start_ts ))
+      echo "  ... /api/states empty, retrying (${elapsed}s)"
+      sleep "$sleep_sec"
+      continue
+    fi
+
+    # Count zombies among REQUIRED helpers only
+    zombies_count=0
+    helpers_found=0
+    for _h in $req_helpers; do
+      local _st _re
+      _st=$(echo "$body" | jq -r --arg e "$_h" '.[] | select(.entity_id == $e) | .state // "MISSING"' 2>/dev/null)
+      if [[ -z "$_st" || "$_st" == "MISSING" ]]; then
+        zombies_count=$(( zombies_count + 1 ))
+        continue
+      fi
+      helpers_found=$(( helpers_found + 1 ))
+      _re=$(echo "$body" | jq -r --arg e "$_h" '.[] | select(.entity_id == $e) | .attributes.restored // false' 2>/dev/null)
+      if [[ "$_st" == "unavailable" || "$_re" == "true" ]]; then
+        zombies_count=$(( zombies_count + 1 ))
+      fi
+    done
+
+    end_ts=$(date +%s); elapsed=$(( end_ts - start_ts ))
+
+    # Success: all required helpers present and healthy
+    if [[ $zombies_count -eq 0 && $helpers_found -gt 0 ]]; then
+      echo "Phase B2: all required helpers stable (${helpers_found} OK) after ${elapsed}s. HA is ready."
+      return
+    fi
+
+    # Progress tracking: if zombies decreased, extend deadline
+    if [[ $zombies_count -lt $best_zombies ]]; then
+      best_zombies=$zombies_count
+      local new_deadline=$(( end_ts + 60 ))
+      if [[ $new_deadline -gt $b2_deadline && $new_deadline -le $(( start_ts + b2_max_sec )) ]]; then
+        b2_deadline=$new_deadline
+        echo "  ... progress: zombies_count=${zombies_count} (improved), deadline extended to +$(( b2_deadline - start_ts ))s"
+      fi
+      b2_idle_deadline=$(( end_ts + b2_idle_sec ))
+    fi
+
+    # Idle timeout: no improvement for b2_idle_sec
+    if [[ $end_ts -ge $b2_idle_deadline && $zombies_count -gt 0 ]]; then
+      echo "ERROR: Phase B2 idle timeout (${b2_idle_sec}s with no improvement)." >&2
+      echo "  zombies_count=${zombies_count} helpers_found=${helpers_found} best_seen=${best_zombies}" >&2
+      _b2_dump_evidence "$body"
+      if [[ "${HA_ALLOW_PARTIAL_STARTUP:-0}" == "1" ]]; then
+        echo "  Continuing (HA_ALLOW_PARTIAL_STARTUP=1)." >&2
+        return
+      fi
+      return 1
+    fi
+
+    # Hard deadline
+    if [[ $end_ts -ge $b2_deadline ]]; then
+      echo "ERROR: Phase B2 timeout (deadline=$(( b2_deadline - start_ts ))s)." >&2
+      echo "  zombies_count=${zombies_count} helpers_found=${helpers_found} best_seen=${best_zombies}" >&2
+      _b2_dump_evidence "$body"
+      if [[ "${HA_ALLOW_PARTIAL_STARTUP:-0}" == "1" ]]; then
+        echo "  Continuing (HA_ALLOW_PARTIAL_STARTUP=1)." >&2
+        return
+      fi
+      return 1
+    fi
+
+    echo "  ... waiting: zombies=${zombies_count} found=${helpers_found} best=${best_zombies} (${elapsed}s)"
+    sleep "$sleep_sec"
+  done
+}
+
+_b2_dump_evidence() {
+  local body="$1"
+  echo "  --- Phase B2 evidence ---" >&2
+  # Sample up to 5 zombie helpers
+  local _sample_count=0
+  for _h in $req_helpers; do
+    local _st _re
+    _st=$(echo "$body" | jq -r --arg e "$_h" '.[] | select(.entity_id == $e) | .state // "MISSING"' 2>/dev/null)
+    _re=$(echo "$body" | jq -r --arg e "$_h" '.[] | select(.entity_id == $e) | .attributes.restored // false' 2>/dev/null)
+    if [[ -z "$_st" || "$_st" == "MISSING" || "$_st" == "unavailable" || "$_re" == "true" ]]; then
+      echo "    zombie: $_h state=${_st:-MISSING} restored=${_re:-?}" >&2
+      _sample_count=$(( _sample_count + 1 ))
+      [[ $_sample_count -ge 5 ]] && break
+    fi
+  done
+  # /api/config safe_mode / recovery_mode
+  local _cfg
+  _cfg=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/config" 2>/dev/null) || true
+  if [[ -n "$_cfg" ]]; then
+    local _safe _recov
+    _safe=$(echo "$_cfg" | jq -r '.safe_mode // "?"' 2>/dev/null)
+    _recov=$(echo "$_cfg" | jq -r '.recovery_mode // "?"' 2>/dev/null)
+    echo "    safe_mode=${_safe} recovery_mode=${_recov}" >&2
+  fi
+  # input_text service present?
+  local _svc_json _has_it
+  _svc_json=$(curl -sS -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/services" 2>/dev/null) || true
+  _has_it=$(echo "$_svc_json" | jq -r '
+    if type == "array" then ([.[] | select(.domain == "input_text")] | length > 0)
+    elif type == "object" then has("input_text")
+    else false end
+  ' 2>/dev/null || echo "false")
+  echo "    input_text_service_present=${_has_it}" >&2
+  echo "  --- end evidence ---" >&2
 }
 
 # Deploy gate: run helpers validation (after reload/restart). Exit non-zero on failure.

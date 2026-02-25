@@ -67,8 +67,40 @@ After a config deploy and HA restart, helpers (e.g. `input_text.spoolman_base_ur
 
 ## 5. Guardrails in place
 
-- **manage_ha.sh Phase B:** Requires `/api/states` and (with jq) either input_text count >= 30 **or** both `input_text.spoolman_base_url` and `input_text.ams_slot_1_spool_id` with `state != "unavailable"` and `attributes.restored != true`. Timeout: `HA_WAIT_SECONDS` (default 180).
-- **validate_helpers.sh settle:** Before validation, waits for `input_text.spoolman_base_url` to have `state != "unavailable"` and `attributes.restored != true` (or timeout with WARN). No longer treats “HTTP 200 only” as ready.
+### manage_ha.sh readiness (`wait_for_ha`)
+
+Three phases run sequentially after restart:
+
+| Phase | What it checks | Timeout | Failure |
+|-------|---------------|---------|---------|
+| **A** | `/api/config` returns HTTP 200 | `HA_WAIT_SECONDS` (default 180s) | WARN + continue |
+| **B1** | `/api/services` contains `input_text` domain with `set_value` | `HA_WAIT_INPUT_TEXT_SECONDS` (default 180s) | Hard fail (return 1) unless `HA_ALLOW_PARTIAL_STARTUP=1` |
+| **B2** | All required helpers from `helpers_manifest.yaml` are not restored/unavailable | `HA_WAIT_HELPERS_SECONDS` (default 420s) | Hard fail with evidence dump |
+
+**Phase B2 is progress-aware:**
+- Every poll cycle, counts zombies among the required helpers list in `helpers_manifest.yaml`.
+- Tracks the best (lowest) zombie count seen during the wait.
+- If zombie count improves (decreases), extends the deadline by +60s, capped at `HA_WAIT_HELPERS_MAX_SECONDS` (default 600s).
+- If zombie count is unchanged for `HA_WAIT_HELPERS_IDLE_SECONDS` (default 180s), fails early with a diagnostic evidence dump.
+- Declares ready only when `zombies_count == 0` and helpers exist.
+
+### Environment tunables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HA_WAIT_SECONDS` | 180 | Phase A timeout (seconds) |
+| `HA_WAIT_INPUT_TEXT_SECONDS` | 180 | Phase B1 timeout (seconds) |
+| `HA_WAIT_HELPERS_SECONDS` | 420 | Phase B2 base timeout (seconds) |
+| `HA_WAIT_HELPERS_IDLE_SECONDS` | 180 | Phase B2 idle limit (seconds) |
+| `HA_WAIT_HELPERS_MAX_SECONDS` | 600 | Phase B2 absolute max deadline (seconds) |
+| `HA_WAIT_SLEEP` | 3 | Poll interval (seconds) |
+| `HA_ALLOW_PARTIAL_STARTUP` | 0 | Set to 1 to WARN+continue on timeout |
+
+### validate_helpers.sh
+
+- **Settle:** Before validation, waits for `input_text.spoolman_base_url` to be stable.
+- **Output:** Always prints `ZOMBIES_COUNT:` and `MISSING_COUNT:` for machine-readable parsing.
+- **Hard FAIL** when `PASS:0` with required helpers expected, or when any zombies exist.
 
 ---
 

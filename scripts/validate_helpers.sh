@@ -106,18 +106,25 @@ fi
 echo "===== HELPERS VALIDATION ====="
 ok=$(( ${#required[@]} - ${#missing[@]} - ${#zombies[@]} ))
 echo "PASS: $ok helpers OK"
+echo "REQUIRED: ${#required[@]}"
+echo "ZOMBIES_COUNT: ${#zombies[@]}"
+echo "MISSING_COUNT: ${#missing[@]}"
 if [[ ${#missing[@]} -gt 0 ]]; then
-  echo "MISSING: ${#missing[@]}"
+  echo "MISSING:"
   for e in "${missing[@]}"; do echo "  - $e"; done
 fi
 if [[ ${#zombies[@]} -gt 0 ]]; then
-  echo "ZOMBIES (restored/unavailable): ${#zombies[@]}"
+  echo "ZOMBIES (restored/unavailable):"
   for e in "${zombies[@]}"; do echo "  - $e"; done
 fi
-# Hard FAIL when PASS:0 but we expect helpers: input_text integration likely not loaded
 if [[ $ok -eq 0 && ${#required[@]} -gt 0 ]]; then
-  echo "FAIL: PASS:0 but required helpers expected. input_text integration may not be loaded (check /api/services for input_text domain and set_value)." >&2
+  echo "FAIL: PASS:0 but required helpers expected. input_text integration may not be loaded." >&2
+  exit 1
+fi
+if [[ ${#zombies[@]} -gt 0 ]]; then
+  echo "FAIL: ${#zombies[@]} zombie helpers detected (restored/unavailable)." >&2
+  exit 1
 fi
 
-[[ ${#missing[@]} -eq 0 && ${#zombies[@]} -eq 0 ]] && exit 0
+[[ ${#missing[@]} -eq 0 ]] && exit 0
 exit 1
