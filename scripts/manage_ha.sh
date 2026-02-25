@@ -192,8 +192,14 @@ wait_for_ha() {
         end_ts=$(date +%s)
         elapsed=$(( end_ts - start_ts ))
         if [[ $elapsed -ge wait_sec ]]; then
-          echo "WARN: Phase B timeout (${wait_sec}s); input_text service still missing. Continuing anyway." >&2
-          return
+          if [[ "${HA_ALLOW_PARTIAL_STARTUP:-0}" == "1" ]]; then
+            echo "WARN: Phase B timeout (${wait_sec}s); input_text service still missing. Continuing (HA_ALLOW_PARTIAL_STARTUP=1)." >&2
+            return
+          fi
+          echo "ERROR: Phase B timeout (${wait_sec}s); input_text service still missing. HA is in partial startup." >&2
+          echo "  input_text.set_value not registered; helpers will be zombies." >&2
+          echo "  Fix: deploy config and restart again, or set HA_ALLOW_PARTIAL_STARTUP=1 to override." >&2
+          return 1
         fi
         echo "  ... waiting for input_text domain + set_value in /api/services (${elapsed}s)"
         sleep "$sleep_sec"
@@ -237,8 +243,13 @@ wait_for_ha() {
     end_ts=$(date +%s)
     elapsed=$(( end_ts - start_ts ))
     if [[ $elapsed -ge wait_sec ]]; then
-      echo "WARN: Phase B timeout (${wait_sec}s); continuing anyway." >&2
-      return
+      if [[ "${HA_ALLOW_PARTIAL_STARTUP:-0}" == "1" ]]; then
+        echo "WARN: Phase B timeout (${wait_sec}s); helpers not stable. Continuing (HA_ALLOW_PARTIAL_STARTUP=1)." >&2
+        return
+      fi
+      echo "ERROR: Phase B timeout (${wait_sec}s); helpers not stable. HA is in partial startup." >&2
+      echo "  Fix: deploy config and restart again, or set HA_ALLOW_PARTIAL_STARTUP=1 to override." >&2
+      return 1
     fi
     echo "  ... waiting for input_text service + helpers stable (${elapsed}s)"
     sleep "$sleep_sec"
