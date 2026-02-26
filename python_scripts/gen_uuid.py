@@ -1,7 +1,7 @@
 """Generate a UUID4-ish string and write it to an input_text helper.
 
 Called via: python_script.gen_uuid with data: {target: "input_text.xxx"}
-Sandbox-safe: NO imports, NO time/datetime/random/uuid references.
+Sandbox-safe: NO imports, NO format(), NO time/datetime/random/uuid.
 Entropy from hash() + id() of stable runtime objects only.
 """
 target = data.get("target") or data.get("entity_id") or "input_text.spoolman_new_spool_uuid"
@@ -15,7 +15,10 @@ try:
     h = ""
     for i in range(8):
         v = abs(hash(s0 + s1 + s2 + s3 + str(i)))
-        h = h + format(v, '016x')[:8]
+        chunk = hex(v)[2:]
+        while len(chunk) < 16:
+            chunk = "0" + chunk
+        h = h + chunk[:8]
     h = h[:32]
     variant = "89ab"[abs(hash(h)) % 4]
     new_uuid = h[0:8] + "-" + h[8:12] + "-4" + h[13:16] + "-" + variant + h[17:20] + "-" + h[20:32]
