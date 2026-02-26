@@ -371,7 +371,7 @@ spoolman_add_filament:
 spoolman_set_new_spool_uuid:
   alias: Generate spool UUID
   sequence:
-    - action: python_script.gen_uuid
+    - service: python_script.gen_uuid
       data:
         target: input_text.spoolman_new_spool_uuid
 
