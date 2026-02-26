@@ -264,6 +264,9 @@ input_boolean:
   p1s_auto_mode_opinionated:
     name: P1S Opinionated Auto Mode
     initial: true
+  p1s_nonrfid_enabled:
+    name: P1S Non-RFID Spool Support Enabled
+    icon: mdi:toggle-switch
 
 input_number:
   tare_bambu_lab_plastic:
