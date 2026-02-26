@@ -321,6 +321,7 @@ class AmsRfidReconcile(hass.Hass):
 
         self.listen_event(self._on_reconcile_event, "bambu_rfid_reconcile_now")
         self.listen_event(self._on_reconcile_all_event, "AMS_RECONCILE_ALL")
+        self.listen_state(self._on_manual_reconcile_button, "input_button.p1s_rfid_reconcile_now")
         self.listen_event(self._on_create_spool_event, "bambu_rfid_create_spool_from_tray")
         self.listen_event(self._on_manual_enroll_event, "bambu_rfid_manual_enroll_tag_to_spool")
         self.listen_event(self._on_validate_event, "AMS_RFID_VALIDATE")
@@ -346,6 +347,17 @@ class AmsRfidReconcile(hass.Hass):
     def _on_reconcile_event(self, event_name, data, kwargs):
         reason = str((data or {}).get("reason", "ui_button"))
         self._schedule_reconcile(reason)
+
+    def _on_manual_reconcile_button(self, entity, attribute, old, new, kwargs):
+        """Trigger full reconcile when input_button.p1s_rfid_reconcile_now is pressed. Same path as periodic/tray-trigger."""
+        if new != "pressed":
+            return
+        if self._active_run is not None:
+            self.log("MANUAL_RECONCILE_BUTTON skipped (reconcile already active)", level="INFO")
+            return
+        ts = datetime.datetime.utcnow().isoformat() + "Z"
+        self.log(f"MANUAL_RECONCILE_BUTTON pressed ts={ts}", level="INFO")
+        self._run_reconcile("manual_button")
 
     def _on_reconcile_all_event(self, event_name, data, kwargs):
         """Reconcile; when status_only=False, perform Spoolman writes (location, comment stamp). Fired by script.reconcile_all_ams_slots."""
