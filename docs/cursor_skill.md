@@ -247,9 +247,6 @@ Outputs:
 
 ------------------------------------------------------------------------
 
-
-------------------------------------------------------------------------
-
 # PHASE_2_5 Workflow (Authoritative)
 
 PHASE_2_5 implements deterministic spool matching policy:
@@ -280,6 +277,9 @@ PHASE_2_5 implements deterministic spool matching policy:
    - COMMANDS RUN:
    - ARTIFACTS / LOGS:
    - NEXT ACTION:
+
+4. PHASE_2_5 must NOT automatically run TEST.
+   It may only recommend TEST as NEXT ACTION.
 
 ## Required Policy Implementation
 
