@@ -584,22 +584,7 @@ class AmsRfidReconcile(hass.Hass):
                         self._log_validation_transcript(t)
                     continue
 
-                # Non-RFID stable state: spool_id already set and expected_spool_id 0/empty -> treat as assigned non-RFID slot (no rfid_pending_until required)
-                if not tray_empty:
-                    if helper_spool_id > 0 and helper_expected == 0:
-                        status = "NON_RFID_REGISTERED"
-                        t["decision"], t["reason"], t["action"] = "NON_RFID", "non_rfid_stable", "nonrfid_registered"
-                        if not status_only:
-                            self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", str(helper_spool_id))
-                        self._set_helper(f"input_text.ams_slot_{slot}_status", status)
-                        self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
-                        t["final_slot_status"] = status
-                        t["final_spool_id"] = helper_spool_id
-                        self._active_run["validation_transcripts"].append(t)
-                        if validation_mode:
-                            self._log_validation_transcript(t)
-                        continue
-                # PENDING_RFID_READ only when a real RFID read is expected AND an expiry exists (pending_until in future)
+                # PENDING_RFID_READ only when a real RFID read is expected AND an expiry exists (pending_until in future). Check before HT/non-RFID so pending wins.
                 if not tray_empty:
                     pending_until = self._get_rfid_pending_until(slot)
                     now_utc = datetime.datetime.utcnow()
@@ -618,17 +603,41 @@ class AmsRfidReconcile(hass.Hass):
                         if validation_mode:
                             self._log_validation_transcript(t)
                         continue
-                status = STATUS_UNBOUND_NO_TAG
-                t["decision"], t["reason"], t["action"] = "UNBOUND", "no_tag", "unbound_no_tag"
-                self._record_no_write(slot, "no_tag_uid")
+
+                # HT non-RFID trays (all-zero tag_uid + all-zero tray_uuid): sync from helper if set, else UNREGISTERED (before generic non_rfid_stable).
                 nonrfid_enabled = (self.get_state("input_boolean.p1s_nonrfid_enabled") or "").strip().lower() == "on"
                 if nonrfid_enabled and not tray_empty:
                     raw_tag_uid = attrs.get("tag_uid")
                     raw_tray_uuid = attrs.get("tray_uuid")
-                    tag_norm = str(raw_tag_uid or "").strip().replace(" ", "").replace('"', "").lower()
-                    tray_uuid_norm = str(raw_tray_uuid or "").strip().replace(" ", "").replace("-", "").lower()
-                    empty_attr = attrs.get("empty")
-                    if (tag_norm == "0000000000000000" and tray_uuid_norm == "00000000000000000000000000000000" and empty_attr is False):
+                    tag_norm_ht = str(raw_tag_uid or "").strip().replace(" ", "").replace('"', "").lower()
+                    tray_uuid_norm_ht = str(raw_tray_uuid or "").strip().replace(" ", "").replace("-", "").lower()
+                    empty_attr_ht = attrs.get("empty")
+                    if (tag_norm_ht == "0000000000000000" and tray_uuid_norm_ht == "00000000000000000000000000000000" and empty_attr_ht is False):
+                        if helper_spool_id > 0:
+                            nonrfid_tray_sig = current_tray_sig or self._build_tray_signature(tray_meta, tray.get("state", ""), "")
+                            if not status_only:
+                                self._force_location_and_helpers(
+                                    slot, helper_spool_id, "", source="nonrfid_ht_present",
+                                    tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_tray_sig,
+                                    previous_helper_spool_id=previous_helper_spool_id,
+                                )
+                            status = STATUS_OK
+                            ok += 1
+                            t["decision"], t["reason"], t["action"] = "NON_RFID", "ht_present", "nonrfid_ht_registered"
+                            t["final_spool_id"], t["selected_spool_id"] = helper_spool_id, helper_spool_id
+                            t["final_slot_status"] = status
+                            t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                            self.log(
+                                f"HT_NONRFID_REGISTERED slot={slot} helper_spool_id={helper_spool_id}",
+                                level="DEBUG",
+                            )
+                            self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                            self._log_slot_status_change(slot, status, "", helper_spool_id, tray_meta)
+                            self._record_decision(slot, "nonrfid_ht_present", {"helper_spool_id": helper_spool_id})
+                            self._active_run["validation_transcripts"].append(t)
+                            if validation_mode:
+                                self._log_validation_transcript(t)
+                            continue
                         status = "NON_RFID_UNREGISTERED"
                         t["decision"], t["reason"], t["action"] = "NON_RFID", "NON_RFID_PRESENT", "nonrfid_unregistered"
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
@@ -643,7 +652,28 @@ class AmsRfidReconcile(hass.Hass):
                         if validation_mode:
                             self._log_validation_transcript(t)
                         continue
-                    # PHASE_2_6: Non-RFID deterministic matching (Shelf-first, controlled New fallback)
+
+                # Non-RFID stable state: spool_id already set and expected_spool_id 0/empty -> treat as assigned non-RFID slot (no rfid_pending_until required)
+                if not tray_empty:
+                    if helper_spool_id > 0 and helper_expected == 0:
+                        status = "NON_RFID_REGISTERED"
+                        t["decision"], t["reason"], t["action"] = "NON_RFID", "non_rfid_stable", "nonrfid_registered"
+                        if not status_only:
+                            self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", str(helper_spool_id))
+                        self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
+                        t["final_slot_status"] = status
+                        t["final_spool_id"] = helper_spool_id
+                        self._active_run["validation_transcripts"].append(t)
+                        if validation_mode:
+                            self._log_validation_transcript(t)
+                        continue
+                status = STATUS_UNBOUND_NO_TAG
+                t["decision"], t["reason"], t["action"] = "UNBOUND", "no_tag", "unbound_no_tag"
+                self._record_no_write(slot, "no_tag_uid")
+                nonrfid_enabled = (self.get_state("input_boolean.p1s_nonrfid_enabled") or "").strip().lower() == "on"
+                if nonrfid_enabled and not tray_empty:
+                    # PHASE_2_6: Non-RFID deterministic matching (Shelf-first, controlled New fallback). HT all-zero case handled earlier.
                     shelf_ids, _ = self._find_deterministic_candidates(spools, tray_meta, slot)
                     nonrfid_tray_sig = current_tray_sig or self._build_tray_signature(tray_meta, tray.get("state", ""), "")
                     if len(shelf_ids) == 1:
@@ -1264,10 +1294,15 @@ class AmsRfidReconcile(hass.Hass):
                 excluded_new_ids.append(spool_id)
                 self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "location_new"})
                 continue
-            if location not in ("", "shelf", "unknown"):
+            # Eligible: Shelf or any AMS slot; never New (already excluded above).
+            if location != "shelf" and not (location.startswith("ams")):
                 self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "location_not_shelf_unknown"})
                 continue
 
+            self.log(
+                f"RFID_ELIGIBLE_LOCATION slot={slot} spool_id={spool_id} location={spool.get('location', '')}",
+                level="DEBUG",
+            )
             filament = spool.get("filament", {}) if isinstance(spool.get("filament", {}), dict) else {}
             vendor = (((filament.get("vendor") or {}).get("name")) or "").strip().lower()
             if vendor != "bambu lab":

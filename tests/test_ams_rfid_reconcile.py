@@ -460,6 +460,41 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertEqual(candidate_ids_new_only, [], "location New only -> no candidates")
         self.assertEqual(ineligible_new_only, 1, "one New spool excluded")
 
+    def test_find_deterministic_candidates_eligible_locations_shelf_ams_not_new(self):
+        """Unit test: eligibility is Shelf or AMS* only; New is not eligible."""
+        filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "ff0000",
+                      "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        sm = FakeSpoolman([], filaments)
+        r = TestableReconcile(sm, {}, args=self.args)
+        r._active_run = {"decisions": [], "no_write_paths": [], "writes": [], "conflicts": [], "unknown_tags": [], "auto_registers": [], "validation_transcripts": []}
+        attrs = {"tag_uid": "x", "type": "PLA", "color": "ff0000", "name": "Bambu PLA",
+                 "filament_id": "bambu", "tray_weight": 1000, "remain": 50}
+        tray_meta = r._tray_meta(attrs, "valid")
+
+        # Spool at Shelf → eligible
+        spools_shelf = [_spool(101, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000")]
+        candidate_ids, ineligible_new = r._find_deterministic_candidates(spools_shelf, tray_meta, slot=1)
+        self.assertEqual(candidate_ids, [101], "Spool at Shelf should be eligible")
+        self.assertEqual(ineligible_new, 0)
+
+        # Spool at AMS1_Slot4 → eligible
+        spools_ams1 = [_spool(102, remaining_weight=500, rfid_tag_uid=None, location="AMS1_Slot4", color_hex="ff0000")]
+        candidate_ids, ineligible_new = r._find_deterministic_candidates(spools_ams1, tray_meta, slot=1)
+        self.assertEqual(candidate_ids, [102], "Spool at AMS1_Slot4 should be eligible")
+        self.assertEqual(ineligible_new, 0)
+
+        # Spool at AMS128_Slot1 → eligible
+        spools_ams128 = [_spool(103, remaining_weight=500, rfid_tag_uid=None, location="AMS128_Slot1", color_hex="ff0000")]
+        candidate_ids, ineligible_new = r._find_deterministic_candidates(spools_ams128, tray_meta, slot=1)
+        self.assertEqual(candidate_ids, [103], "Spool at AMS128_Slot1 should be eligible")
+        self.assertEqual(ineligible_new, 0)
+
+        # Spool at New → NOT eligible
+        spools_new = [_spool(104, remaining_weight=500, rfid_tag_uid=None, location="New", color_hex="ff0000")]
+        candidate_ids, ineligible_new = r._find_deterministic_candidates(spools_new, tray_meta, slot=1)
+        self.assertEqual(candidate_ids, [], "Spool at New should not be eligible")
+        self.assertEqual(ineligible_new, 1, "one spool excluded due to location New")
+
     def test_location_new_excluded_from_deterministic_candidates(self):
         """PHASE_2_5: Tag in tray but no spool at Shelf has this UID -> UNBOUND_ACTION_REQUIRED, no bind to 702."""
         tag = "NEWLOCEXCL001122"
@@ -680,6 +715,98 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertIsNotNone(slot1)
         self.assertEqual(slot1.get("final_spool_id"), 401)
         self.assertEqual(slot1.get("reason"), "new_fallback")
+
+    def test_ht_nonrfid_helper_set_location_sync(self):
+        """HT non-RFID tray (all-zero tag/tray_uuid) + helper_spool_id > 0 -> location sync, status OK."""
+        ht_attrs = {
+            "tag_uid": "0000000000000000",
+            "tray_uuid": "00000000000000000000000000000000",
+            "empty": False,
+            "type": "PLA",
+            "color": "ff0000",
+            "name": "Bambu PLA",
+            "filament_id": "bambu",
+            "tray_weight": 1000,
+            "remain": 50,
+        }
+        spools = [_spool(101, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000")]
+        filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "ff0000",
+                     "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        sm = FakeSpoolman(spools, filaments)
+        slot = 5
+        tray_ent = _tray_entity(slot)
+        state_map = {
+            tray_ent: {"attributes": ht_attrs, "state": "valid"},
+            f"{tray_ent}::all": {"attributes": ht_attrs, "state": "valid"},
+        }
+        state_map["input_boolean.p1s_nonrfid_enabled"] = "on"
+        state_map[f"input_text.ams_slot_{slot}_spool_id"] = "101"
+        state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
+        state_map[f"input_text.ams_slot_{slot}_status"] = ""
+        for s in range(1, 7):
+            if s != slot:
+                other_ent = _tray_entity(s)
+                state_map[other_ent] = {"attributes": {"tag_uid": "", "empty": True}, "state": "empty"}
+                state_map[f"{other_ent}::all"] = {"attributes": {"tag_uid": "", "empty": True}, "state": "empty"}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+                state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+                state_map[f"input_text.ams_slot_{s}_status"] = ""
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+        status_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"]
+        self.assertGreater(len(status_writes), 0)
+        self.assertEqual(status_writes[-1].get("value"), "OK")
+        location_101 = [p for p in sm.patches if p.get("path") == "/api/v1/spool/101" and p.get("payload", {}).get("location") == "AMS128_Slot1"]
+        self.assertGreater(len(location_101), 0, "HT with helper_spool_id > 0 must sync location to AMS128_Slot1")
+        summary = getattr(r, "_last_summary", None)
+        self.assertIsNotNone(summary)
+        slot5 = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == slot), None)
+        self.assertIsNotNone(slot5)
+        self.assertEqual(slot5.get("final_spool_id"), 101)
+        self.assertEqual(slot5.get("reason"), "ht_present")
+
+    def test_ht_nonrfid_no_helper_remains_unregistered(self):
+        """HT non-RFID tray (all-zero tag/tray_uuid) + helper_spool_id == 0 -> NON_RFID_UNREGISTERED, no location sync."""
+        ht_attrs = {
+            "tag_uid": "0000000000000000",
+            "tray_uuid": "00000000000000000000000000000000",
+            "empty": False,
+            "type": "PLA",
+            "color": "ff0000",
+            "name": "Bambu PLA",
+            "filament_id": "bambu",
+            "tray_weight": 1000,
+            "remain": 50,
+        }
+        spools = [_spool(101, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000")]
+        filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "ff0000",
+                     "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        sm = FakeSpoolman(spools, filaments)
+        slot = 5
+        tray_ent = _tray_entity(slot)
+        state_map = {
+            tray_ent: {"attributes": ht_attrs, "state": "valid"},
+            f"{tray_ent}::all": {"attributes": ht_attrs, "state": "valid"},
+        }
+        state_map["input_boolean.p1s_nonrfid_enabled"] = "on"
+        state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
+        state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
+        state_map[f"input_text.ams_slot_{slot}_status"] = ""
+        for s in range(1, 7):
+            if s != slot:
+                other_ent = _tray_entity(s)
+                state_map[other_ent] = {"attributes": {"tag_uid": "", "empty": True}, "state": "empty"}
+                state_map[f"{other_ent}::all"] = {"attributes": {"tag_uid": "", "empty": True}, "state": "empty"}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+                state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+                state_map[f"input_text.ams_slot_{s}_status"] = ""
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+        status_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"]
+        self.assertGreater(len(status_writes), 0)
+        self.assertEqual(status_writes[-1].get("value"), "NON_RFID_UNREGISTERED")
+        location_101 = [p for p in sm.patches if p.get("path") == "/api/v1/spool/101" and (p.get("payload") or {}).get("location")]
+        self.assertEqual(len(location_101), 0, "HT with helper_spool_id 0 must not write location to any spool for this slot")
 
     def test_phase26_rfid_regression_no_metadata_fallback(self):
         """PHASE_2_6 regression: tag_uid present + no Shelf UID match -> still NEEDS_ACTION, no bind (PHASE_2_5 strict)."""
