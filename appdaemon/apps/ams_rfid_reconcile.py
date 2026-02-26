@@ -123,6 +123,7 @@ UNBOUND_TAG_UID_NO_MATCH = "UNBOUND_TAG_UID_NO_MATCH"
 UNBOUND_TAG_UID_AMBIGUOUS = "UNBOUND_TAG_UID_AMBIGUOUS"
 UNBOUND_TRAY_UNAVAILABLE = "UNBOUND_TRAY_UNAVAILABLE"
 UNBOUND_ERROR = "UNBOUND_ERROR"
+UNBOUND_SELECTED_UID_MISMATCH = "UNBOUND_SELECTED_UID_MISMATCH"
 
 
 def _classify_unbound_reason(tray_meta, tag_uid, candidate_ids, ineligible_new_count, tray_empty=False, tray_state_str="", raw_tag_uid=None):
@@ -796,8 +797,12 @@ class AmsRfidReconcile(hass.Hass):
                         if expected_vs_resolved_mismatch and not color_mismatch:
                             # Auto-heal: expected_spool_id is stale, UID says resolved. Trust RFID.
                             if not status_only:
-                                if self._should_stick(slot, current_tray_sig, stored_tray_sig, helper_spool_id):
+                                if self._may_stick_override(slot, resolved_spool_id, helper_spool_id, tag_uid, spool_index, current_tray_sig, stored_tray_sig):
                                     resolved_spool_id = helper_spool_id
+                                if not self._rfid_bind_guard_ok(resolved_spool_id, tag_uid, spool_index):
+                                    self._apply_rfid_bind_guard_fail(slot, t, tray_meta, tag_uid, resolved_spool_id, validation_mode)
+                                    unbound += 1
+                                    continue
                                 self._force_location_and_helpers(
                                     slot, resolved_spool_id, tag_uid, source="expected_autofix",
                                     tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
@@ -833,8 +838,12 @@ class AmsRfidReconcile(hass.Hass):
                             )
                     elif uid_matched and not mismatch_detected:
                         if not status_only:
-                            if self._should_stick(slot, current_tray_sig, stored_tray_sig, helper_spool_id):
+                            if self._may_stick_override(slot, resolved_spool_id, helper_spool_id, tag_uid, spool_index, current_tray_sig, stored_tray_sig):
                                 resolved_spool_id = helper_spool_id
+                            if not self._rfid_bind_guard_ok(resolved_spool_id, tag_uid, spool_index):
+                                self._apply_rfid_bind_guard_fail(slot, t, tray_meta, tag_uid, resolved_spool_id, validation_mode)
+                                unbound += 1
+                                continue
                             self._force_location_and_helpers(
                                 slot, resolved_spool_id, tag_uid, source="known_binding",
                                 tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
@@ -869,8 +878,12 @@ class AmsRfidReconcile(hass.Hass):
                         t["decision"], t["reason"], t["action"] = "OK", "rfid_shelf_tiebreak_least_remaining", "rfid_shelf_tiebreak"
                         t["final_spool_id"], t["selected_spool_id"], t["final_location"] = resolved_spool_id, resolved_spool_id, CANONICAL_LOCATION_BY_SLOT[slot]
                         if not status_only:
-                            if self._should_stick(slot, current_tray_sig, stored_tray_sig, helper_spool_id):
+                            if self._may_stick_override(slot, resolved_spool_id, helper_spool_id, tag_uid, spool_index, current_tray_sig, stored_tray_sig):
                                 resolved_spool_id = helper_spool_id
+                            if not self._rfid_bind_guard_ok(resolved_spool_id, tag_uid, spool_index):
+                                self._apply_rfid_bind_guard_fail(slot, t, tray_meta, tag_uid, resolved_spool_id, validation_mode)
+                                unbound += 1
+                                continue
                             self._force_location_and_helpers(
                                 slot, resolved_spool_id, tag_uid, source="rfid_shelf_tiebreak",
                                 tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
@@ -1735,6 +1748,38 @@ class AmsRfidReconcile(hass.Hass):
         extra = spool.get("extra", {}) if isinstance(spool.get("extra", {}), dict) else {}
         raw = extra.get("rfid_tag_uid") or extra.get("rfid_uid")
         return self._canonicalize_tag_uid(raw)
+
+    def _may_stick_override(self, slot, resolved_spool_id, helper_spool_id, tag_uid, spool_index, current_tray_sig, stored_tray_sig):
+        """True iff sticky may set resolved_spool_id = helper_spool_id: same tray, helper valid, and (helper already resolved or helper spool UID == tray tag_uid)."""
+        if not self._should_stick(slot, current_tray_sig, stored_tray_sig, helper_spool_id):
+            return False
+        if helper_spool_id == resolved_spool_id:
+            return True
+        helper_spool = spool_index.get(helper_spool_id) or self._spoolman_get(f"/api/v1/spool/{helper_spool_id}")
+        helper_uid = self._extract_spool_uid(helper_spool) if isinstance(helper_spool, dict) else ""
+        return bool(helper_uid and helper_uid == tag_uid)
+
+    def _rfid_bind_guard_ok(self, resolved_spool_id, tag_uid, spool_index):
+        """True iff we may bind this slot to resolved_spool_id (no tag_uid, or selected spool's UID == tag_uid)."""
+        if not tag_uid:
+            return True
+        spool = spool_index.get(resolved_spool_id) or self._spoolman_get(f"/api/v1/spool/{resolved_spool_id}")
+        selected_uid = self._extract_spool_uid(spool) if isinstance(spool, dict) else ""
+        return selected_uid == tag_uid
+
+    def _apply_rfid_bind_guard_fail(self, slot, t, tray_meta, tag_uid, resolved_spool_id, validation_mode):
+        """Set status UNBOUND_ACTION_REQUIRED, unbound_reason UNBOUND_SELECTED_UID_MISMATCH, write helpers, append transcript. Caller must unbound += 1 and continue."""
+        status = STATUS_UNBOUND_ACTION_REQUIRED
+        t["decision"], t["reason"], t["action"] = "UNBOUND", "SELECTED_UID_MISMATCH", "unbound_selected_uid_mismatch"
+        t["final_spool_id"], t["selected_spool_id"] = resolved_spool_id, resolved_spool_id
+        t["final_slot_status"] = status
+        t["unbound_reason"], t["unbound_detail"] = UNBOUND_SELECTED_UID_MISMATCH, "selected_spool_uid_mismatch"
+        self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+        self._log_slot_status_change(slot, status, tag_uid, resolved_spool_id, tray_meta)
+        self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_SELECTED_UID_MISMATCH)
+        self._active_run["validation_transcripts"].append(t)
+        if validation_mode:
+            self._log_validation_transcript(t)
 
     def _normalize_uid(self, raw):
         value = str(raw or "").strip()

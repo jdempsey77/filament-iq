@@ -45,6 +45,7 @@ from ams_rfid_reconcile import (
     UNBOUND_NO_TAG_UID,
     UNBOUND_TAG_UID_AMBIGUOUS,
     UNBOUND_TAG_UID_INELIGIBLE_LOCATION_NEW,
+    UNBOUND_SELECTED_UID_MISMATCH,
     UNBOUND_TAG_UID_NO_MATCH,
     UNBOUND_TRAY_EMPTY,
     UNBOUND_TRAY_UNAVAILABLE,
@@ -970,6 +971,70 @@ class TestAmsRfidReconcile(unittest.TestCase):
         comment_patches = [p for p in sm.patches if p.get("payload", {}).get("comment") == expected_ha_sig]
         self.assertEqual(len(comment_patches), 1, "expected one comment PATCH even without tray_signature helper")
         self.assertEqual(comment_patches[0]["path"], "/api/v1/spool/1")
+
+    def test_sticky_must_not_override_when_helper_uid_mismatch(self):
+        """PHASE_2_6_1: Sticky must not override UID-resolved spool when helper spool UID != tray tag_uid."""
+        tag = "STICKYGUARD00112233"
+        # tag_to_spools[tag] = [38]; spool 38 has UID T, spool 4 has different UID
+        spools = [
+            _spool(38, remaining_weight=500, rfid_tag_uid=tag, location="Shelf", color_hex="ff0000"),
+            _spool(4, remaining_weight=400, rfid_tag_uid="OTHER0000000001", location="Shelf", color_hex="ff0000"),
+        ]
+        filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "ff0000",
+                     "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(4)
+        state_map = {
+            tray_ent: _tray_state(tag, tray_type="PLA", color="ff0000", name="Bambu PLA", filament_id="bambu"),
+            f"{tray_ent}::all": {"attributes": _tray_state(tag)["attributes"], "state": "valid"},
+        }
+        for s in range(1, 7):
+            state_map[f"input_text.ams_slot_{s}_spool_id"] = "4" if s == 4 else "0"
+            state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+        state_map["input_text.ams_slot_4_tray_signature"] = tag.strip().lower()
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+        summary = getattr(r, "_last_summary", None)
+        self.assertIsNotNone(summary)
+        slot4 = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == 4), None)
+        self.assertIsNotNone(slot4, "slot 4 transcript missing")
+        self.assertEqual(slot4.get("final_spool_id"), 38, "must keep UID-resolved spool 38, not stick to helper 4")
+        location_4 = [p for p in sm.patches if p.get("path") == "/api/v1/spool/4" and p.get("payload", {}).get("location") == "AMS1_Slot4"]
+        self.assertEqual(len(location_4), 0, "must not write location AMS1_Slot4 for spool 4")
+        spool_id_writes_4 = [w for w in r._helper_writes if w.get("entity_id") == "input_text.ams_slot_4_spool_id" and w.get("value") == "4"]
+        self.assertEqual(len(spool_id_writes_4), 0, "must not write helper spool_id=4")
+
+    def test_bind_guard_refuses_uid_mismatch(self):
+        """PHASE_2_6_1: Final RFID bind guard refuses bind when selected spool UID != tray tag_uid."""
+        tag = "BINDGUARD00112233"
+        spools = [_spool(38, remaining_weight=500, rfid_tag_uid=tag, location="Shelf", color_hex="ff0000")]
+        filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "ff0000",
+                     "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(4)
+        state_map = {
+            tray_ent: _tray_state(tag, tray_type="PLA", color="ff0000", name="Bambu PLA", filament_id="bambu"),
+            f"{tray_ent}::all": {"attributes": _tray_state(tag)["attributes"], "state": "valid"},
+        }
+        for s in range(1, 7):
+            state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+        r = TestableReconcile(sm, state_map, args=self.args)
+        # Force guard to fail so we hit the UNBOUND_SELECTED_UID_MISMATCH path (no bind, no HA_SIG)
+        r._rfid_bind_guard_ok = lambda resolved_spool_id, tag_uid, spool_index: False
+        r._run_reconcile("test")
+        summary = getattr(r, "_last_summary", None)
+        self.assertIsNotNone(summary)
+        slot4 = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == 4), None)
+        self.assertIsNotNone(slot4)
+        self.assertEqual(slot4.get("final_slot_status"), STATUS_UNBOUND_ACTION_REQUIRED)
+        self.assertEqual(slot4.get("unbound_reason"), UNBOUND_SELECTED_UID_MISMATCH)
+        location_38 = [p for p in sm.patches if p.get("path") == "/api/v1/spool/38"]
+        self.assertEqual(len(location_38), 0, "must not PATCH spool 38 (no helper/location write)")
+        comment_38 = [p for p in sm.patches if p.get("path") == "/api/v1/spool/38" and "comment" in p.get("payload", {})]
+        self.assertEqual(len(comment_38), 0, "must not stamp HA_SIG on spool 38")
 
     def test_color_normalize_hex_color(self):
         """Normalization: #RRGGBB, uppercase, 8-hex AARRGGBB / RRGGBBAA produce consistent 6-char lowercase."""
