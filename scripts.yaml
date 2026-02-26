@@ -385,10 +385,18 @@ spoolman_add_spool:
             - condition: template
               value_template: "{{ (states('input_select.spoolman_new_spool_filament') or '') | trim != '' and ' - ' in (states('input_select.spoolman_new_spool_filament') or '') }}"
           sequence:
+            - action: input_text.set_value
+              data:
+                entity_id: input_text.spoolman_new_spool_uuid
+                value: ""
             - action: script.spoolman_set_new_spool_uuid
             - wait_template: "{{ states('input_text.spoolman_new_spool_uuid') not in ['', 'unknown', 'unavailable'] }}"
               timeout: "00:00:10"
             - action: rest_command.ams_spoolman_create_spool
+            - action: input_text.set_value
+              data:
+                entity_id: input_text.spoolman_new_spool_uuid
+                value: ""
             - action: script.reload_spoolman_integration
 
 # Optional manual refresh: re-apply dropdown from template sensor options only (no Spoolman reload).
