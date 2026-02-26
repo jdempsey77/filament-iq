@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Preflight: verify UUID pipeline (script.spoolman_set_new_spool_uuid, pure Jinja).
+# Preflight: verify UUID pipeline (script.spoolman_set_new_spool_uuid -> python_script.gen_uuid).
 # 1) Clear input_text.spoolman_new_spool_uuid
 # 2) POST /api/services/script/turn_on with {"entity_id":"script.spoolman_set_new_spool_uuid"}
 # 3) Poll helper up to 5s; assert UUID format
-# 4) If still empty: print helper state JSON, script entity JSON (attributes.sequence), hint (uuid/uuid4 may be missing)
+# 4) If still empty: print helper state JSON, script entity JSON, python_script hint
 # Exit: 0 on success, 1 on failure, 0 (SKIP) if deploy.env or HA unreachable.
 
 set -euo pipefail
@@ -63,6 +63,6 @@ echo "$body" | jq . 2>/dev/null || echo "$body"
 script_json=$(curl -sS -H "$AUTH" "$HOME_ASSISTANT_URL/api/states/$SCRIPT_ENTITY" 2>/dev/null) || true
 echo "  Script entity ($SCRIPT_ENTITY) attributes.sequence:"
 echo "$script_json" | jq '.attributes.sequence // .' 2>/dev/null || echo "$script_json"
-echo "  Hint: Jinja UUID template may not be supported on this HA version (uuid/uuid4 filters missing). Check script value template."
+echo "  Hint: python_script.gen_uuid may be failing (reload Python Scripts; check gen_uuid.py sandbox compatibility)."
 echo "  --- end diagnostics ---"
 exit 1

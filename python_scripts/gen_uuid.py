@@ -1,21 +1,24 @@
-"""Generate a UUID4 and write it to an input_text helper.
+"""Generate a UUID4-ish string and write it to an input_text helper.
 
 Called via: python_script.gen_uuid with data: {target: "input_text.xxx"}
-Sandbox-compatible (no uuid import). Uses time-based hashing.
+Sandbox-safe: NO imports. Uses only hash() and id() for entropy.
 """
 target = data.get("target") or data.get("entity_id") or "input_text.spoolman_new_spool_uuid"
 logger.info("gen_uuid: start target=%s", target)
 
 try:
-    t = str(time.time()) + str(time.monotonic())
+    seed_time = hass.states.get("sensor.time")
+    seed_time_str = seed_time.state if seed_time else ""
+    seeds = [target, str(id(hass)), str(id(hass.states)), seed_time_str]
     h = ""
-    for i in range(4):
-        v = abs(hash(t + str(i)))
-        h += format(v, '016x')[:16]
+    for i in range(8):
+        v = abs(hash("".join(seeds) + str(i)))
+        h += format(v, '016x')[:8]
     h = h[:32]
+    variant = "89ab"[abs(hash(h)) % 4]
     new_uuid = "{}-{}-4{}-{}{}-{}".format(
         h[0:8], h[8:12], h[13:16],
-        "89ab"[abs(hash(h)) % 4], h[17:20], h[20:32]
+        variant, h[17:20], h[20:32]
     )
     logger.info("gen_uuid: generated uuid=%s", new_uuid)
     hass.services.call(

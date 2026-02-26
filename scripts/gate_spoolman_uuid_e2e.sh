@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Gate: E2E Spoolman UUID pipeline (script.spoolman_set_new_spool_uuid, pure Jinja).
+# Gate: E2E Spoolman UUID pipeline (script.spoolman_set_new_spool_uuid -> python_script.gen_uuid).
 #  a) Clear input_text.spoolman_new_spool_uuid
 #  b) POST /api/services/script/turn_on with {"entity_id":"script.spoolman_set_new_spool_uuid"}
-#  c) Poll helper up to 5s; if empty dump diagnostics (helper state, script attributes.sequence, Jinja hint)
+#  c) Poll helper up to 5s; if empty dump diagnostics (helper state, script entity, python_script hint)
 #  d) Optional: rest_command + Spoolman newest spool extra.ha_spool_uuid (SPOOLMAN_E2E=1)
 # Gate PASS only when helper is non-empty and matches UUID format.
 # Output: PASS/FAIL checklist + artifacts.
@@ -85,7 +85,7 @@ if [[ -z "$uuid_val" ]]; then
   echo "$script_json" > "$ARTIFACT_DIR/script_entity.json"
   log "  Script entity ($SCRIPT_ENTITY) attributes.sequence:"
   echo "$script_json" | jq '.attributes.sequence // .' >> "$ARTIFACT_DIR/checklist.txt" 2>/dev/null || true
-  log "  Hint: Jinja UUID template may not be supported on this HA version (uuid/uuid4 filters missing). Check script value template."
+  log "  Hint: python_script.gen_uuid may be failing (reload Python Scripts; check gen_uuid.py sandbox compatibility)."
   if [[ -n "${SSH_HOST:-}" && -n "${SSH_USER:-}" ]] && command -v ssh >/dev/null 2>&1; then
     ssh ${SSH_OPTS:--o StrictHostKeyChecking=accept-new} "$SSH_USER@$SSH_HOST" "ha core logs --no-log-file 2>/dev/null | tail -200" >> "$ARTIFACT_DIR/ha_core_logs_tail.txt" 2>/dev/null || true
     log "  HA logs tail: $ARTIFACT_DIR/ha_core_logs_tail.txt"
