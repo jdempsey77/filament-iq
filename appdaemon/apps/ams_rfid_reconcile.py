@@ -440,6 +440,7 @@ class AmsRfidReconcile(hass.Hass):
             "unknown_tags": [],
             "auto_registers": [],
             "validation_transcripts": [],
+            "spool_exists_cache": {},
         }
         if slots_filter is not None:
             raw = slots_filter if isinstance(slots_filter, (list, tuple)) else [slots_filter]
@@ -515,6 +516,12 @@ class AmsRfidReconcile(hass.Hass):
             current_tray_sig = self._get_tray_identity(attrs, tag_uid or "")
             stored_tray_sig = (self.get_state(f"input_text.ams_slot_{slot}_tray_signature") or "") or ""
             helper_spool_id = self._safe_int(self.get_state(f"input_text.ams_slot_{slot}_spool_id"), 0)
+
+            # Harden: if tray_uuid temporarily missing but tag_uid (normalized) equals stored_sig, treat as same tray
+            if not self._has_tray_uuid(attrs) and stored_tray_sig:
+                tag_norm = self._norm_tray_identity_tag(tag_uid or "")
+                if tag_norm == stored_tray_sig:
+                    current_tray_sig = stored_tray_sig
 
             # Tray change detection (tray identity change) → start 20s pending window
             if isinstance(stored_tray_sig, str) and current_tray_sig != stored_tray_sig:
@@ -1568,17 +1575,39 @@ class AmsRfidReconcile(hass.Hass):
             "color_candidates": color_candidates,
         }
 
+    def _has_tray_uuid(self, attrs):
+        """True if attrs has a non-empty tray_uuid (after strip)."""
+        raw = (attrs or {}).get("tray_uuid")
+        return bool(str(raw or "").strip())
+
+    def _norm_tray_identity_tag(self, tag_uid):
+        """Normalize tag_uid for tray identity comparison (uppercased, trimmed). Same as _get_tray_identity tag path."""
+        return str(tag_uid or "").strip().replace(" ", "").replace('"', "").upper()
+
     def _get_tray_identity(self, attrs, tag_uid):
         """Tray identity for sticky mapping: tray_uuid if present else tag_uid (uppercased, trimmed)."""
         raw_tray = (attrs or {}).get("tray_uuid")
         tray_str = str(raw_tray or "").strip().replace(" ", "").replace("-", "").upper()
-        tag_str = str(tag_uid or "").strip().replace(" ", "").replace('"', "").upper()
+        tag_str = self._norm_tray_identity_tag(tag_uid)
         return tray_str if tray_str else tag_str
 
     def _spool_exists(self, spool_id):
-        """Return True if Spoolman has this spool (GET returns 200 with id)."""
-        if not spool_id or self._safe_int(spool_id, 0) <= 0:
+        """Return True if Spoolman has this spool (GET returns 200 with id). Per-run cached."""
+        key = self._safe_int(spool_id, 0)
+        if key <= 0:
             return False
+        run = getattr(self, "_active_run", None)
+        if isinstance(run, dict) and "spool_exists_cache" in run:
+            cache = run["spool_exists_cache"]
+            if key in cache:
+                return cache[key]
+            try:
+                r = self._spoolman_get(f"/api/v1/spool/{key}")
+                result = isinstance(r, dict) and self._safe_int(r.get("id"), 0) == key
+            except Exception:
+                result = False
+            cache[key] = result
+            return result
         try:
             r = self._spoolman_get(f"/api/v1/spool/{spool_id}")
             return isinstance(r, dict) and self._safe_int(r.get("id"), 0) == self._safe_int(spool_id, 0)

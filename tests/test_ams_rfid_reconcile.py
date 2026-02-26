@@ -1445,6 +1445,84 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertEqual(r._get_tray_identity({"tray_uuid": ""}, "1d33dd3b00000100"), "1D33DD3B00000100")
         self.assertEqual(r._get_tray_identity({}, "1d33dd3b00000100"), "1D33DD3B00000100")
 
+    def test_has_tray_uuid_and_norm_tray_identity_tag(self):
+        """_has_tray_uuid and _norm_tray_identity_tag for tray identity hardening."""
+        sm = FakeSpoolman([], [])
+        r = TestableReconcile(sm, {}, args=self.args)
+        self.assertTrue(r._has_tray_uuid({"tray_uuid": "C482963767A24ACBB858F95D4376A2E5"}))
+        self.assertFalse(r._has_tray_uuid({"tray_uuid": ""}))
+        self.assertFalse(r._has_tray_uuid({}))
+        self.assertEqual(r._norm_tray_identity_tag("1d33dd3b00000100"), "1D33DD3B00000100")
+
+    def test_spool_exists_cache_per_run(self):
+        """Multiple _should_stick checks for same spool_id cause only one GET (per-run cache)."""
+        slot_a, slot_b = 1, 4
+        tag = "AABBCCDD00112233"
+        spools = [
+            _spool(4, remaining_weight=800, rfid_tag_uid=None, location="Shelf", color_hex="ff0000"),
+            _spool(38, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000"),
+        ]
+        filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "ff0000", "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        sm = FakeSpoolman(spools, filaments)
+        attrs = {"tag_uid": tag, "tray_uuid": "TRAYUUID001", "type": "PLA", "color": "ff0000", "name": "Bambu PLA", "filament_id": "bambu", "tray_weight": 1000, "remain": 50}
+        state_map = {}
+        for slot in (slot_a, slot_b):
+            ent = _tray_entity(slot)
+            state_map[ent] = {"attributes": attrs, "state": "valid"}
+            state_map[f"{ent}::all"] = {"attributes": attrs, "state": "valid"}
+            state_map[f"input_text.ams_slot_{slot}_spool_id"] = "4"
+            state_map[f"input_text.ams_slot_{slot}_tray_signature"] = "TRAYUUID001"
+        for s in range(1, 7):
+            state_map.setdefault(f"input_text.ams_slot_{s}_spool_id", "0")
+            state_map.setdefault(f"input_text.ams_slot_{s}_expected_spool_id", "0")
+            state_map.setdefault(f"input_text.ams_slot_{s}_status", "")
+            state_map.setdefault(f"input_text.ams_slot_{s}_tray_signature", "")
+            if s not in (slot_a, slot_b):
+                empty_attrs = {"tag_uid": "", "type": "", "color": "", "name": "", "filament_id": "", "tray_weight": 0, "remain": 0}
+                state_map[_tray_entity(s)] = {"attributes": empty_attrs, "state": "empty"}
+                state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_attrs, "state": "empty"}
+        r = TestableReconcile(sm, state_map, args=self.args)
+        get_paths = []
+        orig_get = r._spoolman_get
+        def count_get(path):
+            get_paths.append(path)
+            return orig_get(path)
+        r._spoolman_get = count_get
+        r._run_reconcile("test")
+        spool_4_gets = [p for p in get_paths if p == "/api/v1/spool/4" or p.endswith("/spool/4")]
+        self.assertEqual(len(spool_4_gets), 1, "spool_exists cache: GET for spool 4 must be called once per run despite multiple _should_stick(4)")
+
+    def test_tray_uuid_missing_tag_uid_same_treat_as_unchanged(self):
+        """Stored = tag_uid norm; this run tray_uuid missing but tag_uid same → SAME tray (hardening), no spool_id change."""
+        slot = 4
+        tag = "1D33DD3B00000100"
+        spools = [_spool(4, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000")]
+        filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "ff0000", "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(slot)
+        attrs_no_tray = {"tag_uid": tag, "type": "PLA", "color": "ff0000", "name": "Bambu PLA", "filament_id": "bambu", "tray_weight": 1000, "remain": 50}
+        state_map = {
+            tray_ent: {"attributes": attrs_no_tray, "state": "valid"},
+            f"{tray_ent}::all": {"attributes": attrs_no_tray, "state": "valid"},
+        }
+        for s in range(1, 7):
+            state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+            state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+            if s != slot:
+                empty_attrs = {"tag_uid": "", "type": "", "color": "", "name": "", "filament_id": "", "tray_weight": 0, "remain": 0}
+                state_map[_tray_entity(s)] = {"attributes": empty_attrs, "state": "empty"}
+                state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_attrs, "state": "empty"}
+        state_map[f"input_text.ams_slot_{slot}_spool_id"] = "4"
+        state_map[f"input_text.ams_slot_{slot}_tray_signature"] = "1D33DD3B00000100"
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+        current_sig = r._get_tray_identity(attrs_no_tray, tag)
+        self.assertEqual(current_sig, "1D33DD3B00000100", "current from tag_uid only")
+        spool_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_spool_id"]
+        self.assertEqual(len(spool_writes), 0, "stored_sig == tag_norm and tray_uuid missing: treat as same tray, no spool_id change")
+
     def test_sticky_same_tray_signature_keeps_spool_id(self):
         """Same tray_signature and valid helper_spool_id => _force_location_and_helpers called with helper (4), not tiebreak winner (38)."""
         slot = 4
