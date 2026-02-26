@@ -399,6 +399,16 @@ spoolman_add_spool:
                 value: ""
             - action: script.reload_spoolman_integration
 
+# Manual entrypoint for AMS reconciliation (fires AMS_RECONCILE_ALL event for AppDaemon).
+reconcile_all_ams_slots:
+  alias: Reconcile AMS Slots
+  description: "Manual entrypoint for AMS reconciliation (fires AMS_RECONCILE_ALL event)"
+  sequence:
+    - event: AMS_RECONCILE_ALL
+      event_data:
+        status_only: false
+        reason: "manual_button"
+
 # Optional manual refresh: re-apply dropdown from template sensor options only (no Spoolman reload).
 refresh_ams_spool_list:
   alias: Refresh AMS spool list (Assign from warehouse)
