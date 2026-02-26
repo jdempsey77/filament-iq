@@ -74,6 +74,11 @@ CANONICAL_LOCATION_BY_SLOT = {
     6: "AMS129_Slot1",
 }
 
+# Location used when clearing a spool from an AMS slot (one spool per location invariant).
+LOCATION_NOT_IN_AMS = "Shelf"
+# End-of-life: spool at 0g and removed from AMS; excluded from matching.
+LOCATION_EMPTY = "Empty"
+
 # Deprecated/legacy location strings → never write. Map to Shelf so legacy cannot be written.
 DEPRECATED_LOCATION_TO_CANONICAL = {
     "AMS2_HT_Slot1": "AMS128_Slot1",
@@ -458,10 +463,16 @@ class AmsRfidReconcile(hass.Hass):
         if not isinstance(spools, list):
             raise RuntimeError("Spoolman /api/v1/spool did not return a list")
 
+        # PHASE_2_5: RFID match only from Shelf; exclude Empty (EOL).
         tag_to_spools = {}
         for spool in spools:
             spool_id = self._safe_int(spool.get("id"), 0)
             if spool_id <= 0:
+                continue
+            loc = str(spool.get("location", "")).strip().lower()
+            if loc == LOCATION_EMPTY.lower():
+                continue
+            if loc != "shelf":
                 continue
             uid = self._extract_spool_uid(spool)
             if uid:
@@ -516,6 +527,7 @@ class AmsRfidReconcile(hass.Hass):
             current_tray_sig = self._get_tray_identity(attrs, tag_uid or "")
             stored_tray_sig = (self.get_state(f"input_text.ams_slot_{slot}_tray_signature") or "") or ""
             helper_spool_id = self._safe_int(self.get_state(f"input_text.ams_slot_{slot}_spool_id"), 0)
+            previous_helper_spool_id = helper_spool_id
 
             # Harden: if tray_uuid temporarily missing but tag_uid (normalized) equals stored_sig, treat as same tray
             if not self._has_tray_uuid(attrs) and stored_tray_sig:
@@ -608,7 +620,6 @@ class AmsRfidReconcile(hass.Hass):
                 status = STATUS_UNBOUND_NO_TAG
                 t["decision"], t["reason"], t["action"] = "UNBOUND", "no_tag", "unbound_no_tag"
                 self._record_no_write(slot, "no_tag_uid")
-                # Phase 1 non-RFID: when flag ON and tray is non-RFID present, set NON_RFID_UNREGISTERED and skip RFID unbound handling.
                 nonrfid_enabled = (self.get_state("input_boolean.p1s_nonrfid_enabled") or "").strip().lower() == "on"
                 if nonrfid_enabled and not tray_empty:
                     raw_tag_uid = attrs.get("tag_uid")
@@ -631,31 +642,115 @@ class AmsRfidReconcile(hass.Hass):
                         if validation_mode:
                             self._log_validation_transcript(t)
                         continue
-            elif tag_uid in duplicate_uids:
-                status = STATUS_CONFLICT_DUPLICATE_UID
-                conflict += 1
-                dup_ids = list(set(tag_to_spools.get(tag_uid, [])))
-                t["decision"], t["reason"], t["action"] = "CONFLICT", "DUPLICATE_UID", "conflict_duplicate_uid"
-                t["uid_lookup_count"], t["metadata_candidate_ids"] = len(dup_ids), dup_ids
-                self._active_run["conflicts"].append(
-                    {
-                        "slot": slot,
-                        "tag_uid": tag_uid,
-                        "reason": "DUPLICATE_UID",
-                        "payload": {"duplicate_uid": tag_uid, "candidate_ids": dup_ids},
-                    }
-                )
-                self._notify_conflict(slot, tag_uid, tray_meta, dup_ids, "DUPLICATE_UID")
-                self._record_no_write(slot, "conflict_duplicate_uid")
-                # All slots: write tray identity when tray has data (sticky key)
-                if tray_state_str not in ("unknown", "unavailable", "", "empty") and current_tray_sig:
-                    self._set_helper(f"input_text.ams_slot_{slot}_tray_signature", current_tray_sig)
-                    if slot in (5, 6):
-                        self.log(
-                            f"RECONCILE_SIG slot={slot} tray_entity={entity_id} tag_uid={tag_uid} "
-                            f"tray_sig={current_tray_sig[:64]}{'...' if len(current_tray_sig) > 64 else ''} wrote=true reason=duplicate_uid",
-                            level="DEBUG",
-                        )
+                    # PHASE_2_6: Non-RFID deterministic matching (Shelf-first, controlled New fallback)
+                    shelf_ids, _ = self._find_deterministic_candidates(spools, tray_meta, slot)
+                    nonrfid_tray_sig = current_tray_sig or self._build_tray_signature(tray_meta, tray.get("state", ""), "")
+                    if len(shelf_ids) == 1:
+                        resolved_spool_id = shelf_ids[0]
+                        if not status_only:
+                            if self._should_stick(slot, nonrfid_tray_sig, stored_tray_sig, helper_spool_id) and helper_spool_id == resolved_spool_id:
+                                resolved_spool_id = helper_spool_id
+                            self._force_location_and_helpers(
+                                slot, resolved_spool_id, "", source="nonrfid_shelf_match",
+                                tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_tray_sig,
+                                previous_helper_spool_id=previous_helper_spool_id,
+                            )
+                        status = STATUS_OK
+                        ok += 1
+                        t["decision"], t["reason"], t["action"] = "NON_RFID", "shelf_match", "nonrfid_shelf_bind"
+                        t["final_spool_id"], t["selected_spool_id"] = resolved_spool_id, resolved_spool_id
+                        t["final_slot_status"] = status
+                        t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                        self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._log_slot_status_change(slot, status, "", resolved_spool_id, tray_meta)
+                        self._record_decision(slot, "nonrfid_shelf_match", {"resolved_spool_id": resolved_spool_id})
+                        fid = int(resolved_spool_id or 0)
+                        if _should_converge_ha_sig(status_only, status, fid):
+                            self._converge_ha_sig(slot, fid, tray_meta, spool_index, reason="nonrfid_shelf_match")
+                        self._active_run["validation_transcripts"].append(t)
+                        if validation_mode:
+                            self._log_validation_transcript(t)
+                        continue
+                    if len(shelf_ids) > 1:
+                        candidate_spool_dicts = []
+                        for sid in shelf_ids:
+                            spool = spool_index.get(sid) or self._spoolman_get(f"/api/v1/spool/{sid}")
+                            if isinstance(spool, dict) and self._safe_float(spool.get("remaining_weight"), -1) > 0:
+                                candidate_spool_dicts.append(spool)
+                        winner_id, _ = tiebreak_choose_spool(candidate_spool_dicts, strict_mode=False)
+                        if winner_id is not None:
+                            resolved_spool_id = winner_id
+                            if not status_only:
+                                self._force_location_and_helpers(
+                                    slot, resolved_spool_id, "", source="nonrfid_shelf_tiebreak",
+                                    tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_tray_sig,
+                                    previous_helper_spool_id=previous_helper_spool_id,
+                                )
+                            status = STATUS_OK
+                            ok += 1
+                            t["decision"], t["reason"], t["action"] = "NON_RFID", "shelf_tiebreak", "nonrfid_shelf_bind"
+                            t["final_spool_id"], t["selected_spool_id"] = resolved_spool_id, resolved_spool_id
+                            t["final_slot_status"] = status
+                            t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                            self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                            self._log_slot_status_change(slot, status, "", resolved_spool_id, tray_meta)
+                            self._record_decision(slot, "nonrfid_shelf_tiebreak", {"resolved_spool_id": resolved_spool_id})
+                            fid = int(resolved_spool_id or 0)
+                            if _should_converge_ha_sig(status_only, status, fid):
+                                self._converge_ha_sig(slot, fid, tray_meta, spool_index, reason="nonrfid_shelf_tiebreak")
+                            self._active_run["validation_transcripts"].append(t)
+                            if validation_mode:
+                                self._log_validation_transcript(t)
+                            continue
+                        status = STATUS_UNBOUND_ACTION_REQUIRED
+                        unbound += 1
+                        t["decision"], t["reason"], t["action"] = "UNBOUND", "nonrfid_ambiguous_shelf", "unbound_needs_action"
+                        t["final_slot_status"] = status
+                        self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str)
+                        self._notify_nonrfid_needs_action(slot, tray_meta, "Multiple Shelf candidates; tie-break did not pick one.")
+                        self._active_run["validation_transcripts"].append(t)
+                        if validation_mode:
+                            self._log_validation_transcript(t)
+                        continue
+                    new_ids = self._find_deterministic_candidates_new_only(spools, tray_meta, slot)
+                    if len(new_ids) == 1:
+                        resolved_spool_id = new_ids[0]
+                        if not status_only:
+                            self._force_location_and_helpers(
+                                slot, resolved_spool_id, "", source="nonrfid_new_fallback",
+                                tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_tray_sig,
+                                previous_helper_spool_id=previous_helper_spool_id,
+                            )
+                        self._notify_nonrfid_new_fallback(slot, resolved_spool_id, tray_meta)
+                        status = STATUS_OK
+                        ok += 1
+                        t["decision"], t["reason"], t["action"] = "NON_RFID", "new_fallback", "nonrfid_new_fallback_bind"
+                        t["final_spool_id"], t["selected_spool_id"] = resolved_spool_id, resolved_spool_id
+                        t["final_slot_status"] = status
+                        t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                        self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._log_slot_status_change(slot, status, "", resolved_spool_id, tray_meta)
+                        self._record_decision(slot, "nonrfid_new_fallback", {"resolved_spool_id": resolved_spool_id})
+                        fid = int(resolved_spool_id or 0)
+                        if _should_converge_ha_sig(status_only, status, fid):
+                            self._converge_ha_sig(slot, fid, tray_meta, spool_index, reason="nonrfid_new_fallback")
+                        self._active_run["validation_transcripts"].append(t)
+                        if validation_mode:
+                            self._log_validation_transcript(t)
+                        continue
+                    status = STATUS_UNBOUND_ACTION_REQUIRED
+                    unbound += 1
+                    reason_detail = "No Shelf match and no single New candidate." if len(new_ids) == 0 else "No Shelf match; ambiguous New candidates."
+                    t["decision"], t["reason"], t["action"] = "UNBOUND", "nonrfid_no_match", "unbound_needs_action"
+                    t["final_slot_status"] = status
+                    self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                    self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str)
+                    self._notify_nonrfid_needs_action(slot, tray_meta, reason_detail)
+                    self._active_run["validation_transcripts"].append(t)
+                    if validation_mode:
+                        self._log_validation_transcript(t)
+                    continue
             else:
                 # All slots: write tray identity when tray has data (sticky key)
                 if tray_state_str not in ("unknown", "unavailable", "", "empty") and current_tray_sig:
@@ -706,6 +801,7 @@ class AmsRfidReconcile(hass.Hass):
                                 self._force_location_and_helpers(
                                     slot, resolved_spool_id, tag_uid, source="expected_autofix",
                                     tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
+                                    previous_helper_spool_id=previous_helper_spool_id,
                                 )
                             t["converge_reason"] = "expected_autofix"
                             status = STATUS_OK_FIXED_EXPECTED
@@ -742,6 +838,7 @@ class AmsRfidReconcile(hass.Hass):
                             self._force_location_and_helpers(
                                 slot, resolved_spool_id, tag_uid, source="known_binding",
                                 tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
+                                previous_helper_spool_id=previous_helper_spool_id,
                             )
                         t["converge_reason"] = "known_binding"
                         status = STATUS_OK
@@ -757,301 +854,67 @@ class AmsRfidReconcile(hass.Hass):
                         expected_hex = self._normalize_tray_hex(self.get_state(f"input_text.ams_slot_{slot}_expected_color_hex"))
                         self._maybe_log_color_warning(slot, expected_hex, tray_hex)
                 elif len(mapped_ids) > 1:
-                    status = STATUS_CONFLICT_DUPLICATE_UID
-                    conflict += 1
-                    t["decision"], t["reason"], t["action"] = "CONFLICT", "DUPLICATE_UID", "conflict_duplicate_uid"
-                    t["uid_lookup_count"], t["metadata_candidate_ids"] = len(mapped_ids), mapped_ids
-                    self._active_run["conflicts"].append(
-                        {
-                            "slot": slot,
-                            "tag_uid": tag_uid,
-                            "reason": "DUPLICATE_UID",
-                            "payload": {"matches": mapped_ids, "candidate_ids": mapped_ids},
-                        }
-                    )
-                    self._notify_conflict(slot, tag_uid, tray_meta, mapped_ids, "DUPLICATE_UID")
-                    self._record_no_write(slot, "conflict_multiple_bound_matches", {"matches": mapped_ids})
-                else:
-                    candidate_ids, ineligible_new_count = self._find_deterministic_candidates(spools, tray_meta, slot=slot)
-                    t["ineligible_new_count"] = ineligible_new_count
-                    if len(candidate_ids) == 1:
-                        resolved_spool_id = candidate_ids[0]
-                        t["uid_lookup_count"], t["metadata_candidate_ids"] = 0, candidate_ids
-                        t["decision"], t["reason"], t["action"] = "OK", "auto_register_metadata_match", "auto_register_metadata_match"
+                    # PHASE_2_5: tie-break by least remaining grams
+                    candidate_spool_dicts = []
+                    for sid in mapped_ids:
+                        spool = spool_index.get(sid) or self._spoolman_get(f"/api/v1/spool/{sid}")
+                        spool_g = self._safe_float(spool.get("remaining_weight"), -1.0)
+                        if spool_g <= 0:
+                            continue
+                        candidate_spool_dicts.append(spool)
+                    winner_id, tiebreak_reason = tiebreak_choose_spool(candidate_spool_dicts, strict_mode=False)
+                    if winner_id is not None:
+                        resolved_spool_id = winner_id
+                        t["uid_lookup_count"], t["metadata_candidate_ids"] = len(mapped_ids), mapped_ids
+                        t["decision"], t["reason"], t["action"] = "OK", "rfid_shelf_tiebreak_least_remaining", "rfid_shelf_tiebreak"
                         t["final_spool_id"], t["selected_spool_id"], t["final_location"] = resolved_spool_id, resolved_spool_id, CANONICAL_LOCATION_BY_SLOT[slot]
                         if not status_only:
-                            self._bind_uid_to_spool(tag_uid, resolved_spool_id, spool_index)
-                            self._active_run["auto_registers"].append(
-                                {"kind": "AUTO_REGISTER_RFID_METADATA_MATCH", "slot": slot, "tag_uid": tag_uid, "spool_id": resolved_spool_id}
-                            )
                             if self._should_stick(slot, current_tray_sig, stored_tray_sig, helper_spool_id):
                                 resolved_spool_id = helper_spool_id
                             self._force_location_and_helpers(
-                                slot, resolved_spool_id, tag_uid, source="auto_register_metadata_match",
+                                slot, resolved_spool_id, tag_uid, source="rfid_shelf_tiebreak",
                                 tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
+                                previous_helper_spool_id=previous_helper_spool_id,
                             )
-                        t["converge_reason"] = "auto_register_metadata_match"
+                        t["converge_reason"] = "rfid_shelf_tiebreak"
                         status = STATUS_OK
                         ok += 1
-                        self._record_decision(
-                            slot,
-                            "auto_enroll_a2",
-                            {"tag_uid": tag_uid, "resolved_spool_id": resolved_spool_id, "result": "ok"},
-                        )
-                    elif len(candidate_ids) > 1:
-                        # Build full candidate list for tie-break and structured debug
-                        candidate_spool_dicts = []
-                        for sid in candidate_ids:
-                            spool = spool_index.get(sid) or self._spoolman_get(f"/api/v1/spool/{sid}")
-                            spool_g = self._safe_float(spool.get("remaining_weight"), -1.0)
-                            if spool_g <= 0:
-                                continue
-                            candidate_spool_dicts.append(spool)
-
-                        match_key = {
-                            "slot": slot,
-                            "tag_uid": tag_uid,
-                            "tray_color_hex": tray_meta.get("color_hex", ""),
-                            "tray_material": tray_meta.get("type", ""),
-                            "tray_filament_id": tray_meta.get("filament_id", ""),
-                        }
-                        candidate_list_debug = []
-                        for s in candidate_spool_dicts:
-                            sid = self._safe_int(s.get("id"), 0)
-                            extra = s.get("extra") or {}
-                            if not isinstance(extra, dict):
-                                extra = {}
-                            candidate_list_debug.append({
-                                "spool_id": sid,
-                                "remaining_weight": self._safe_float(s.get("remaining_weight"), None),
-                                "initial_weight": self._safe_float(s.get("initial_weight"), None),
-                                "location": str(s.get("location", "")),
-                                "archived": bool(s.get("archived", False)),
-                                "comment": (str(s.get("comment", "")) or "")[:200],
-                                "rfid_tag_uid": "(set)" if self._extract_spool_uid(s) else "",
-                            })
-                        self.log(
-                            f"SPOOL_SELECTION slot={slot} tag_uid={tag_uid} multiple_candidates={len(candidate_spool_dicts)} "
-                            f"match_key={match_key} candidates={candidate_list_debug}",
-                            level="INFO",
-                        )
-                        self._active_run.setdefault("selection_debug", []).append({
-                            "slot": slot,
-                            "tag_uid": tag_uid,
-                            "match_key": match_key,
-                            "candidates": candidate_list_debug,
-                        })
-
-                        strict_mode = getattr(self, "strict_mode_reregister", False)
-                        winner_id, tiebreak_reason = tiebreak_choose_spool(candidate_spool_dicts, strict_mode=strict_mode)
-                        candidate_weights = {str(self._safe_int(s.get("id"), 0)): float(self._safe_float(s.get("remaining_weight"), -1)) for s in candidate_spool_dicts}
-
-                        if tiebreak_reason == "STRICT_MODE_MULTIPLE_CANDIDATES":
-                            self.log(
-                                f"SPOOL_SELECTION slot={slot} tag_uid={tag_uid} strict_mode=1 result=REFUSE chosen_id=none reason={tiebreak_reason}",
-                                level="INFO",
-                            )
-                            winner_id = None
-                            _source = None
-                        else:
-                            self.log(
-                                f"SPOOL_SELECTION slot={slot} tag_uid={tag_uid} chosen_id={winner_id} reason={tiebreak_reason} candidates={list(candidate_weights.keys())}",
-                                level="INFO",
-                            )
-                            _source = f"auto_enroll_{tiebreak_reason}" if winner_id else None
-                            if winner_id is not None:
-                                self._active_run["auto_registers"].append({
-                                    "kind": "AUTO_REGISTER_RFID_METADATA_TIEBREAK",
-                                    "slot": slot,
-                                    "tag_uid": tag_uid,
-                                    "candidate_weights": candidate_weights,
-                                    "chosen_id": winner_id,
-                                    "rationale": tiebreak_reason,
-                                })
-                                self._active_run["auto_registers"].append({
-                                    "kind": "UNREGISTERED_TIEBREAK_APPLIED",
-                                    "slot": slot,
-                                    "tag_uid": tag_uid,
-                                    "chosen_id": winner_id,
-                                    "rationale": tiebreak_reason,
-                                })
-                                if self.debug_logs:
-                                    self._notify(
-                                        "RFID Tie-break Applied",
-                                        f"slot={slot} tag_uid={tag_uid} chosen_id={winner_id} reason={tiebreak_reason}",
-                                        notification_id=f"rfid_tiebreak_slot_{slot}_{tag_uid}",
-                                    )
-
-                        if winner_id is not None:
-                            resolved_spool_id = winner_id
-                            t["uid_lookup_count"], t["metadata_candidate_ids"] = 0, candidate_ids
-                            t["candidate_weights"] = candidate_weights
-                            t["decision"], t["reason"], t["action"] = "OK", _source, "auto_register_unregistered_preferred"
-                            t["final_spool_id"], t["selected_spool_id"], t["final_location"] = winner_id, winner_id, CANONICAL_LOCATION_BY_SLOT[slot]
-                            if not status_only:
-                                self._bind_uid_to_spool(tag_uid, resolved_spool_id, spool_index)
-                                if self._should_stick(slot, current_tray_sig, stored_tray_sig, helper_spool_id):
-                                    resolved_spool_id = helper_spool_id
-                                self._force_location_and_helpers(
-                                    slot, resolved_spool_id, tag_uid, source=_source,
-                                    tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
-                                )
-                            t["converge_reason"] = "auto_register_tiebreak"
-                            status = STATUS_OK
-                            ok += 1
-                            self._record_decision(
-                                slot,
-                                _source,
-                                {"tag_uid": tag_uid, "resolved_spool_id": resolved_spool_id, "result": "ok"},
-                            )
-                        else:
-                            conflict_reason = tiebreak_reason
-                            status = f"CONFLICT: {conflict_reason}"
-                            conflict += 1
-                            t["uid_lookup_count"], t["metadata_candidate_ids"] = 0, candidate_ids
-                            t["candidate_weights"] = candidate_weights
-                            t["decision"], t["reason"], t["action"] = "CONFLICT", conflict_reason, "conflict_ambiguous"
-                            self._active_run["conflicts"].append(
-                                {
-                                    "slot": slot,
-                                    "tag_uid": tag_uid,
-                                    "reason": conflict_reason,
-                                    "payload": {"candidate_ids": candidate_ids, "candidate_weights": candidate_weights},
-                                }
-                            )
-                            self._active_run["auto_registers"].append(
-                                {
-                                    "kind": "CONFLICT_MULTIPLE_METADATA_MATCH",
-                                    "slot": slot,
-                                    "tag_uid": tag_uid,
-                                    "candidate_ids": candidate_ids,
-                                    "candidate_weights": candidate_weights,
-                                    "tiebreak_reason": conflict_reason,
-                                }
-                            )
-                            self._notify_conflict(
-                                slot, tag_uid, tray_meta, candidate_ids, conflict_reason
-                            )
-                            self._record_no_write(
-                                slot, "conflict_multiple_metadata_match", {"candidate_ids": candidate_ids, "candidate_weights": candidate_weights, "reason": conflict_reason}
-                            )
+                        self._record_decision(slot, "rfid_shelf_tiebreak", {"tag_uid": tag_uid, "resolved_spool_id": resolved_spool_id, "reason": tiebreak_reason})
                     else:
-                        # Flow B: HA_SIG auto-bind (comment match). Flow A = deterministic metadata match; Flow B = pre-created spool with HA_SIG.
-                        exp_spool = self._safe_int(self.get_state(f"input_text.ams_slot_{slot}_expected_spool_id"), 0)
-                        ha_sig = self._compute_ha_sig(
-                            tray_meta,
-                            slot=slot,
-                            spool_index=spool_index,
-                            expected_spool_id=exp_spool if exp_spool > 0 else None,
-                            candidate_ids=candidate_ids or [],
+                        status = STATUS_CONFLICT_DUPLICATE_UID
+                        conflict += 1
+                        t["decision"], t["reason"], t["action"] = "CONFLICT", "DUPLICATE_UID", "conflict_duplicate_uid"
+                        t["uid_lookup_count"], t["metadata_candidate_ids"] = len(mapped_ids), mapped_ids
+                        self._active_run["conflicts"].append(
+                            {"slot": slot, "tag_uid": tag_uid, "reason": "DUPLICATE_UID", "payload": {"matches": mapped_ids, "candidate_ids": mapped_ids}}
                         )
-                        flow_b_candidates = self._find_flow_b_candidates(spools, ha_sig) if ha_sig else []
+                        self._notify_conflict(slot, tag_uid, tray_meta, mapped_ids, "DUPLICATE_UID")
+                        self._record_no_write(slot, "conflict_multiple_bound_matches", {"matches": mapped_ids})
+                else:
+                    # PHASE_2_5: RFID no Shelf match => NEEDS_ACTION + notify; do NOT create, do NOT metadata match
+                    status = STATUS_UNBOUND_ACTION_REQUIRED
+                    unbound += 1
+                    t["decision"], t["reason"], t["action"] = "UNBOUND", "ACTION_REQUIRED", "unbound_rfid_no_shelf_match"
+                    t["uid_lookup_count"], t["metadata_candidate_ids"] = 0, []
+                    self._active_run["unknown_tags"].append({"slot": slot, "tag_uid": tag_uid, "reason": "rfid_no_shelf_match"})
+                    self._record_no_write(slot, "rfid_no_shelf_match", {"tag_uid": tag_uid})
+                    self._notify_unbound_rfid_no_shelf(slot, tag_uid, tray_meta)
+                    self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                    self._log_slot_status_change(slot, status, tag_uid, 0, tray_meta)
+                    t["final_slot_status"] = status
+                    self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str)
+                    self._active_run["validation_transcripts"].append(t)
+                    if validation_mode:
+                        self._log_validation_transcript(t)
+                    continue
 
-                        if len(flow_b_candidates) == 1:
-                            resolved_spool_id = self._safe_int(flow_b_candidates[0].get("id"), 0)
-                            if resolved_spool_id > 0 and not status_only:
-                                self._bind_uid_to_spool(tag_uid, resolved_spool_id, spool_index)
-                                try:
-                                    if self._should_stick(slot, current_tray_sig, stored_tray_sig, helper_spool_id):
-                                        resolved_spool_id = helper_spool_id
-                                    self._force_location_and_helpers(
-                                        slot, resolved_spool_id, tag_uid, source="flow_b_ha_sig",
-                                        tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
-                                    )
-                                except Exception as loc_exc:
-                                    self.log(
-                                        f"FLOW_B_PARTIAL slot={slot} tag_uid={tag_uid} spool_id={resolved_spool_id} "
-                                        f"ha_sig={ha_sig} error={loc_exc}",
-                                        level="WARNING",
-                                    )
-                                    status = STATUS_UNBOUND_FLOW_B_PARTIAL
-                                    t["decision"], t["reason"], t["action"] = "UNBOUND", "FLOW_B_PARTIAL", "flow_b_partial"
-                                    t["uid_lookup_count"], t["metadata_candidate_ids"] = 0, [resolved_spool_id]
-                                    self._active_run["unknown_tags"].append({
-                                        "slot": slot, "tag_uid": tag_uid, "reason": "flow_b_partial",
-                                        "spool_id": resolved_spool_id, "ha_sig": ha_sig,
-                                    })
-                                    self._set_helper(f"input_text.ams_slot_{slot}_status", status)
-                                    self._log_slot_status_change(slot, status, tag_uid, 0, tray_meta)
-                                    t["final_slot_status"] = status
-                                    self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str)
-                                    unbound += 1
-                                    self._active_run["validation_transcripts"].append(t)
-                                    if validation_mode:
-                                        self._log_validation_transcript(t)
-                                    continue
-                                self._active_run["auto_registers"].append({
-                                    "kind": "FLOW_B_HA_SIG_BOUND",
-                                    "slot": slot,
-                                    "tag_uid": tag_uid,
-                                    "spool_id": resolved_spool_id,
-                                    "ha_sig": ha_sig,
-                                })
-                            t["converge_reason"] = "flow_b_ha_sig"
-                            status = STATUS_OK
-                            ok += 1
-                            t["uid_lookup_count"], t["metadata_candidate_ids"] = 0, [resolved_spool_id]
-                            t["decision"], t["reason"], t["action"] = "OK", "flow_b_ha_sig", "flow_b_ha_sig_bound"
-                            t["final_spool_id"], t["selected_spool_id"], t["final_location"] = (
-                                resolved_spool_id, resolved_spool_id, CANONICAL_LOCATION_BY_SLOT[slot]
-                            )
-                            self._record_decision(
-                                slot,
-                                "flow_b_ha_sig",
-                                {"tag_uid": tag_uid, "resolved_spool_id": resolved_spool_id, "ha_sig": ha_sig, "result": "ok"},
-                            )
-                            self.log(
-                                f"FLOW_B_BOUND slot={slot} tag_uid={tag_uid} spool_id={resolved_spool_id} ha_sig={ha_sig}"
-                            )
-                        elif len(flow_b_candidates) > 1:
-                            cids = [self._safe_int(s.get("id"), 0) for s in flow_b_candidates]
-                            self.log(
-                                f"FLOW_B_AMBIGUOUS slot={slot} tag_uid={tag_uid} ha_sig={ha_sig} candidates={cids}"
-                            )
-                            status = STATUS_UNBOUND_ACTION_REQUIRED
-                            t["uid_lookup_count"], t["metadata_candidate_ids"] = 0, candidate_ids
-                            t["decision"], t["reason"], t["action"] = "UNBOUND", "ACTION_REQUIRED", "unbound_flow_b_ambiguous"
-                            self._active_run["unknown_tags"].append({"slot": slot, "tag_uid": tag_uid, "reason": "flow_b_ambiguous", "candidates": cids})
-                            self._record_no_write(slot, "flow_b_ambiguous", {"tag_uid": tag_uid, "ha_sig": ha_sig, "candidates": cids})
-                            self._notify_unbound(slot, tag_uid, tray_meta, cids)
-                        else:
-                            if ha_sig:
-                                self.log(f"FLOW_B_NONE slot={slot} tag_uid={tag_uid} ha_sig={ha_sig}")
-                            filament_id = self._find_filament_for_tray(tray_meta)
-                            if filament_id <= 0:
-                                status = STATUS_UNBOUND_MANUAL_CREATE
-                                unbound += 1
-                                t["uid_lookup_count"], t["metadata_candidate_ids"] = 0, candidate_ids
-                                t["decision"], t["reason"], t["action"] = "UNBOUND", "manual_create_required", "unbound_manual_create_required"
-                                self._active_run["unknown_tags"].append({"slot": slot, "tag_uid": tag_uid})
-                                self._record_no_write(
-                                    slot,
-                                    "unknown_tag_no_deterministic_candidate",
-                                    {"tag_uid": tag_uid, "candidate_ids": candidate_ids},
-                                )
-                                self._notify_unbound(slot, tag_uid, tray_meta, candidate_ids)
-                            else:
-                                status = STATUS_UNBOUND_ACTION_REQUIRED
-                                t["uid_lookup_count"], t["metadata_candidate_ids"] = 0, candidate_ids
-                                t["decision"], t["reason"], t["action"] = "UNBOUND", "ACTION_REQUIRED", "unbound_action_required"
-                                self._active_run["unknown_tags"].append({"slot": slot, "tag_uid": tag_uid, "reason": "no_uid_match_no_create"})
-                                self._record_no_write(
-                                    slot,
-                                    "unmatched_rfid_auto_create_disabled",
-                                    {"tag_uid": tag_uid, "filament_id": filament_id},
-                                )
-                                self.log(
-                                    f"UNBOUND: ACTION_REQUIRED slot={slot} tag_uid={tag_uid} "
-                                    "match_count=0 auto_create_disabled (manual enroll or Create Spool from Tray required)",
-                                    level="WARNING",
-                                )
-                                self._notify_unbound(slot, tag_uid, tray_meta, candidate_ids or [])
 
             if status.startswith("UNBOUND"):
                 unbound += 1 if status != STATUS_UNBOUND_MANUAL_CREATE else 0
                 if status == STATUS_UNBOUND_NO_TAG and not status_only:
-                    self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
-                    self._set_helper(f"input_text.ams_slot_{slot}_tray_signature", "")
+                    self._force_location_and_helpers(
+                        slot, 0, "", source="unbind", previous_helper_spool_id=previous_helper_spool_id
+                    )
 
             self._set_helper(f"input_text.ams_slot_{slot}_status", status)
             self._log_slot_status_change(slot, status, tag_uid, resolved_spool_id, tray_meta)
@@ -1157,8 +1020,41 @@ class AmsRfidReconcile(hass.Hass):
             return "Shelf"
         return key
 
-    def _force_location_and_helpers(self, slot, spool_id, tag_uid, source, tray_meta=None, tray_state="", tray_identity=None):
-        desired_location = self._normalize_location(CANONICAL_LOCATION_BY_SLOT[slot])
+    def _force_location_and_helpers(self, slot, spool_id, tag_uid, source, tray_meta=None, tray_state="", tray_identity=None, previous_helper_spool_id=0):
+        slot_loc = CANONICAL_LOCATION_BY_SLOT.get(slot)
+        if not slot_loc:
+            return
+        slot_loc = self._normalize_location(slot_loc)
+        dest_clear = LOCATION_NOT_IN_AMS
+
+        # One spool per location: clear previous occupant from this slot when binding changes or unbind.
+        # PHASE_2_5 EOL: if previous spool remaining_weight <= 0, move to Empty (end-of-life).
+        if previous_helper_spool_id > 0:
+            prev_at_slot = False
+            prev_spool = None
+            try:
+                prev_spool = self._spoolman_get(f"/api/v1/spool/{previous_helper_spool_id}")
+                if isinstance(prev_spool, dict):
+                    prev_loc = str(prev_spool.get("location", "")).strip()
+                    prev_at_slot = prev_loc == slot_loc
+            except Exception:
+                prev_at_slot = False
+            if prev_at_slot:
+                rem = self._safe_float(prev_spool.get("remaining_weight"), -1.0) if isinstance(prev_spool, dict) else -1.0
+                dest = LOCATION_EMPTY if rem <= 0 else dest_clear
+                self._spoolman_patch(f"/api/v1/spool/{previous_helper_spool_id}", {"location": dest})
+                self.log(
+                    f"CLEAR_PREVIOUS_SLOT_OCCUPANT slot={slot} old={previous_helper_spool_id} new={spool_id} from={slot_loc} to={dest}"
+                )
+
+        # Unbind: set helper to 0 and tray_signature to "" then return (no new location write).
+        if spool_id == 0:
+            self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
+            self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
+            self._set_helper(f"input_text.ams_slot_{slot}_tray_signature", "")
+            return
+
+        desired_location = slot_loc
         all_spools = self._spoolman_get("/api/v1/spool?limit=1000")
         if isinstance(all_spools, dict) and "items" in all_spools:
             all_spools = all_spools.get("items", [])
@@ -1168,7 +1064,7 @@ class AmsRfidReconcile(hass.Hass):
             if row_id == spool_id:
                 current_location = str(row.get("location", ""))
             if row_id > 0 and row_id != spool_id and str(row.get("location", "")) == desired_location:
-                self._spoolman_patch(f"/api/v1/spool/{row_id}", {"location": "Shelf"})
+                self._spoolman_patch(f"/api/v1/spool/{row_id}", {"location": dest_clear})
         if current_location != desired_location:
             self._spoolman_patch(f"/api/v1/spool/{spool_id}", {"location": desired_location})
         else:
@@ -1347,7 +1243,10 @@ class AmsRfidReconcile(hass.Hass):
                 self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "already_has_rfid"})
                 continue
             location = str(spool.get("location", "")).strip().lower()
-            # Location "New" = never used; must not be auto-selected. Exclude before tie-break.
+            # PHASE_2_5: exclude EOL and New from primary (Shelf) pool.
+            if location == LOCATION_EMPTY.lower():
+                self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "location_empty"})
+                continue
             if location == "new":
                 excluded_new_ids.append(spool_id)
                 self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "location_new"})
@@ -1402,6 +1301,51 @@ class AmsRfidReconcile(hass.Hass):
 
         ineligible_new_count = len(excluded_new_ids)
         return ([self._safe_int(s.get("id"), 0) for s in candidates], ineligible_new_count)
+
+    def _find_deterministic_candidates_new_only(self, spools, tray_meta, slot):
+        """PHASE_2_6: Candidates with location New only (same material/color/vendor/name rules as Shelf). Returns (candidate_ids,)."""
+        tray_colors = set(tray_meta.get("color_candidates", []))
+        candidates = []
+        for spool in spools:
+            spool_id = self._safe_int(spool.get("id"), 0)
+            if spool_id <= 0:
+                continue
+            if self._extract_spool_uid(spool):
+                continue
+            location = str(spool.get("location", "")).strip().lower()
+            if location != "new":
+                continue
+            filament = spool.get("filament", {}) if isinstance(spool.get("filament", {}), dict) else {}
+            vendor = (((filament.get("vendor") or {}).get("name")) or "").strip().lower()
+            if vendor != "bambu lab":
+                continue
+            spool_material = self._material_key(filament.get("material", ""))
+            tray_material = self._material_key(tray_meta.get("type", ""))
+            if not spool_material or spool_material != tray_material:
+                continue
+            spool_color = self._normalize_color(str(filament.get("color_hex", "")))
+            if not spool_color or spool_color not in tray_colors:
+                continue
+            candidates.append(spool)
+        if len(candidates) > 1:
+            narrowed = []
+            tray_name = tray_meta.get("name", "").lower()
+            tray_filament_id = tray_meta.get("filament_id", "").lower()
+            for spool in candidates:
+                filament = spool.get("filament", {}) if isinstance(spool.get("filament", {}), dict) else {}
+                names = [
+                    str(filament.get("name", "")).lower(),
+                    str(spool.get("comment", "")).lower(),
+                    str(filament.get("external_id", "")).lower(),
+                ]
+                if tray_name and any(tray_name in n for n in names if n):
+                    narrowed.append(spool)
+                    continue
+                if tray_filament_id and any(tray_filament_id in n for n in names if n):
+                    narrowed.append(spool)
+            if len(narrowed) == 1:
+                candidates = narrowed
+        return [self._safe_int(s.get("id"), 0) for s in candidates]
 
     def _resolve_color_for_ha_sig(self, tray_meta, slot=None, spool_index=None, expected_spool_id=None, candidate_ids=None):
         """
@@ -1541,6 +1485,54 @@ class AmsRfidReconcile(hass.Hass):
             f"RFID CONFLICT Slot {slot}",
             summary,
             notification_id=f"rfid_conflict_slot_{slot}_{reason_string}_{tag_uid}",
+        )
+
+    def _notify_unbound_rfid_no_shelf(self, slot, tag_uid, tray_meta):
+        """PHASE_2_5: RFID UID has no spool at Shelf => NEEDS_ACTION; do not create."""
+        summary = (
+            f"slot={slot}\n"
+            f"tag_uid={tag_uid}\n"
+            f"type={tray_meta.get('type','')}\n"
+            f"color_hex={tray_meta.get('color_hex','')}\n"
+            f"name={tray_meta.get('name','')}\n\n"
+            "No spool at location Shelf with this RFID UID. ACTION REQUIRED:\n"
+            "1) Run script.p1s_rfid_manual_enroll_tag_to_spool with slot + spool_id (spool must be at Shelf), OR\n"
+            "2) Create spool in Spoolman and enroll, then press input_button.p1s_rfid_reconcile_now."
+        )
+        self._notify(
+            f"RFID NEEDS_ACTION Slot {slot} (no Shelf match)",
+            summary,
+            notification_id=f"rfid_no_shelf_slot_{slot}_{tag_uid}",
+        )
+
+    def _notify_nonrfid_needs_action(self, slot, tray_meta, reason_detail):
+        """PHASE_2_6: Non-RFID no unambiguous match => NEEDS_ACTION."""
+        summary = (
+            f"slot={slot}\n"
+            f"type={tray_meta.get('type','')}\n"
+            f"color_hex={tray_meta.get('color_hex','')}\n"
+            f"name={tray_meta.get('name','')}\n"
+            f"filament_id={tray_meta.get('filament_id','')}\n\n"
+            f"{reason_detail}\n\n"
+            "ACTION REQUIRED: Assign spool via Spoolman (Shelf) or run script with slot + spool_id, then reconcile."
+        )
+        self._notify(
+            f"Non-RFID NEEDS_ACTION Slot {slot}",
+            summary,
+            notification_id=f"nonrfid_needs_action_slot_{slot}",
+        )
+
+    def _notify_nonrfid_new_fallback(self, slot, spool_id, tray_meta):
+        """PHASE_2_6: Non-RFID bind used New fallback (no Shelf match)."""
+        summary = (
+            f"slot={slot} bound to spool_id={spool_id} (location New).\n"
+            f"type={tray_meta.get('type','')} color_hex={tray_meta.get('color_hex','')} name={tray_meta.get('name','')}\n\n"
+            "No matching spool at Shelf; one unambiguous match at New was used. Spool location updated to AMS slot."
+        )
+        self._notify(
+            f"Non-RFID New fallback Slot {slot}",
+            summary,
+            notification_id=f"nonrfid_new_fallback_slot_{slot}_{spool_id}",
         )
 
     def _notify_unbound(self, slot, tag_uid, tray_meta, candidate_ids):

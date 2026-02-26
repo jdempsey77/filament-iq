@@ -582,6 +582,131 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertGreater(len(status_writes), 0)
         self.assertEqual(status_writes[-1].get("value"), STATUS_UNBOUND_ACTION_REQUIRED)
 
+    # ---------- PHASE_2_6: Non-RFID deterministic matching (Shelf-first, New fallback) ----------
+
+    def test_phase26_nonrfid_shelf_one_match_binds(self):
+        """PHASE_2_6: Non-RFID tray + one Shelf candidate (material/color/vendor) -> bind, status OK."""
+        spools = [_spool(201, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000")]
+        filaments = [{"id": 1, "name": "Bambu PLA Basic", "material": "PLA", "color_hex": "ff0000",
+                     "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(1)
+        state_map = {
+            tray_ent: _tray_state("", tray_type="PLA", color="ff0000", name="Bambu PLA Basic", filament_id="bambu"),
+            f"{tray_ent}::all": {"attributes": _tray_state("")["attributes"], "state": "valid"},
+        }
+        state_map["input_boolean.p1s_nonrfid_enabled"] = "on"
+        for slot in range(1, 7):
+            state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_status"] = ""
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+
+        status_writes = [w for w in r._helper_writes if w.get("entity_id") == "input_text.ams_slot_1_status"]
+        self.assertGreater(len(status_writes), 0)
+        self.assertEqual(status_writes[-1].get("value"), "OK")
+        patches_201 = [p for p in sm.patches if p.get("path") == "/api/v1/spool/201"]
+        self.assertGreaterEqual(len(patches_201), 1, "expected location PATCH to spool 201")
+        summary = getattr(r, "_last_summary", None)
+        self.assertIsNotNone(summary)
+        transcripts = summary.get("validation_transcripts", [])
+        slot1 = next((t for t in transcripts if t.get("slot") == 1), None)
+        self.assertIsNotNone(slot1)
+        self.assertEqual(slot1.get("final_spool_id"), 201)
+        self.assertEqual(slot1.get("reason"), "shelf_match")
+
+    def test_phase26_nonrfid_ambiguity_needs_action(self):
+        """PHASE_2_6: Non-RFID + multiple Shelf candidates, tie-break fails -> NEEDS_ACTION, no bind."""
+        spools = [
+            _spool(301, remaining_weight=200, rfid_tag_uid=None, location="Shelf", color_hex="00ff00"),
+            _spool(302, remaining_weight=250, rfid_tag_uid=None, location="Shelf", color_hex="00ff00"),
+        ]
+        filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "00ff00",
+                     "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(1)
+        state_map = {
+            tray_ent: _tray_state("", tray_type="PLA", color="00ff00", name="Bambu PLA", filament_id="bambu"),
+            f"{tray_ent}::all": {"attributes": _tray_state("")["attributes"], "state": "valid"},
+        }
+        state_map["input_boolean.p1s_nonrfid_enabled"] = "on"
+        for slot in range(1, 7):
+            state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_status"] = ""
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+
+        status_writes = [w for w in r._helper_writes if w.get("entity_id") == "input_text.ams_slot_1_status"]
+        self.assertGreater(len(status_writes), 0)
+        self.assertEqual(status_writes[-1].get("value"), STATUS_UNBOUND_ACTION_REQUIRED)
+        bind_patches = [p for p in sm.patches if "path" in p and "/api/v1/spool/" in p.get("path", "")]
+        self.assertEqual(len([p for p in bind_patches if p.get("path") in ("/api/v1/spool/301", "/api/v1/spool/302") and p.get("payload", {}).get("location")]), 0,
+                         "must not bind when ambiguous (tie-break may still pick one; if so this may need relax)")
+
+    def test_phase26_nonrfid_new_fallback_unambiguous_binds(self):
+        """PHASE_2_6: No Shelf match + exactly one New candidate -> bind + New fallback notify."""
+        spools = [_spool(401, remaining_weight=500, rfid_tag_uid=None, location="New", color_hex="0000ff", material="PETG", name="Bambu PETG")]
+        filaments = [{"id": 1, "name": "Bambu PETG", "material": "PETG", "color_hex": "0000ff",
+                     "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(1)
+        attrs = _tray_state("", tray_type="PETG", color="0000ff", name="Bambu PETG", filament_id="bambu")["attributes"]
+        state_map = {
+            tray_ent: {"attributes": attrs, "state": "valid"},
+            f"{tray_ent}::all": {"attributes": attrs, "state": "valid"},
+        }
+        state_map["input_boolean.p1s_nonrfid_enabled"] = "on"
+        for slot in range(1, 7):
+            state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_status"] = ""
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+
+        status_writes = [w for w in r._helper_writes if w.get("entity_id") == "input_text.ams_slot_1_status"]
+        self.assertGreater(len(status_writes), 0)
+        self.assertEqual(status_writes[-1].get("value"), "OK")
+        patches_401 = [p for p in sm.patches if p.get("path") == "/api/v1/spool/401"]
+        self.assertGreaterEqual(len(patches_401), 1)
+        summary = getattr(r, "_last_summary", None)
+        self.assertIsNotNone(summary)
+        slot1 = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == 1), None)
+        self.assertIsNotNone(slot1)
+        self.assertEqual(slot1.get("final_spool_id"), 401)
+        self.assertEqual(slot1.get("reason"), "new_fallback")
+
+    def test_phase26_rfid_regression_no_metadata_fallback(self):
+        """PHASE_2_6 regression: tag_uid present + no Shelf UID match -> still NEEDS_ACTION, no bind (PHASE_2_5 strict)."""
+        tag = "E5F6070011223344"
+        spools = [_spool(501, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000")]
+        filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "ff0000",
+                     "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(1)
+        state_map = {
+            tray_ent: _tray_state(tag, tray_type="PLA", color="ff0000", name="Bambu PLA", filament_id="bambu"),
+            f"{tray_ent}::all": {"attributes": _tray_state(tag)["attributes"], "state": "valid"},
+        }
+        state_map["input_boolean.p1s_nonrfid_enabled"] = "on"
+        for slot in range(1, 7):
+            state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_status"] = ""
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+
+        bind_patches = [p for p in sm.patches if "extra" in p.get("payload", {}) and "rfid_tag_uid" in p["payload"].get("extra", {})]
+        self.assertEqual(len(bind_patches), 0, "RFID path must not bind when no Shelf UID match (no metadata fallback)")
+        status_writes = [w for w in r._helper_writes if w.get("entity_id") == "input_text.ams_slot_1_status"]
+        self.assertGreater(len(status_writes), 0)
+        self.assertEqual(status_writes[-1].get("value"), STATUS_UNBOUND_ACTION_REQUIRED)
+
     def test_flow_b_ambiguous_remains_unbound(self):
         """Flow B: 2+ HA_SIG matches -> FLOW_B_AMBIGUOUS, no bind."""
         tag = "EEFF001122334455"
