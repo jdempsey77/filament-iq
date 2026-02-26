@@ -40,3 +40,6 @@ deploy.env/
 # Local deploy env (never commit)
 scripts/deploy.env
 scripts/deploy.env.local
+
+# Local editor settings
+.vscode/
