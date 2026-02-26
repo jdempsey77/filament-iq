@@ -24,6 +24,18 @@ Skipping steps is not allowed.
 
 ---
 
+## Precedence: ALL-CAPS Triggers (HIGHEST PRIORITY)
+
+If the user message is exactly one of these ALL CAPS triggers:
+TEST, DEPLOY, CHECKIN, GUARDRAILS, ROLLBACK, PHASE, ANALYZE
+then you MUST execute the corresponding workflow exactly as defined in:
+docs/cursor_skill.md and .cursor/rules/deployment-discipline.mdc
+
+In these trigger responses, do NOT use the generic Plan/Diff/Validation/Deploy format
+unless the trigger workflow explicitly requires it.
+
+---
+
 ## Environments
 
 ### Dashboards

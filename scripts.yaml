@@ -367,17 +367,16 @@ spoolman_add_filament:
         message: "Filament created and Spoolman reloaded."
         title: Filament added to Spoolman
 
-# Generate a UUID and write to input_text.spoolman_new_spool_uuid (pure Jinja; no python_script).
+# Generate a UUID and write to input_text.spoolman_new_spool_uuid (python_script.gen_uuid; deterministic, verifiable by state).
 spoolman_set_new_spool_uuid:
   alias: Generate spool UUID
   sequence:
-    - action: input_text.set_value
+    - action: python_script.gen_uuid
       data:
-        entity_id: input_text.spoolman_new_spool_uuid
-        value: "{% set u = (uuid() if uuid is defined else (uuid4() if uuid4 is defined else '')) %}{{ u }}"
+        target: input_text.spoolman_new_spool_uuid
 
 # Add spool to Spoolman from dashboard (uses spoolman_new_spool_* helpers).
-# Runs script.spoolman_set_new_spool_uuid (Jinja UUID), waits, then POSTs with extra.ha_spool_uuid.
+# Runs script.spoolman_set_new_spool_uuid (python_script.gen_uuid), waits, then POSTs with extra.ha_spool_uuid.
 spoolman_add_spool:
   alias: Add spool to Spoolman
   sequence:
