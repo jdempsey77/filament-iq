@@ -807,6 +807,22 @@ views:
                   border-radius: 12px !important;
                   box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
                 }
+          - type: sensor
+            entity: sensor.office_plant_soil_moisture
+            name: Plant Moisture
+            graph: line
+            hours_to_show: 72
+            detail: 2
+            grid_options:
+              columns: 12
+              rows: 2
+            card_mod:
+              style: |
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
     max_columns: 2
   - title: outside
     icon: mdi:weather-sunny
