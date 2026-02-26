@@ -511,10 +511,13 @@ class AmsRfidReconcile(hass.Hass):
                 "raw_tag_uid": str(raw_tag) if raw_tag is not None else "",
             }
 
-            # Tray change detection (preferred: tray_signature change) → start 20s pending window
-            new_sig = self._build_tray_signature(tray_meta, tray.get("state", ""), tag_uid or "")
-            current_sig = (self.get_state(f"input_text.ams_slot_{slot}_tray_signature") or "") or ""
-            if isinstance(current_sig, str) and new_sig != current_sig:
+            # Sticky mapping: tray identity (tray_uuid if present else tag_uid) for same-tray no-flip
+            current_tray_sig = self._get_tray_identity(attrs, tag_uid or "")
+            stored_tray_sig = (self.get_state(f"input_text.ams_slot_{slot}_tray_signature") or "") or ""
+            helper_spool_id = self._safe_int(self.get_state(f"input_text.ams_slot_{slot}_spool_id"), 0)
+
+            # Tray change detection (tray identity change) → start 20s pending window
+            if isinstance(stored_tray_sig, str) and current_tray_sig != stored_tray_sig:
                 until_utc = datetime.datetime.utcnow() + datetime.timedelta(seconds=RFID_PENDING_SECONDS)
                 self._set_rfid_pending_until(slot, until_utc)
 
@@ -637,28 +640,23 @@ class AmsRfidReconcile(hass.Hass):
                 )
                 self._notify_conflict(slot, tag_uid, tray_meta, dup_ids, "DUPLICATE_UID")
                 self._record_no_write(slot, "conflict_duplicate_uid")
-                # All slots: write tray_signature when tray has data (pure function of tray).
-                if tray_state_str not in ("unknown", "unavailable", "", "empty"):
-                    sig = self._build_tray_signature(tray_meta, tray.get("state", ""), tag_uid)
-                    self._set_helper(f"input_text.ams_slot_{slot}_tray_signature", sig)
+                # All slots: write tray identity when tray has data (sticky key)
+                if tray_state_str not in ("unknown", "unavailable", "", "empty") and current_tray_sig:
+                    self._set_helper(f"input_text.ams_slot_{slot}_tray_signature", current_tray_sig)
                     if slot in (5, 6):
                         self.log(
                             f"RECONCILE_SIG slot={slot} tray_entity={entity_id} tag_uid={tag_uid} "
-                            f"filament_id={tray_meta.get('filament_id','')} sig={sig[:80]}{'...' if len(sig) > 80 else ''} "
-                            f"wrote=true reason=duplicate_uid",
+                            f"tray_sig={current_tray_sig[:64]}{'...' if len(current_tray_sig) > 64 else ''} wrote=true reason=duplicate_uid",
                             level="DEBUG",
                         )
             else:
-                # All slots: write tray_signature when tray has data (pure function of tray).
-                # Fixes: tray_signature was only written on successful bind; MISMATCH/ambiguous/etc never wrote it.
-                if tray_state_str not in ("unknown", "unavailable", "", "empty"):
-                    sig = self._build_tray_signature(tray_meta, tray.get("state", ""), tag_uid)
-                    self._set_helper(f"input_text.ams_slot_{slot}_tray_signature", sig)
+                # All slots: write tray identity when tray has data (sticky key)
+                if tray_state_str not in ("unknown", "unavailable", "", "empty") and current_tray_sig:
+                    self._set_helper(f"input_text.ams_slot_{slot}_tray_signature", current_tray_sig)
                     if slot in (5, 6):
                         self.log(
                             f"RECONCILE_SIG slot={slot} tray_entity={entity_id} tag_uid={tag_uid} "
-                            f"filament_id={tray_meta.get('filament_id','')} sig={sig[:80]}{'...' if len(sig) > 80 else ''} "
-                            f"wrote=true reason=tray_data_present",
+                            f"tray_sig={current_tray_sig[:64]}{'...' if len(current_tray_sig) > 64 else ''} wrote=true reason=tray_data_present",
                             level="DEBUG",
                         )
                 mapped_ids = list(set(tag_to_spools.get(tag_uid, [])))
@@ -696,9 +694,11 @@ class AmsRfidReconcile(hass.Hass):
                         if expected_vs_resolved_mismatch and not color_mismatch:
                             # Auto-heal: expected_spool_id is stale, UID says resolved. Trust RFID.
                             if not status_only:
+                                if self._should_stick(slot, current_tray_sig, stored_tray_sig, helper_spool_id):
+                                    resolved_spool_id = helper_spool_id
                                 self._force_location_and_helpers(
                                     slot, resolved_spool_id, tag_uid, source="expected_autofix",
-                                    tray_meta=tray_meta, tray_state=tray.get("state", ""),
+                                    tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
                                 )
                             t["converge_reason"] = "expected_autofix"
                             status = STATUS_OK_FIXED_EXPECTED
@@ -730,9 +730,11 @@ class AmsRfidReconcile(hass.Hass):
                             )
                     elif uid_matched and not mismatch_detected:
                         if not status_only:
+                            if self._should_stick(slot, current_tray_sig, stored_tray_sig, helper_spool_id):
+                                resolved_spool_id = helper_spool_id
                             self._force_location_and_helpers(
                                 slot, resolved_spool_id, tag_uid, source="known_binding",
-                                tray_meta=tray_meta, tray_state=tray.get("state", ""),
+                                tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
                             )
                         t["converge_reason"] = "known_binding"
                         status = STATUS_OK
@@ -775,9 +777,11 @@ class AmsRfidReconcile(hass.Hass):
                             self._active_run["auto_registers"].append(
                                 {"kind": "AUTO_REGISTER_RFID_METADATA_MATCH", "slot": slot, "tag_uid": tag_uid, "spool_id": resolved_spool_id}
                             )
+                            if self._should_stick(slot, current_tray_sig, stored_tray_sig, helper_spool_id):
+                                resolved_spool_id = helper_spool_id
                             self._force_location_and_helpers(
                                 slot, resolved_spool_id, tag_uid, source="auto_register_metadata_match",
-                                tray_meta=tray_meta, tray_state=tray.get("state", ""),
+                                tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
                             )
                         t["converge_reason"] = "auto_register_metadata_match"
                         status = STATUS_OK
@@ -879,9 +883,11 @@ class AmsRfidReconcile(hass.Hass):
                             t["final_spool_id"], t["selected_spool_id"], t["final_location"] = winner_id, winner_id, CANONICAL_LOCATION_BY_SLOT[slot]
                             if not status_only:
                                 self._bind_uid_to_spool(tag_uid, resolved_spool_id, spool_index)
+                                if self._should_stick(slot, current_tray_sig, stored_tray_sig, helper_spool_id):
+                                    resolved_spool_id = helper_spool_id
                                 self._force_location_and_helpers(
                                     slot, resolved_spool_id, tag_uid, source=_source,
-                                    tray_meta=tray_meta, tray_state=tray.get("state", ""),
+                                    tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
                                 )
                             t["converge_reason"] = "auto_register_tiebreak"
                             status = STATUS_OK
@@ -939,9 +945,11 @@ class AmsRfidReconcile(hass.Hass):
                             if resolved_spool_id > 0 and not status_only:
                                 self._bind_uid_to_spool(tag_uid, resolved_spool_id, spool_index)
                                 try:
+                                    if self._should_stick(slot, current_tray_sig, stored_tray_sig, helper_spool_id):
+                                        resolved_spool_id = helper_spool_id
                                     self._force_location_and_helpers(
                                         slot, resolved_spool_id, tag_uid, source="flow_b_ha_sig",
-                                        tray_meta=tray_meta, tray_state=tray.get("state", ""),
+                                        tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
                                     )
                                 except Exception as loc_exc:
                                     self.log(
@@ -1036,6 +1044,7 @@ class AmsRfidReconcile(hass.Hass):
                 unbound += 1 if status != STATUS_UNBOUND_MANUAL_CREATE else 0
                 if status == STATUS_UNBOUND_NO_TAG and not status_only:
                     self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
+                    self._set_helper(f"input_text.ams_slot_{slot}_tray_signature", "")
 
             self._set_helper(f"input_text.ams_slot_{slot}_status", status)
             self._log_slot_status_change(slot, status, tag_uid, resolved_spool_id, tray_meta)
@@ -1141,7 +1150,7 @@ class AmsRfidReconcile(hass.Hass):
             return "Shelf"
         return key
 
-    def _force_location_and_helpers(self, slot, spool_id, tag_uid, source, tray_meta=None, tray_state=""):
+    def _force_location_and_helpers(self, slot, spool_id, tag_uid, source, tray_meta=None, tray_state="", tray_identity=None):
         desired_location = self._normalize_location(CANONICAL_LOCATION_BY_SLOT[slot])
         all_spools = self._spoolman_get("/api/v1/spool?limit=1000")
         if isinstance(all_spools, dict) and "items" in all_spools:
@@ -1163,7 +1172,9 @@ class AmsRfidReconcile(hass.Hass):
             )
         self._set_helper(f"input_text.ams_slot_{slot}_spool_id", str(spool_id))
         self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", str(spool_id))
-        if tray_meta is not None:
+        if tray_identity is not None:
+            self._set_helper(f"input_text.ams_slot_{slot}_tray_signature", tray_identity)
+        elif tray_meta is not None:
             sig = self._build_tray_signature(tray_meta, tray_state, tag_uid)
             self._set_helper(f"input_text.ams_slot_{slot}_tray_signature", sig)
         if self.debug_logs:
@@ -1556,6 +1567,29 @@ class AmsRfidReconcile(hass.Hass):
             "color_hex": color_candidates[0] if color_candidates else "",
             "color_candidates": color_candidates,
         }
+
+    def _get_tray_identity(self, attrs, tag_uid):
+        """Tray identity for sticky mapping: tray_uuid if present else tag_uid (uppercased, trimmed)."""
+        raw_tray = (attrs or {}).get("tray_uuid")
+        tray_str = str(raw_tray or "").strip().replace(" ", "").replace("-", "").upper()
+        tag_str = str(tag_uid or "").strip().replace(" ", "").replace('"', "").upper()
+        return tray_str if tray_str else tag_str
+
+    def _spool_exists(self, spool_id):
+        """Return True if Spoolman has this spool (GET returns 200 with id)."""
+        if not spool_id or self._safe_int(spool_id, 0) <= 0:
+            return False
+        try:
+            r = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+            return isinstance(r, dict) and self._safe_int(r.get("id"), 0) == self._safe_int(spool_id, 0)
+        except Exception:
+            return False
+
+    def _should_stick(self, slot, current_sig, stored_sig, helper_spool_id):
+        """True if same tray and helper has valid spool → do not change spool_id (avoid selection churn)."""
+        if not current_sig or current_sig != stored_sig or helper_spool_id <= 0:
+            return False
+        return self._spool_exists(helper_spool_id)
 
     def _build_tray_signature(self, tray_meta, state_value, tag_uid):
         """Build canonical tray signature (lower/trim, stable ids). Max 255 chars. Used for slots 1–6."""
