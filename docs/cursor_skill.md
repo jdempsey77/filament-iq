@@ -32,6 +32,7 @@ Trigger | Action
 **ROLLBACK** | Provide safe rollback steps from this doc; use `./scripts/manage_ha.sh` for redeploy. No standalone script.
 **PHASE** | Show current maturity posture (gates, flags, what TEST/DEPLOY enforce). No standalone script.
 **PHASE_2_5** | Implement Phase 2.5 deterministic matching policy (code + tests). Must NOT deploy or restart services. Output structured summary.
+**PHASE_2_6** | Implement Non-RFID Shelf-first matching + controlled New fallback + NEEDS_ACTION UX + tests. Must NOT deploy or restart services. Output structured summary.
 **ANALYZE** | Perform strict read-only investigation. No file edits. No deploy. No service calls. Output structured report only.
 
 ------------------------------------------------------------------------
@@ -340,7 +341,117 @@ PHASE_2_5 must add/update tests proving:
 
 ## Post-Phase Next Action
 - Recommend running **TEST** (and only then optionally DEPLOY) after PHASE_2_5 changes are reviewed/checked in.
+------------------------------------------------------------------------
 
+# PHASE_2_6 Workflow (Authoritative)
+
+PHASE_2_6 implements the Non-RFID deterministic matching path (no tag_uid)
+using Shelf-first selection, controlled New fallback, NEEDS_ACTION UX, and
+least-remaining-grams tie-break. RFID behavior from PHASE_2_5 remains strict
+and must NOT regress (no metadata fallback when tag_uid is present).
+
+## PHASE_2_6 Hard Rules (No Exceptions)
+
+1. PHASE_2_6 **MUST NOT**:
+   - Deploy
+   - Restart HA / AppDaemon
+   - Call `./scripts/manage_ha.sh`
+   - Mutate runtime state via service calls
+
+2. PHASE_2_6 **MAY**:
+   - Edit code
+   - Edit/add tests
+   - Refactor for determinism and clarity
+
+3. PHASE_2_6 must end with a structured summary:
+   - STATUS: PASS/FAIL (PASS means code+tests updated coherently; does NOT imply deployed)
+   - COMMANDS RUN:
+   - ARTIFACTS / LOGS:
+   - NEXT ACTION:
+
+## Required Policy Implementation (Non-RFID only)
+
+### Entry Condition
+- This phase applies ONLY when the tray has **no RFID tag_uid** (Non-RFID tray).
+- If tag_uid is present, PHASE_2_5 rules apply (Shelf-only UID match; no metadata fallback).
+
+### Candidate Pool Rules
+- Primary candidate pool: Spoolman spools where `location == "Shelf"`.
+- `location == "New"` is excluded from normal matching.
+- `location == "Empty"` is always excluded from matching.
+
+### Matching Inputs
+Use tray metadata from the AMS tray (as available), including:
+- vendor/brand (mapped to Spoolman `filament.vendor.name`)
+- material (PLA/PETG/etc)
+- filament name and/or color signal (name, color_hex, etc)
+- HA signature (HA_SIG) when present (strong signal)
+
+### Matching Algorithm (Deterministic + Bounded Fuzzy)
+1) If HA_SIG is available and valid:
+   - Prefer candidates that match HA_SIG (exact or deterministic normalized match).
+2) Otherwise, compute a deterministic fuzzy score for candidates using:
+   - vendor match (strong weight)
+   - material match (strong weight)
+   - filament name token overlap / normalized similarity (bounded)
+   - color similarity if a reliable color signal exists (bounded)
+3) Enforce determinism:
+   - Do not “guess” when ambiguous.
+   - If multiple candidates are within a small scoring band OR score is below threshold:
+     - set NEEDS_ACTION (no bind) + send notification.
+4) If exactly one unambiguous best match exists:
+   - bind to it.
+5) Tie-break:
+   - If multiple candidates remain after matching filters, choose the one with the least remaining grams.
+
+### New Fallback (Controlled)
+If and only if there is **no match from Shelf**:
+- Consider candidates where `location == "New"`.
+- Proceed ONLY if exactly one strong/unambiguous candidate exists.
+- If New fallback is used:
+  - bind to it
+  - move it to the AMS slot location
+  - send notification stating New fallback occurred
+- If New candidates are ambiguous:
+  - NEEDS_ACTION + notification, no bind
+
+### Writes on Success
+On a successful bind (Shelf or New fallback):
+- Write spool_id helper for the slot
+- Write tray_signature helper (tray identity) for sticky mapping
+- Stamp HA_SIG once for the spool lifetime (do not churn it)
+- Move matched Spoolman spool location to the AMS slot location
+
+### Sticky Mapping (No Churn)
+- Tray identity = `tray_uuid` if present else `tag_uid` (normalized).
+- For Non-RFID trays, tray_uuid may be absent; use the best available stable identity source.
+- If tray identity unchanged AND current helper spool_id is valid in Spoolman:
+  - DO NOT change spool_id
+- Only update spool_id when tray identity changes OR helper spool_id is 0/invalid.
+
+### No-Match UX
+If no unambiguous match exists (Shelf and New fallback fails):
+- Set tray status to NEEDS_ACTION / UNBOUND_ACTION_REQUIRED
+- Send notification with:
+  - slot number
+  - vendor/material/color/name signals observed
+  - whether Shelf had 0 matches vs ambiguous matches vs New ambiguous
+- Do not bind. Do not create new Spoolman records.
+
+## Required Tests
+PHASE_2_6 must add/update tests proving:
+- Non-RFID Shelf-only matching binds when unambiguous
+- Non-RFID tie-break chooses least remaining grams
+- Non-RFID no Shelf match triggers New fallback ONLY when unambiguous (bind + notify)
+- Non-RFID ambiguity causes NEEDS_ACTION (no bind + notify)
+- Sticky mapping prevents churn when tray identity unchanged
+- Empty/New exclusions behave correctly (New excluded unless fallback; Empty always excluded)
+- Regression: RFID behavior from PHASE_2_5 remains strict (tag_uid present + no Shelf UID match => NEEDS_ACTION, no bind)
+
+## Post-Phase Next Action
+- Recommend CHECKIN (commit) then run **TEST** (and only then optionally DEPLOY).
+
+------------------------------------------------------------------------
 
 # ANALYZE Workflow (Authoritative)
 
@@ -390,3 +501,5 @@ When new gates/scripts are added:
 - Update this document
 - Update canonical TEST runner
 - Keep outputs deterministic and auditable
+
+

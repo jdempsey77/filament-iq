@@ -63,6 +63,8 @@ This document describes the AMS ↔ Home Assistant ↔ Spoolman RFID flow, ident
 
 Reconcile never writes "New"; it only **excludes** spools with location "New" from deterministic candidate selection.
 
+**One spool per location:** To avoid multiple spools showing the same AMS slot (ghosts), reconcile enforces one spool per slot location. When a slot’s binding changes or the slot is unbound, the **previous** spool’s Spoolman location is cleared first: if the previous helper spool is still at that slot’s canonical location, it is PATCHed to `Shelf` before writing the new binding or setting helpers to 0. Only spools actually at the slot’s location are moved; no destructive move of spools that are already elsewhere. Log line: `CLEAR_PREVIOUS_SLOT_OCCUPANT slot=N old=<id> new=<id> from=<slotloc> to=Shelf`.
+
 ---
 
 ## 4. Failure Modes

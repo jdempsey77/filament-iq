@@ -21,6 +21,18 @@ Optional:
 
 - `SPOOLMAN_TOKEN` – used only if the harness is extended to send auth headers (not required for read-only capture).
 - `HARNESS_WAIT_SECONDS` or `--wait-seconds` – stabilization wait between baseline and after capture (default 20).
+- `HARNESS_DEBUG=1` – print to stderr: URLs called, status codes, and whether JSON parsing succeeded (no tokens).
+
+## Self-test (capture always writes valid JSON)
+
+To confirm the capture script never crashes on bad/empty/HTML responses and always produces valid JSON:
+
+```bash
+HOME_ASSISTANT_URL=http://127.0.0.1:9 ./scripts/harness_spool_detection_capture.sh --slot 1 --out /tmp/test.json
+jq . /tmp/test.json
+```
+
+The script must exit 0 and `jq . /tmp/test.json` must succeed. (If `deploy.env` is present and sets `HOME_ASSISTANT_URL`, temporarily move it or use `scripts/deploy.env.local` with the invalid URL so the request actually fails.)
 
 ## Scripts
 
@@ -109,8 +121,8 @@ Each snapshot JSON contains:
 
 - `timestamp_utc` – ISO UTC time.
 - `slot` – 1–6.
-- `ha` – `tray_entity_state`, `helper_spool_id`, `helper_tray_signature` (full HA state or `{ status_code, body }` on error).
+- `ha` – `tray_entity_state`, `helper_spool_id`, `helper_tray_signature`. Each is always an object: `{ status_code, content_type, body, json }`. When the response was valid JSON, `json` is the parsed object; otherwise `json` is null and `body` is the raw string.
 - `derived` – `tag_uid`, `tray_uuid`, `helper_spool_id_int`, `expected_spoolman_location`.
-- `spoolman` – `by_helper_id` (spool object or status+body), `by_tag_uid` (`matching_spool`, `match_count`).
+- `spoolman` – `by_helper_id` (same `{ status_code, content_type, body, json }` shape). `by_tag_uid` has `matching_spool`, `match_count`; if the list response was not valid JSON it also has `response` (raw body) and `error: "non_json_response"`.
 
 Tray entities and expected locations follow the same convention as `appdaemon/apps/ams_rfid_reconcile.py` (slots 1–4: AMS1_Slot1–4; 5–6: AMS128_Slot1, AMS129_Slot1).

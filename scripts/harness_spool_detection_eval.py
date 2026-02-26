@@ -19,7 +19,12 @@ def load(path: str) -> dict:
 def get_tray_attrs(snap: dict) -> dict:
     ha = snap.get("ha") or {}
     tray = ha.get("tray_entity_state") or {}
-    if isinstance(tray, dict) and "attributes" in tray:
+    if not isinstance(tray, dict):
+        return {}
+    # Capture shape: { status_code, content_type, body, json }; attributes in .json.attributes
+    if tray.get("json") and isinstance(tray["json"], dict) and "attributes" in tray["json"]:
+        return tray["json"]["attributes"]
+    if "attributes" in tray:
         return tray["attributes"]
     return {}
 
@@ -45,10 +50,14 @@ def rfid_detected(snap: dict) -> bool:
 def tray_signature_set(snap: dict) -> bool:
     ha = snap.get("ha") or {}
     sig_state = ha.get("helper_tray_signature") or {}
-    if isinstance(sig_state, dict) and "state" in sig_state:
-        val = sig_state.get("state") or ""
+    if not isinstance(sig_state, dict):
+        return False
+    # Capture shape: { status_code, content_type, body, json }; state in .json.state
+    if sig_state.get("json") and isinstance(sig_state["json"], dict):
+        val = sig_state["json"].get("state") or ""
         return bool(str(val).strip())
-    return False
+    val = sig_state.get("state") or ""
+    return bool(str(val).strip())
 
 
 def bound(snap: dict) -> bool:
@@ -78,20 +87,21 @@ def spoolman_reflects_location(snap: dict) -> bool:
     by_helper = spoolman_by_helper(snap)
     if not isinstance(by_helper, dict):
         return False
-    # Capture stores either { status_code, body } on error or the spool object on 200
-    if "status_code" in by_helper:
-        if by_helper.get("status_code") != 200:
+    # Capture stores { status_code, content_type, body, json }; use .json when present, else try .body
+    if by_helper.get("status_code") != 200:
+        return False
+    body = by_helper.get("json")
+    if body is None:
+        raw = by_helper.get("body")
+        if raw is None:
             return False
-        body = by_helper.get("body")
-        if body is None:
-            return False
-        if isinstance(body, str):
+        if isinstance(raw, str):
             try:
-                body = json.loads(body)
+                body = json.loads(raw)
             except json.JSONDecodeError:
                 return False
-    else:
-        body = by_helper
+        else:
+            body = raw
     loc = (body or {}).get("location") or ""
     exp = expected_location(snap)
     return loc == exp
