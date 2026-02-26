@@ -31,6 +31,7 @@ Trigger | Action
 **GUARDRAILS** | Restate and enforce repo rules from this doc. No script.
 **ROLLBACK** | Provide safe rollback steps from this doc; use `./scripts/manage_ha.sh` for redeploy. No standalone script.
 **PHASE** | Show current maturity posture (gates, flags, what TEST/DEPLOY enforce). No standalone script.
+**PHASE_2_5** | Implement Phase 2.5 deterministic matching policy (code + tests). Must NOT deploy or restart services. Output structured summary.
 **ANALYZE** | Perform strict read-only investigation. No file edits. No deploy. No service calls. Output structured report only.
 
 ------------------------------------------------------------------------
@@ -245,6 +246,101 @@ Outputs:
 - Any temporary waivers (explicit only)
 
 ------------------------------------------------------------------------
+
+
+------------------------------------------------------------------------
+
+# PHASE_2_5 Workflow (Authoritative)
+
+PHASE_2_5 implements deterministic spool matching policy:
+
+- Shelf-only matching (primary candidate pool is **location == "Shelf"**)
+- Controlled New fallback (only after no Shelf match and only if unambiguous)
+- Needs-action UX on no-match or ambiguity
+- Sticky tray mapping using tray identity + `ams_slot_{slot}_tray_signature`
+- Tie-break: **least remaining grams wins**
+- Mismatch requires user intervention (no silent corrections)
+- End-of-life: when a spool hits 0g and is removed, move to **location "Empty"**
+
+## PHASE_2_5 Hard Rules (No Exceptions)
+
+1. PHASE_2_5 **MUST NOT**:
+   - Deploy
+   - Restart HA / AppDaemon
+   - Call `./scripts/manage_ha.sh`
+   - Mutate runtime state via service calls
+
+2. PHASE_2_5 **MAY**:
+   - Edit code
+   - Edit/add tests
+   - Refactor for determinism and clarity
+
+3. PHASE_2_5 must end with a structured summary:
+   - STATUS: PASS/FAIL (PASS means code+tests updated coherently; does NOT imply deployed)
+   - COMMANDS RUN:
+   - ARTIFACTS / LOGS:
+   - NEXT ACTION:
+
+## Required Policy Implementation
+
+### Canonical Identity
+- RFID spools are identified 1:1 by normalized `extra.rfid_tag_uid`.
+- HA signature (HA_SIG) is written after successful match and persists for spool lifetime.
+
+### RFID Matching
+- Match ONLY by normalized `extra.rfid_tag_uid`.
+- Consider ONLY spools where `location == "Shelf"`.
+- If multiple matches: choose the one with the least remaining grams.
+- If no Shelf match:
+  - DO NOT create a Spoolman record
+  - Set tray to NEEDS_ACTION
+  - Send notification describing the RFID UID and required action
+
+### Non-RFID Matching
+- Primary candidate pool: `location == "Shelf"`.
+- Fuzzy match is allowed but must be deterministic and bounded (avoid guessing when ambiguous).
+- If multiple matches: choose least remaining grams.
+- If no Shelf match, New fallback:
+  - Consider `location == "New"` only after Shelf yields no match
+  - Proceed ONLY if exactly one strong/unambiguous candidate
+  - If New fallback used: send notification ("matched from New; moved to AMS slot")
+  - If ambiguous: NEEDS_ACTION + notification
+
+### Sticky Mapping (No Churn)
+- Tray identity = `tray_uuid` if present else `tag_uid` (normalized).
+- If tray identity unchanged AND current helper spool_id is valid in Spoolman:
+  - DO NOT change spool_id
+- Only update spool_id when tray identity changes OR helper spool_id is 0/invalid.
+
+### Signature Handling
+- On successful match:
+  - Write spool_id helper
+  - Write tray_signature helper
+  - Write HA_SIG once (persist for spool lifetime)
+- On empty tray:
+  - Set spool_id to 0
+  - Clear tray_signature
+
+### Mismatch Handling
+- If tray attributes disagree with matched spool: flag mismatch and require user intervention.
+
+### End-of-Life (EOL)
+- If spool remaining reaches 0g AND is removed: move spool in Spoolman to `location == "Empty"`.
+- Exclude `Empty` from matching candidate pools.
+
+## Required Tests
+PHASE_2_5 must add/update tests proving:
+- RFID Shelf-only match + tie-break least remaining
+- RFID no-match => NEEDS_ACTION + notification (no auto-create)
+- Non-RFID fuzzy match on Shelf + tie-break least remaining
+- New fallback only after no Shelf match and only if unambiguous; else NEEDS_ACTION
+- Sticky mapping prevents churn when tray identity unchanged
+- Empty tray clears spool_id + tray_signature
+- EOL: 0g + removal => move to Empty
+
+## Post-Phase Next Action
+- Recommend running **TEST** (and only then optionally DEPLOY) after PHASE_2_5 changes are reviewed/checked in.
+
 
 # ANALYZE Workflow (Authoritative)
 
