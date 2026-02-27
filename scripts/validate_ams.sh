@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEPLOY_ENV="$SCRIPT_DIR/deploy.env"
+
+if [[ -f "$DEPLOY_ENV" ]]; then
+  set -a; source "$DEPLOY_ENV"; set +a
+fi
+
 : "${HOME_ASSISTANT_URL:?Need HOME_ASSISTANT_URL}"
 : "${HOME_ASSISTANT_TOKEN:?Need HOME_ASSISTANT_TOKEN}"
 : "${SPOOLMAN_URL:?Need SPOOLMAN_URL}"
