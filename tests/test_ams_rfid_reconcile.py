@@ -427,7 +427,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
 
     def test_s4_two_reds_842_vs_1000_binds_to_842(self):
         """PHASE_2_5: Unknown UID (no Shelf UID match) -> NEEDS_ACTION, no bind."""
-        tag = "AABBCCDD8421000"
+        tag = "AABBCCDD84210001"
         spools = [
             _spool(501, remaining_weight=842, initial_weight=1000, rfid_tag_uid=None, location="Shelf", color_hex="ff0000"),
             _spool(502, remaining_weight=1000, initial_weight=1000, rfid_tag_uid=None, location="Shelf", color_hex="ff0000"),
@@ -605,7 +605,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
 
     def test_rfid_location_new_excluded_from_uid_map(self):
         """Spool at location New with matching rfid_tag_uid is excluded from RFID map -> no bind, UNBOUND."""
-        tag = "NEWEXCLRFID99"
+        tag = "00EE00FF11223344"
         spools = [
             _spool(201, remaining_weight=500, rfid_tag_uid=tag, location="New", color_hex="ff0000"),
         ]
@@ -634,7 +634,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
 
     def test_location_new_excluded_from_deterministic_candidates(self):
         """PHASE_2_5: Tag in tray but no spool at Shelf has this UID -> UNBOUND_ACTION_REQUIRED, no bind to 702."""
-        tag = "NEWLOCEXCL001122"
+        tag = "00EE00FF99AABB01"
         spools = [
             _spool(701, remaining_weight=1000, rfid_tag_uid=None, location="New", color_hex="ff0000"),
             _spool(702, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000"),
@@ -669,7 +669,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
 
     def test_location_new_only_unbound(self):
         """PHASE_2_5: No spool at Shelf with this tag (only New) -> UNBOUND_ACTION_REQUIRED."""
-        tag = "NEWONLYUNBOUND99"
+        tag = "00EE00FF55667788"
         spools = [
             _spool(801, remaining_weight=1000, rfid_tag_uid=None, location="New", color_hex="00ff00"),
         ]
@@ -699,7 +699,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
 
     def test_s5_two_reds_strict_mode_refuses(self):
         """PHASE_2_5: Unknown UID (no Shelf UID match) -> NEEDS_ACTION, no bind (strict_mode irrelevant when 0 UID match)."""
-        tag = "AABBCCDDSTRICT"
+        tag = "AABBCCDD00111234"
         spools = [
             _spool(601, remaining_weight=842, initial_weight=1000, rfid_tag_uid=None, location="Shelf", color_hex="ff0000"),
             _spool(602, remaining_weight=1000, initial_weight=1000, rfid_tag_uid=None, location="Shelf", color_hex="ff0000"),
@@ -1634,11 +1634,11 @@ class TestAmsRfidReconcile(unittest.TestCase):
 
     def test_sticky_must_not_override_when_helper_uid_mismatch(self):
         """PHASE_2_6_1: Sticky must not override UID-resolved spool when helper spool UID != tray tag_uid."""
-        tag = "STICKYGUARD00112233"
+        tag = "5710AB0011223344"
         # tag_to_spools[tag] = [38]; spool 38 has UID T, spool 4 has different UID
         spools = [
             _spool(38, remaining_weight=500, rfid_tag_uid=tag, location="Shelf", color_hex="ff0000"),
-            _spool(4, remaining_weight=400, rfid_tag_uid="OTHER0000000001", location="Shelf", color_hex="ff0000"),
+            _spool(4, remaining_weight=400, rfid_tag_uid="07BE200000000001", location="Shelf", color_hex="ff0000"),
         ]
         filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "ff0000",
                      "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
@@ -1667,7 +1667,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
 
     def test_bind_guard_refuses_uid_mismatch(self):
         """PHASE_2_6_1: Final RFID bind guard refuses bind when selected spool UID != tray tag_uid."""
-        tag = "BINDGUARD00112233"
+        tag = "B11D6A2D00112233"
         spools = [_spool(38, remaining_weight=500, rfid_tag_uid=tag, location="Shelf", color_hex="ff0000")]
         filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "ff0000",
                      "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
