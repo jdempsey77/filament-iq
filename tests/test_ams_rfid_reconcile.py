@@ -11,6 +11,7 @@ import os
 import sys
 import types
 import unittest
+import unittest.mock
 
 # Bootstrap fake hassapi before importing ams_rfid_reconcile (no appdaemon dep)
 class _FakeHass:
@@ -30,6 +31,7 @@ _APPS = os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps")
 if _APPS not in sys.path:
     sys.path.insert(0, _APPS)
 
+import ams_rfid_reconcile
 from ams_rfid_reconcile import (
     _normalize_rfid_tag_uid,
     AmsRfidReconcile,
@@ -284,6 +286,36 @@ class TestableReconcile(AmsRfidReconcile):
 
     def _append_evidence(self, summary):
         self._last_summary = summary
+
+
+class StartupWaiterHarness(AmsRfidReconcile):
+    """Minimal harness to test _run_reconcile_startup; does not override _run_reconcile_startup."""
+
+    def __init__(self, state_map, args=None):
+        a = args or {}
+        super().__init__(None, "test", None, a, None, None, None)
+        self._state_map = dict(state_map)
+        self._log_calls = []
+        self._run_in_calls = []
+        self._run_reconcile_calls = []
+        self.startup_wait_helpers_seconds = int(a.get("startup_wait_helpers_seconds", 420))
+        self.startup_wait_retry_initial_seconds = int(a.get("startup_wait_retry_initial_seconds", 2))
+        self.startup_wait_retry_max_seconds = int(a.get("startup_wait_retry_max_seconds", 30))
+        self.startup_probe_helper_entity = str(a.get("startup_probe_helper_entity", "input_text.ams_slot_1_spool_id"))
+        self._domain_exception_class_logged = False
+
+    def log(self, msg, level="INFO"):
+        self._log_calls.append((msg, level))
+
+    def run_in(self, callback, delay, **kwargs):
+        self._run_in_calls.append((callback, delay, kwargs.copy()))
+
+    def _run_reconcile(self, reason, **kwargs):
+        self._run_reconcile_calls.append((reason, kwargs))
+
+    def get_state(self, entity_id, attribute=None):
+        key = f"{entity_id}" if attribute is None else f"{entity_id}::{attribute}"
+        return self._state_map.get(key)
 
 
 def _state_key(slot, entity_suffix, attr=None):
@@ -3724,6 +3756,79 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertGreater(len(status_writes2), 0)
         self.assertNotEqual(status_writes2[-1].get("value"), STATUS_RFID_IDENTITY_STUCK,
                             "identity changed, stuck status must clear")
+
+
+class TestStartupWaiter(unittest.TestCase):
+    """Startup readiness waiter: timeout (no reconcile), not-ready reasons, and STARTUP_WAIT_HELPERS_READY before reconcile."""
+
+    def test_timeout_calls_no_run_reconcile_and_logs_startup_wait_timeout(self):
+        """On timeout, must not call _run_reconcile and must log STARTUP_WAIT_TIMEOUT at ERROR."""
+        state_map = {"input_text.ams_slot_1_spool_id::all": {"state": "unavailable", "attributes": {}}}
+        args = {"startup_wait_helpers_seconds": 420, "startup_probe_helper_entity": "input_text.ams_slot_1_spool_id"}
+        h = StartupWaiterHarness(state_map, args=args)
+        with unittest.mock.patch.object(ams_rfid_reconcile, "DomainException", Exception):
+            # Pass end_utc in the past so first check hits timeout
+            h._run_reconcile_startup({
+                "_readiness_end_utc": datetime.datetime.utcnow() - datetime.timedelta(seconds=1),
+                "_readiness_next_interval_sec": 2,
+            })
+        self.assertEqual(len(h._run_reconcile_calls), 0, "timeout must not call _run_reconcile")
+        log_msgs = [msg for msg, _ in h._log_calls]
+        self.assertTrue(
+            any("STARTUP_WAIT_TIMEOUT" in msg for msg in log_msgs),
+            f"expected STARTUP_WAIT_TIMEOUT in log; got {log_msgs}",
+        )
+        error_logs = [(m, lvl) for m, lvl in h._log_calls if lvl == "ERROR"]
+        self.assertGreater(len(error_logs), 0, "STARTUP_WAIT_TIMEOUT must be logged at ERROR level")
+        self.assertTrue(any("STARTUP_WAIT_TIMEOUT" in m for m, _ in error_logs))
+
+    def test_not_ready_checks_all_three_conditions_and_logs_startup_wait_helpers_not_ready(self):
+        """Probe must treat unavailable state, restored=True, and domain exception as not ready; log STARTUP_WAIT_HELPERS_NOT_READY and reschedule."""
+        probe_entity = "input_text.ams_slot_1_spool_id"
+        # Case 1: state unavailable
+        state_map = {f"{probe_entity}::all": {"state": "unavailable", "attributes": {}}}
+        args = {"startup_wait_helpers_seconds": 420, "startup_probe_helper_entity": probe_entity}
+        h = StartupWaiterHarness(state_map, args=args)
+        with unittest.mock.patch.object(ams_rfid_reconcile, "DomainException", Exception):
+            h._run_reconcile_startup({})
+        self.assertEqual(len(h._run_reconcile_calls), 0)
+        self.assertGreater(len(h._run_in_calls), 0, "must reschedule on not ready")
+        log_msgs = [msg for msg, _ in h._log_calls]
+        self.assertTrue(
+            any("STARTUP_WAIT_HELPERS_NOT_READY" in msg and "reason=helper_unavailable" in msg for msg in log_msgs),
+            f"expected STARTUP_WAIT_HELPERS_NOT_READY reason=helper_unavailable; got {log_msgs}",
+        )
+
+        # Case 2: attributes.restored is True
+        state_map2 = {f"{probe_entity}::all": {"state": "0", "attributes": {"restored": True}}}
+        h2 = StartupWaiterHarness(state_map2, args=args)
+        with unittest.mock.patch.object(ams_rfid_reconcile, "DomainException", Exception):
+            h2._run_reconcile_startup({})
+        self.assertEqual(len(h2._run_reconcile_calls), 0)
+        self.assertGreater(len(h2._run_in_calls), 0)
+        log_msgs2 = [msg for msg, _ in h2._log_calls]
+        self.assertTrue(
+            any("STARTUP_WAIT_HELPERS_NOT_READY" in msg and "reason=helper_restored" in msg for msg in log_msgs2),
+            f"expected STARTUP_WAIT_HELPERS_NOT_READY reason=helper_restored; got {log_msgs2}",
+        )
+
+    def test_ready_logs_startup_wait_helpers_ready_before_reconcile(self):
+        """When probe passes (no exception, not unavailable, not restored), log STARTUP_WAIT_HELPERS_READY then call _run_reconcile."""
+        probe_entity = "input_text.ams_slot_1_spool_id"
+        state_map = {f"{probe_entity}::all": {"state": "0", "attributes": {}}}
+        args = {"startup_wait_helpers_seconds": 420, "startup_probe_helper_entity": probe_entity}
+        h = StartupWaiterHarness(state_map, args=args)
+        with unittest.mock.patch.object(ams_rfid_reconcile, "DomainException", Exception):
+            h._run_reconcile_startup({})
+        self.assertEqual(len(h._run_reconcile_calls), 1, "must call _run_reconcile once when ready")
+        self.assertEqual(h._run_reconcile_calls[0][0], "startup_delay")
+        log_msgs = [msg for msg, _ in h._log_calls]
+        self.assertTrue(
+            any("STARTUP_WAIT_HELPERS_READY" in msg for msg in log_msgs),
+            f"expected STARTUP_WAIT_HELPERS_READY before reconcile; got {log_msgs}",
+        )
+        idx_ready = next(i for i, msg in enumerate(log_msgs) if "STARTUP_WAIT_HELPERS_READY" in msg)
+        self.assertEqual(len(h._run_in_calls), 0, "must not reschedule when ready")
 
 
 if __name__ == "__main__":

@@ -57,6 +57,10 @@ except ImportError as _import_err:
         f"spoolman_extra_canonicalizer is required but failed to import: {_import_err}"
     ) from _import_err
 
+try:
+    from appdaemon.exceptions import DomainException
+except ImportError:
+    DomainException = None  # running outside AppDaemon (e.g. unit tests)
 
 # AMS slots 1–4 (AMS1), 5–6 (AMS_128 / AMS_129 HT). All have tray hardware; reconcile and location writes for all.
 PHYSICAL_AMS_SLOTS = (1, 2, 3, 4, 5, 6)
@@ -348,6 +352,12 @@ class AmsRfidReconcile(hass.Hass):
 
         self.spoolman_url = str(self.args.get("spoolman_url", "http://192.168.4.124:7912")).rstrip("/")
         self.startup_delay_seconds = int(self.args.get("startup_delay_seconds", 8))
+        self.startup_wait_helpers_seconds = int(self.args.get("startup_wait_helpers_seconds", 420))
+        self.startup_wait_retry_initial_seconds = int(self.args.get("startup_wait_retry_initial_seconds", 2))
+        self.startup_wait_retry_max_seconds = int(self.args.get("startup_wait_retry_max_seconds", 30))
+        self.startup_probe_helper_entity = str(
+            self.args.get("startup_probe_helper_entity", "input_text.ams_slot_1_spool_id")
+        )
         self.debounce_seconds = int(self.args.get("debounce_seconds", 3))
         self.safety_poll_seconds = int(self.args.get("safety_poll_seconds", 600))
         self.debug_logs = bool(self.args.get("debug_logs", False))
@@ -361,7 +371,13 @@ class AmsRfidReconcile(hass.Hass):
         self._active_run = None
         self._missing_helper_warned = set()
         self._pending_helper_warned = set()
+        self._domain_exception_class_logged = False
         self._ensure_evidence_path_writable()
+        if DomainException is not None:
+            self.log(
+                f"STARTUP_WAIT_EXCEPTION_CLASS={DomainException.__module__}.{DomainException.__name__}",
+                level="INFO",
+            )
 
         for slot, entity_id in TRAY_ENTITY_BY_SLOT.items():
             self.listen_state(self._on_tray_state_change, entity_id, attribute="all")
@@ -386,6 +402,61 @@ class AmsRfidReconcile(hass.Hass):
         self._schedule_reconcile("homeassistant_started")
 
     def _run_reconcile_startup(self, kwargs):
+        if DomainException is None:
+            self._run_reconcile("startup_delay")
+            return
+        budget_sec = self.startup_wait_helpers_seconds
+        end_utc = kwargs.get("_readiness_end_utc")
+        next_interval_sec = kwargs.get("_readiness_next_interval_sec")
+        if end_utc is None:
+            end_utc = datetime.datetime.utcnow() + datetime.timedelta(seconds=budget_sec)
+            next_interval_sec = self.startup_wait_retry_initial_seconds
+        probe_entity = self.startup_probe_helper_entity
+        now = datetime.datetime.utcnow()
+        if now >= end_utc:
+            self.log(
+                "STARTUP_WAIT_TIMEOUT startup helpers not ready after {}s — press manual reconcile once HA is stable".format(
+                    budget_sec
+                ),
+                level="ERROR",
+            )
+            return
+        reason = None
+        try:
+            full = self.get_state(probe_entity, attribute="all")
+            if full is None:
+                reason = "helper_unavailable"
+            else:
+                state_val = full.get("state") if isinstance(full, dict) else None
+                if state_val is None:
+                    reason = "helper_unavailable"
+                elif str(state_val).lower() == "unavailable":
+                    reason = "helper_unavailable"
+                elif full.get("attributes", {}).get("restored") is True:
+                    reason = "helper_restored"
+        except DomainException as e:
+            if not self._domain_exception_class_logged:
+                self.log(
+                    f"domain not available (first occurrence) exception_class={type(e).__module__}.{type(e).__name__}",
+                    level="WARNING",
+                )
+                self._domain_exception_class_logged = True
+            reason = "domain_not_available"
+        if reason is not None:
+            remaining = max(0, (end_utc - now).total_seconds())
+            self.log(
+                "STARTUP_WAIT_HELPERS_NOT_READY remaining_seconds={:.0f} reason={}".format(remaining, reason),
+                level="WARNING",
+            )
+            delay = min(next_interval_sec, self.startup_wait_retry_max_seconds)
+            self.run_in(
+                self._run_reconcile_startup,
+                delay,
+                _readiness_end_utc=end_utc,
+                _readiness_next_interval_sec=min(delay * 2, self.startup_wait_retry_max_seconds),
+            )
+            return
+        self.log("STARTUP_WAIT_HELPERS_READY", level="INFO")
         self._run_reconcile("startup_delay")
 
     def _run_reconcile_poll(self, kwargs):
@@ -2322,7 +2393,20 @@ class AmsRfidReconcile(hass.Hass):
         next_value = "" if value is None else str(value).strip()
         if "unbound_reason" in entity_id:
             self.log(f"_SET_HELPER_ENTER entity_id={entity_id} next_value={next_value}", level="INFO")
-        state_raw = self.get_state(entity_id)
+        if DomainException is not None:
+            try:
+                state_raw = self.get_state(entity_id)
+            except DomainException as e:
+                if not self._domain_exception_class_logged:
+                    self.log(
+                        f"domain not available (first occurrence) exception_class={type(e).__module__}.{type(e).__name__}",
+                        level="WARNING",
+                    )
+                    self._domain_exception_class_logged = True
+                self._record_no_write(entity_id, "domain_not_available", {"entity_id": entity_id})
+                return
+        else:
+            state_raw = self.get_state(entity_id)
         if state_raw is None:
             if "unbound_reason" in entity_id:
                 self.log(f"_SET_HELPER_SKIP_MISSING entity_id={entity_id}", level="INFO")
@@ -2343,13 +2427,39 @@ class AmsRfidReconcile(hass.Hass):
 
         # Route by entity domain: input_text.* -> input_text/set_value, text.* -> text/set_value.
         if entity_id.startswith("input_text."):
-            self.call_service("input_text/set_value", entity_id=entity_id, value=next_value)
+            if DomainException is not None:
+                try:
+                    self.call_service("input_text/set_value", entity_id=entity_id, value=next_value)
+                except DomainException as e:
+                    if not self._domain_exception_class_logged:
+                        self.log(
+                            f"domain not available (first occurrence) exception_class={type(e).__module__}.{type(e).__name__}",
+                            level="WARNING",
+                        )
+                        self._domain_exception_class_logged = True
+                    self._record_no_write(entity_id, "domain_not_available", {"entity_id": entity_id})
+                    return
+            else:
+                self.call_service("input_text/set_value", entity_id=entity_id, value=next_value)
             if "unbound_reason" in entity_id:
                 self.log(f"_SET_HELPER_WROTE entity_id={entity_id} service=input_text/set_value value={next_value}", level="INFO")
             self._record_write("ha_helper_set", {"entity_id": entity_id, "value": next_value})
             return
         if entity_id.startswith("text."):
-            self.call_service("text/set_value", entity_id=entity_id, value=next_value)
+            if DomainException is not None:
+                try:
+                    self.call_service("text/set_value", entity_id=entity_id, value=next_value)
+                except DomainException as e:
+                    if not self._domain_exception_class_logged:
+                        self.log(
+                            f"domain not available (first occurrence) exception_class={type(e).__module__}.{type(e).__name__}",
+                            level="WARNING",
+                        )
+                        self._domain_exception_class_logged = True
+                    self._record_no_write(entity_id, "domain_not_available", {"entity_id": entity_id})
+                    return
+            else:
+                self.call_service("text/set_value", entity_id=entity_id, value=next_value)
             if "unbound_reason" in entity_id:
                 self.log(f"_SET_HELPER_WROTE entity_id={entity_id} service=text/set_value value={next_value}", level="INFO")
             self._record_write("ha_helper_set", {"entity_id": entity_id, "value": next_value})
