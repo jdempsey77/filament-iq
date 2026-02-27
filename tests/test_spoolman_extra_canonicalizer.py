@@ -1,10 +1,10 @@
-"""Tests for scripts/spoolman_extra_canonicalizer.py — P1 canonicalizer foundation."""
+"""Tests for appdaemon/apps/spoolman_extra_canonicalizer.py — P1 canonicalizer foundation."""
 
 import sys
 import os
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps"))
 
 from spoolman_extra_canonicalizer import (
     canonicalize_rfid_tag_uid,

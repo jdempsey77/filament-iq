@@ -37,9 +37,7 @@ from pathlib import Path
 import hassapi as hass
 
 # Shared canonicalizer for Spoolman extra fields (prevent double-quoted rfid_tag_uid / ha_spool_uuid).
-_scripts_dir = Path(__file__).resolve().parents[2] / "scripts"
-if _scripts_dir.is_dir():
-    sys.path.insert(0, str(_scripts_dir))
+# Module lives in appdaemon/apps/ alongside this file (same directory AppDaemon loads from).
 try:
     from spoolman_extra_canonicalizer import (
         canonicalize_extra_scalar as _canonicalize_extra_scalar,
@@ -53,7 +51,7 @@ except ImportError as _import_err:
     import logging as _logging
     _logging.getLogger("ams_rfid_reconcile").error(
         "FATAL: spoolman_extra_canonicalizer import failed — reconciler cannot start safely. "
-        "Ensure scripts/spoolman_extra_canonicalizer.py exists. Error: %s", _import_err,
+        "Ensure appdaemon/apps/spoolman_extra_canonicalizer.py exists. Error: %s", _import_err,
     )
     raise RuntimeError(
         f"spoolman_extra_canonicalizer is required but failed to import: {_import_err}"
