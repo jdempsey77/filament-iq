@@ -36,6 +36,8 @@ from ams_rfid_reconcile import (
     CANONICAL_LOCATION_BY_SLOT,
     COLOR_DISTANCE_THRESHOLD,
     DEPRECATED_LOCATION_TO_CANONICAL,
+    LOCATION_EMPTY,
+    LOCATION_NOT_IN_AMS,
     TRAY_ENTITY_BY_SLOT,
     FULL_SPOOL_G,
     NEXT_MAN_MIN_MARGIN_G,
@@ -3289,6 +3291,101 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertIsNotNone(slot_t)
         self.assertNotEqual(slot_t.get("reason"), "pending_demote_identity_unavailable",
                             "RFID_VISIBLE slot must not trigger pending demotion")
+
+
+    # ------------------------------------------------------------------
+    # Location semantics: cleared spools go to Shelf or Empty by weight
+    # ------------------------------------------------------------------
+
+    def test_clear_slot_moves_prior_spool_to_shelf_when_remaining_positive(self):
+        """Previous spool at slot with remaining_weight > 0 must PATCH to Shelf, never Empty."""
+        slot = 1
+        tag = "1D33DD3B00000100"
+        prev_id = 41
+        new_id = 23
+        spools = [
+            _spool(prev_id, remaining_weight=400, rfid_tag_uid=None, location="AMS1_Slot1", color_hex="ff0000"),
+            _spool(new_id, remaining_weight=500, rfid_tag_uid=tag, location="Shelf", color_hex="ff0000"),
+        ]
+        filaments = [_bambu_filament()]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(slot)
+        attrs = {"tag_uid": tag, "tray_uuid": "C482963767A24ACBB858F95D4376A2E5",
+                 "type": "PLA", "color": "ff0000", "name": "Bambu PLA",
+                 "filament_id": "bambu", "tray_weight": 1000, "remain": 50}
+        state_map = {}
+        for s in range(1, 7):
+            state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+            state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+            if s == slot:
+                state_map[tray_ent] = {"attributes": attrs, "state": "valid"}
+                state_map[f"{tray_ent}::all"] = {"attributes": attrs, "state": "valid"}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = str(prev_id)
+            else:
+                empty_attrs = {"tag_uid": "", "type": "", "color": "", "name": "",
+                               "filament_id": "", "tray_weight": 0, "remain": 0}
+                state_map[_tray_entity(s)] = {"attributes": empty_attrs, "state": "empty"}
+                state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_attrs, "state": "empty"}
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+
+        shelf_patches = [p for p in sm.patches
+                         if p.get("spool_id") == prev_id
+                         and p.get("payload", {}).get("location") == LOCATION_NOT_IN_AMS]
+        empty_patches = [p for p in sm.patches
+                         if p.get("spool_id") == prev_id
+                         and p.get("payload", {}).get("location") == LOCATION_EMPTY]
+        self.assertGreater(len(shelf_patches), 0,
+                           f"spool {prev_id} with remaining>0 must be moved to {LOCATION_NOT_IN_AMS}")
+        self.assertEqual(len(empty_patches), 0,
+                         f"spool {prev_id} with remaining>0 must NOT be moved to {LOCATION_EMPTY}")
+
+    def test_clear_slot_moves_prior_spool_to_empty_when_remaining_zero(self):
+        """Previous spool at slot with remaining_weight == 0 must PATCH to Empty (end-of-life)."""
+        slot = 1
+        tag = "1D33DD3B00000100"
+        prev_id = 41
+        new_id = 23
+        spools = [
+            _spool(prev_id, remaining_weight=0, rfid_tag_uid=None, location="AMS1_Slot1", color_hex="ff0000"),
+            _spool(new_id, remaining_weight=500, rfid_tag_uid=tag, location="Shelf", color_hex="ff0000"),
+        ]
+        filaments = [_bambu_filament()]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(slot)
+        attrs = {"tag_uid": tag, "tray_uuid": "C482963767A24ACBB858F95D4376A2E5",
+                 "type": "PLA", "color": "ff0000", "name": "Bambu PLA",
+                 "filament_id": "bambu", "tray_weight": 1000, "remain": 50}
+        state_map = {}
+        for s in range(1, 7):
+            state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+            state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+            if s == slot:
+                state_map[tray_ent] = {"attributes": attrs, "state": "valid"}
+                state_map[f"{tray_ent}::all"] = {"attributes": attrs, "state": "valid"}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = str(prev_id)
+            else:
+                empty_attrs = {"tag_uid": "", "type": "", "color": "", "name": "",
+                               "filament_id": "", "tray_weight": 0, "remain": 0}
+                state_map[_tray_entity(s)] = {"attributes": empty_attrs, "state": "empty"}
+                state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_attrs, "state": "empty"}
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+
+        empty_patches = [p for p in sm.patches
+                         if p.get("spool_id") == prev_id
+                         and p.get("payload", {}).get("location") == LOCATION_EMPTY]
+        shelf_patches = [p for p in sm.patches
+                         if p.get("spool_id") == prev_id
+                         and p.get("payload", {}).get("location") == LOCATION_NOT_IN_AMS]
+        self.assertGreater(len(empty_patches), 0,
+                           f"spool {prev_id} with remaining==0 must be moved to {LOCATION_EMPTY}")
+        self.assertEqual(len(shelf_patches), 0,
+                         f"spool {prev_id} with remaining==0 must NOT be moved to {LOCATION_NOT_IN_AMS}")
 
 
 if __name__ == "__main__":
