@@ -496,7 +496,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertEqual(ineligible_new, 1, "one spool excluded due to location New")
 
     def test_manual_reconcile_button_invokes_run_reconcile(self):
-        """Manual reconcile button callback invokes _run_reconcile('manual_button'); re-entrancy skips."""
+        """Manual reconcile (last_pressed) callback invokes _run_reconcile('manual_button'); re-entrancy skips."""
         sm = FakeSpoolman([], [])
         state_map = {}
         r = TestableReconcile(sm, state_map, args=self.args)
@@ -507,28 +507,42 @@ class TestAmsRfidReconcile(unittest.TestCase):
 
         r._run_reconcile = capture_run
         r._on_manual_reconcile_button(
-            "input_button.p1s_rfid_reconcile_now", "state", "", "pressed", {}
+            "input_button.p1s_rfid_reconcile_now",
+            "last_pressed",
+            "2025-01-01T12:00:00",
+            "2025-01-01T12:00:01",
+            {},
         )
-        self.assertEqual(run_calls, ["manual_button"], "button press should trigger _run_reconcile('manual_button')")
+        self.assertEqual(run_calls, ["manual_button"], "last_pressed change should trigger _run_reconcile('manual_button')")
 
         run_calls.clear()
         r._active_run = {"reason": "other"}
         r._on_manual_reconcile_button(
-            "input_button.p1s_rfid_reconcile_now", "state", "", "pressed", {}
+            "input_button.p1s_rfid_reconcile_now",
+            "last_pressed",
+            "2025-01-01T12:00:01",
+            "2025-01-01T12:00:02",
+            {},
         )
         self.assertEqual(run_calls, [], "should not call _run_reconcile when reconcile already active")
 
-    def test_manual_reconcile_button_ignores_non_pressed(self):
-        """Manual reconcile button callback does nothing when new state is not 'pressed'."""
+    def test_manual_reconcile_button_ignores_unchanged_or_empty(self):
+        """Manual reconcile callback does nothing when last_pressed unchanged or new is empty."""
         sm = FakeSpoolman([], [])
         state_map = {}
         r = TestableReconcile(sm, state_map, args=self.args)
         run_calls = []
         r._run_reconcile = lambda reason, **kw: run_calls.append(reason)
+
         r._on_manual_reconcile_button(
-            "input_button.p1s_rfid_reconcile_now", "state", "pressed", "", {}
+            "input_button.p1s_rfid_reconcile_now", "last_pressed", "2025-01-01T12:00:00", "", {}
         )
-        self.assertEqual(run_calls, [], "should not run when new state is not 'pressed'")
+        self.assertEqual(run_calls, [], "should not run when new (last_pressed) is empty")
+
+        r._on_manual_reconcile_button(
+            "input_button.p1s_rfid_reconcile_now", "last_pressed", "2025-01-01T12:00:00", "2025-01-01T12:00:00", {}
+        )
+        self.assertEqual(run_calls, [], "should not run when new == old (unchanged)")
 
     def test_location_new_excluded_from_deterministic_candidates(self):
         """PHASE_2_5: Tag in tray but no spool at Shelf has this UID -> UNBOUND_ACTION_REQUIRED, no bind to 702."""
