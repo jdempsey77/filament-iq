@@ -31,6 +31,7 @@ if _APPS not in sys.path:
     sys.path.insert(0, _APPS)
 
 from ams_rfid_reconcile import (
+    _normalize_rfid_tag_uid,
     AmsRfidReconcile,
     CANONICAL_LOCATION_BY_SLOT,
     COLOR_DISTANCE_THRESHOLD,
@@ -539,6 +540,79 @@ class TestAmsRfidReconcile(unittest.TestCase):
             "input_button.p1s_rfid_reconcile_now", "state", "2026-01-01T12:00:00", "2026-01-01T12:00:01", {}
         )
         self.assertEqual(run_calls, [], "should not call _run_reconcile when reconcile already active")
+
+    def test_normalize_rfid_tag_uid_json_encoded_matches_sensor(self):
+        """Spoolman extra rfid_tag_uid JSON-encoded string literal normalizes to same value as HA sensor tag_uid."""
+        raw_extra = '"071F87ED00000100"'
+        sensor_tag = "071F87ED00000100"
+        self.assertEqual(
+            _normalize_rfid_tag_uid(raw_extra),
+            _normalize_rfid_tag_uid(sensor_tag),
+            "normalized Spoolman raw extra and sensor tag must match",
+        )
+        self.assertEqual(_normalize_rfid_tag_uid(raw_extra), "071F87ED00000100")
+        self.assertEqual(_normalize_rfid_tag_uid(sensor_tag), "071F87ED00000100")
+
+    def test_rfid_ams1_slot4_json_encoded_uid_binds(self):
+        """Spool at AMS1_Slot4 with JSON-encoded extra.rfid_tag_uid matches tray tag_uid and binds (eligible location)."""
+        tag = "071F87ED00000100"
+        # Spoolman-style JSON-encoded string literal in extra
+        spools = [
+            _spool(101, remaining_weight=500, rfid_tag_uid=f'"{tag}"', location="AMS1_Slot4", color_hex="ff0000"),
+        ]
+        filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "ff0000",
+                     "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(1)
+        attrs = {"tag_uid": tag, "type": "PLA", "color": "ff0000", "name": "Bambu PLA",
+                 "filament_id": "bambu", "tray_weight": 1000, "remain": 50}
+        state_map = {
+            tray_ent: {"attributes": attrs, "state": "valid"},
+            f"{tray_ent}::all": {"attributes": attrs, "state": "valid"},
+        }
+        for s in range(1, 7):
+            state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+
+        status_writes = [w for w in r._helper_writes if w.get("entity_id") == "input_text.ams_slot_1_status"]
+        self.assertGreater(len(status_writes), 0, "slot 1 status must be written")
+        self.assertEqual(status_writes[-1].get("value"), "OK", "spool at AMS1_Slot4 with JSON-encoded UID should bind")
+        spool_id_writes = [w for w in r._helper_writes if w.get("entity_id") == "input_text.ams_slot_1_spool_id"]
+        self.assertGreater(len(spool_id_writes), 0)
+        self.assertEqual(spool_id_writes[-1].get("value"), "101", "slot 1 should bind to spool 101")
+
+    def test_rfid_location_new_excluded_from_uid_map(self):
+        """Spool at location New with matching rfid_tag_uid is excluded from RFID map -> no bind, UNBOUND."""
+        tag = "NEWEXCLRFID99"
+        spools = [
+            _spool(201, remaining_weight=500, rfid_tag_uid=tag, location="New", color_hex="ff0000"),
+        ]
+        filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "ff0000",
+                     "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(1)
+        attrs = {"tag_uid": tag, "type": "PLA", "color": "ff0000", "name": "Bambu PLA",
+                 "filament_id": "bambu", "tray_weight": 1000, "remain": 50}
+        state_map = {
+            tray_ent: {"attributes": attrs, "state": "valid"},
+            f"{tray_ent}::all": {"attributes": attrs, "state": "valid"},
+        }
+        for s in range(1, 7):
+            state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+
+        self.assertEqual(len([p for p in sm.patches if p.get("spool_id") == 201]), 0, "no PATCH to New spool (not in RFID map)")
+        status_writes = [w for w in r._helper_writes if w.get("entity_id") == "input_text.ams_slot_1_status"]
+        self.assertGreater(len(status_writes), 0)
+        self.assertEqual(status_writes[-1].get("value"), STATUS_UNBOUND_ACTION_REQUIRED, "New spool excluded -> UNBOUND")
 
     def test_location_new_excluded_from_deterministic_candidates(self):
         """PHASE_2_5: Tag in tray but no spool at Shelf has this UID -> UNBOUND_ACTION_REQUIRED, no bind to 702."""

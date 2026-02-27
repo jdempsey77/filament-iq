@@ -126,6 +126,19 @@ UNBOUND_ERROR = "UNBOUND_ERROR"
 UNBOUND_SELECTED_UID_MISMATCH = "UNBOUND_SELECTED_UID_MISMATCH"
 
 
+def _normalize_rfid_tag_uid(val) -> str:
+    """Normalize RFID tag UID for comparison. Handles Spoolman JSON-encoded string literal (e.g. '\\\"071F87ED00000100\\\"')."""
+    if val is None:
+        return ""
+    s = str(val).strip()
+    if len(s) >= 2 and s[0] == '"' and s[-1] == '"':
+        try:
+            s = json.loads(s)
+        except Exception:
+            pass
+    return str(s).strip().strip('"').strip().upper()
+
+
 def _classify_unbound_reason(tray_meta, tag_uid, candidate_ids, ineligible_new_count, tray_empty=False, tray_state_str="", raw_tag_uid=None):
     """
     Classify why a slot is UNBOUND. Returns (reason, detail) for logging and transcripts.
@@ -475,7 +488,7 @@ class AmsRfidReconcile(hass.Hass):
         if not isinstance(spools, list):
             raise RuntimeError("Spoolman /api/v1/spool did not return a list")
 
-        # PHASE_2_5: RFID match only from Shelf; exclude Empty (EOL).
+        # RFID UID map: eligible locations only (Shelf or AMS*; exclude Empty and New).
         tag_to_spools = {}
         for spool in spools:
             spool_id = self._safe_int(spool.get("id"), 0)
@@ -484,7 +497,9 @@ class AmsRfidReconcile(hass.Hass):
             loc = str(spool.get("location", "")).strip().lower()
             if loc == LOCATION_EMPTY.lower():
                 continue
-            if loc != "shelf":
+            if loc == "new":
+                continue
+            if loc != "shelf" and not loc.startswith("ams"):
                 continue
             uid = self._extract_spool_uid(spool)
             if uid:
@@ -803,7 +818,8 @@ class AmsRfidReconcile(hass.Hass):
                             f"tray_sig={current_tray_sig[:64]}{'...' if len(current_tray_sig) > 64 else ''} wrote=true reason=tray_data_present",
                             level="DEBUG",
                         )
-                mapped_ids = list(set(tag_to_spools.get(tag_uid, [])))
+                slot_tag = _normalize_rfid_tag_uid(tag_uid)
+                mapped_ids = list(set(tag_to_spools.get(slot_tag, [])))
                 if len(mapped_ids) == 1:
                     resolved_spool_id = mapped_ids[0]
                     uid_matched = resolved_spool_id > 0
@@ -945,13 +961,19 @@ class AmsRfidReconcile(hass.Hass):
                         self._notify_conflict(slot, tag_uid, tray_meta, mapped_ids, "DUPLICATE_UID")
                         self._record_no_write(slot, "conflict_multiple_bound_matches", {"matches": mapped_ids})
                 else:
-                    # PHASE_2_5: RFID no Shelf match => NEEDS_ACTION + notify; do NOT create, do NOT metadata match
+                    # RFID no eligible match (Shelf/AMS*) => NEEDS_ACTION + notify; do NOT create, do NOT metadata match
+                    self.log(
+                        f"RFID_MATCH_DEBUG slot={slot} "
+                        f"slot_tag={slot_tag} "
+                        f"candidates={[{'id': s.get('id'), 'loc': s.get('location'), 'raw': (s.get('extra') or {}).get('rfid_tag_uid'), 'norm': _normalize_rfid_tag_uid((s.get('extra') or {}).get('rfid_tag_uid'))} for s in spools[:10]]}",
+                        level="DEBUG",
+                    )
                     status = STATUS_UNBOUND_ACTION_REQUIRED
                     unbound += 1
-                    t["decision"], t["reason"], t["action"] = "UNBOUND", "ACTION_REQUIRED", "unbound_rfid_no_shelf_match"
+                    t["decision"], t["reason"], t["action"] = "UNBOUND", "ACTION_REQUIRED", "unbound_rfid_no_eligible_match"
                     t["uid_lookup_count"], t["metadata_candidate_ids"] = 0, []
-                    self._active_run["unknown_tags"].append({"slot": slot, "tag_uid": tag_uid, "reason": "rfid_no_shelf_match"})
-                    self._record_no_write(slot, "rfid_no_shelf_match", {"tag_uid": tag_uid})
+                    self._active_run["unknown_tags"].append({"slot": slot, "tag_uid": tag_uid, "reason": "rfid_no_eligible_match"})
+                    self._record_no_write(slot, "rfid_no_eligible_match", {"tag_uid": tag_uid})
                     self._notify_unbound_rfid_no_shelf(slot, tag_uid, tray_meta)
                     self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                     self._log_slot_status_change(slot, status, tag_uid, 0, tray_meta)
@@ -1145,9 +1167,10 @@ class AmsRfidReconcile(hass.Hass):
         if not spool:
             spool = self._spoolman_get(f"/api/v1/spool/{spool_id}")
         current_uid = self._extract_spool_uid(spool)
-        if current_uid and current_uid != tag_uid:
+        slot_tag = _normalize_rfid_tag_uid(tag_uid)
+        if current_uid and current_uid != slot_tag:
             raise RuntimeError(f"sticky binding conflict for spool={spool_id} existing_uid={current_uid} incoming_uid={tag_uid}")
-        if current_uid == tag_uid:
+        if current_uid == slot_tag:
             self._record_no_write(spool_id, "binding_already_present", {"spool_id": spool_id, "tag_uid": tag_uid})
             return
         extra = dict(spool.get("extra", {}) or {}) if isinstance(spool.get("extra"), dict) else {}
@@ -1158,8 +1181,8 @@ class AmsRfidReconcile(hass.Hass):
             extra["ha_spool_uuid"] = self._canonicalize_ha_spool_uuid(extra["ha_spool_uuid"])
         existing_rfid = extra.get("rfid_tag_uid")
         if existing_rfid is not None:
-            spool_uid_norm = self._norm_uid(existing_rfid)
-            if spool_uid_norm and spool_uid_norm == tag_uid:
+            spool_uid_norm = _normalize_rfid_tag_uid(existing_rfid)
+            if spool_uid_norm and spool_uid_norm == slot_tag:
                 self._record_no_write(spool_id, "binding_already_present", {"spool_id": spool_id, "tag_uid": tag_uid})
                 return
         extra["rfid_tag_uid"] = tag_uid
@@ -1176,9 +1199,10 @@ class AmsRfidReconcile(hass.Hass):
         spools = self._spoolman_get("/api/v1/spool?limit=1000")
         if isinstance(spools, dict) and "items" in spools:
             spools = spools.get("items", [])
+        slot_tag = _normalize_rfid_tag_uid(tag_uid)
         for row in spools:
             mapped_uid = self._extract_spool_uid(row)
-            if mapped_uid == tag_uid:
+            if mapped_uid == slot_tag:
                 raise RuntimeError(f"tag_uid already bound to spool_id={self._safe_int(row.get('id'), 0)}")
 
         tray_meta = self._tray_meta(attrs, tray.get("state", ""))
@@ -1223,17 +1247,18 @@ class AmsRfidReconcile(hass.Hass):
         if isinstance(spools, dict) and "items" in spools:
             spools = spools.get("items", [])
         target = None
+        slot_tag = _normalize_rfid_tag_uid(tag_uid)
         for row in spools:
             row_id = self._safe_int(row.get("id"), 0)
             if row_id == spool_id:
                 target = row
             mapped_uid = self._extract_spool_uid(row)
-            if mapped_uid == tag_uid and row_id != spool_id:
+            if mapped_uid == slot_tag and row_id != spool_id:
                 raise RuntimeError(f"tag_uid bound to different spool_id={row_id}")
         if not target:
             target = self._spoolman_get(f"/api/v1/spool/{spool_id}")
         existing_uid = self._extract_spool_uid(target)
-        if existing_uid and existing_uid != tag_uid:
+        if existing_uid and existing_uid != slot_tag:
             raise RuntimeError(f"sticky binding conflict on spool_id={spool_id} existing_uid={existing_uid}")
 
         extra = dict(target.get("extra", {}) or {}) if isinstance(target.get("extra"), dict) else {}
@@ -1547,19 +1572,19 @@ class AmsRfidReconcile(hass.Hass):
         )
 
     def _notify_unbound_rfid_no_shelf(self, slot, tag_uid, tray_meta):
-        """PHASE_2_5: RFID UID has no spool at Shelf => NEEDS_ACTION; do not create."""
+        """RFID UID has no eligible spool (Shelf/AMS*) => NEEDS_ACTION; do not create."""
         summary = (
             f"slot={slot}\n"
             f"tag_uid={tag_uid}\n"
             f"type={tray_meta.get('type','')}\n"
             f"color_hex={tray_meta.get('color_hex','')}\n"
             f"name={tray_meta.get('name','')}\n\n"
-            "No spool at location Shelf with this RFID UID. ACTION REQUIRED:\n"
-            "1) Run script.p1s_rfid_manual_enroll_tag_to_spool with slot + spool_id (spool must be at Shelf), OR\n"
+            "No spool at eligible location (Shelf or AMS slot) with this RFID UID. ACTION REQUIRED:\n"
+            "1) Run script.p1s_rfid_manual_enroll_tag_to_spool with slot + spool_id (spool at Shelf or AMS), OR\n"
             "2) Create spool in Spoolman and enroll, then press input_button.p1s_rfid_reconcile_now."
         )
         self._notify(
-            f"RFID NEEDS_ACTION Slot {slot} (no Shelf match)",
+            f"RFID NEEDS_ACTION Slot {slot} (no eligible match)",
             summary,
             notification_id=f"rfid_no_shelf_slot_{slot}_{tag_uid}",
         )
@@ -1790,10 +1815,10 @@ class AmsRfidReconcile(hass.Hass):
         return self._canonicalize_tag_uid(v)
 
     def _extract_spool_uid(self, spool):
-        """Extract and normalize RFID UID from Spoolman spool extra. Uses canonicalizer for comparison tolerance."""
+        """Extract and normalize RFID UID from Spoolman spool extra. Uses _normalize_rfid_tag_uid for comparison (handles JSON-encoded string literal)."""
         extra = spool.get("extra", {}) if isinstance(spool.get("extra", {}), dict) else {}
         raw = extra.get("rfid_tag_uid") or extra.get("rfid_uid")
-        return self._canonicalize_tag_uid(raw)
+        return _normalize_rfid_tag_uid(raw)
 
     def _may_stick_override(self, slot, resolved_spool_id, helper_spool_id, tag_uid, spool_index, current_tray_sig, stored_tray_sig):
         """True iff sticky may set resolved_spool_id = helper_spool_id: same tray, helper valid, and (helper already resolved or helper spool UID == tray tag_uid)."""
@@ -1803,7 +1828,8 @@ class AmsRfidReconcile(hass.Hass):
             return True
         helper_spool = spool_index.get(helper_spool_id) or self._spoolman_get(f"/api/v1/spool/{helper_spool_id}")
         helper_uid = self._extract_spool_uid(helper_spool) if isinstance(helper_spool, dict) else ""
-        return bool(helper_uid and helper_uid == tag_uid)
+        slot_tag = _normalize_rfid_tag_uid(tag_uid)
+        return bool(helper_uid and helper_uid == slot_tag)
 
     def _rfid_bind_guard_ok(self, resolved_spool_id, tag_uid, spool_index):
         """True iff we may bind this slot to resolved_spool_id (no tag_uid, or selected spool's UID == tag_uid)."""
@@ -1811,7 +1837,8 @@ class AmsRfidReconcile(hass.Hass):
             return True
         spool = spool_index.get(resolved_spool_id) or self._spoolman_get(f"/api/v1/spool/{resolved_spool_id}")
         selected_uid = self._extract_spool_uid(spool) if isinstance(spool, dict) else ""
-        return selected_uid == tag_uid
+        slot_tag = _normalize_rfid_tag_uid(tag_uid)
+        return selected_uid == slot_tag
 
     def _apply_rfid_bind_guard_fail(self, slot, t, tray_meta, tag_uid, resolved_spool_id, validation_mode):
         """Set status UNBOUND_ACTION_REQUIRED, unbound_reason UNBOUND_SELECTED_UID_MISMATCH, write helpers, append transcript. Caller must unbound += 1 and continue."""
