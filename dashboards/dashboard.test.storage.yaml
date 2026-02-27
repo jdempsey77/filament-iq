@@ -1530,6 +1530,268 @@ views:
                             icon_color: var(--rgb-state-entity)
                             tap_action:
                               action: none
+      # ── AMS Slot Status (boring when healthy, actionable when broken) ──
+      - type: grid
+        columns: 2
+        cards:
+          # ── Slot 1 ──
+          - type: vertical-stack
+            cards:
+              - type: markdown
+                content: |
+                  ### Slot 1
+                  {% set tray = 'sensor.p1s_01p00c5a3101668_ams_1_tray_1' %}
+                  **Loaded:** {{ state_attr(tray, 'name') or states(tray) or '—' }}  
+                  **Material:** {{ state_attr(tray, 'type') or '—' }} · **Color:** {{ state_attr(tray, 'color') or '—' }}  
+                  **Remaining:** {{ states('sensor.ams_slot_1_remaining_g') }} g
+              - type: entities
+                entities:
+                  - entity: input_text.ams_slot_1_status
+                    name: Status
+                  - entity: input_text.ams_slot_1_spool_id
+                    name: Spool ID
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_text.ams_slot_1_status
+                    state_not:
+                      - "OK"
+                      - "OK: FIXED_EXPECTED"
+                      - ""
+                      - unknown
+                      - unavailable
+                card:
+                  type: vertical-stack
+                  cards:
+                    - type: markdown
+                      content: "**Needs Action**"
+                    - type: entities
+                      entities:
+                        - entity: input_text.ams_slot_1_expected_spool_id
+                          name: Expected Spool ID
+                        - entity: input_text.ams_slot_1_unbound_reason
+                          name: Unbound Reason
+                    - type: button
+                      entity: input_button.p1s_rfid_reconcile_now
+                      name: Reconcile Now
+                      icon: mdi:refresh
+                    - type: markdown
+                      content: "Manual bind: TODO (missing input_select.ams_slot_1_manual_spool / bind script)"
+          # ── Slot 2 ──
+          - type: vertical-stack
+            cards:
+              - type: markdown
+                content: |
+                  ### Slot 2
+                  {% set tray = 'sensor.p1s_01p00c5a3101668_ams_1_tray_2' %}
+                  **Loaded:** {{ state_attr(tray, 'name') or states(tray) or '—' }}  
+                  **Material:** {{ state_attr(tray, 'type') or '—' }} · **Color:** {{ state_attr(tray, 'color') or '—' }}  
+                  **Remaining:** {{ states('sensor.ams_slot_2_remaining_g') }} g
+              - type: entities
+                entities:
+                  - entity: input_text.ams_slot_2_status
+                    name: Status
+                  - entity: input_text.ams_slot_2_spool_id
+                    name: Spool ID
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_text.ams_slot_2_status
+                    state_not:
+                      - "OK"
+                      - "OK: FIXED_EXPECTED"
+                      - ""
+                      - unknown
+                      - unavailable
+                card:
+                  type: vertical-stack
+                  cards:
+                    - type: markdown
+                      content: "**Needs Action**"
+                    - type: entities
+                      entities:
+                        - entity: input_text.ams_slot_2_expected_spool_id
+                          name: Expected Spool ID
+                        - entity: input_text.ams_slot_2_unbound_reason
+                          name: Unbound Reason
+                    - type: button
+                      entity: input_button.p1s_rfid_reconcile_now
+                      name: Reconcile Now
+                      icon: mdi:refresh
+                    - type: markdown
+                      content: "Manual bind: TODO (missing input_select.ams_slot_2_manual_spool / bind script)"
+          # ── Slot 3 ──
+          - type: vertical-stack
+            cards:
+              - type: markdown
+                content: |
+                  ### Slot 3
+                  {% set tray = 'sensor.p1s_01p00c5a3101668_ams_1_tray_3' %}
+                  **Loaded:** {{ state_attr(tray, 'name') or states(tray) or '—' }}  
+                  **Material:** {{ state_attr(tray, 'type') or '—' }} · **Color:** {{ state_attr(tray, 'color') or '—' }}  
+                  **Remaining:** {{ states('sensor.ams_slot_3_remaining_g') }} g
+              - type: entities
+                entities:
+                  - entity: input_text.ams_slot_3_status
+                    name: Status
+                  - entity: input_text.ams_slot_3_spool_id
+                    name: Spool ID
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_text.ams_slot_3_status
+                    state_not:
+                      - "OK"
+                      - "OK: FIXED_EXPECTED"
+                      - ""
+                      - unknown
+                      - unavailable
+                card:
+                  type: vertical-stack
+                  cards:
+                    - type: markdown
+                      content: "**Needs Action**"
+                    - type: entities
+                      entities:
+                        - entity: input_text.ams_slot_3_expected_spool_id
+                          name: Expected Spool ID
+                        - entity: input_text.ams_slot_3_unbound_reason
+                          name: Unbound Reason
+                    - type: button
+                      entity: input_button.p1s_rfid_reconcile_now
+                      name: Reconcile Now
+                      icon: mdi:refresh
+                    - type: markdown
+                      content: "Manual bind: TODO (missing input_select.ams_slot_3_manual_spool / bind script)"
+          # ── Slot 4 ──
+          - type: vertical-stack
+            cards:
+              - type: markdown
+                content: |
+                  ### Slot 4
+                  {% set tray = 'sensor.p1s_01p00c5a3101668_ams_1_tray_4' %}
+                  **Loaded:** {{ state_attr(tray, 'name') or states(tray) or '—' }}  
+                  **Material:** {{ state_attr(tray, 'type') or '—' }} · **Color:** {{ state_attr(tray, 'color') or '—' }}  
+                  **Remaining:** {{ states('sensor.ams_slot_4_remaining_g') }} g
+              - type: entities
+                entities:
+                  - entity: input_text.ams_slot_4_status
+                    name: Status
+                  - entity: input_text.ams_slot_4_spool_id
+                    name: Spool ID
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_text.ams_slot_4_status
+                    state_not:
+                      - "OK"
+                      - "OK: FIXED_EXPECTED"
+                      - ""
+                      - unknown
+                      - unavailable
+                card:
+                  type: vertical-stack
+                  cards:
+                    - type: markdown
+                      content: "**Needs Action**"
+                    - type: entities
+                      entities:
+                        - entity: input_text.ams_slot_4_expected_spool_id
+                          name: Expected Spool ID
+                        - entity: input_text.ams_slot_4_unbound_reason
+                          name: Unbound Reason
+                    - type: button
+                      entity: input_button.p1s_rfid_reconcile_now
+                      name: Reconcile Now
+                      icon: mdi:refresh
+                    - type: markdown
+                      content: "Manual bind: TODO (missing input_select.ams_slot_4_manual_spool / bind script)"
+          # ── Slot 5 (HT1) ──
+          - type: vertical-stack
+            cards:
+              - type: markdown
+                content: |
+                  ### Slot 5 (HT1)
+                  {% set tray = 'sensor.p1s_01p00c5a3101668_ams_128_tray_1' %}
+                  **Loaded:** {{ state_attr(tray, 'name') or states(tray) or '—' }}  
+                  **Material:** {{ state_attr(tray, 'type') or '—' }} · **Color:** {{ state_attr(tray, 'color') or '—' }}  
+                  **Remaining:** {{ states('sensor.ams_slot_5_remaining_g') }} g
+              - type: entities
+                entities:
+                  - entity: input_text.ams_slot_5_status
+                    name: Status
+                  - entity: input_text.ams_slot_5_spool_id
+                    name: Spool ID
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_text.ams_slot_5_status
+                    state_not:
+                      - "OK"
+                      - "OK: FIXED_EXPECTED"
+                      - ""
+                      - unknown
+                      - unavailable
+                card:
+                  type: vertical-stack
+                  cards:
+                    - type: markdown
+                      content: "**Needs Action**"
+                    - type: entities
+                      entities:
+                        - entity: input_text.ams_slot_5_expected_spool_id
+                          name: Expected Spool ID
+                        - entity: input_text.ams_slot_5_unbound_reason
+                          name: Unbound Reason
+                    - type: button
+                      entity: input_button.p1s_rfid_reconcile_now
+                      name: Reconcile Now
+                      icon: mdi:refresh
+                    - type: markdown
+                      content: "Manual bind: TODO (missing input_select.ams_slot_5_manual_spool / bind script)"
+          # ── Slot 6 (HT2) ──
+          - type: vertical-stack
+            cards:
+              - type: markdown
+                content: |
+                  ### Slot 6 (HT2)
+                  {% set tray = 'sensor.p1s_01p00c5a3101668_ams_129_tray_1' %}
+                  **Loaded:** {{ state_attr(tray, 'name') or states(tray) or '—' }}  
+                  **Material:** {{ state_attr(tray, 'type') or '—' }} · **Color:** {{ state_attr(tray, 'color') or '—' }}  
+                  **Remaining:** {{ states('sensor.ams_slot_6_remaining_g') }} g
+              - type: entities
+                entities:
+                  - entity: input_text.ams_slot_6_status
+                    name: Status
+                  - entity: input_text.ams_slot_6_spool_id
+                    name: Spool ID
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_text.ams_slot_6_status
+                    state_not:
+                      - "OK"
+                      - "OK: FIXED_EXPECTED"
+                      - ""
+                      - unknown
+                      - unavailable
+                card:
+                  type: vertical-stack
+                  cards:
+                    - type: markdown
+                      content: "**Needs Action**"
+                    - type: entities
+                      entities:
+                        - entity: input_text.ams_slot_6_expected_spool_id
+                          name: Expected Spool ID
+                        - entity: input_text.ams_slot_6_unbound_reason
+                          name: Unbound Reason
+                    - type: button
+                      entity: input_button.p1s_rfid_reconcile_now
+                      name: Reconcile Now
+                      icon: mdi:refresh
+                    - type: markdown
+                      content: "Manual bind: TODO (missing input_select.ams_slot_6_manual_spool / bind script)"
       - type: grid
         columns: 2
         cards:
