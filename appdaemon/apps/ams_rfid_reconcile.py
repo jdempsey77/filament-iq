@@ -641,6 +641,18 @@ class AmsRfidReconcile(hass.Hass):
                     tray_uuid_norm_ht = str(raw_tray_uuid or "").strip().replace(" ", "").replace("-", "").lower()
                     empty_attr_ht = attrs.get("empty")
                     if (tag_norm_ht == "0000000000000000" and tray_uuid_norm_ht == "00000000000000000000000000000000" and empty_attr_ht is False):
+                        # HT slots 5/6: always read helper spool id LIVE from HA (no cache/snapshot) to avoid stale zero
+                        if slot in (5, 6):
+                            helper_entity = f"input_text.ams_slot_{slot}_spool_id"
+                            raw = self.get_state(helper_entity)
+                            try:
+                                helper_spool_id = int(raw or 0)
+                            except (ValueError, TypeError, AttributeError):
+                                helper_spool_id = 0
+                            self.log(
+                                f"HT_HELPER_READ slot={slot} entity_id={helper_entity} raw={raw!r} parsed={helper_spool_id}",
+                                level="INFO",
+                            )
                         if helper_spool_id > 0:
                             # HT slots 5/6 only: validate helper spool exists in Spoolman before treating as registered
                             helper_valid = True
