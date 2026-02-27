@@ -109,7 +109,8 @@ STATUS_CONFLICT_DUPLICATE_UID = "CONFLICT: DUPLICATE_UID"
 STATUS_CONFLICT_MISSING_CANONICAL = "CONFLICT: missing_canonical_location"
 STATUS_CONFLICT_AMBIGUOUS_METADATA = "CONFLICT: AMBIGUOUS_METADATA_NO_UNREGISTERED"
 STATUS_PENDING_RFID_READ = "PENDING_RFID_READ"
-STATUS_UNIQUELY_RESOLVED = frozenset({STATUS_OK, STATUS_MISMATCH})
+STATUS_NON_RFID_REGISTERED = "NON_RFID_REGISTERED"
+STATUS_UNIQUELY_RESOLVED = frozenset({STATUS_OK, STATUS_MISMATCH, STATUS_NON_RFID_REGISTERED})
 
 # Seconds to wait after tray change before treating missing tag_uid as non-RFID
 RFID_PENDING_SECONDS = 20  # fid>0 and status in this set → may converge HA_SIG
@@ -582,13 +583,27 @@ class AmsRfidReconcile(hass.Hass):
 
             # Bound invariant wins over pending: spool_id == expected_spool_id > 0 -> stay NON_RFID_REGISTERED
             if not tag_uid and helper_spool_id > 0 and helper_expected > 0 and helper_spool_id == helper_expected:
-                status = "NON_RFID_REGISTERED"
+                status = STATUS_NON_RFID_REGISTERED
                 t["decision"], t["reason"], t["action"] = "NON_RFID", "bound_invariant", "nonrfid_registered"
                 self._set_helper(f"input_text.ams_slot_{slot}_rfid_pending_until", "")
+                if not status_only:
+                    self._force_location_and_helpers(
+                        slot, helper_spool_id, "", source="nonrfid_converge_location",
+                        tray_meta=tray_meta, tray_state=tray.get("state", ""),
+                        tray_identity=current_tray_sig or stored_tray_sig or None,
+                        previous_helper_spool_id=0,
+                        spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
+                    )
+                    self._record_decision(slot, "nonrfid_converge_location", {"spool_id": helper_spool_id})
                 self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                 self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
+                ok += 1
                 t["final_slot_status"] = status
                 t["final_spool_id"] = helper_spool_id
+                t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                fid = helper_spool_id
+                if _should_converge_ha_sig(status_only, status, fid):
+                    self._converge_ha_sig(slot, fid, tray_meta, spool_index, reason="nonrfid_converge", tag_uid="", tray_empty=tray_empty, tray_state_str=tray_state_str)
                 self._active_run["validation_transcripts"].append(t)
                 if validation_mode:
                     self._log_validation_transcript(t)
@@ -782,14 +797,27 @@ class AmsRfidReconcile(hass.Hass):
                 # Non-RFID stable state: spool_id already set and expected_spool_id 0/empty -> treat as assigned non-RFID slot (no rfid_pending_until required)
                 if not tray_empty:
                     if helper_spool_id > 0 and helper_expected == 0:
-                        status = "NON_RFID_REGISTERED"
+                        status = STATUS_NON_RFID_REGISTERED
                         t["decision"], t["reason"], t["action"] = "NON_RFID", "non_rfid_stable", "nonrfid_registered"
                         if not status_only:
-                            self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", str(helper_spool_id))
+                            nonrfid_tray_sig = current_tray_sig or self._build_tray_signature(tray_meta, tray.get("state", ""), "")
+                            self._force_location_and_helpers(
+                                slot, helper_spool_id, "", source="nonrfid_converge_location",
+                                tray_meta=tray_meta, tray_state=tray.get("state", ""),
+                                tray_identity=nonrfid_tray_sig,
+                                previous_helper_spool_id=0,
+                                spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
+                            )
+                            self._record_decision(slot, "nonrfid_converge_location", {"spool_id": helper_spool_id})
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                         self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
+                        ok += 1
                         t["final_slot_status"] = status
                         t["final_spool_id"] = helper_spool_id
+                        t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                        fid = helper_spool_id
+                        if _should_converge_ha_sig(status_only, status, fid):
+                            self._converge_ha_sig(slot, fid, tray_meta, spool_index, reason="nonrfid_converge", tag_uid="", tray_empty=tray_empty, tray_state_str=tray_state_str)
                         self._active_run["validation_transcripts"].append(t)
                         if validation_mode:
                             self._log_validation_transcript(t)

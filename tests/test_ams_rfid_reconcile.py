@@ -39,6 +39,7 @@ from ams_rfid_reconcile import (
     TRAY_ENTITY_BY_SLOT,
     FULL_SPOOL_G,
     NEXT_MAN_MIN_MARGIN_G,
+    STATUS_NON_RFID_REGISTERED,
     STATUS_PENDING_RFID_READ,
     STATUS_UNBOUND_ACTION_REQUIRED,
     UNBOUND_ERROR,
@@ -2933,6 +2934,177 @@ class TestAmsRfidReconcile(unittest.TestCase):
                          and d.get("payload", {}).get("reason") == "vendor_bambu_excluded_nonrfid"
                          and d.get("payload", {}).get("spool_id") == 50]
         self.assertEqual(len(bambu_rejects), 1, "Bambu spool 50 must be recorded as rejected")
+
+
+    # ── Non-RFID location convergence (self-healing) ──────────────────
+
+    def test_nonrfid_bound_invariant_converges_location_from_shelf(self):
+        """Bound invariant (spool_id == expected > 0, no tag): spool at Shelf must be
+        PATCHed back to canonical AMS location when status_only=False."""
+        slot = 3
+        spool_id = 42
+        canonical = CANONICAL_LOCATION_BY_SLOT[slot]
+        spools = [_spool(spool_id, remaining_weight=400, rfid_tag_uid=None, location="Shelf",
+                         color_hex="ff0000", material="PLA", vendor_name="Overture", name="Overture PLA")]
+        sm = FakeSpoolman(spools, [])
+        tray_ent = _tray_entity(slot)
+        tray_attrs = {"tag_uid": "", "type": "PLA", "color": "ff0000", "name": "Overture PLA",
+                      "filament_id": "overture", "tray_weight": 1000, "remain": 50}
+        state_map = {}
+        for s in range(1, 7):
+            ent = _tray_entity(s)
+            if s == slot:
+                state_map[ent] = {"attributes": tray_attrs, "state": "valid"}
+                state_map[f"{ent}::all"] = {"attributes": tray_attrs, "state": "valid"}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = str(spool_id)
+                state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = str(spool_id)
+            else:
+                empty_a = {"tag_uid": "", "type": "", "color": "", "name": "", "filament_id": "", "tray_weight": 0, "remain": 0}
+                state_map[ent] = {"attributes": empty_a, "state": "empty"}
+                state_map[f"{ent}::all"] = {"attributes": empty_a, "state": "empty"}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+                state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+            state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+            state_map[f"input_text.ams_slot_{s}_unbound_reason"] = ""
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test", status_only=False)
+
+        loc_patches = [p for p in sm.patches
+                       if p.get("path") == f"/api/v1/spool/{spool_id}"
+                       and p.get("payload", {}).get("location") == canonical]
+        self.assertGreaterEqual(len(loc_patches), 1,
+                                f"spool {spool_id} at Shelf must be PATCHed to {canonical}")
+
+        summary = r._last_summary
+        self.assertIsNotNone(summary)
+        slot_t = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == slot), None)
+        self.assertIsNotNone(slot_t)
+        self.assertEqual(slot_t.get("final_spool_id"), spool_id)
+        self.assertEqual(slot_t.get("reason"), "bound_invariant")
+        self.assertEqual(slot_t.get("final_location"), canonical)
+
+        status_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"]
+        self.assertGreater(len(status_writes), 0)
+        self.assertEqual(status_writes[-1].get("value"), STATUS_NON_RFID_REGISTERED)
+
+    def test_nonrfid_bound_invariant_status_only_no_patch(self):
+        """Bound invariant with status_only=True must NOT PATCH Spoolman location."""
+        slot = 3
+        spool_id = 42
+        spools = [_spool(spool_id, remaining_weight=400, rfid_tag_uid=None, location="Shelf",
+                         color_hex="ff0000", material="PLA", vendor_name="Overture", name="Overture PLA")]
+        sm = FakeSpoolman(spools, [])
+        tray_ent = _tray_entity(slot)
+        tray_attrs = {"tag_uid": "", "type": "PLA", "color": "ff0000", "name": "Overture PLA",
+                      "filament_id": "overture", "tray_weight": 1000, "remain": 50}
+        state_map = {}
+        for s in range(1, 7):
+            ent = _tray_entity(s)
+            if s == slot:
+                state_map[ent] = {"attributes": tray_attrs, "state": "valid"}
+                state_map[f"{ent}::all"] = {"attributes": tray_attrs, "state": "valid"}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = str(spool_id)
+                state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = str(spool_id)
+            else:
+                empty_a = {"tag_uid": "", "type": "", "color": "", "name": "", "filament_id": "", "tray_weight": 0, "remain": 0}
+                state_map[ent] = {"attributes": empty_a, "state": "empty"}
+                state_map[f"{ent}::all"] = {"attributes": empty_a, "state": "empty"}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+                state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+            state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+            state_map[f"input_text.ams_slot_{s}_unbound_reason"] = ""
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test", status_only=True)
+
+        self.assertEqual(len(sm.patches), 0, "status_only=True must produce zero Spoolman PATCHes")
+
+    def test_nonrfid_bound_invariant_truth_guard_blocks_patch(self):
+        """Bound invariant: if truth guard detects material mismatch, location PATCH must NOT happen."""
+        slot = 3
+        spool_id = 42
+        spools = [_spool(spool_id, remaining_weight=400, rfid_tag_uid=None, location="Shelf",
+                         color_hex="ff0000", material="PETG", vendor_name="Overture", name="Overture PETG")]
+        sm = FakeSpoolman(spools, [])
+        tray_ent = _tray_entity(slot)
+        tray_attrs = {"tag_uid": "", "type": "PLA", "color": "ff0000", "name": "Overture PLA",
+                      "filament_id": "overture", "tray_weight": 1000, "remain": 50}
+        state_map = {}
+        for s in range(1, 7):
+            ent = _tray_entity(s)
+            if s == slot:
+                state_map[ent] = {"attributes": tray_attrs, "state": "valid"}
+                state_map[f"{ent}::all"] = {"attributes": tray_attrs, "state": "valid"}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = str(spool_id)
+                state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = str(spool_id)
+            else:
+                empty_a = {"tag_uid": "", "type": "", "color": "", "name": "", "filament_id": "", "tray_weight": 0, "remain": 0}
+                state_map[ent] = {"attributes": empty_a, "state": "empty"}
+                state_map[f"{ent}::all"] = {"attributes": empty_a, "state": "empty"}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+                state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+            state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+            state_map[f"input_text.ams_slot_{s}_unbound_reason"] = ""
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test", status_only=False)
+
+        loc_patches = [p for p in sm.patches
+                       if p.get("path") == f"/api/v1/spool/{spool_id}"
+                       and "location" in p.get("payload", {})]
+        self.assertEqual(len(loc_patches), 0,
+                         "truth guard material mismatch must block location PATCH")
+
+    def test_nonrfid_stable_converges_location_from_shelf(self):
+        """Non-RFID stable (spool_id > 0, expected == 0, no tag): spool at Shelf
+        must be PATCHed to canonical AMS location on first promotion."""
+        slot = 5
+        spool_id = 77
+        canonical = CANONICAL_LOCATION_BY_SLOT[slot]
+        spools = [_spool(spool_id, remaining_weight=300, rfid_tag_uid=None, location="Shelf",
+                         color_hex="00ff00", material="PETG", vendor_name="Overture", name="Overture PETG")]
+        sm = FakeSpoolman(spools, [])
+        tray_ent = _tray_entity(slot)
+        tray_attrs = {"tag_uid": "", "type": "PETG", "color": "00ff00", "name": "Overture PETG",
+                      "filament_id": "overture", "tray_weight": 1000, "remain": 50}
+        state_map = {}
+        for s in range(1, 7):
+            ent = _tray_entity(s)
+            if s == slot:
+                state_map[ent] = {"attributes": tray_attrs, "state": "valid"}
+                state_map[f"{ent}::all"] = {"attributes": tray_attrs, "state": "valid"}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = str(spool_id)
+                state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            else:
+                empty_a = {"tag_uid": "", "type": "", "color": "", "name": "", "filament_id": "", "tray_weight": 0, "remain": 0}
+                state_map[ent] = {"attributes": empty_a, "state": "empty"}
+                state_map[f"{ent}::all"] = {"attributes": empty_a, "state": "empty"}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+                state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+            state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+            state_map[f"input_text.ams_slot_{s}_unbound_reason"] = ""
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test", status_only=False)
+
+        loc_patches = [p for p in sm.patches
+                       if p.get("path") == f"/api/v1/spool/{spool_id}"
+                       and p.get("payload", {}).get("location") == canonical]
+        self.assertGreaterEqual(len(loc_patches), 1,
+                                f"spool {spool_id} at Shelf must be PATCHed to {canonical}")
+
+        summary = r._last_summary
+        self.assertIsNotNone(summary)
+        slot_t = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == slot), None)
+        self.assertIsNotNone(slot_t)
+        self.assertEqual(slot_t.get("final_spool_id"), spool_id)
+        self.assertEqual(slot_t.get("reason"), "non_rfid_stable")
+        self.assertEqual(slot_t.get("final_location"), canonical)
 
 
 if __name__ == "__main__":
