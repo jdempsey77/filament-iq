@@ -1067,15 +1067,26 @@
   alias: AMS – populate Add spool filament dropdown
   description: When filament list sensor or Spoolman API sensors update or on start, set input_select.spoolman_new_spool_filament options (filtered to show only filaments without spools).
   trigger:
+    - platform: homeassistant
+      event: start
+      id: homeassistant_start
     - platform: state
       entity_id:
         - sensor.ams_filament_list_options
         - sensor.spoolman_filaments_api
         - sensor.spoolman_filaments_processed
         - sensor.spoolman_spools_api
-    - platform: homeassistant
-      event: start
+  condition:
+    - condition: template
+      value_template: >
+        {{ states('input_select.spoolman_new_spool_filament') not in ['unknown', 'unavailable'] }}
   action:
+    - if:
+        - condition: trigger
+          id: homeassistant_start
+      then:
+        - delay:
+            seconds: 5
     - action: input_select.set_options
       target:
         entity_id: input_select.spoolman_new_spool_filament
@@ -1087,13 +1098,24 @@
   alias: AMS – populate Add filament vendor dropdown
   description: When vendor list sensor or Spoolman vendors API sensor updates or on start, set input_select.spoolman_new_filament_vendor options.
   trigger:
+    - platform: homeassistant
+      event: start
+      id: homeassistant_start
     - platform: state
       entity_id:
         - sensor.ams_vendor_list_options
         - sensor.spoolman_vendors_api
-    - platform: homeassistant
-      event: start
+  condition:
+    - condition: template
+      value_template: >
+        {{ states('input_select.spoolman_new_filament_vendor') not in ['unknown', 'unavailable'] }}
   action:
+    - if:
+        - condition: trigger
+          id: homeassistant_start
+      then:
+        - delay:
+            seconds: 5
     - action: input_select.set_options
       target:
         entity_id: input_select.spoolman_new_filament_vendor
