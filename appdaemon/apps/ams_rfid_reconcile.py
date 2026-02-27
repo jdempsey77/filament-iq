@@ -49,8 +49,15 @@ try:
         is_double_encoded as _is_double_encoded,
         validate_extra_value_no_quotes,
     )
-except ImportError:
-    _canonicalize_extra_scalar = _canon_rfid = _canon_ha_uuid = _encode_extra_json = _is_double_encoded = validate_extra_value_no_quotes = None  # type: ignore[assignment]
+except ImportError as _import_err:
+    import logging as _logging
+    _logging.getLogger("ams_rfid_reconcile").error(
+        "FATAL: spoolman_extra_canonicalizer import failed — reconciler cannot start safely. "
+        "Ensure scripts/spoolman_extra_canonicalizer.py exists. Error: %s", _import_err,
+    )
+    raise RuntimeError(
+        f"spoolman_extra_canonicalizer is required but failed to import: {_import_err}"
+    ) from _import_err
 
 
 # AMS slots 1–4 (AMS1), 5–6 (AMS_128 / AMS_129 HT). All have tray hardware; reconcile and location writes for all.
@@ -335,6 +342,7 @@ TRAY_HEX_VALID_PATTERN = re.compile(r"^[0-9a-f]{6}$")
 class AmsRfidReconcile(hass.Hass):
     def initialize(self):
         self.log("ams_rfid_reconcile VERSION=2026-02-18 flow-b-ha-sig", level="INFO")
+        self.log("spoolman_extra_canonicalizer loaded OK", level="INFO")
         self.enabled = bool(self.args.get("enabled", True))
         if not self.enabled:
             self.log("AMS RFID reconcile disabled by config (enabled=false).")
