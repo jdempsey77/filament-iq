@@ -179,34 +179,53 @@
   mode: single
 - id: printer_air_purifier_lan
   alias: Printer Air Purifier (LAN-proof)
-  description: Turn office air purifier on when printing/paused, off when idle/finished/failed. Logs unknown states.
+  description: Turn office air purifier + outlet on when printing/paused, off when idle/finished/failed. Logs unknown states.
   trigger:
-  - platform: state
-    entity_id: sensor.p1s_01p00c5a3101668_print_status
+    - platform: state
+      entity_id: sensor.p1s_01p00c5a3101668_print_status
+    - platform: homeassistant
+      event: start
+
   condition: []
+
   action:
-  - choose:
-      - conditions:
-        - condition: template
-          value_template: "{{ trigger.to_state.state | lower in ['running', 'printing', 'pause', 'paused'] }}"
-        sequence:
-          - action: fan.turn_on
-            target:
-              entity_id: fan.office_air_purifier
-            data:
-              percentage: 75
-      - conditions:
-        - condition: template
-          value_template: "{{ trigger.to_state.state | lower in ['idle', 'standby', 'finish', 'finished', 'completed', 'failed', 'error'] }}"
-        sequence:
-          - action: fan.turn_off
-            target:
-              entity_id: fan.office_air_purifier
-    default:
-    - action: logbook.log
-      data:
-        name: Printer Air Purifier
-        message: "Unknown print_status '{{ trigger.to_state.state }}' - no action taken"
+    - variables:
+        current_state: "{{ states('sensor.p1s_01p00c5a3101668_print_status') | lower }}"
+
+    - choose:
+
+        # PRINTING / PAUSED → ON
+        - conditions:
+            - condition: template
+              value_template: "{{ current_state in ['running','printing','pause','paused'] }}"
+          sequence:
+            - service: fan.turn_on
+              target:
+                entity_id: fan.office_air_purifier
+              data:
+                percentage: 75
+            - service: switch.turn_on
+              target:
+                entity_id: switch.officeoutlet_02
+
+        # IDLE / FINISHED / FAILED → OFF
+        - conditions:
+            - condition: template
+              value_template: "{{ current_state in ['idle','standby','finish','finished','completed','failed','error'] }}"
+          sequence:
+            - service: fan.turn_off
+              target:
+                entity_id: fan.office_air_purifier
+            - service: switch.turn_off
+              target:
+                entity_id: switch.officeoutlet_02
+
+      default:
+        - service: logbook.log
+          data:
+            name: Printer Air Purifier
+            message: "Unknown print_status '{{ current_state }}' - no action taken"
+
   mode: single
 - id: p1s_operator_alert
   alias: P1S Operator Alert
