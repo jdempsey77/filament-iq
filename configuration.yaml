@@ -268,6 +268,11 @@ input_boolean:
     name: P1S Non-RFID Spool Support Enabled
     icon: mdi:toggle-switch
 
+input_button:
+  p1s_rfid_reconcile_now:
+    name: P1S RFID Reconcile Now
+    icon: mdi:refresh
+
 input_number:
   tare_bambu_lab_plastic:
     name: Tare – Bambu (spool + silica) (g)
