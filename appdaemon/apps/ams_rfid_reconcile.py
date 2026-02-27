@@ -130,6 +130,20 @@ UNBOUND_SPOOLMAN_LOOKUP_FAILED = "UNBOUND_SPOOLMAN_LOOKUP_FAILED"
 UNBOUND_HELPER_RFID_MISMATCH = "UNBOUND_HELPER_RFID_MISMATCH"
 UNBOUND_HELPER_MATERIAL_MISMATCH = "UNBOUND_HELPER_MATERIAL_MISMATCH"
 
+# HT non-RFID fingerprint statuses and reasons
+STATUS_WAITING_CONFIRMATION = "WAITING_FOR_CONFIRMATION"
+STATUS_NEEDS_MANUAL_BIND = "NEEDS_MANUAL_BIND"
+STATUS_LOW_CONFIDENCE = "LOW_CONFIDENCE_NO_AUTO_MATCH"
+STATUS_OK_NONRFID = "OK_NON_RFID_REGISTERED"
+UNBOUND_NONRFID_NO_MATCH = "NONRFID_NO_MATCH_CONFIDENT"
+UNBOUND_LOW_CONFIDENCE = "LOW_CONFIDENCE_GENERIC_TRAY"
+NONRFID_CONFIRM_SECONDS = 30
+
+# RFID identity-stuck detection
+STATUS_RFID_IDENTITY_STUCK = "RFID_IDENTITY_STUCK"
+UNBOUND_RFID_NOT_REFRESHED = "RFID_NOT_REFRESHED_TRY_UNLOAD_LOAD"
+RFID_STUCK_SECONDS = 60
+
 
 def _normalize_rfid_tag_uid(val) -> str:
     """Normalize RFID tag UID for comparison. Handles Spoolman JSON-encoded string literal (e.g. '\\\"071F87ED00000100\\\"')."""
@@ -566,7 +580,7 @@ class AmsRfidReconcile(hass.Hass):
             }
 
             # Sticky mapping: tray identity (tray_uuid if present else tag_uid) for same-tray no-flip
-            current_tray_sig = self._get_tray_identity(attrs, tag_uid or "")
+            current_tray_sig = self._get_tray_identity(attrs, tag_uid or "", tray_state_str)
             stored_tray_sig = (self.get_state(f"input_text.ams_slot_{slot}_tray_signature") or "") or ""
             helper_spool_id = self._safe_int(self.get_state(f"input_text.ams_slot_{slot}_spool_id"), 0)
             previous_helper_spool_id = helper_spool_id
@@ -575,6 +589,32 @@ class AmsRfidReconcile(hass.Hass):
             # TRUTH GUARD (RFID_VISIBLE): clear stale helper if its UID doesn't match physical tray tag
             norm_tag_tg = _normalize_rfid_tag_uid(tag_uid)
             rfid_visible = bool(norm_tag_tg and norm_tag_tg != "0000000000000000")
+
+            # ── RFID identity-stuck tracker ──
+            import time as _time_mod
+            _rit = getattr(self, "_rfid_identity_tracker", None)
+            if _rit is None:
+                self._rfid_identity_tracker = {}
+                _rit = self._rfid_identity_tracker
+            _prev_entry = _rit.get(slot)
+            if _prev_entry is None or _prev_entry["identity"] != current_tray_sig:
+                _rit[slot] = {"identity": current_tray_sig, "change_ts": _time_mod.time()}
+            if (reason.startswith("manual") and rfid_visible and not tray_empty
+                    and _prev_entry is not None and _prev_entry["identity"] == current_tray_sig
+                    and (_time_mod.time() - _prev_entry["change_ts"]) >= RFID_STUCK_SECONDS):
+                status = STATUS_RFID_IDENTITY_STUCK
+                t["decision"], t["reason"], t["action"] = "STUCK", "rfid_identity_stuck", "rfid_identity_stuck"
+                t["unbound_reason"] = UNBOUND_RFID_NOT_REFRESHED
+                self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_RFID_NOT_REFRESHED)
+                self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
+                t["final_slot_status"], t["final_spool_id"] = status, helper_spool_id
+                self._active_run["validation_transcripts"].append(t)
+                if validation_mode:
+                    self._log_validation_transcript(t)
+                unbound += 1
+                continue
+
             if rfid_visible and helper_spool_id > 0:
                 helper_spool_obj_tg = spool_index.get(helper_spool_id) or {}
                 if not self._truth_guard_slot_patch(slot, t, tray_meta, tag_uid, helper_spool_id, helper_spool_obj_tg, tray_empty, tray_state_str):
@@ -586,6 +626,8 @@ class AmsRfidReconcile(hass.Hass):
                 status = STATUS_NON_RFID_REGISTERED
                 t["decision"], t["reason"], t["action"] = "NON_RFID", "bound_invariant", "nonrfid_registered"
                 self._set_helper(f"input_text.ams_slot_{slot}_rfid_pending_until", "")
+                if not tray_empty:
+                    self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
                 if not status_only:
                     self._force_location_and_helpers(
                         slot, helper_spool_id, "", source="nonrfid_converge_location",
@@ -685,7 +727,27 @@ class AmsRfidReconcile(hass.Hass):
                     f"HT_HELPER_READ slot={slot} entity_id={helper_entity} raw={raw!r} parsed={helper_spool_id}",
                     level="INFO",
                 )
-                if helper_spool_id > 0:
+                # ── HT fingerprint + pending confirmation ──
+                ht_fp = self._compute_ht_fingerprint(attrs, tray_state_str)
+                ht_confirmed, ht_pending = self._check_ht_pending(slot, ht_fp, stored_tray_sig)
+
+                if ht_pending:
+                    status = STATUS_WAITING_CONFIRMATION
+                    t["decision"], t["reason"], t["action"] = "NON_RFID", "pending_fingerprint", "waiting_confirmation"
+                    self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                    self._log_slot_status_change(slot, status, "", helper_spool_id, tray_meta)
+                    t["final_slot_status"], t["final_spool_id"] = status, helper_spool_id
+                    self._active_run["validation_transcripts"].append(t)
+                    if validation_mode:
+                        self._log_validation_transcript(t)
+                    continue
+
+                fp_changed = not stored_tray_sig.startswith("PENDING:") and ht_fp != stored_tray_sig and stored_tray_sig != ""
+                just_confirmed = stored_tray_sig.startswith("PENDING:")
+                ht_needs_rematch = fp_changed or just_confirmed or helper_spool_id <= 0
+
+                if not ht_needs_rematch and helper_spool_id > 0:
+                    # Fingerprint stable, existing binding — validate helper spool (existing logic)
                     helper_valid = True
                     try:
                         spool_resp = self._spoolman_get(f"/api/v1/spool/{helper_spool_id}")
@@ -758,16 +820,14 @@ class AmsRfidReconcile(hass.Hass):
                             self._log_validation_transcript(t)
                         unbound += 1
                         continue
-                    nonrfid_tray_sig = f"HT_SLOT_{slot}"[:255]
                     if not status_only:
                         self._force_location_and_helpers(
                             slot, helper_spool_id, "", source="nonrfid_ht_present",
-                            tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_tray_sig,
+                            tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=ht_fp,
                             previous_helper_spool_id=previous_helper_spool_id,
                             spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
                         )
-                        ht_ha_sig = f"ha_sig=HT_SLOT_{slot}"
-                        self._spoolman_patch(f"/api/v1/spool/{helper_spool_id}", {"comment": ht_ha_sig})
+                        self._spoolman_patch(f"/api/v1/spool/{helper_spool_id}", {"comment": f"ha_sig={ht_fp}"[:255]})
                     status = STATUS_OK
                     ok += 1
                     t["decision"], t["reason"], t["action"] = "NON_RFID", "ht_present", "nonrfid_ht_registered"
@@ -776,21 +836,66 @@ class AmsRfidReconcile(hass.Hass):
                     t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
                     self.log(f"HT_NONRFID_REGISTERED slot={slot} helper_spool_id={helper_spool_id}", level="DEBUG")
                     self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                    self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
                     self._log_slot_status_change(slot, status, "", helper_spool_id, tray_meta)
                     self._record_decision(slot, "nonrfid_ht_present", {"helper_spool_id": helper_spool_id})
                     self._active_run["validation_transcripts"].append(t)
                     if validation_mode:
                         self._log_validation_transcript(t)
                     continue
-                status = "NON_RFID_UNREGISTERED"
-                t["decision"], t["reason"], t["action"] = "NON_RFID", "NON_RFID_PRESENT", "nonrfid_unregistered"
-                self._set_helper(f"input_text.ams_slot_{slot}_status", status)
-                self._record_decision(
-                    slot,
-                    "nonrfid_unregistered",
-                    {"decision": "NON_RFID", "reason": "NON_RFID_PRESENT", "action": "nonrfid_unregistered"},
-                )
-                self._log_slot_status_change(slot, status, tag_uid or "", 0, tray_meta)
+
+                # ── Fingerprint changed / just confirmed / unbound → auto-match if confident ──
+                confident = self._is_confident_nonrfid(attrs, tray_state_str)
+                if confident:
+                    shelf_ids, _ = self._find_deterministic_candidates(spools, tray_meta, slot)
+                    if len(shelf_ids) == 1:
+                        resolved = shelf_ids[0]
+                        if not status_only:
+                            self._force_location_and_helpers(
+                                slot, resolved, "", source="nonrfid_ht_auto_match",
+                                tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=ht_fp,
+                                previous_helper_spool_id=previous_helper_spool_id,
+                                spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
+                            )
+                        status = STATUS_OK_NONRFID
+                        ok += 1
+                        t["decision"], t["reason"], t["action"] = "NON_RFID", "ht_auto_match", "nonrfid_ht_auto_match"
+                        t["final_spool_id"], t["selected_spool_id"] = resolved, resolved
+                        t["final_slot_status"] = status
+                        t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                        self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+                        self._log_slot_status_change(slot, status, "", resolved, tray_meta)
+                        self._record_decision(slot, "nonrfid_ht_auto_match", {"resolved_spool_id": resolved})
+                    else:
+                        status = STATUS_NEEDS_MANUAL_BIND
+                        if not status_only:
+                            self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
+                            self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
+                        self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_NONRFID_NO_MATCH)
+                        self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._log_slot_status_change(slot, status, "", 0, tray_meta)
+                        t["decision"], t["reason"], t["action"] = "NON_RFID", "ht_no_match", "needs_manual_bind"
+                        t["unbound_reason"] = UNBOUND_NONRFID_NO_MATCH
+                        t["final_spool_id"] = 0
+                        notified = getattr(self, "_ht_nomatch_notified", None)
+                        if notified is None:
+                            self._ht_nomatch_notified = set()
+                            notified = self._ht_nomatch_notified
+                        fp_key = f"{slot}:{ht_fp}"
+                        if fp_key not in notified:
+                            notified.add(fp_key)
+                            self.log(f"HT_NONRFID_NO_MATCH slot={slot} fingerprint={ht_fp} -> NEEDS_MANUAL_BIND", level="WARNING")
+                        unbound += 1
+                else:
+                    status = STATUS_LOW_CONFIDENCE
+                    self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_LOW_CONFIDENCE)
+                    self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                    self._log_slot_status_change(slot, status, "", 0, tray_meta)
+                    t["decision"], t["reason"], t["action"] = "NON_RFID", "low_confidence", "low_confidence_no_auto_match"
+                    t["unbound_reason"] = UNBOUND_LOW_CONFIDENCE
+                    t["final_spool_id"] = 0
+                    unbound += 1
                 t["final_slot_status"] = status
                 self._active_run["validation_transcripts"].append(t)
                 if validation_mode:
@@ -1856,12 +1961,16 @@ class AmsRfidReconcile(hass.Hass):
             not tray_str or tray_str == "00000000000000000000000000000000"
         )
 
-    def _get_tray_identity(self, attrs, tag_uid):
-        """Tray identity for sticky mapping: tray_uuid if present else tag_uid (uppercased, trimmed)."""
+    def _get_tray_identity(self, attrs, tag_uid, state_str=""):
+        """Tray identity: tray_uuid (non-zero) > tag_uid (non-zero) > NONRFID fingerprint."""
         raw_tray = (attrs or {}).get("tray_uuid")
         tray_str = str(raw_tray or "").strip().replace(" ", "").replace("-", "").upper()
+        if tray_str and tray_str != "0" * len(tray_str):
+            return tray_str
         tag_str = self._norm_tray_identity_tag(tag_uid)
-        return tray_str if tray_str else tag_str
+        if tag_str and tag_str != "0" * len(tag_str):
+            return tag_str
+        return self._compute_ht_fingerprint(attrs, state_str)
 
     def _spool_exists(self, spool_id):
         """Return True if Spoolman has this spool (GET returns 200 with id). Per-run cached."""
@@ -1901,6 +2010,61 @@ class AmsRfidReconcile(hass.Hass):
         uid = (str(tag_uid or "").strip()).lower()[:64]
         parts = [p for p in [name, typ, fid, hex_, uid] if p]
         return "|".join(parts)[:255]
+
+    def _compute_ht_fingerprint(self, attrs, tray_state_str):
+        """NONRFID|TYPE|COLOR|STATE fingerprint for HT trays with all-zero identity."""
+        typ = re.sub(r"\s+", " ", str((attrs or {}).get("type", "") or "").strip().upper())[:64]
+        color = str((attrs or {}).get("color", "") or "").strip().upper().replace("#", "")[:16]
+        state = re.sub(r"\s+", " ", str(tray_state_str or "").strip().upper())[:64]
+        return f"NONRFID|{typ}|{color}|{state}"[:255]
+
+    def _is_confident_nonrfid(self, attrs, tray_state_str):
+        """True when HT tray attributes are specific enough to auto-match."""
+        typ = str((attrs or {}).get("type", "") or "").strip()
+        color = str((attrs or {}).get("color", "") or "").strip()
+        state = str(tray_state_str or "").strip()
+        if not typ or not color or not state:
+            return False
+        if state.upper().startswith("GENERIC"):
+            return False
+        return True
+
+    def _check_ht_pending(self, slot, current_fp, stored_sig):
+        """Check HT fingerprint pending confirmation. Returns (confirmed: bool, pending: bool).
+
+        Stored format: ``PENDING:<count>:<epoch>:<fingerprint>``
+        Uses ``:`` to delimit wrapper fields since fingerprint itself uses ``|``.
+        """
+        import time
+        now = time.time()
+        sig_helper = f"input_text.ams_slot_{slot}_tray_signature"
+
+        if stored_sig.startswith("PENDING:"):
+            parts = stored_sig.split(":", 3)
+            if len(parts) == 4:
+                count = int(parts[1]) if parts[1].isdigit() else 1
+                try:
+                    first_seen = float(parts[2])
+                except (ValueError, TypeError):
+                    first_seen = now
+                pending_fp = parts[3]
+
+                if current_fp == pending_fp:
+                    count += 1
+                    if count >= 2 or (now - first_seen) >= 10:
+                        self._set_helper(sig_helper, current_fp)
+                        return True, False
+                    self._set_helper(sig_helper, f"PENDING:{count}:{first_seen}:{current_fp}"[:255])
+                    return False, True
+
+            self._set_helper(sig_helper, f"PENDING:1:{now}:{current_fp}"[:255])
+            return False, True
+
+        if not stored_sig or current_fp == stored_sig:
+            return True, False
+
+        self._set_helper(sig_helper, f"PENDING:1:{now}:{current_fp}"[:255])
+        return False, True
 
     def _tray_remaining_weight(self, attrs):
         tray_weight = self._safe_float(attrs.get("tray_weight"), 0.0)
