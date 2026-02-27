@@ -1077,6 +1077,64 @@ class TestAmsRfidReconcile(unittest.TestCase):
         comment_4 = [p for p in sm.patches if p.get("path") == "/api/v1/spool/4" and (p.get("payload") or {}).get("comment") == "ha_sig=HT_SLOT_5"]
         self.assertGreater(len(comment_4), 0, "must PATCH spool 4 comment ha_sig=HT_SLOT_5")
 
+    def test_ht_nonrfid_slot5_empty_tag_tray_uuid_uses_ht_branch_not_generic_unbound(self):
+        """Runtime normalization: slot 5 with tag_uid=\"\" and tray_uuid=\"\" -> HT branch runs, NOT UNBOUND_NO_RFID_TAG_ALL_ZERO."""
+        ht_attrs = {
+            "tag_uid": "",
+            "tray_uuid": "",
+            "empty": False,
+            "type": "PLA",
+            "color": "ff0000",
+            "name": "Bambu PLA",
+            "filament_id": "bambu",
+            "tray_weight": 1000,
+            "remain": 50,
+        }
+        spools = [_spool(4, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000")]
+        filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "ff0000",
+                     "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        sm = FakeSpoolman(spools, filaments)
+        slot = 5
+        tray_ent = _tray_entity(slot)
+        state_map = {
+            tray_ent: {"attributes": ht_attrs, "state": "valid"},
+            f"{tray_ent}::all": {"attributes": ht_attrs, "state": "valid"},
+        }
+        state_map["input_boolean.p1s_nonrfid_enabled"] = "on"
+        state_map[f"input_text.ams_slot_{slot}_spool_id"] = "4"
+        state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
+        state_map[f"input_text.ams_slot_{slot}_status"] = ""
+        state_map[f"input_text.ams_slot_{slot}_tray_signature"] = ""
+        for s in range(1, 7):
+            if s != slot:
+                other_ent = _tray_entity(s)
+                state_map[other_ent] = {"attributes": {"tag_uid": "", "empty": True}, "state": "empty"}
+                state_map[f"{other_ent}::all"] = {"attributes": {"tag_uid": "", "empty": True}, "state": "empty"}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+                state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+                state_map[f"input_text.ams_slot_{s}_status"] = ""
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+        self.assertEqual(
+            [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"][-1].get("value"),
+            "OK",
+            "HT branch must run when tag_uid/tray_uuid empty (normalized); status must be OK",
+        )
+        tray_sig = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_tray_signature"]
+        self.assertGreater(len(tray_sig), 0)
+        self.assertEqual(tray_sig[-1].get("value"), "HT_SLOT_5")
+        location_4 = [p for p in sm.patches if p.get("path") == "/api/v1/spool/4" and (p.get("payload") or {}).get("location")]
+        self.assertGreater(len(location_4), 0, "must PATCH spool 4 location")
+        summary = getattr(r, "_last_summary", None)
+        self.assertIsNotNone(summary)
+        slot5 = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == slot), None)
+        self.assertIsNotNone(slot5)
+        self.assertNotEqual(
+            slot5.get("unbound_reason"), UNBOUND_NO_RFID_TAG_ALL_ZERO,
+            "generic UNBOUND_NO_RFID_TAG_ALL_ZERO must NOT be used when HT branch runs",
+        )
+        self.assertEqual(slot5.get("reason"), "ht_present")
+
     def test_ht_nonrfid_slot6_helper_7_sees_seven_and_registers(self):
         """HT slot 6 all-zero: state_map ams_slot_6_spool_id=7 -> live read sees 7, nonrfid_ht_present, tray_signature HT_SLOT_6."""
         ht_attrs = {
