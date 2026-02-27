@@ -237,6 +237,30 @@ input_text:
     name: New spool – UUID (generated)
     max: 64
     initial: ""
+  ams_slot_1_rfid_pending_until:
+    name: AMS Slot 1 – RFID Pending Until
+    max: 255
+    initial: ""
+  ams_slot_2_rfid_pending_until:
+    name: AMS Slot 2 – RFID Pending Until
+    max: 255
+    initial: ""
+  ams_slot_3_rfid_pending_until:
+    name: AMS Slot 3 – RFID Pending Until
+    max: 255
+    initial: ""
+  ams_slot_4_rfid_pending_until:
+    name: AMS Slot 4 – RFID Pending Until
+    max: 255
+    initial: ""
+  ams_slot_5_rfid_pending_until:
+    name: AMS Slot 5 – RFID Pending Until
+    max: 255
+    initial: ""
+  ams_slot_6_rfid_pending_until:
+    name: AMS Slot 6 – RFID Pending Until
+    max: 255
+    initial: ""
 
 # Spool profile tare (g): everything that is NOT filament. HA subtracts this from gross → remaining filament.
 # Bambu = plastic spool + silica container. Overture = cardboard + spool + silica + guides.
