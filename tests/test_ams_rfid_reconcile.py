@@ -51,6 +51,8 @@ from ams_rfid_reconcile import (
     UNBOUND_TRAY_EMPTY,
     UNBOUND_TRAY_UNAVAILABLE,
     UNBOUND_HELPER_SPOOL_NOT_FOUND,
+    UNBOUND_HELPER_RFID_MISMATCH,
+    UNBOUND_HELPER_MATERIAL_MISMATCH,
     _classify_unbound_reason,
     _colors_close,
     _hex_to_rgb,
@@ -227,6 +229,7 @@ class TestableReconcile(AmsRfidReconcile):
         return out if isinstance(out, dict) else {"items": out} if isinstance(out, list) else {}
 
     def _spoolman_patch(self, path, payload):
+        self._record_write("spoolman_patch", {"path": path, "payload": payload})
         return self._spoolman.patch(path, payload)
 
     def _spoolman_post(self, path, payload):
@@ -2332,9 +2335,9 @@ class TestAmsRfidReconcile(unittest.TestCase):
         r = TestableReconcile(sm, state_map, args=self.args)
         force_calls = []
         orig = r._force_location_and_helpers
-        def capture_force(slot, spool_id, tag_uid, source, tray_meta=None, tray_state="", tray_identity=None, previous_helper_spool_id=0):
+        def capture_force(slot, spool_id, tag_uid, source, tray_meta=None, tray_state="", tray_identity=None, previous_helper_spool_id=0, **kwargs):
             force_calls.append((slot, spool_id, tag_uid, source))
-            orig(slot, spool_id, tag_uid, source, tray_meta=tray_meta, tray_state=tray_state, tray_identity=tray_identity, previous_helper_spool_id=previous_helper_spool_id)
+            orig(slot, spool_id, tag_uid, source, tray_meta=tray_meta, tray_state=tray_state, tray_identity=tray_identity, previous_helper_spool_id=previous_helper_spool_id, **kwargs)
         r._force_location_and_helpers = capture_force
         r._run_reconcile("test")
         slot4_calls = [c for c in force_calls if c[0] == slot]
@@ -2489,6 +2492,314 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertEqual(status_writes[-1].get("value"), STATUS_UNBOUND_ACTION_REQUIRED, "must set NEEDS_ACTION when no Shelf UID match")
         bind_patches = [p for p in sm.patches if "extra" in p.get("payload", {}) and "rfid_tag_uid" in p["payload"].get("extra", {})]
         self.assertEqual(len(bind_patches), 0, "must not bind when no spool at Shelf has this RFID UID")
+
+
+    # ── Truth Guard tests ───────────────────────────────────────────────
+
+    def test_truth_guard_rfid_visible_helper_mismatch_blocks_writes(self):
+        """RFID_VISIBLE: helper spool (10) RFID UID differs from tray tag_uid ->
+        guard clears stale helper, RFID resolution resolves to correct spool (20),
+        no PATCH for the wrong spool (10)."""
+        slot = 1
+        tray_tag = "A6EC1BDE00000100"
+        helper_tag = "DEADBEEF00000100"
+        spool_helper = _spool(10, rfid_tag_uid=helper_tag, location="Shelf", material="PLA", color_hex="ff0000")
+        spool_other = _spool(20, rfid_tag_uid=tray_tag, location="Shelf", material="PLA", color_hex="ff0000")
+        filaments = [_bambu_filament()]
+        sm = FakeSpoolman([spool_helper, spool_other], filaments)
+        tray_ent = _tray_entity(slot)
+        attrs = {"tag_uid": tray_tag, "type": "PLA", "color": "ff0000", "name": "Bambu PLA",
+                 "filament_id": "bambu", "tray_weight": 1000, "remain": 50}
+        state_map = {}
+        for s in range(1, 7):
+            state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+            state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+            state_map[f"input_text.ams_slot_{s}_unbound_reason"] = ""
+            if s == slot:
+                state_map[tray_ent] = {"attributes": attrs, "state": "valid"}
+                state_map[f"{tray_ent}::all"] = {"attributes": attrs, "state": "valid"}
+            else:
+                empty_a = {"tag_uid": "", "type": "", "color": "", "name": "", "filament_id": "", "tray_weight": 0, "remain": 0}
+                state_map[_tray_entity(s)] = {"attributes": empty_a, "state": "empty"}
+                state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_a, "state": "empty"}
+        state_map[f"input_text.ams_slot_{slot}_spool_id"] = "10"
+        state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "10"
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+        bad_patches = [p for p in sm.patches if p.get("spool_id") == 10]
+        self.assertEqual(len(bad_patches), 0, "must not PATCH the mismatched helper spool 10")
+        spool_id_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_spool_id"]
+        self.assertGreater(len(spool_id_writes), 0, "must write helper_spool_id")
+        cleared = any(w.get("value") == "0" for w in spool_id_writes)
+        self.assertTrue(cleared, "truth guard must clear stale helper to 0 before RFID resolution")
+        self.assertEqual(spool_id_writes[-1].get("value"), "20", "RFID resolution must bind to correct spool 20")
+        unbound_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_unbound_reason"]
+        self.assertGreater(len(unbound_writes), 0, "must write unbound_reason")
+        self.assertEqual(unbound_writes[0].get("value"), UNBOUND_HELPER_RFID_MISMATCH)
+        summary = r._last_summary
+        self.assertIsNotNone(summary)
+        slot_t = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == slot), None)
+        self.assertIsNotNone(slot_t)
+        self.assertEqual(slot_t.get("unbound_reason"), UNBOUND_HELPER_RFID_MISMATCH)
+
+    def test_truth_guard_identity_unavailable_404_clears_and_blocks(self):
+        """IDENTITY_UNAVAILABLE: helper spool 404 -> cleared, UNBOUND_HELPER_SPOOL_NOT_FOUND, no PATCH, no tray_signature."""
+        slot = 5
+        ht_attrs = {
+            "tag_uid": "0000000000000000",
+            "tray_uuid": "00000000000000000000000000000000",
+            "type": "PLA", "color": "ff0000", "name": "Bambu PLA",
+            "filament_id": "bambu", "tray_weight": 1000, "remain": 50,
+        }
+        spools = [_spool(99, remaining_weight=500, rfid_tag_uid=None, location="Shelf")]
+        filaments = [_bambu_filament()]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(slot)
+        state_map = {"input_boolean.p1s_nonrfid_enabled": "on"}
+        for s in range(1, 7):
+            state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+            state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+            state_map[f"input_text.ams_slot_{s}_unbound_reason"] = ""
+            if s == slot:
+                state_map[tray_ent] = {"attributes": ht_attrs, "state": "valid"}
+                state_map[f"{tray_ent}::all"] = {"attributes": ht_attrs, "state": "valid"}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = "42"
+            else:
+                empty_a = {"tag_uid": "", "type": "", "color": "", "name": "", "filament_id": "", "tray_weight": 0, "remain": 0}
+                state_map[_tray_entity(s)] = {"attributes": empty_a, "state": "empty"}
+                state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_a, "state": "empty"}
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+        spool_id_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_spool_id"]
+        self.assertGreater(len(spool_id_writes), 0)
+        self.assertEqual(spool_id_writes[-1].get("value"), "0", "helper must be cleared when spool 404")
+        unbound_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_unbound_reason"]
+        self.assertGreater(len(unbound_writes), 0)
+        self.assertEqual(unbound_writes[-1].get("value"), UNBOUND_HELPER_SPOOL_NOT_FOUND)
+        location_patches = [p for p in sm.patches if "location" in (p.get("payload") or {})]
+        self.assertEqual(len(location_patches), 0, "no Spoolman PATCH when helper 404")
+        tray_sig_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_tray_signature"]
+        self.assertEqual(len(tray_sig_writes), 0, "must not stamp tray_signature when helper 404")
+
+    def test_truth_guard_identity_unavailable_material_mismatch_clears_and_blocks(self):
+        """IDENTITY_UNAVAILABLE: helper spool material (PETG) != tray type (PLA) -> cleared, UNBOUND_HELPER_MATERIAL_MISMATCH, no PATCH."""
+        slot = 5
+        ht_attrs = {
+            "tag_uid": "0000000000000000",
+            "tray_uuid": "00000000000000000000000000000000",
+            "type": "PLA", "color": "ff0000", "name": "Bambu PLA",
+            "filament_id": "bambu", "tray_weight": 1000, "remain": 50,
+        }
+        helper_spool = _spool(7, remaining_weight=500, rfid_tag_uid=None, location="Shelf",
+                              material="PETG", color_hex="00ff00", name="Bambu PETG")
+        filaments = [_bambu_filament(material="PETG", color_hex="00ff00", name="Bambu PETG")]
+        sm = FakeSpoolman([helper_spool], filaments)
+        tray_ent = _tray_entity(slot)
+        state_map = {"input_boolean.p1s_nonrfid_enabled": "on"}
+        for s in range(1, 7):
+            state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+            state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+            state_map[f"input_text.ams_slot_{s}_unbound_reason"] = ""
+            if s == slot:
+                state_map[tray_ent] = {"attributes": ht_attrs, "state": "valid"}
+                state_map[f"{tray_ent}::all"] = {"attributes": ht_attrs, "state": "valid"}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = "7"
+            else:
+                empty_a = {"tag_uid": "", "type": "", "color": "", "name": "", "filament_id": "", "tray_weight": 0, "remain": 0}
+                state_map[_tray_entity(s)] = {"attributes": empty_a, "state": "empty"}
+                state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_a, "state": "empty"}
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+        spool_id_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_spool_id"]
+        self.assertGreater(len(spool_id_writes), 0, "must clear helper_spool_id on material mismatch")
+        self.assertEqual(spool_id_writes[-1].get("value"), "0")
+        unbound_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_unbound_reason"]
+        self.assertGreater(len(unbound_writes), 0)
+        self.assertEqual(unbound_writes[-1].get("value"), UNBOUND_HELPER_MATERIAL_MISMATCH)
+        self.assertEqual(len(sm.patches), 0, "no Spoolman PATCH when material mismatch")
+        tray_sig_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_tray_signature"]
+        self.assertEqual(len(tray_sig_writes), 0, "must not stamp tray_signature on material mismatch")
+
+
+    def test_truth_guard_force_location_blocks_location_patch_on_material_mismatch(self):
+        """_force_location_and_helpers: material mismatch (PETG helper vs PLA tray) blocks all location PATCHes."""
+        slot = 5
+        helper_spool = _spool(7, remaining_weight=500, rfid_tag_uid=None, location="Shelf",
+                              material="PETG", color_hex="00ff00", name="Bambu PETG")
+        other_at_slot = _spool(99, remaining_weight=300, rfid_tag_uid=None, location="AMS2_Slot1",
+                               material="PLA", color_hex="ff0000")
+        filaments = [_bambu_filament()]
+        sm = FakeSpoolman([helper_spool, other_at_slot], filaments)
+        tray_meta = {"name": "Bambu PLA", "type": "PLA", "filament_id": "bambu",
+                     "color": "ff0000", "color_hex": "ff0000", "color_candidates": ["ff0000"]}
+        spool_index = {s["id"]: s for s in sm.spools.values()}
+        state_map = {
+            f"input_text.ams_slot_{slot}_spool_id": "7",
+            f"input_text.ams_slot_{slot}_expected_spool_id": "7",
+            f"input_text.ams_slot_{slot}_unbound_reason": "",
+        }
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._active_run = {"reason": "test", "writes": [], "decisions": [], "no_write_paths": [],
+                         "conflicts": [], "unknown_tags": [], "auto_registers": [],
+                         "validation_transcripts": [], "spool_exists_cache": {}}
+        t = {"slot": slot}
+        r._force_location_and_helpers(
+            slot, 7, "", source="test_guard",
+            tray_meta=tray_meta, tray_state="valid", tray_identity="HT_SLOT_5",
+            previous_helper_spool_id=0,
+            spool_index=spool_index, t=t, tray_empty=False, tray_state_str="valid",
+        )
+        self.assertEqual(len(sm.patches), 0, "truth guard must block ALL location PATCHes when material mismatch")
+        spool_id_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_spool_id"]
+        cleared = any(w.get("value") == "0" for w in spool_id_writes)
+        self.assertTrue(cleared, "truth guard must clear helper on material mismatch")
+
+    def test_truth_guard_converge_ha_sig_blocks_comment_patch_on_material_mismatch(self):
+        """_converge_ha_sig: material mismatch blocks comment PATCH (no spoolman_patch for comment)."""
+        slot = 5
+        helper_spool = _spool(7, remaining_weight=500, rfid_tag_uid=None, location="AMS2_Slot1",
+                              material="PETG", color_hex="00ff00", name="Bambu PETG", comment="old_comment")
+        filaments = [_bambu_filament(material="PETG", color_hex="00ff00", name="Bambu PETG")]
+        sm = FakeSpoolman([helper_spool], filaments)
+        tray_meta = {"name": "Bambu PLA", "type": "PLA", "filament_id": "bambu",
+                     "color": "ff0000", "color_hex": "ff0000", "color_candidates": ["ff0000"]}
+        spool_index = {s["id"]: s for s in sm.spools.values()}
+        r = TestableReconcile(sm, {}, args=self.args)
+        r._active_run = {"reason": "test", "writes": [], "decisions": [], "no_write_paths": [],
+                         "conflicts": [], "unknown_tags": [], "auto_registers": [],
+                         "validation_transcripts": [], "spool_exists_cache": {}}
+        r._converge_ha_sig(
+            slot, 7, tray_meta, spool_index, reason="test_guard",
+            tag_uid="", tray_empty=False, tray_state_str="valid",
+        )
+        comment_patches = [p for p in sm.patches if "comment" in (p.get("payload") or {})]
+        self.assertEqual(len(comment_patches), 0, "truth guard must block ha_sig comment PATCH on material mismatch")
+
+
+    def test_truth_guard_force_location_blocks_on_rfid_mismatch(self):
+        """_force_location_and_helpers: spool RFID UID != tray tag_uid blocks all location PATCHes."""
+        slot = 2
+        tray_tag = "A6EC1BDE00000100"
+        wrong_spool = _spool(10, rfid_tag_uid="DEADBEEF00000100", location="Shelf",
+                             material="PLA", color_hex="ff0000")
+        filaments = [_bambu_filament()]
+        sm = FakeSpoolman([wrong_spool], filaments)
+        tray_meta = {"name": "Bambu PLA", "type": "PLA", "filament_id": "bambu",
+                     "color": "ff0000", "color_hex": "ff0000", "color_candidates": ["ff0000"]}
+        spool_index = {s["id"]: s for s in sm.spools.values()}
+        state_map = {
+            f"input_text.ams_slot_{slot}_spool_id": "10",
+            f"input_text.ams_slot_{slot}_expected_spool_id": "10",
+            f"input_text.ams_slot_{slot}_unbound_reason": "",
+        }
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._active_run = {"reason": "test", "writes": [], "decisions": [], "no_write_paths": [],
+                         "conflicts": [], "unknown_tags": [], "auto_registers": [],
+                         "validation_transcripts": [], "spool_exists_cache": {}}
+        t = {"slot": slot}
+        r._force_location_and_helpers(
+            slot, 10, tray_tag, source="test_rfid_guard",
+            tray_meta=tray_meta, tray_state="valid", tray_identity=tray_tag,
+            previous_helper_spool_id=0,
+            spool_index=spool_index, t=t, tray_empty=False, tray_state_str="valid",
+        )
+        self.assertEqual(len(sm.patches), 0, "truth guard must block ALL PATCHes when RFID UID mismatch")
+        spool_id_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_spool_id"]
+        cleared = any(w.get("value") == "0" for w in spool_id_writes)
+        self.assertTrue(cleared, "truth guard must clear helper on RFID mismatch")
+        unbound_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_unbound_reason"]
+        self.assertGreater(len(unbound_writes), 0)
+        self.assertEqual(unbound_writes[-1].get("value"), UNBOUND_HELPER_RFID_MISMATCH)
+
+    def test_truth_guard_full_reconcile_rfid_mismatch_zero_spoolman_patches_in_writes_performed(self):
+        """Full reconcile: RFID_VISIBLE helper mismatch -> transcript writes_performed has zero spoolman_patch entries for that slot."""
+        slot = 1
+        tray_tag = "A6EC1BDE00000100"
+        helper_tag = "DEADBEEF00000100"
+        spool_helper = _spool(10, rfid_tag_uid=helper_tag, location="Shelf", material="PLA", color_hex="ff0000")
+        spool_correct = _spool(20, rfid_tag_uid=tray_tag, location="Shelf", material="PLA", color_hex="ff0000")
+        filaments = [_bambu_filament()]
+        sm = FakeSpoolman([spool_helper, spool_correct], filaments)
+        tray_ent = _tray_entity(slot)
+        attrs = {"tag_uid": tray_tag, "type": "PLA", "color": "ff0000", "name": "Bambu PLA",
+                 "filament_id": "bambu", "tray_weight": 1000, "remain": 50}
+        state_map = {}
+        for s in range(1, 7):
+            state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+            state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+            state_map[f"input_text.ams_slot_{s}_unbound_reason"] = ""
+            if s == slot:
+                state_map[tray_ent] = {"attributes": attrs, "state": "valid"}
+                state_map[f"{tray_ent}::all"] = {"attributes": attrs, "state": "valid"}
+            else:
+                empty_a = {"tag_uid": "", "type": "", "color": "", "name": "", "filament_id": "", "tray_weight": 0, "remain": 0}
+                state_map[_tray_entity(s)] = {"attributes": empty_a, "state": "empty"}
+                state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_a, "state": "empty"}
+        state_map[f"input_text.ams_slot_{slot}_spool_id"] = "10"
+        state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "10"
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+        summary = r._last_summary
+        self.assertIsNotNone(summary)
+        slot_t = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == slot), None)
+        self.assertIsNotNone(slot_t)
+        spoolman_patch_writes = [w for w in slot_t.get("writes_performed", []) if w.startswith("spoolman_patch")]
+        bad_patches = [p for p in sm.patches if p.get("spool_id") == 10]
+        self.assertEqual(len(bad_patches), 0, "mismatched helper spool 10 must have zero PATCHes")
+        self.assertEqual(slot_t.get("unbound_reason"), UNBOUND_HELPER_RFID_MISMATCH,
+                         "transcript must record RFID mismatch unbound_reason")
+
+    def test_truth_guard_full_reconcile_material_mismatch_zero_patches(self):
+        """Full reconcile: HT slot IDENTITY_UNAVAILABLE, helper material mismatch -> zero Spoolman PATCHes for that spool."""
+        slot = 5
+        ht_attrs = {
+            "tag_uid": "0000000000000000",
+            "tray_uuid": "00000000000000000000000000000000",
+            "type": "PLA", "color": "ff0000", "name": "Bambu PLA",
+            "filament_id": "bambu", "tray_weight": 1000, "remain": 50,
+        }
+        helper_spool = _spool(7, remaining_weight=500, rfid_tag_uid=None, location="Shelf",
+                              material="PETG", color_hex="00ff00", name="Bambu PETG")
+        filaments = [_bambu_filament(material="PETG", color_hex="00ff00", name="Bambu PETG")]
+        sm = FakeSpoolman([helper_spool], filaments)
+        tray_ent = _tray_entity(slot)
+        state_map = {"input_boolean.p1s_nonrfid_enabled": "on"}
+        for s in range(1, 7):
+            state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+            state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+            state_map[f"input_text.ams_slot_{s}_unbound_reason"] = ""
+            if s == slot:
+                state_map[tray_ent] = {"attributes": ht_attrs, "state": "valid"}
+                state_map[f"{tray_ent}::all"] = {"attributes": ht_attrs, "state": "valid"}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = "7"
+            else:
+                empty_a = {"tag_uid": "", "type": "", "color": "", "name": "", "filament_id": "", "tray_weight": 0, "remain": 0}
+                state_map[_tray_entity(s)] = {"attributes": empty_a, "state": "empty"}
+                state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_a, "state": "empty"}
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+        self.assertEqual(len(sm.patches), 0, "material mismatch must result in zero Spoolman PATCHes")
+        summary = r._last_summary
+        self.assertIsNotNone(summary)
+        slot_t = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == slot), None)
+        self.assertIsNotNone(slot_t)
+        spoolman_patch_writes = [w for w in slot_t.get("writes_performed", []) if w.startswith("spoolman_patch")]
+        self.assertEqual(len(spoolman_patch_writes), 0, "writes_performed must have zero spoolman_patch entries")
+        self.assertEqual(slot_t.get("unbound_reason"), UNBOUND_HELPER_MATERIAL_MISMATCH,
+                         "transcript must record material mismatch unbound_reason")
+        spool_id_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_spool_id"]
+        cleared = any(w.get("value") == "0" for w in spool_id_writes)
+        self.assertTrue(cleared, "helper must be cleared on material mismatch")
 
 
 if __name__ == "__main__":
