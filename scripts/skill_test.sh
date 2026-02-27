@@ -165,9 +165,20 @@ if [[ ${#GATES[@]} -gt 0 ]]; then
   done
 fi
 
+
+# ==============================================================================
+# AMS Physical Truth Validation (runtime invariants)
+# ==============================================================================
+if [[ -x ./scripts/validate_ams.sh ]]; then
+  run_step "ams: physical truth validation" "./scripts/validate_ams.sh"
+else
+  log "SKIP: validate_ams.sh not found or not executable."
+fi
+
 # ==============================================================================
 # 4) Final summary + exit code
 # ==============================================================================
+
 hr
 if [[ ${#FAIL_STEPS[@]} -eq 0 ]]; then
   log "STATUS: PASS ✅"
