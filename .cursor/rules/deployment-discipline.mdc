@@ -27,6 +27,8 @@ If DEPLOY fails because **skill_deploy.sh or other skill scripts crashed or bugg
 
 ## Required output after TEST / DEPLOY
 
+If you propose a test command, it MUST be `./scripts/skill_test.sh` or `python3 -m unittest ...` — never pytest.
+
 Always end with this structured block:
 
 ```
@@ -38,3 +40,26 @@ NEXT ACTION:
 ```
 
 Fill each line; use PASS/FAIL for STATUS; list exact commands; point to log/artifact paths; list FAILURES when present; give one clear next step.
+
+## Testing Framework Policy (authoritative)
+
+This repository uses Python's built-in `unittest` framework as the canonical and enforced test framework.
+
+MANDATORY:
+- All new tests MUST use `unittest.TestCase`.
+- Do NOT introduce pytest-style tests, fixtures, markers, or plugins.
+- Do NOT require pytest to execute tests.
+- When running tests, use ONLY:
+  - `./scripts/skill_test.sh` (preferred), or
+  - `python3 -m unittest ...` (explicit module/test selection)
+
+PROHIBITED:
+- Do NOT run `pytest` commands in this repo (even if installed).
+- Do NOT suggest pytest-based invocation in instructions, docs, or comments.
+- Even if pytest successfully discovers and runs tests, it is considered a policy violation.
+- If a proposed command violates this policy (e.g., uses pytest), revise the command to comply before proceeding.
+
+If asked to write or modify tests:
+- Mirror existing unittest patterns.
+- Follow the structure of `tests/test_ams_rfid_reconcile.py`.
+- Ensure tests pass under `python3 -m unittest` without pytest.
