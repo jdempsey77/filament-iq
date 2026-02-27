@@ -143,6 +143,16 @@ def _normalize_rfid_tag_uid(val) -> str:
     return str(s).strip().strip('"').strip().upper()
 
 
+def _vendor_name(spool: dict) -> str:
+    filament = spool.get("filament") or {}
+    vendor = (filament.get("vendor") or {}).get("name") or ""
+    return str(vendor).strip()
+
+
+def _is_bambu_vendor(spool: dict) -> bool:
+    return _vendor_name(spool).lower() == "bambu lab"
+
+
 def _classify_unbound_reason(tray_meta, tag_uid, candidate_ids, ineligible_new_count, tray_empty=False, tray_state_str="", raw_tag_uid=None):
     """
     Classify why a slot is UNBOUND. Returns (reason, detail) for logging and transcripts.
@@ -1416,6 +1426,7 @@ class AmsRfidReconcile(hass.Hass):
         tray_colors = set(tray_meta.get("color_candidates", []))
         candidates = []
         excluded_new_ids = []
+        bambu_excluded = 0
         for spool in spools:
             spool_id = self._safe_int(spool.get("id"), 0)
             if spool_id <= 0:
@@ -1442,12 +1453,12 @@ class AmsRfidReconcile(hass.Hass):
                 f"RFID_ELIGIBLE_LOCATION slot={slot} spool_id={spool_id} location={spool.get('location', '')}",
                 level="DEBUG",
             )
-            filament = spool.get("filament", {}) if isinstance(spool.get("filament", {}), dict) else {}
-            vendor = (((filament.get("vendor") or {}).get("name")) or "").strip().lower()
-            if vendor != "bambu lab":
-                self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "vendor_not_bambu"})
+            if _is_bambu_vendor(spool):
+                bambu_excluded += 1
+                self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "vendor_bambu_excluded_nonrfid"})
                 continue
 
+            filament = spool.get("filament", {}) if isinstance(spool.get("filament", {}), dict) else {}
             spool_material = self._material_key(filament.get("material", ""))
             tray_material = self._material_key(tray_meta.get("type", ""))
             if not spool_material or spool_material != tray_material:
@@ -1461,6 +1472,8 @@ class AmsRfidReconcile(hass.Hass):
             candidates.append(spool)
             self._record_decision(slot, "candidate_accept", {"spool_id": spool_id, "reason": "strict_match"})
 
+        if bambu_excluded:
+            self.log(f"NON_RFID_FILTER_EXCLUDED_BAMBU={bambu_excluded} slot={slot}", level="INFO")
         if excluded_new_ids:
             self.log(
                 f"SPOOL_SELECTION_EXCLUDED_NEW slot={slot} excluded_spool_ids={excluded_new_ids}",
@@ -1502,10 +1515,10 @@ class AmsRfidReconcile(hass.Hass):
             location = str(spool.get("location", "")).strip().lower()
             if location != "new":
                 continue
-            filament = spool.get("filament", {}) if isinstance(spool.get("filament", {}), dict) else {}
-            vendor = (((filament.get("vendor") or {}).get("name")) or "").strip().lower()
-            if vendor != "bambu lab":
+            if _is_bambu_vendor(spool):
+                self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "vendor_bambu_excluded_nonrfid"})
                 continue
+            filament = spool.get("filament", {}) if isinstance(spool.get("filament", {}), dict) else {}
             spool_material = self._material_key(filament.get("material", ""))
             tray_material = self._material_key(tray_meta.get("type", ""))
             if not spool_material or spool_material != tray_material:

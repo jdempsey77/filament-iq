@@ -54,6 +54,8 @@ from ams_rfid_reconcile import (
     UNBOUND_HELPER_RFID_MISMATCH,
     UNBOUND_HELPER_MATERIAL_MISMATCH,
     _classify_unbound_reason,
+    _is_bambu_vendor,
+    _vendor_name,
     _colors_close,
     _hex_to_rgb,
     _normalize_hex_color,
@@ -445,11 +447,11 @@ class TestAmsRfidReconcile(unittest.TestCase):
     def test_find_deterministic_candidates_excludes_location_new(self):
         """Unit test: _find_deterministic_candidates excludes location 'New' and returns only Shelf spool."""
         spools = [
-            _spool(701, remaining_weight=1000, rfid_tag_uid=None, location="New", color_hex="ff0000"),
-            _spool(702, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000"),
+            _spool(701, remaining_weight=1000, rfid_tag_uid=None, location="New", color_hex="ff0000", vendor_name="Overture", name="Overture PLA"),
+            _spool(702, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000", vendor_name="Overture", name="Overture PLA"),
         ]
-        filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "ff0000",
-                     "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        filaments = [{"id": 1, "name": "Overture PLA", "material": "PLA", "color_hex": "ff0000",
+                     "vendor": {"name": "Overture"}, "external_id": "overture"}]
         sm = FakeSpoolman(spools, filaments)
         state_map = {}
         r = TestableReconcile(sm, state_map, args=self.args)
@@ -466,36 +468,36 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertEqual(ineligible_new_only, 1, "one New spool excluded")
 
     def test_find_deterministic_candidates_eligible_locations_shelf_ams_not_new(self):
-        """Unit test: eligibility is Shelf or AMS* only; New is not eligible."""
-        filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "ff0000",
-                      "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        """Unit test: eligibility is Shelf or AMS* only; New is not eligible. Non-Bambu vendor used (Bambu excluded)."""
+        filaments = [{"id": 1, "name": "Overture PLA", "material": "PLA", "color_hex": "ff0000",
+                      "vendor": {"name": "Overture"}, "external_id": "overture"}]
         sm = FakeSpoolman([], filaments)
         r = TestableReconcile(sm, {}, args=self.args)
         r._active_run = {"decisions": [], "no_write_paths": [], "writes": [], "conflicts": [], "unknown_tags": [], "auto_registers": [], "validation_transcripts": []}
-        attrs = {"tag_uid": "x", "type": "PLA", "color": "ff0000", "name": "Bambu PLA",
-                 "filament_id": "bambu", "tray_weight": 1000, "remain": 50}
+        attrs = {"tag_uid": "x", "type": "PLA", "color": "ff0000", "name": "Overture PLA",
+                 "filament_id": "overture", "tray_weight": 1000, "remain": 50}
         tray_meta = r._tray_meta(attrs, "valid")
 
         # Spool at Shelf → eligible
-        spools_shelf = [_spool(101, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000")]
+        spools_shelf = [_spool(101, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000", vendor_name="Overture", name="Overture PLA")]
         candidate_ids, ineligible_new = r._find_deterministic_candidates(spools_shelf, tray_meta, slot=1)
         self.assertEqual(candidate_ids, [101], "Spool at Shelf should be eligible")
         self.assertEqual(ineligible_new, 0)
 
         # Spool at AMS1_Slot4 → eligible
-        spools_ams1 = [_spool(102, remaining_weight=500, rfid_tag_uid=None, location="AMS1_Slot4", color_hex="ff0000")]
+        spools_ams1 = [_spool(102, remaining_weight=500, rfid_tag_uid=None, location="AMS1_Slot4", color_hex="ff0000", vendor_name="Overture", name="Overture PLA")]
         candidate_ids, ineligible_new = r._find_deterministic_candidates(spools_ams1, tray_meta, slot=1)
         self.assertEqual(candidate_ids, [102], "Spool at AMS1_Slot4 should be eligible")
         self.assertEqual(ineligible_new, 0)
 
         # Spool at AMS128_Slot1 → eligible
-        spools_ams128 = [_spool(103, remaining_weight=500, rfid_tag_uid=None, location="AMS128_Slot1", color_hex="ff0000")]
+        spools_ams128 = [_spool(103, remaining_weight=500, rfid_tag_uid=None, location="AMS128_Slot1", color_hex="ff0000", vendor_name="Overture", name="Overture PLA")]
         candidate_ids, ineligible_new = r._find_deterministic_candidates(spools_ams128, tray_meta, slot=1)
         self.assertEqual(candidate_ids, [103], "Spool at AMS128_Slot1 should be eligible")
         self.assertEqual(ineligible_new, 0)
 
         # Spool at New → NOT eligible
-        spools_new = [_spool(104, remaining_weight=500, rfid_tag_uid=None, location="New", color_hex="ff0000")]
+        spools_new = [_spool(104, remaining_weight=500, rfid_tag_uid=None, location="New", color_hex="ff0000", vendor_name="Overture", name="Overture PLA")]
         candidate_ids, ineligible_new = r._find_deterministic_candidates(spools_new, tray_meta, slot=1)
         self.assertEqual(candidate_ids, [], "Spool at New should not be eligible")
         self.assertEqual(ineligible_new, 1, "one spool excluded due to location New")
@@ -744,10 +746,10 @@ class TestAmsRfidReconcile(unittest.TestCase):
     # ---------- PHASE_2_6: Non-RFID deterministic matching (Shelf-first, New fallback) ----------
 
     def test_phase26_nonrfid_shelf_one_match_binds(self):
-        """PHASE_2_6: Non-RFID tray + one Shelf candidate (material/color/vendor) -> bind, status OK."""
-        spools = [_spool(201, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000")]
-        filaments = [{"id": 1, "name": "Bambu PLA Basic", "material": "PLA", "color_hex": "ff0000",
-                     "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        """PHASE_2_6: Non-RFID tray + one Shelf candidate (material/color) -> bind, status OK. Bambu excluded; Overture eligible."""
+        spools = [_spool(201, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000", vendor_name="Overture", name="Overture PLA")]
+        filaments = [{"id": 1, "name": "Overture PLA", "material": "PLA", "color_hex": "ff0000",
+                     "vendor": {"name": "Overture"}, "external_id": "overture"}]
         sm = FakeSpoolman(spools, filaments)
         tray_ent = _tray_entity(1)
         state_map = {
@@ -779,11 +781,11 @@ class TestAmsRfidReconcile(unittest.TestCase):
     def test_phase26_nonrfid_ambiguity_needs_action(self):
         """PHASE_2_6: Non-RFID + multiple Shelf candidates, tie-break fails -> NEEDS_ACTION, no bind."""
         spools = [
-            _spool(301, remaining_weight=200, rfid_tag_uid=None, location="Shelf", color_hex="00ff00"),
-            _spool(302, remaining_weight=250, rfid_tag_uid=None, location="Shelf", color_hex="00ff00"),
+            _spool(301, remaining_weight=200, rfid_tag_uid=None, location="Shelf", color_hex="00ff00", vendor_name="Overture", name="Overture PLA"),
+            _spool(302, remaining_weight=250, rfid_tag_uid=None, location="Shelf", color_hex="00ff00", vendor_name="Overture", name="Overture PLA"),
         ]
-        filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "00ff00",
-                     "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        filaments = [{"id": 1, "name": "Overture PLA", "material": "PLA", "color_hex": "00ff00",
+                     "vendor": {"name": "Overture"}, "external_id": "overture"}]
         sm = FakeSpoolman(spools, filaments)
         tray_ent = _tray_entity(1)
         state_map = {
@@ -807,10 +809,10 @@ class TestAmsRfidReconcile(unittest.TestCase):
                          "must not bind when ambiguous (tie-break may still pick one; if so this may need relax)")
 
     def test_phase26_nonrfid_new_fallback_unambiguous_binds(self):
-        """PHASE_2_6: No Shelf match + exactly one New candidate -> bind + New fallback notify."""
-        spools = [_spool(401, remaining_weight=500, rfid_tag_uid=None, location="New", color_hex="0000ff", material="PETG", name="Bambu PETG")]
-        filaments = [{"id": 1, "name": "Bambu PETG", "material": "PETG", "color_hex": "0000ff",
-                     "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        """PHASE_2_6: No Shelf match + exactly one New candidate -> bind + New fallback notify. Bambu excluded; Overture eligible."""
+        spools = [_spool(401, remaining_weight=500, rfid_tag_uid=None, location="New", color_hex="0000ff", material="PETG", name="Overture PETG", vendor_name="Overture")]
+        filaments = [{"id": 1, "name": "Overture PETG", "material": "PETG", "color_hex": "0000ff",
+                     "vendor": {"name": "Overture"}, "external_id": "overture"}]
         sm = FakeSpoolman(spools, filaments)
         tray_ent = _tray_entity(1)
         attrs = _tray_state("", tray_type="PETG", color="0000ff", name="Bambu PETG", filament_id="bambu")["attributes"]
@@ -2800,6 +2802,137 @@ class TestAmsRfidReconcile(unittest.TestCase):
         spool_id_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_spool_id"]
         cleared = any(w.get("value") == "0" for w in spool_id_writes)
         self.assertTrue(cleared, "helper must be cleared on material mismatch")
+
+
+    # ── Bambu vendor exclusion in non-RFID candidate selection ──────────
+
+    def test_vendor_name_and_is_bambu_vendor_helpers(self):
+        """Unit test for module-level _vendor_name / _is_bambu_vendor helpers."""
+        bambu = {"filament": {"vendor": {"name": "Bambu Lab"}, "material": "PLA"}}
+        overture = {"filament": {"vendor": {"name": "Overture"}, "material": "PLA"}}
+        empty_vendor = {"filament": {"vendor": {}, "material": "PLA"}}
+        no_filament = {}
+
+        self.assertEqual(_vendor_name(bambu), "Bambu Lab")
+        self.assertEqual(_vendor_name(overture), "Overture")
+        self.assertEqual(_vendor_name(empty_vendor), "")
+        self.assertEqual(_vendor_name(no_filament), "")
+
+        self.assertTrue(_is_bambu_vendor(bambu))
+        self.assertFalse(_is_bambu_vendor(overture))
+        self.assertFalse(_is_bambu_vendor(empty_vendor))
+        self.assertFalse(_is_bambu_vendor(no_filament))
+
+    def test_nonrfid_excludes_bambu_keeps_non_bambu(self):
+        """Non-RFID (IDENTITY_UNAVAILABLE) candidate selection must exclude Bambu Lab
+        spools and keep non-Bambu. Bambu always has RFID so non-RFID trays cannot be Bambu."""
+        spools = [
+            _spool(10, remaining_weight=500, rfid_tag_uid=None, location="Shelf",
+                   color_hex="ff0000", material="PLA", name="Bambu PLA Basic", vendor_name="Bambu Lab"),
+            _spool(20, remaining_weight=500, rfid_tag_uid=None, location="Shelf",
+                   color_hex="ff0000", material="PLA", name="Overture PLA", vendor_name="Overture"),
+        ]
+        filaments = [
+            {"id": 1, "name": "Overture PLA", "material": "PLA", "color_hex": "ff0000",
+             "vendor": {"name": "Overture"}, "external_id": "overture"},
+        ]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(1)
+        tray = _tray_state("", tray_type="PLA", color="ff0000", name="PLA", filament_id="overture")
+        state_map = {
+            tray_ent: tray,
+            f"{tray_ent}::all": {"attributes": tray["attributes"], "state": "valid"},
+        }
+        state_map["input_boolean.p1s_nonrfid_enabled"] = "on"
+        for slot in range(1, 7):
+            state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_status"] = ""
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+
+        summary = r._last_summary
+        self.assertIsNotNone(summary)
+        slot1 = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == 1), None)
+        self.assertIsNotNone(slot1)
+        self.assertEqual(slot1.get("final_spool_id"), 20, "must bind to non-Bambu spool 20")
+        self.assertEqual(slot1.get("reason"), "shelf_match")
+
+        bambu_patches = [p for p in sm.patches if "/spool/10" in p.get("path", "")]
+        self.assertEqual(len(bambu_patches), 0, "Bambu spool 10 must never be PATCHed in non-RFID")
+
+        non_bambu_patches = [p for p in sm.patches if "/spool/20" in p.get("path", "")]
+        self.assertGreaterEqual(len(non_bambu_patches), 1, "non-Bambu spool 20 should be PATCHed")
+
+    def test_rfid_visible_does_not_exclude_bambu(self):
+        """RFID_VISIBLE mode must NOT apply the Bambu vendor filter — Bambu spools
+        with matching RFID tag must still resolve normally via UID lookup."""
+        tag = "A1B2C3D400000100"
+        spools = [
+            _spool(30, remaining_weight=500, rfid_tag_uid=tag, location="Shelf",
+                   color_hex="ff0000", material="PLA", name="Bambu PLA Basic", vendor_name="Bambu Lab"),
+        ]
+        filaments = [
+            {"id": 1, "name": "Bambu PLA Basic", "material": "PLA", "color_hex": "ff0000",
+             "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"},
+        ]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(1)
+        state_map = {
+            tray_ent: _tray_state(tag, tray_type="PLA", color="ff0000", name="Bambu PLA Basic", filament_id="bambu"),
+            f"{tray_ent}::all": {"attributes": _tray_state(tag)["attributes"], "state": "valid"},
+        }
+        state_map["input_boolean.p1s_nonrfid_enabled"] = "on"
+        for slot in range(1, 7):
+            state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_status"] = ""
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+
+        summary = r._last_summary
+        self.assertIsNotNone(summary)
+        slot1 = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == 1), None)
+        self.assertIsNotNone(slot1)
+        self.assertEqual(slot1.get("final_spool_id"), 30,
+                         "Bambu spool 30 must resolve via RFID UID match regardless of vendor")
+
+        patches_30 = [p for p in sm.patches if "/spool/30" in p.get("path", "")]
+        self.assertGreaterEqual(len(patches_30), 1,
+                                "Bambu spool 30 should be PATCHed in RFID_VISIBLE mode")
+
+
+    def test_nonrfid_new_fallback_excludes_bambu_keeps_overture(self):
+        """_find_deterministic_candidates_new_only must exclude Bambu Lab spools
+        and keep non-Bambu (Overture). Both at location New, matching material/color."""
+        sm = FakeSpoolman([], [])
+        r = TestableReconcile(sm, {}, args=self.args)
+        r._active_run = {
+            "decisions": [], "no_write_paths": [], "writes": [],
+            "conflicts": [], "unknown_tags": [], "auto_registers": [],
+            "validation_transcripts": [],
+        }
+        attrs = {"tag_uid": "", "type": "PLA", "color": "ff0000", "name": "PLA",
+                 "filament_id": "generic", "tray_weight": 1000, "remain": 50}
+        tray_meta = r._tray_meta(attrs, "valid")
+
+        spools = [
+            _spool(50, remaining_weight=500, rfid_tag_uid=None, location="New",
+                   color_hex="ff0000", material="PLA", name="Bambu PLA Basic", vendor_name="Bambu Lab"),
+            _spool(51, remaining_weight=500, rfid_tag_uid=None, location="New",
+                   color_hex="ff0000", material="PLA", name="Overture PLA", vendor_name="Overture"),
+        ]
+
+        result = r._find_deterministic_candidates_new_only(spools, tray_meta, slot=1)
+        self.assertEqual(result, [51], "only Overture spool 51 should be candidate; Bambu 50 excluded")
+
+        bambu_rejects = [d for d in r._active_run["decisions"]
+                         if d.get("decision") == "candidate_reject"
+                         and d.get("payload", {}).get("reason") == "vendor_bambu_excluded_nonrfid"
+                         and d.get("payload", {}).get("spool_id") == 50]
+        self.assertEqual(len(bambu_rejects), 1, "Bambu spool 50 must be recorded as rejected")
 
 
 if __name__ == "__main__":
