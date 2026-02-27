@@ -372,7 +372,6 @@ class AmsRfidReconcile(hass.Hass):
         self.listen_event(self._on_reconcile_event, "bambu_rfid_reconcile_now")
         self.listen_event(self._on_reconcile_all_event, "AMS_RECONCILE_ALL")
         self.listen_state(self._on_manual_reconcile_button, "input_button.p1s_rfid_reconcile_now")
-        self.listen_event(self._on_create_spool_event, "bambu_rfid_create_spool_from_tray")
         self.listen_event(self._on_manual_enroll_event, "bambu_rfid_manual_enroll_tag_to_spool")
         self.listen_event(self._on_validate_event, "AMS_RFID_VALIDATE")
         self.listen_event(self._on_homeassistant_start, "homeassistant_started")
@@ -392,7 +391,7 @@ class AmsRfidReconcile(hass.Hass):
         self._run_reconcile("startup_delay")
 
     def _run_reconcile_poll(self, kwargs):
-        self._run_reconcile("safety_poll")
+        self._run_reconcile("safety_poll", status_only=True)
 
     def _on_reconcile_event(self, event_name, data, kwargs):
         reason = str((data or {}).get("reason", "ui_button"))
@@ -426,27 +425,6 @@ class AmsRfidReconcile(hass.Hass):
             until_utc = datetime.datetime.utcnow() + datetime.timedelta(seconds=RFID_PENDING_SECONDS)
             self._set_rfid_pending_until(slot, until_utc)
         self._schedule_reconcile(f"tray_update:{entity}")
-
-    def _on_create_spool_event(self, event_name, data, kwargs):
-        payload = data or {}
-        slot = self._safe_int(payload.get("slot"), 0)
-        if slot not in TRAY_ENTITY_BY_SLOT:
-            self._notify(
-                "RFID Create Spool Failed",
-                f"Invalid slot={slot}. Expected 1..6 (AMS1 + AMS_128/AMS_129).",
-                notification_id="rfid_create_spool_invalid_slot",
-            )
-            return
-        try:
-            self._create_spool_from_tray(slot)
-            self._run_reconcile(f"create_spool_slot_{slot}")
-        except Exception as exc:
-            self.log(f"create spool event failed: {exc}", level="ERROR")
-            self._notify(
-                "RFID Create Spool Failed",
-                f"slot={slot} error={exc}",
-                notification_id=f"rfid_create_spool_error_slot_{slot}",
-            )
 
     def _on_manual_enroll_event(self, event_name, data, kwargs):
         payload = data or {}
@@ -1354,6 +1332,11 @@ class AmsRfidReconcile(hass.Hass):
         self.log(
             f"RFID_RECONCILE_SUMMARY reason={reason} ok={ok} unbound={unbound} conflict={conflict} mismatch={mismatch} timestamp={timestamp}"
         )
+        if status_only and reason == "safety_poll" and (unbound > 0 or conflict > 0 or mismatch > 0):
+            self.log(
+                "SAFETY_POLL_DRIFT detected: one or more slots not OK. Trigger manual reconcile (input_button.p1s_rfid_reconcile_now) to correct.",
+                level="WARNING",
+            )
         if status_only:
             parts = []
             for tr in self._active_run["validation_transcripts"]:
@@ -1483,53 +1466,6 @@ class AmsRfidReconcile(hass.Hass):
         extra["rfid_tag_uid"] = tag_uid
         self._patch_spool_extra_robust(spool_id, extra)
 
-    def _create_spool_from_tray(self, slot, notify=True):
-        tray = self.get_state(TRAY_ENTITY_BY_SLOT[slot], attribute="all") or {}
-        attrs = tray.get("attributes", {}) if isinstance(tray, dict) else {}
-        raw_tag = attrs.get("tag_uid")
-        tag_uid = self._canonicalize_tag_uid(raw_tag)
-        if not tag_uid:
-            raise RuntimeError("tray tag_uid is empty/zero")
-
-        spools = self._spoolman_get("/api/v1/spool?limit=1000")
-        if isinstance(spools, dict) and "items" in spools:
-            spools = spools.get("items", [])
-        slot_tag = _normalize_rfid_tag_uid(tag_uid)
-        for row in spools:
-            mapped_uid = self._extract_spool_uid(row)
-            if mapped_uid == slot_tag:
-                raise RuntimeError(f"tag_uid already bound to spool_id={self._safe_int(row.get('id'), 0)}")
-
-        tray_meta = self._tray_meta(attrs, tray.get("state", ""))
-        filament_id = self._find_filament_for_tray(tray_meta)
-        if filament_id <= 0:
-            raise RuntimeError("no deterministic filament match for tray metadata")
-
-        ha_uuid = str(uuid.uuid4())
-        enc = _encode_extra_json if _encode_extra_json is not None else json.dumps
-        payload = {
-            "filament_id": filament_id,
-            "location": CANONICAL_LOCATION_BY_SLOT[slot],
-            "remaining_weight": self._tray_remaining_weight(attrs),
-            "archived": False,
-            "comment": f"Created from AMS slot {slot} ({tray_meta.get('name','unknown')})",
-            "extra": {
-                "ha_spool_uuid": enc(ha_uuid),
-                "rfid_tag_uid": enc(tag_uid),
-            },
-        }
-        created = self._spoolman_post("/api/v1/spool", payload)
-        created_id = self._safe_int(created.get("id"), 0)
-        if created_id <= 0:
-            raise RuntimeError("spool create did not return valid id")
-        if notify:
-            self._notify(
-                "RFID Spool Created",
-                f"slot={slot} spool_id={created_id} filament_id={filament_id} tag_uid={tag_uid}",
-                notification_id=f"rfid_create_spool_slot_{slot}",
-            )
-        return created_id
-
     def _manual_enroll(self, slot, spool_id):
         tray = self.get_state(TRAY_ENTITY_BY_SLOT[slot], attribute="all") or {}
         attrs = tray.get("attributes", {}) if isinstance(tray, dict) else {}
@@ -1569,40 +1505,6 @@ class AmsRfidReconcile(hass.Hass):
             f"slot={slot} spool_id={spool_id} tag_uid={tag_uid}",
             notification_id=f"rfid_manual_enroll_slot_{slot}",
         )
-
-    def _find_filament_for_tray(self, tray_meta):
-        filaments = self._spoolman_get("/api/v1/filament?limit=1000")
-        if isinstance(filaments, dict) and "items" in filaments:
-            filaments = filaments.get("items", [])
-        tray_colors = set(tray_meta.get("color_candidates", []))
-        matches = []
-        for filament in filaments if isinstance(filaments, list) else []:
-            vendor = (((filament.get("vendor") or {}).get("name")) or "").strip().lower()
-            material = str(filament.get("material", "")).strip().lower()
-            color_hex = self._normalize_color(str(filament.get("color_hex", "")))
-            if vendor != "bambu lab":
-                continue
-            if self._material_key(material) != self._material_key(tray_meta.get("type", "")):
-                continue
-            if color_hex not in tray_colors:
-                continue
-            matches.append(filament)
-
-        if len(matches) > 1:
-            narrowed = []
-            tray_name = tray_meta.get("name", "").lower()
-            tray_filament_id = tray_meta.get("filament_id", "").lower()
-            for filament in matches:
-                name = str(filament.get("name", "")).lower()
-                ext = str(filament.get("external_id", "")).lower()
-                if tray_name and tray_name in name:
-                    narrowed.append(filament)
-                    continue
-                if tray_filament_id and (tray_filament_id in ext or tray_filament_id in name):
-                    narrowed.append(filament)
-            if len(narrowed) == 1:
-                matches = narrowed
-        return self._safe_int(matches[0].get("id"), 0) if len(matches) == 1 else 0
 
     def _find_deterministic_candidates(self, spools, tray_meta, slot):
         tray_colors = set(tray_meta.get("color_candidates", []))
@@ -1930,9 +1832,8 @@ class AmsRfidReconcile(hass.Hass):
             f"filament_id={tray_meta.get('filament_id','')}\n"
             f"deterministic_candidates={','.join(str(x) for x in candidate_ids) if candidate_ids else 'none'}\n\n"
             "No deterministic match. ACTION REQUIRED:\n"
-            "1) Run script.p1s_rfid_create_spool_from_tray with this slot, OR\n"
-            "2) Run script.p1s_rfid_manual_enroll_tag_to_spool with slot + spool_id,\n"
-            "3) Press input_button.p1s_rfid_reconcile_now."
+            "1) Run script.p1s_rfid_manual_enroll_tag_to_spool with slot + spool_id, OR\n"
+            "2) Press input_button.p1s_rfid_reconcile_now."
         )
         self._notify(
             f"RFID UNBOUND Slot {slot}",

@@ -456,6 +456,49 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertGreater(len(status_writes), 0)
         self.assertEqual(status_writes[-1].get("value"), STATUS_UNBOUND_ACTION_REQUIRED)
 
+    def test_safety_poll_calls_run_reconcile_with_status_only_true(self):
+        """P2: Safety poll must call _run_reconcile with status_only=True (no writes)."""
+        spools = [_spool(1, remaining_weight=500, rfid_tag_uid="A1B2C3D4E5F60001", location="Shelf", color_hex="ff0000")]
+        filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "ff0000", "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        sm = FakeSpoolman(spools, filaments)
+        state_map = {}
+        for s in range(1, 7):
+            state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+        r = TestableReconcile(sm, state_map, args=self.args)
+        calls = []
+
+        def capture(reason, slots_filter=None, validation_mode=False, status_only=False):
+            calls.append((reason, status_only))
+
+        r._run_reconcile = capture
+        r._run_reconcile_poll({})
+        self.assertEqual(len(calls), 1, "safety poll must call _run_reconcile exactly once")
+        self.assertEqual(calls[0][0], "safety_poll")
+        self.assertTrue(calls[0][1], "safety poll must pass status_only=True")
+
+    def test_safety_poll_no_spoolman_patch_on_stable_bound(self):
+        """P2: Safety poll (status_only=True) must not perform any Spoolman PATCH on stable bound state."""
+        tag = "A1B2C3D4E5F60001"
+        spools = [_spool(1, remaining_weight=500, rfid_tag_uid=tag, location="Shelf", color_hex="ff0000")]
+        filaments = [{"id": 1, "name": "Bambu PLA", "material": "PLA", "color_hex": "ff0000", "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(1)
+        attrs = {"tag_uid": tag, "type": "PLA", "color": "ff0000", "name": "Bambu PLA", "filament_id": "bambu", "tray_weight": 1000, "remain": 50}
+        state_map = {
+            tray_ent: {"attributes": attrs, "state": "valid"},
+            f"{tray_ent}::all": {"attributes": attrs, "state": "valid"},
+        }
+        for s in range(1, 7):
+            state_map[f"input_text.ams_slot_{s}_spool_id"] = "1" if s == 1 else "0"
+            state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "1" if s == 1 else "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = "OK" if s == 1 else ""
+        state_map["input_text.ams_slot_1_tray_signature"] = tag
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("safety_poll", status_only=True)
+        self.assertEqual(len(sm.patches), 0, "safety poll must not issue any Spoolman PATCH")
+
     def test_find_deterministic_candidates_excludes_location_new(self):
         """Unit test: _find_deterministic_candidates excludes location 'New' and returns only Shelf spool."""
         spools = [
