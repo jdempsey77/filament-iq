@@ -557,6 +557,154 @@ class AmsRfidReconcile(hass.Hass):
             stored_tray_sig = (self.get_state(f"input_text.ams_slot_{slot}_tray_signature") or "") or ""
             helper_spool_id = self._safe_int(self.get_state(f"input_text.ams_slot_{slot}_spool_id"), 0)
             previous_helper_spool_id = helper_spool_id
+            helper_expected = self._safe_int(self.get_state(f"input_text.ams_slot_{slot}_expected_spool_id"), 0)
+
+            # Bound invariant wins over pending: spool_id == expected_spool_id > 0 -> stay NON_RFID_REGISTERED
+            if not tag_uid and helper_spool_id > 0 and helper_expected > 0 and helper_spool_id == helper_expected:
+                status = "NON_RFID_REGISTERED"
+                t["decision"], t["reason"], t["action"] = "NON_RFID", "bound_invariant", "nonrfid_registered"
+                self._set_helper(f"input_text.ams_slot_{slot}_rfid_pending_until", "")
+                self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
+                t["final_slot_status"] = status
+                t["final_spool_id"] = helper_spool_id
+                self._active_run["validation_transcripts"].append(t)
+                if validation_mode:
+                    self._log_validation_transcript(t)
+                continue
+
+            # PENDING_RFID_READ only when no valid tag and tray not empty and pending_until in future
+            if not tag_uid and not tray_empty:
+                pending_until = self._get_rfid_pending_until(slot)
+                now_utc = datetime.datetime.utcnow()
+                if pending_until is not None and now_utc < pending_until:
+                    status = STATUS_PENDING_RFID_READ
+                    t["decision"], t["reason"], t["action"] = "PENDING", "rfid_pending", "pending_rfid_read"
+                    self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                    self._log_slot_status_change(slot, status, tag_uid or "", 0, tray_meta)
+                    self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str)
+                    t["final_slot_status"] = status
+                    self._active_run["validation_transcripts"].append(t)
+                    if validation_mode:
+                        self._log_validation_transcript(t)
+                    continue
+
+            # HT non-RFID override: run before any tag_uid-based branching so normalized "" or literal 000...0 both hit HT path
+            raw_tag_uid_ht = attrs.get("tag_uid") if attrs.get("tag_uid") is not None else ""
+            raw_tray_uuid_ht = attrs.get("tray_uuid") if attrs.get("tray_uuid") is not None else ""
+            nonrfid_enabled = (self.get_state("input_boolean.p1s_nonrfid_enabled") or "").strip().lower() == "on"
+            if nonrfid_enabled and not tray_empty and slot in (5, 6) and self._is_all_zero_identity(raw_tag_uid_ht, raw_tray_uuid_ht):
+                self.log(
+                    f"HT_GUARD_HIT slot={slot} empty={tray_empty} raw_tag_uid={raw_tag_uid_ht!r} raw_tray_uuid={raw_tray_uuid_ht!r}",
+                    level="INFO",
+                )
+                helper_entity = f"input_text.ams_slot_{slot}_spool_id"
+                raw = self.get_state(helper_entity)
+                try:
+                    helper_spool_id = int(raw or 0)
+                except (ValueError, TypeError, AttributeError):
+                    helper_spool_id = 0
+                self.log(
+                    f"HT_HELPER_READ slot={slot} entity_id={helper_entity} raw={raw!r} parsed={helper_spool_id}",
+                    level="INFO",
+                )
+                if helper_spool_id > 0:
+                    helper_valid = True
+                    try:
+                        spool_resp = self._spoolman_get(f"/api/v1/spool/{helper_spool_id}")
+                        if not isinstance(spool_resp, dict) or self._safe_int(spool_resp.get("id"), 0) != helper_spool_id:
+                            helper_valid = False
+                    except RuntimeError as exc:
+                        err = str(exc)
+                        if "HTTP 404" in err:
+                            helper_valid = False
+                            self.log(
+                                f"CLEAR_MISSING_HELPER_SPOOL slot={slot} helper_spool_id={helper_spool_id} http=404 -> clearing to 0",
+                                level="INFO",
+                            )
+                            if not status_only:
+                                self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
+                            status = "NON_RFID_UNREGISTERED"
+                            t["decision"], t["reason"], t["action"] = "NON_RFID", "helper_spool_not_found", "nonrfid_ht_helper_cleared"
+                            t["unbound_reason"], t["unbound_detail"] = UNBOUND_HELPER_SPOOL_NOT_FOUND, f"helper_spool_id={helper_spool_id} http=404"
+                            self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                            self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_HELPER_SPOOL_NOT_FOUND)
+                            self._log_slot_status_change(slot, status, "", 0, tray_meta)
+                            t["final_slot_status"], t["final_spool_id"] = status, 0
+                            self._active_run["validation_transcripts"].append(t)
+                            if validation_mode:
+                                self._log_validation_transcript(t)
+                            unbound += 1
+                            continue
+                        else:
+                            status = "NON_RFID_UNREGISTERED"
+                            t["decision"], t["reason"], t["action"] = "NON_RFID", "spoolman_lookup_failed", "nonrfid_ht_lookup_failed"
+                            t["unbound_reason"], t["unbound_detail"] = UNBOUND_SPOOLMAN_LOOKUP_FAILED, err[:80]
+                            self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                            self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_SPOOLMAN_LOOKUP_FAILED)
+                            self._log_slot_status_change(slot, status, "", helper_spool_id, tray_meta)
+                            t["final_slot_status"], t["final_spool_id"] = status, helper_spool_id
+                            self._active_run["validation_transcripts"].append(t)
+                            if validation_mode:
+                                self._log_validation_transcript(t)
+                            unbound += 1
+                            continue
+                    if not helper_valid:
+                        self.log(
+                            f"CLEAR_MISSING_HELPER_SPOOL slot={slot} helper_spool_id={helper_spool_id} http=404 -> clearing to 0",
+                            level="INFO",
+                        )
+                        if not status_only:
+                            self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
+                        status = "NON_RFID_UNREGISTERED"
+                        t["decision"], t["reason"], t["action"] = "NON_RFID", "helper_spool_not_found", "nonrfid_ht_helper_cleared"
+                        t["unbound_reason"], t["unbound_detail"] = UNBOUND_HELPER_SPOOL_NOT_FOUND, f"helper_spool_id={helper_spool_id} http=404"
+                        self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_HELPER_SPOOL_NOT_FOUND)
+                        self._log_slot_status_change(slot, status, "", 0, tray_meta)
+                        t["final_slot_status"], t["final_spool_id"] = status, 0
+                        self._active_run["validation_transcripts"].append(t)
+                        if validation_mode:
+                            self._log_validation_transcript(t)
+                        unbound += 1
+                        continue
+                    nonrfid_tray_sig = f"HT_SLOT_{slot}"[:255]
+                    if not status_only:
+                        self._force_location_and_helpers(
+                            slot, helper_spool_id, "", source="nonrfid_ht_present",
+                            tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_tray_sig,
+                            previous_helper_spool_id=previous_helper_spool_id,
+                        )
+                        ht_ha_sig = f"ha_sig=HT_SLOT_{slot}"
+                        self._spoolman_patch(f"/api/v1/spool/{helper_spool_id}", {"comment": ht_ha_sig})
+                    status = STATUS_OK
+                    ok += 1
+                    t["decision"], t["reason"], t["action"] = "NON_RFID", "ht_present", "nonrfid_ht_registered"
+                    t["final_spool_id"], t["selected_spool_id"] = helper_spool_id, helper_spool_id
+                    t["final_slot_status"] = status
+                    t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                    self.log(f"HT_NONRFID_REGISTERED slot={slot} helper_spool_id={helper_spool_id}", level="DEBUG")
+                    self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                    self._log_slot_status_change(slot, status, "", helper_spool_id, tray_meta)
+                    self._record_decision(slot, "nonrfid_ht_present", {"helper_spool_id": helper_spool_id})
+                    self._active_run["validation_transcripts"].append(t)
+                    if validation_mode:
+                        self._log_validation_transcript(t)
+                    continue
+                status = "NON_RFID_UNREGISTERED"
+                t["decision"], t["reason"], t["action"] = "NON_RFID", "NON_RFID_PRESENT", "nonrfid_unregistered"
+                self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                self._record_decision(
+                    slot,
+                    "nonrfid_unregistered",
+                    {"decision": "NON_RFID", "reason": "NON_RFID_PRESENT", "action": "nonrfid_unregistered"},
+                )
+                self._log_slot_status_change(slot, status, tag_uid or "", 0, tray_meta)
+                t["final_slot_status"] = status
+                self._active_run["validation_transcripts"].append(t)
+                if validation_mode:
+                    self._log_validation_transcript(t)
+                continue
 
             # Harden: if tray_uuid temporarily missing but tag_uid (normalized) equals stored_sig, treat as same tray
             if not self._has_tray_uuid(attrs) and stored_tray_sig:
@@ -595,167 +743,7 @@ class AmsRfidReconcile(hass.Hass):
                 t["decision"], t["reason"], t["action"] = "UNBOUND", "TRAY_UNAVAILABLE", "unbound_tray_unavailable"
                 self._record_no_write(slot, "tray_unavailable")
             elif not tag_uid:
-                helper_spool_id = self._safe_int(self.get_state(f"input_text.ams_slot_{slot}_spool_id"), 0)
-                helper_expected = self._safe_int(self.get_state(f"input_text.ams_slot_{slot}_expected_spool_id"), 0)
-
-                # Bound invariant: spool_id == expected_spool_id > 0 -> slot is bound; must NOT be PENDING_RFID_READ.
-                if helper_spool_id > 0 and helper_expected > 0 and helper_spool_id == helper_expected:
-                    status = "NON_RFID_REGISTERED"
-                    t["decision"], t["reason"], t["action"] = "NON_RFID", "bound_invariant", "nonrfid_registered"
-                    self._set_helper(f"input_text.ams_slot_{slot}_rfid_pending_until", "")
-                    self._set_helper(f"input_text.ams_slot_{slot}_status", status)
-                    self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
-                    t["final_slot_status"] = status
-                    t["final_spool_id"] = helper_spool_id
-                    self._active_run["validation_transcripts"].append(t)
-                    if validation_mode:
-                        self._log_validation_transcript(t)
-                    continue
-
-                # PENDING_RFID_READ only when a real RFID read is expected AND an expiry exists (pending_until in future). Check before HT/non-RFID so pending wins.
-                if not tray_empty:
-                    pending_until = self._get_rfid_pending_until(slot)
-                    now_utc = datetime.datetime.utcnow()
-                    if pending_until is not None and now_utc < pending_until:
-                        status = STATUS_PENDING_RFID_READ
-                        t["decision"], t["reason"], t["action"] = "PENDING", "rfid_pending", "pending_rfid_read"
-                        self.log(
-                            f"RFID_PENDING_ACTIVE slot={slot} now={now_utc.isoformat()}Z pending_until={pending_until.isoformat()}Z empty={tray_empty} canonical_tag_uid={tag_uid!r}",
-                            level="DEBUG",
-                        )
-                        self._set_helper(f"input_text.ams_slot_{slot}_status", status)
-                        self._log_slot_status_change(slot, status, tag_uid or "", 0, tray_meta)
-                        self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str)
-                        t["final_slot_status"] = status
-                        self._active_run["validation_transcripts"].append(t)
-                        if validation_mode:
-                            self._log_validation_transcript(t)
-                        continue
-
-                # HT non-RFID trays (all-zero or empty tag_uid + tray_uuid): run BEFORE generic unbound so we never treat as UNBOUND_NO_RFID_TAG_ALL_ZERO.
-                # Use _is_all_zero_identity so both "" (runtime-normalized) and literal "000...0" match.
-                nonrfid_enabled = (self.get_state("input_boolean.p1s_nonrfid_enabled") or "").strip().lower() == "on"
-                raw_tag_uid = attrs.get("tag_uid")
-                raw_tray_uuid = attrs.get("tray_uuid")
-                if nonrfid_enabled and not tray_empty and slot in (5, 6) and self._is_all_zero_identity(raw_tag_uid, raw_tray_uuid):
-                    # HT slots 5/6: always read helper spool id LIVE from HA (no cache/snapshot) to avoid stale zero
-                    helper_entity = f"input_text.ams_slot_{slot}_spool_id"
-                    raw = self.get_state(helper_entity)
-                    try:
-                        helper_spool_id = int(raw or 0)
-                    except (ValueError, TypeError, AttributeError):
-                        helper_spool_id = 0
-                    self.log(
-                        f"HT_HELPER_READ slot={slot} entity_id={helper_entity} raw={raw!r} parsed={helper_spool_id}",
-                        level="INFO",
-                    )
-                    if helper_spool_id > 0:
-                        # HT slots 5/6 only: validate helper spool exists in Spoolman before treating as registered
-                        helper_valid = True
-                        try:
-                            spool_resp = self._spoolman_get(f"/api/v1/spool/{helper_spool_id}")
-                            if not isinstance(spool_resp, dict) or self._safe_int(spool_resp.get("id"), 0) != helper_spool_id:
-                                helper_valid = False
-                        except RuntimeError as exc:
-                            err = str(exc)
-                            if "HTTP 404" in err:
-                                helper_valid = False
-                                self.log(
-                                    f"CLEAR_MISSING_HELPER_SPOOL slot={slot} helper_spool_id={helper_spool_id} http=404 -> clearing to 0",
-                                    level="INFO",
-                                )
-                                if not status_only:
-                                    self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
-                                status = "NON_RFID_UNREGISTERED"
-                                t["decision"], t["reason"], t["action"] = "NON_RFID", "helper_spool_not_found", "nonrfid_ht_helper_cleared"
-                                t["unbound_reason"], t["unbound_detail"] = UNBOUND_HELPER_SPOOL_NOT_FOUND, f"helper_spool_id={helper_spool_id} http=404"
-                                self._set_helper(f"input_text.ams_slot_{slot}_status", status)
-                                self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_HELPER_SPOOL_NOT_FOUND)
-                                self._log_slot_status_change(slot, status, "", 0, tray_meta)
-                                t["final_slot_status"], t["final_spool_id"] = status, 0
-                                self._active_run["validation_transcripts"].append(t)
-                                if validation_mode:
-                                    self._log_validation_transcript(t)
-                                unbound += 1
-                                continue
-                            else:
-                                # Transient/5xx: do not clear helper
-                                status = "NON_RFID_UNREGISTERED"
-                                t["decision"], t["reason"], t["action"] = "NON_RFID", "spoolman_lookup_failed", "nonrfid_ht_lookup_failed"
-                                t["unbound_reason"], t["unbound_detail"] = UNBOUND_SPOOLMAN_LOOKUP_FAILED, err[:80]
-                                self._set_helper(f"input_text.ams_slot_{slot}_status", status)
-                                self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_SPOOLMAN_LOOKUP_FAILED)
-                                self._log_slot_status_change(slot, status, "", helper_spool_id, tray_meta)
-                                t["final_slot_status"], t["final_spool_id"] = status, helper_spool_id
-                                self._active_run["validation_transcripts"].append(t)
-                                if validation_mode:
-                                    self._log_validation_transcript(t)
-                                unbound += 1
-                                continue
-                        if not helper_valid:
-                            # GET returned empty/invalid (e.g. test fake or 200 with no id)
-                            self.log(
-                                f"CLEAR_MISSING_HELPER_SPOOL slot={slot} helper_spool_id={helper_spool_id} http=404 -> clearing to 0",
-                                level="INFO",
-                            )
-                            if not status_only:
-                                self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
-                            status = "NON_RFID_UNREGISTERED"
-                            t["decision"], t["reason"], t["action"] = "NON_RFID", "helper_spool_not_found", "nonrfid_ht_helper_cleared"
-                            t["unbound_reason"], t["unbound_detail"] = UNBOUND_HELPER_SPOOL_NOT_FOUND, f"helper_spool_id={helper_spool_id} http=404"
-                            self._set_helper(f"input_text.ams_slot_{slot}_status", status)
-                            self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_HELPER_SPOOL_NOT_FOUND)
-                            self._log_slot_status_change(slot, status, "", 0, tray_meta)
-                            t["final_slot_status"], t["final_spool_id"] = status, 0
-                            self._active_run["validation_transcripts"].append(t)
-                            if validation_mode:
-                                self._log_validation_transcript(t)
-                            unbound += 1
-                            continue
-                        # helper_valid: stamp and register
-                        nonrfid_tray_sig = (f"HT_SLOT_{slot}"[:255]) if slot in (5, 6) else (current_tray_sig or self._build_tray_signature(tray_meta, tray.get("state", ""), ""))
-                        if not status_only:
-                            self._force_location_and_helpers(
-                                slot, helper_spool_id, "", source="nonrfid_ht_present",
-                                tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_tray_sig,
-                                previous_helper_spool_id=previous_helper_spool_id,
-                            )
-                            if slot in (5, 6):
-                                ht_ha_sig = f"ha_sig=HT_SLOT_{slot}"
-                                self._spoolman_patch(f"/api/v1/spool/{helper_spool_id}", {"comment": ht_ha_sig})
-                        status = STATUS_OK
-                        ok += 1
-                        t["decision"], t["reason"], t["action"] = "NON_RFID", "ht_present", "nonrfid_ht_registered"
-                        t["final_spool_id"], t["selected_spool_id"] = helper_spool_id, helper_spool_id
-                        t["final_slot_status"] = status
-                        t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
-                        self.log(
-                            f"HT_NONRFID_REGISTERED slot={slot} helper_spool_id={helper_spool_id}",
-                            level="DEBUG",
-                        )
-                        self._set_helper(f"input_text.ams_slot_{slot}_status", status)
-                        self._log_slot_status_change(slot, status, "", helper_spool_id, tray_meta)
-                        self._record_decision(slot, "nonrfid_ht_present", {"helper_spool_id": helper_spool_id})
-                        self._active_run["validation_transcripts"].append(t)
-                        if validation_mode:
-                            self._log_validation_transcript(t)
-                        continue
-                    # helper_spool_id == 0: HT tray present but unregistered
-                    status = "NON_RFID_UNREGISTERED"
-                    t["decision"], t["reason"], t["action"] = "NON_RFID", "NON_RFID_PRESENT", "nonrfid_unregistered"
-                    self._set_helper(f"input_text.ams_slot_{slot}_status", status)
-                    self._record_decision(
-                        slot,
-                        "nonrfid_unregistered",
-                        {"decision": "NON_RFID", "reason": "NON_RFID_PRESENT", "action": "nonrfid_unregistered"},
-                    )
-                    self._log_slot_status_change(slot, status, tag_uid or "", 0, tray_meta)
-                    t["final_slot_status"] = status
-                    self._active_run["validation_transcripts"].append(t)
-                    if validation_mode:
-                        self._log_validation_transcript(t)
-                    continue
-
+                # Bound invariant and PENDING_RFID_READ already handled at top level; HT override for 5/6 also at top level
                 # Non-RFID stable state: spool_id already set and expected_spool_id 0/empty -> treat as assigned non-RFID slot (no rfid_pending_until required)
                 if not tray_empty:
                     if helper_spool_id > 0 and helper_expected == 0:
