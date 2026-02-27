@@ -609,6 +609,47 @@ class AmsRfidReconcile(hass.Hass):
                     self._log_validation_transcript(t)
                 continue
 
+            # Pending demotion: identity unavailable + actually pending + valid helper + stale/zero expected
+            raw_tag_uid_pd = attrs.get("tag_uid") if attrs.get("tag_uid") is not None else ""
+            raw_tray_uuid_pd = attrs.get("tray_uuid") if attrs.get("tray_uuid") is not None else ""
+            identity_unavailable = not tag_uid and self._is_all_zero_identity(raw_tag_uid_pd, raw_tray_uuid_pd)
+            stored_status = (self.get_state(f"input_text.ams_slot_{slot}_status") or "").strip()
+            pending_until_raw = (self.get_state(f"input_text.ams_slot_{slot}_rfid_pending_until") or "").strip()
+            actually_pending = stored_status == STATUS_PENDING_RFID_READ or bool(pending_until_raw)
+            stale_expected = helper_expected == 0 or helper_expected != helper_spool_id
+            if identity_unavailable and not tray_empty and helper_spool_id > 0 and actually_pending and stale_expected:
+                status = STATUS_NON_RFID_REGISTERED
+                t["decision"], t["reason"], t["action"] = "NON_RFID", "pending_demote_identity_unavailable", "nonrfid_pending_demoted"
+                self.log(
+                    f"PENDING_DEMOTE slot={slot} helper_spool_id={helper_spool_id} stale_expected={helper_expected} "
+                    f"stored_status={stored_status} pending_until={pending_until_raw!r} -> {status}",
+                    level="INFO",
+                )
+                self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
+                self._set_helper(f"input_text.ams_slot_{slot}_rfid_pending_until", "")
+                if not status_only:
+                    self._force_location_and_helpers(
+                        slot, helper_spool_id, "", source="nonrfid_converge_location",
+                        tray_meta=tray_meta, tray_state=tray.get("state", ""),
+                        tray_identity=current_tray_sig or stored_tray_sig or None,
+                        previous_helper_spool_id=0,
+                        spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
+                    )
+                    self._record_decision(slot, "nonrfid_pending_demote", {"spool_id": helper_spool_id, "stale_expected": helper_expected})
+                self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
+                ok += 1
+                t["final_slot_status"] = status
+                t["final_spool_id"] = helper_spool_id
+                t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                fid = helper_spool_id
+                if _should_converge_ha_sig(status_only, status, fid):
+                    self._converge_ha_sig(slot, fid, tray_meta, spool_index, reason="nonrfid_pending_demote", tag_uid="", tray_empty=tray_empty, tray_state_str=tray_state_str)
+                self._active_run["validation_transcripts"].append(t)
+                if validation_mode:
+                    self._log_validation_transcript(t)
+                continue
+
             # PENDING_RFID_READ only when no valid tag and tray not empty and pending_until in future
             if not tag_uid and not tray_empty:
                 pending_until = self._get_rfid_pending_until(slot)

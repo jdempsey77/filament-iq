@@ -3107,5 +3107,189 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertEqual(slot_t.get("final_location"), canonical)
 
 
+    # ── Pending demotion for identity-unavailable slots ─────────────────
+
+    def _setup_pending_demote(self, slot, spool_id, expected_id, tray_empty=False, material="PLA",
+                              spool_missing=False, tag_uid="", stored_status="PENDING_RFID_READ",
+                              pending_until=""):
+        """Helper: build state for pending demotion tests."""
+        if spool_missing:
+            spools = []
+        else:
+            spools = [_spool(spool_id, remaining_weight=400, rfid_tag_uid=None, location="Shelf",
+                             color_hex="ff0000", material=material, vendor_name="Overture", name="Overture " + material)]
+        sm = FakeSpoolman(spools, [])
+        tray_attrs = {"tag_uid": tag_uid, "type": material, "color": "ff0000", "name": "Overture " + material,
+                      "filament_id": "overture", "tray_weight": 1000, "remain": 50}
+        tray_state_val = "empty" if tray_empty else "valid"
+        state_map = {}
+        for s in range(1, 7):
+            ent = _tray_entity(s)
+            if s == slot:
+                state_map[ent] = {"attributes": tray_attrs, "state": tray_state_val}
+                state_map[f"{ent}::all"] = {"attributes": tray_attrs, "state": tray_state_val}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = str(spool_id)
+                state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = str(expected_id)
+                state_map[f"input_text.ams_slot_{s}_status"] = stored_status
+                state_map[f"input_text.ams_slot_{s}_rfid_pending_until"] = pending_until
+            else:
+                empty_a = {"tag_uid": "", "type": "", "color": "", "name": "", "filament_id": "", "tray_weight": 0, "remain": 0}
+                state_map[ent] = {"attributes": empty_a, "state": "empty"}
+                state_map[f"{ent}::all"] = {"attributes": empty_a, "state": "empty"}
+                state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+                state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+                state_map[f"input_text.ams_slot_{s}_status"] = ""
+            state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+            state_map[f"input_text.ams_slot_{s}_unbound_reason"] = ""
+        return sm, state_map
+
+    def test_nonrfid_identity_unavailable_demotes_pending_clears_expected(self):
+        """Identity unavailable + helper_spool_id=45, expected=1 (stale) ->
+        demotes to NON_RFID_REGISTERED, clears expected, converges location."""
+        slot = 1
+        spool_id = 45
+        expected_stale = 1
+        canonical = CANONICAL_LOCATION_BY_SLOT[slot]
+
+        sm, state_map = self._setup_pending_demote(slot, spool_id, expected_stale)
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test", status_only=False)
+
+        summary = r._last_summary
+        self.assertIsNotNone(summary)
+        slot_t = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == slot), None)
+        self.assertIsNotNone(slot_t)
+        self.assertEqual(slot_t.get("final_spool_id"), spool_id)
+        self.assertEqual(slot_t.get("reason"), "pending_demote_identity_unavailable")
+        self.assertEqual(slot_t.get("final_location"), canonical)
+
+        status_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"]
+        self.assertGreater(len(status_writes), 0)
+        self.assertEqual(status_writes[-1].get("value"), STATUS_NON_RFID_REGISTERED)
+
+        expected_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_expected_spool_id"]
+        cleared = any(w.get("value") == "0" for w in expected_writes)
+        self.assertTrue(cleared, "expected_spool_id must be cleared to 0")
+
+        loc_patches = [p for p in sm.patches
+                       if p.get("path") == f"/api/v1/spool/{spool_id}"
+                       and p.get("payload", {}).get("location") == canonical]
+        self.assertGreaterEqual(len(loc_patches), 1,
+                                f"spool {spool_id} must be PATCHed to {canonical}")
+
+    def test_nonrfid_identity_unavailable_pending_status_only_no_patch(self):
+        """Same stale-expected scenario with status_only=True -> no Spoolman PATCHes,
+        but expected still cleared."""
+        slot = 1
+        spool_id = 45
+        expected_stale = 1
+
+        sm, state_map = self._setup_pending_demote(slot, spool_id, expected_stale)
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test", status_only=True)
+
+        self.assertEqual(len(sm.patches), 0, "status_only=True must produce zero Spoolman PATCHes")
+
+        expected_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_expected_spool_id"]
+        cleared = any(w.get("value") == "0" for w in expected_writes)
+        self.assertTrue(cleared, "expected_spool_id must still be cleared even in status_only")
+
+    def test_nonrfid_identity_unavailable_pending_no_action_when_empty_tray(self):
+        """Empty tray + stale expected -> do NOT demote; keep existing empty-tray behavior."""
+        slot = 1
+        spool_id = 45
+        expected_stale = 1
+
+        sm, state_map = self._setup_pending_demote(slot, spool_id, expected_stale, tray_empty=True)
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test", status_only=False)
+
+        summary = r._last_summary
+        self.assertIsNotNone(summary)
+        slot_t = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == slot), None)
+        self.assertIsNotNone(slot_t)
+        self.assertNotEqual(slot_t.get("reason"), "pending_demote_identity_unavailable",
+                            "empty tray must not trigger pending demotion")
+
+    def test_nonrfid_identity_unavailable_pending_helper_missing(self):
+        """Stale expected but helper spool missing in Spoolman -> demotion fires
+        (helper_spool_id > 0 in HA helpers); truth guard in force_location handles missing spool."""
+        slot = 1
+        spool_id = 45
+        expected_stale = 1
+
+        sm, state_map = self._setup_pending_demote(slot, spool_id, expected_stale, spool_missing=True)
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test", status_only=False)
+
+        summary = r._last_summary
+        self.assertIsNotNone(summary)
+        slot_t = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == slot), None)
+        self.assertIsNotNone(slot_t)
+        self.assertEqual(slot_t.get("reason"), "pending_demote_identity_unavailable",
+                         "demotion fires (helper valid in helpers); truth guard in force_location handles missing spool")
+
+    def test_nonrfid_pending_demote_expected_zero_still_fires(self):
+        """Pending + identity unavailable + helper_spool_id=45 + expected=0 (not stale
+        but nonsensical for pending) -> demotion fires, clears pending, converges location."""
+        slot = 1
+        spool_id = 45
+        canonical = CANONICAL_LOCATION_BY_SLOT[slot]
+
+        sm, state_map = self._setup_pending_demote(slot, spool_id, expected_id=0)
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test", status_only=False)
+
+        summary = r._last_summary
+        self.assertIsNotNone(summary)
+        slot_t = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == slot), None)
+        self.assertIsNotNone(slot_t)
+        self.assertEqual(slot_t.get("reason"), "pending_demote_identity_unavailable")
+        self.assertEqual(slot_t.get("final_spool_id"), spool_id)
+
+        loc_patches = [p for p in sm.patches
+                       if p.get("path") == f"/api/v1/spool/{spool_id}"
+                       and p.get("payload", {}).get("location") == canonical]
+        self.assertGreaterEqual(len(loc_patches), 1,
+                                f"spool {spool_id} must be PATCHed to {canonical}")
+
+    def test_nonrfid_pending_demote_not_pending_no_demotion(self):
+        """Not actually pending (status != PENDING_RFID_READ, pending_until empty) ->
+        demotion must NOT fire even with stale expected."""
+        slot = 1
+        spool_id = 45
+        expected_stale = 1
+
+        sm, state_map = self._setup_pending_demote(
+            slot, spool_id, expected_stale, stored_status="", pending_until="")
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test", status_only=False)
+
+        summary = r._last_summary
+        self.assertIsNotNone(summary)
+        slot_t = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == slot), None)
+        self.assertIsNotNone(slot_t)
+        self.assertNotEqual(slot_t.get("reason"), "pending_demote_identity_unavailable",
+                            "not-pending slot must not trigger demotion")
+
+    def test_nonrfid_pending_demote_rfid_visible_no_demotion(self):
+        """tag_uid present (RFID_VISIBLE) + pending + stale expected -> demotion must NOT fire."""
+        slot = 1
+        spool_id = 45
+        expected_stale = 1
+
+        sm, state_map = self._setup_pending_demote(
+            slot, spool_id, expected_stale, tag_uid="A1B2C3D400000100")
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test", status_only=False)
+
+        summary = r._last_summary
+        self.assertIsNotNone(summary)
+        slot_t = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == slot), None)
+        self.assertIsNotNone(slot_t)
+        self.assertNotEqual(slot_t.get("reason"), "pending_demote_identity_unavailable",
+                            "RFID_VISIBLE slot must not trigger pending demotion")
+
+
 if __name__ == "__main__":
     unittest.main()
