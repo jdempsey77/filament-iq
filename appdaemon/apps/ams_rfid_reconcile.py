@@ -1679,16 +1679,29 @@ class AmsRfidReconcile(hass.Hass):
     def _clear_previous_occupant_guarded(self, slot, new_spool_id, spool_index):
         """Move previous slot occupant to Shelf or Empty, with guards.
         Only moves if:
-        1. Previous occupant's location matches this slot's canonical location
+        1. Previous occupant's *live* Spoolman location matches this slot's canonical location
         2. Previous occupant is not active in any other slot
+
+        Fresh-fetches all spools from Spoolman so stale spool_index cache
+        cannot cause missed moves (the key invariant: when spool X is bound to
+        slot N, ALL other spools at that location must be relocated).
         """
         slot_loc = CANONICAL_LOCATION_BY_SLOT.get(slot)
         if not slot_loc:
             return
         norm_slot_loc = self._normalize_location(slot_loc)
 
+        try:
+            live_spools = self._spoolman_get("/api/v1/spool?limit=1000")
+            if isinstance(live_spools, dict) and "items" in live_spools:
+                live_spools = live_spools.get("items", [])
+        except Exception as exc:
+            self.log(f"PREV_OCCUPANT_FETCH_FAIL slot={slot} error={exc}", level="WARNING")
+            live_spools = list((spool_index or {}).values())
+
         prev_spools = []
-        for sid, spool in (spool_index or {}).items():
+        for spool in live_spools:
+            sid = self._safe_int(spool.get("id"), 0)
             if sid <= 0 or sid == new_spool_id:
                 continue
             spool_loc = self._normalize_location(str(spool.get("location", "")).strip())
@@ -1702,13 +1715,6 @@ class AmsRfidReconcile(hass.Hass):
         for prev in prev_spools:
             prev_id = self._safe_int(prev.get("id"), 0)
             if prev_id <= 0:
-                continue
-            actual_loc = self._normalize_location(str(prev.get("location", "")).strip())
-            if actual_loc != norm_slot_loc:
-                self.log(
-                    f"PREV_OCCUPANT_SKIP slot={slot} spool_id={prev_id} reason=location_mismatch expected={norm_slot_loc} actual={actual_loc}",
-                    level="INFO",
-                )
                 continue
             if self._is_spool_active_in_other_slot(prev_id, slot):
                 self.log(
