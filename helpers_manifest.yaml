@@ -69,3 +69,7 @@ required_helpers:
   - input_text.p1s_print_job_key
   # Test / debug
   - input_text.filament_test_last_result
+
+# Required input_number helpers (Add Spool popup, etc.). Must stay in sync with input_number: in configuration.yaml.
+required_input_number_helpers:
+  - input_number.spoolman_new_spool_quantity
