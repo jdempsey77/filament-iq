@@ -1,11 +1,14 @@
+# MIGRATION ONLY — retire after all spools have lot_nr populated. See Legacy Field Cleanup task.
 """Canonical encoding/decoding for Spoolman extra fields.
 
 Spoolman stores extra fields as JSON-in-string values. This module provides
 deterministic canonicalization to prevent encoding drift (double-quoting,
 stale whitespace, case variance) that causes match failures.
 
-All reconciler code that reads or writes Spoolman extra fields MUST use these
-functions. Never compare or write raw extra values directly.
+As of Spec v4, extra fields (rfid_tag_uid, ha_spool_uuid) are retired.
+Identity now lives in lot_nr (plain string, no encoding). This module
+is retained only to read legacy extra values during migration fallback.
+No new write paths should use these functions.
 """
 
 import json

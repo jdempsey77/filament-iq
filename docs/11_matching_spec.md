@@ -1,4 +1,4 @@
-# Spool Matching Specification v3
+# Spool Matching Specification v4
 ## Canonical Reference — Reconciler Behavior
 
 This document is the authoritative specification for how the AMS reconciler identifies and binds spools to slots. All reconciler code must implement this spec exactly. When code and spec conflict, the spec wins.
@@ -7,12 +7,20 @@ This document is the authoritative specification for how the AMS reconciler iden
 - v1: Initial spec derived from design sessions
 - v2: Updated based on deep code analysis (ANALYZE report, 2026-02-27). Key changes: canonicalizer gap identified and made P0 fix, HT path clarified as shared capability not slot-specific, safety poll made status-only, tie-break and EOL edge cases tightened, previous-occupant guard added.
 - v3: Updated 2026-02-28. Key changes: unified code path for all 6 slots (proven by sensor schema analysis), filament_id as primary non-RFID signal, color demoted to fuzzy tiebreaker, generic sentinel short-circuit, tray_uuid identified as primary RFID identity (spool SN), HT-specific code paths and fingerprint format retired, Bambu vendor exclusion rule tightened, remain=-1 sentinel defined, color normalization rule formalized.
+- v4: Updated 2026-02-28. Key changes: **lot_nr migration** — `lot_nr` replaces all Spoolman `extra` fields as the single identity storage field for both RFID and non-RFID spools. `extra.rfid_tag_uid` and `extra.ha_spool_uuid` retired (read-only fallback during migration window, never written). `comment` freed for human use. Canonicalizer marked migration-only. Non-RFID sig simplified to `type|filament_id|color_hex` (name and tag_uid dropped). HA_SIG write to comment retired.
 
 ---
 
-## P0 Fix — Canonicalizer Module (COMPLETE)
+## P0 Fix — Canonicalizer Module (MIGRATION-ONLY as of v4)
 
-`spoolman_extra_canonicalizer.py` has been created and deployed. Import failure is a hard startup error (RuntimeError). All RFID UID and UUID encoding/decoding goes through the canonicalizer. This was the root cause of intermittent recognition failures. **Do not revert.**
+`spoolman_extra_canonicalizer.py` remains deployed but is now **migration-only**. It is used only to read legacy `extra.rfid_tag_uid` and `extra.ha_spool_uuid` values during the migration fallback window. It must not be used for any new writes. Once all spools have `lot_nr` populated, the canonicalizer can be retired (see Legacy Field Cleanup task).
+
+Module-level docstring must read:
+```python
+# MIGRATION ONLY — retire after all spools have lot_nr populated. See Legacy Field Cleanup task.
+```
+
+**Do not revert the canonicalizer. Do not add new write paths through it.**
 
 ---
 
@@ -22,12 +30,12 @@ This document is the authoritative specification for how the AMS reconciler iden
 - Spools are **never auto-created** by the reconciler. A spool that does not exist in Spoolman is a data gap, not a creation opportunity. The correct response is always NEEDS_ACTION.
 - Identity is **explicit and sticky**. Once a spool is bound to a slot, the binding persists until a real physical change is detected.
 - The candidate pool is **ordered and exhausted top-down**. Lower tiers are only searched when higher tiers yield no match.
-- All encoding and decoding of Spoolman extra fields **must go through the canonicalizer**. Never use raw `json.dumps()` or manual string manipulation for extra field values.
+- **Identity lives in `lot_nr` only.** No extra fields are written. No canonicalization required. Plain string PATCH.
 - **One code path for all 6 slots.** No HT-specific branches. Slot identity is configuration, not logic.
 
 ---
 
-## Hardware Model — Unified Slot Architecture (NEW in v3)
+## Hardware Model — Unified Slot Architecture
 
 ### All 6 slots are equivalent
 
@@ -60,45 +68,89 @@ TRAY_ENTITY_BY_SLOT = {
 
 The reconciliation logic never branches on slot number. Any capability that applies to one slot applies to all.
 
-### Retired in v3
-
-The following HT-specific constructs must be removed:
-- `_compute_ht_fingerprint` — replaced by `_build_tray_signature` for all slots
-- `HT_GUARD` — replaced by universal all-zero identity check
-- HT-only pending confirmation — now applies to all slots uniformly
-- HT-only confidence gating — now applies to all slots uniformly
-- Legacy `NONRFID|TYPE|COLOR|STATE` tray_signature format — any stored helper value starting with `NONRFID|` must be cleared on deploy and logged as `LEGACY_SIGNATURE_CLEARED slot={slot}`
-
 ---
 
-## Spool Identity Fields
+## Spool Identity — v4 Model
 
-### RFID spools
+### The single identity field: `lot_nr`
 
-RFID spools have both identity fields populated with non-zero values:
+`lot_nr` is a native Spoolman top-level string field. It is the **only** field the reconciler reads for identity matching and the **only** field it writes for identity enrollment. No extra fields. No encoding. Plain string PATCH.
 
-| Field | Source | Role | Notes |
-|-------|--------|------|-------|
-| `tray_uuid` | RFID chip | **Primary identity** | Spool serial number (SN). Shown in Bambu Studio. Stable per spool. Verified: all-zero for non-RFID. |
-| `tag_uid` | RFID chip | **Secondary identity** | Raw RFID hardware UID. Shown in Bambu Handy. Can get stuck/stale without physical reload. Used for Spoolman `rfid_tag_uid` enrollment. |
+| Spool type | `lot_nr` value | `comment` field |
+|---|---|---|
+| Bambu RFID | `tray_uuid` e.g. `38D1181E8F024FDA9D040D3BE3A20312` | Free for human notes |
+| Non-RFID | Identity sig e.g. `PLA\|GFL05\|898989` | Free for human notes |
 
-`tray_uuid` is the preferred sticky signal because it is the manufacturer's serial number — more stable than `tag_uid` which can exhibit `RFID_IDENTITY_STUCK` behavior.
+### RFID spool identity
+
+RFID spools have both hardware fields populated with non-zero values:
+
+| Field | Source | Role |
+|---|---|---|
+| `tray_uuid` | RFID chip data | **Primary identity** — spool factory serial. Stable, orientation-independent. Stored in `lot_nr`. |
+| `tag_uid` | RFID chip hardware UID | **Retired** — no longer stored or matched. Orientation-dependent. |
 
 **Non-RFID indicator:** Both fields are all-zero:
 - `tag_uid == "0000000000000000"`
 - `tray_uuid == "00000000000000000000000000000000"`
 
-### Non-RFID spools
+### Non-RFID spool identity sig
 
-| Field | Reliability | Notes |
-|-------|-------------|-------|
-| `filament_id` | **High** (when non-generic) | Bambu catalog ID (e.g. `GFL05`). Primary non-RFID match signal when non-sentinel. |
-| `type` | High | Material type (PLA, PETG, ABS). Always present. |
-| `name` | Medium | Filament name from chip. May differ from Spoolman filament name. |
-| `color` | **Low** | From chip. Does NOT reliably match Spoolman filament color (Spoolman colors come from external catalog). Never a hard match gate. |
-| `remain` | Sentinel | `-1` means weight unknown. Not empty. Treat as no data. |
+Format: `type|filament_id|color_hex`
 
-### Generic sentinel filament_ids (NEW in v3)
+All values lowercased, stripped. Color normalized (6 hex chars, no `#`, no alpha). Max 255 chars.
+
+Examples:
+- `pla|gfl05|898989`
+- `petg|gfg99|ffffff`
+
+**Fields dropped from sig vs v3:** `name` and `tag_uid` are no longer included. The sig is now purely filament-property-derived — stable across renames and orientation changes.
+
+`_build_tray_signature` must be updated to produce this format. The v3 format `name|type|filament_id|color_hex|tag_uid` is retired for `lot_nr` storage. The v3 format may be retained internally as the `tray_signature` HA helper value (for sticky mapping), but must never be written to Spoolman `lot_nr`.
+
+---
+
+## Identity Resolution — `lot_nr` Primary + Legacy Fallback
+
+### RFID path
+
+```
+tray_uuid = attrs.get("tray_uuid")
+is_rfid = tray_uuid not in (None, "", "00000000000000000000000000000000")
+
+1. Match tray_uuid against spool.lot_nr
+   → Match found: BOUND. Done.
+
+2. Fallback (migration): match tray tag_uid against extra.rfid_tag_uid (via canonicalizer)
+   → Match found: write tray_uuid to lot_nr (plain PATCH). BOUND.
+
+3. No match at any tier: UNBOUND → NEEDS_ACTION
+```
+
+### Non-RFID path
+
+```
+sig = build_lot_sig(type, filament_id, color_hex)  # type|filament_id|color_hex
+
+1. Match sig against spool.lot_nr
+   → Match found: BOUND. Done.
+
+2. Fallback (migration): match computed HA_SIG against spool.comment
+   → Match found: write sig to lot_nr (plain PATCH). BOUND.
+
+3. No match at any tier: UNBOUND → NEEDS_ACTION
+```
+
+### Migration fallback rules
+
+- Fallback paths are **read-only** — they never write to `extra` fields or `comment`
+- Fallback paths **do write `lot_nr`** on successful match, promoting the spool to v4 identity
+- Once `lot_nr` is populated, the fallback paths are never reached for that spool
+- Fallback paths will be removed entirely after Legacy Field Cleanup task completes
+
+---
+
+## Generic Sentinel Filament IDs
 
 Bambu uses the `xx99` suffix for "unknown filament of this type":
 
@@ -115,7 +167,7 @@ A spool whose name starts with "Generic" but whose `filament_id` is non-sentinel
 
 ---
 
-## Color Normalization (NEW in v3)
+## Color Normalization
 
 Tray sensor reports color with `#` prefix and alpha channel: `#898989FF`
 
@@ -123,14 +175,14 @@ Tray sensor reports color with `#` prefix and alpha channel: `#898989FF`
 1. Strip leading `#`
 2. If length is 8 (RRGGBBAA), strip last 2 characters (alpha channel)
 3. Uppercase for Spoolman storage
-4. Lowercase for HA_SIG
+4. Lowercase for sig and HA helper values
 
 Examples:
 - `#898989FF` → `898989`
 - `#000000FF` → `000000`
 - `#FFFFFFFF` → `FFFFFF`
 
-**Color is never a hard match gate.** Spoolman filament colors come from an external catalog and do not reliably match sensor-reported colors. Color is used only as a fuzzy tiebreaker when multiple candidates remain after stronger signals have been applied.
+**Color is never a hard match gate.** Used only as a fuzzy tiebreaker when multiple candidates remain after stronger signals have been applied.
 
 ---
 
@@ -174,9 +226,7 @@ The reconciler fires on:
 
 ---
 
-## Shared Capabilities — All 6 Slots (unified in v3)
-
-These capabilities previously existed only in the HT path. They now apply uniformly to all 6 slots.
+## Shared Capabilities — All 6 Slots
 
 ### 1. Pending confirmation (all non-RFID slots)
 
@@ -229,8 +279,8 @@ Spools whose Spoolman location is a canonical AMS slot where the tray entity cur
 ### Tier 3 — New (Last Resort, Exact Match Only)
 
 Spools with `location == "New"`. Exact matches only:
-- RFID: `extra.rfid_tag_uid` decoded via canonicalizer must exactly match tray `tag_uid`
-- Non-RFID: Spoolman comment must exactly match computed HA_SIG
+- RFID: `lot_nr` must exactly match tray `tray_uuid`
+- Non-RFID: `lot_nr` must exactly match computed sig
 
 Fuzzy matching never used against New pool. No exact match → NEEDS_ACTION.
 
@@ -255,42 +305,46 @@ All tiers exhausted → NEEDS_ACTION.
 
 ## Match Key — RFID Spools
 
-1. Normalize tray `tag_uid` via canonicalizer
-2. Find spools where `extra.rfid_tag_uid` (decoded via canonicalizer) equals tray UID
+1. Read `tray_uuid` from tray sensor attributes (`attrs.get("tray_uuid")`)
+2. Find spools where `spool.lot_nr` exactly equals `tray_uuid`
 3. Sticky: if `tray_uuid` matches stored `tray_signature` → re-bind immediately
 
 Rules:
-- Canonicalizer mandatory before any comparison
-- Spool with empty/sentinel `rfid_tag_uid` after decode is never an RFID candidate
-- On first insertion, UID written to `extra.rfid_tag_uid` via canonicalizer encode path
+- No canonicalization needed — `lot_nr` is a plain string
+- Spool with empty `lot_nr` is never an RFID candidate via primary path
+- Migration fallback only: if `lot_nr` empty, check `extra.rfid_tag_uid` via canonicalizer (read-only)
+- On successful match via fallback: write `tray_uuid` to `lot_nr`
 
 ---
 
-## Match Key — Non-RFID Spools (revised in v3)
+## Match Key — Non-RFID Spools
 
 Applied in order. Stop at first step that produces exactly one candidate.
 
 **Step 1 — Sticky mapping fast path:**
 `_build_tray_signature` output matches stored `tray_signature` helper → re-bind immediately.
 
-**Step 2 — HA_SIG Flow B (cross-slot re-insertion):**
-Compute HA_SIG from tray metadata. Find spools whose Spoolman comment matches exactly.
+**Step 2 — lot_nr exact match:**
+Compute sig = `type|filament_id|color_hex`. Find spools whose `lot_nr` matches exactly.
 
-**Step 3 — filament_id exact match (NEW):**
+**Step 3 — Migration fallback (comment HA_SIG):**
+If no `lot_nr` match, check spool `comment` for legacy HA_SIG match. If found: write sig to `lot_nr`, bind.
+
+**Step 4 — filament_id exact match:**
 If `filament_id` is non-generic AND Spoolman `filament.external_id` is populated:
 - Match tray `filament_id` against `filament.external_id` exactly
 - Eligible locations: Shelf only
 
-**Step 4 — Vendor + material match:**
+**Step 5 — Vendor + material match:**
 Match `filament.vendor.name` + `filament.material`. Eligible locations: Shelf only.
 
-Bambu vendor spools **are eligible** when `filament_id` is non-generic (e.g. `GFA00`). The old rule excluding all Bambu vendor spools from non-RFID matching is retired. Bambu spools are excluded only when `filament_id` is generic sentinel — but those are already blocked by pre-flight.
+Bambu vendor spools **are eligible** when `filament_id` is non-generic (e.g. `GFA00`). Bambu spools are excluded only when `filament_id` is a generic sentinel — but those are already blocked by pre-flight.
 
-**Step 5 — Color as fuzzy tiebreaker only:**
-Applied only when multiple candidates remain after Steps 3–4. Tolerance-based comparison. Exact equality is not required and must not be enforced.
+**Step 6 — Color as fuzzy tiebreaker only:**
+Applied only when multiple candidates remain after Steps 4–5. Tolerance-based comparison. Exact equality is not required and must not be enforced.
 
 **Exclusions from non-RFID pool:**
-- Spools with non-empty `rfid_tag_uid` after decode — RFID spools matched by UID only
+- Spools with non-empty `lot_nr` that does not match computed sig — these are RFID or different non-RFID spools
 
 ---
 
@@ -307,36 +361,36 @@ Applied only when multiple candidates remain after Steps 3–4. Tolerance-based 
 
 1. Write `spool_id` helper
 2. Write `expected_spool_id` helper
-3. Write `tray_signature` helper using `_build_tray_signature` (all 6 slots)
-4. Write HA_SIG to Spoolman comment (idempotent)
+3. Write `tray_signature` helper using `_build_tray_signature`
+4. Write `lot_nr` to Spoolman if not already set (enrollment)
 5. Move Spoolman `location` to canonical slot location
 6. Clear previous occupant (with guard)
 
-### tray_signature format (unified — v3)
+**Do NOT write to `comment`.** Comment is now free for human use.
 
-`_build_tray_signature` format for all 6 slots:
+### tray_signature format (HA helper — internal only)
+
+`_build_tray_signature` format for all 6 slots (internal HA helper, not stored in Spoolman):
 ```
 name|type|filament_id|color_hex|tag_uid
 ```
 All values: lowercased, stripped, max 255 chars. Color normalized per §Color Normalization.
 
-Examples:
-- Non-RFID: `overture matte pla|pla|gfl05|898989|`
-- RFID: `bambu pla basic|pla|gfa00|000000|a6ec1bde00000100`
+This format is used **only** for the internal `tray_signature` HA helper for sticky mapping. It is **not** written to Spoolman `lot_nr`. The `lot_nr` sig format is `type|filament_id|color_hex` only.
 
 **Legacy format retired:** Any `tray_signature` beginning with `NONRFID|` must be cleared on deploy. Log `LEGACY_SIGNATURE_CLEARED slot={slot}`.
 
-### HA_SIG format (Spoolman comment)
+### lot_nr enrollment sig format (Spoolman — persisted)
 
 ```
-HA_SIG=bambu|filament_id=<id>|type=<type>|color_hex=<hex>
+type|filament_id|color_hex
 ```
-All lowercase. Color 6-char normalized, no `#`. Example:
+Lowercase. Color 6-char normalized, no `#`. Example:
 ```
-HA_SIG=bambu|filament_id=gfa00|type=pla|color_hex=00ae42
+pla|gfl05|898989
 ```
 
-Returns `None` (no write) when `filament_id` is generic sentinel or any required field is missing.
+Returns no write when `filament_id` is generic sentinel or any required field is missing.
 
 ### Previous occupant clearing guard
 
@@ -364,7 +418,6 @@ Move to `Shelf` if `remaining_weight > 0`, `Empty` if `remaining_weight <= 0`.
 When `remaining_weight <= 0` and tray transitions to `empty`:
 - Move Spoolman `location` to `Empty`
 - `Empty` excluded from all tiers permanently
-- HA_SIG preserved for historical reference
 
 ---
 
@@ -386,35 +439,44 @@ Only re-run waterfall when tray identity actually changes (after pending confirm
 
 ## Mismatch Detection
 
-RFID UID mismatch or non-RFID material mismatch:
+`lot_nr` mismatch or non-RFID material mismatch:
 - Status: `CONFLICT: MISMATCH`, clear helpers, notify, require user intervention. No auto-correction.
 
 ---
 
-## UID Integrity
+## UID Integrity (v4)
 
 ### Write paths
 
-`rfid_tag_uid` written only via `_manual_enroll`. Automatic reconcile never writes `rfid_tag_uid`.
+`lot_nr` written only via bind path. Automatic reconcile writes `lot_nr` on first enrollment only. Overwriting existing `lot_nr` with a different value is refused unless explicitly triggered by manual enrollment.
 
 ### Overwrite protection
 
-Refuse to overwrite existing different UID. Log:
+Refuse to overwrite existing different `lot_nr`. Log:
 ```
-RFID_UID_CONFLICT spool_id={id} existing_uid={existing} tray_uid={tray} reason=refuse_overwrite
+LOT_NR_CONFLICT spool_id={id} existing={existing} tray_uuid={tray} reason=refuse_overwrite
 ```
 
 ### Encoding
 
-Correct: `"\"1D33DD3B00000100\""` (length 18). Empty encoded `"\"\""` (length 2) treated as absent. Canonicalizer enforces single-layer encoding. Import failure = hard startup error.
+None required. `lot_nr` is a plain string. No JSON encoding. No canonicalizer.
 
 ---
 
 ## Spoolman Data Requirements
 
-### filament.external_id population (NEW in v3)
+### lot_nr population
 
-Non-RFID filament_id exact match (Step 3) requires `filament.external_id` populated with Bambu catalog IDs.
+All active spools should have `lot_nr` populated. The reconciler populates it organically on first load/bind. For the immediate known case:
+
+**Spool 41 (Bambu Green) — patch immediately:**
+```
+lot_nr = 38D1181E8F024FDA9D040D3BE3A20312
+```
+
+### filament.external_id population
+
+Non-RFID filament_id exact match (Step 4) requires `filament.external_id` populated with Bambu catalog IDs.
 
 Until populated, matching falls back to vendor + material + fuzzy color. Generic sentinels always short-circuit.
 
@@ -441,18 +503,21 @@ Until populated, matching falls back to vendor + material + fuzzy color. Generic
 
 - Auto-create Spoolman spool records
 - Auto-select from `location == "Empty"`
-- Overwrite existing RFID UID binding with different UID
+- Overwrite existing `lot_nr` binding with different value
 - Silently succeed when truth guard fires
-- Use raw `json.dumps()` for extra field encoding
+- Use raw `json.dumps()` for any Spoolman field
 - Treat `unavailable` or `unknown` tray state as `empty`
 - Treat `remain == -1` as zero or empty
 - Write to Spoolman when tray identity signals are inconsistent
-- PATCH `extra` without reading current extra first
+- Write to `comment` field (reserved for human use)
+- Write to `extra.rfid_tag_uid` or `extra.ha_spool_uuid` (retired fields)
+- PATCH `extra` for any identity purpose
 - Move spool whose location does not match expected source location
 - Run fuzzy matching against `New` location pool
 - Branch on slot number in reconciliation logic
 - Use `_compute_ht_fingerprint` or write `NONRFID|` format signatures
 - Use color as a hard match gate
+- Include `name` or `tag_uid` in the `lot_nr` sig
 
 ---
 
@@ -460,10 +525,12 @@ Until populated, matching falls back to vendor + material + fuzzy color. Generic
 
 | Priority | Item | Status | Rationale |
 |---|---|---|---|
-| **P1** | Canonicalizer | ✅ COMPLETE | Root cause fix. Hard import failure. 39 tests. |
+| **P1** | Canonicalizer | ✅ COMPLETE | Root cause fix. Now migration-only in v4. |
 | **P2** | Safety poll status_only + remove auto-create | ✅ COMPLETE | Aligns with event-driven principle. |
-| **P3** | Startup readiness waiter | ✅ COMPLETE | Fixes DomainException startup race. 420s budget, 3-condition probe. |
-| **P4** | Unified code path — retire HT-specific code | **NEXT** | One path for all 6 slots. Retire `_compute_ht_fingerprint`, `HT_GUARD`. Extract pending confirmation + confidence gating to shared methods. Clear legacy `NONRFID|` tray_signatures on deploy. Parameterized tests across slots 1–6. |
-| **P5** | Non-RFID matching improvements | After P4 | filament_id as primary signal. Color as fuzzy tiebreaker. Sentinel short-circuit. Fix Bambu vendor exclusion. |
-| **P6** | Three-tier waterfall | After P5 | Implement Tier 2 (AMS slot empty-confirmed). |
-| **P7** | Previous occupant clearing guard | After P6 | Prevents irreversible moves of in-use spools. |
+| **P3** | Startup readiness waiter | ✅ COMPLETE | Fixes DomainException startup race. |
+| **P4** | Unified code path — retire HT-specific code | ✅ COMPLETE | One path for all 6 slots. |
+| **P5** | Non-RFID matching improvements | ✅ COMPLETE | filament_id primary signal. Color tiebreaker. Sentinel short-circuit. |
+| **P6** | Three-tier waterfall | ✅ COMPLETE | Tier 2 AMS slot empty-confirmed. |
+| **P7** | Previous occupant clearing guard | ✅ COMPLETE | Prevents irreversible moves of in-use spools. |
+| **P8** | lot_nr identity migration (Spec v4) | **NEXT** | Replace all extra field identity with lot_nr. Retire rfid_tag_uid write path. Retire ha_spool_uuid. Free comment field. Update _build_tray_signature for lot_nr sig. Add migration fallback read paths. Patch spool 41. |
+| **P9** | Legacy field cleanup | After P8 verified | PATCH extra fields to null. Delete extra field definitions in Spoolman UI. Retire canonicalizer. Clear comment fields. Update test suite. See Legacy Field Cleanup task. |

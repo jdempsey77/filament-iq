@@ -1,50 +1,52 @@
 # Data Model
-
 ## Slot
-
 A logical slot maps to:
-
-- AMS tray
+- AMS tray sensor
 - Spool identity
-- Tray signature
+- Tray signature (HA helper)
 - State machine state
 
 ---
-
 ## Tray Identity
-
 Primary:
-- tray_uuid
-
-Fallback:
-- tag_uid (RFID)
+- `tray_uuid` (RFID spools) — factory serial, orientation-independent
+- `type|filament_id|color_hex` sig (non-RFID spools) — filament-property-derived
 
 Stored in:
-input_text.ams_slot_{slot}_tray_signature
+`input_text.ams_slot_{slot}_tray_signature`
 
 Rules:
-- Sticky
-- Only updated on confirmed physical change
-- Cleared when spool_id becomes 0
+- Sticky — only updated on confirmed physical change
+- Cleared when `spool_id` becomes 0
+- `tag_uid` is no longer used as an identity field
 
 ---
-
 ## Spool Identity
-
-- HA helper stores spool_id
+- HA helper stores `spool_id`
 - Spoolman is source of truth
-- spool_id mutates only when tray identity changes
+- `spool_id` mutates only when tray identity changes
 
 ---
+## Spoolman Identity Field (v4)
+**`lot_nr`** is the single identity storage field for all spool types.
 
-## Spoolman extra fields
+| Spool type | `lot_nr` value |
+|---|---|
+| Bambu RFID | `tray_uuid` e.g. `38D1181E8F024FDA9D040D3BE3A20312` |
+| Non-RFID | sig e.g. `pla\|gfl05\|898989` |
 
-IMPORTANT:
+- Plain string — no encoding required
+- Direct top-level PATCH — no GET-merge-PATCH needed
+- `comment` field is free for human use
 
-Spoolman extra values must be JSON-encoded literals.
+---
+## Retired Fields (v4)
+| Field | Status | Notes |
+|---|---|---|
+| `extra.rfid_tag_uid` | Retired | Read-only during migration fallback. Never written. |
+| `extra.ha_spool_uuid` | Retired | No longer generated or written. |
+| Spoolman `comment` | Freed | Was HA_SIG storage. Now human-only. |
 
-Example:
-"rfid_tag_uid": "\"A71B987C00000100\""
-
-PATCH replaces entire extra block.
-Malformed JSON will be rejected.
+**Spoolman extra field encoding rules no longer apply.** The canonicalizer
+(`spoolman_extra_canonicalizer.py`) is migration-only and will be retired after
+all spools have `lot_nr` populated.
