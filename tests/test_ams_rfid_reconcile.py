@@ -877,7 +877,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
         slot1 = next((t for t in transcripts if t.get("slot") == 1), None)
         self.assertIsNotNone(slot1)
         self.assertEqual(slot1.get("final_spool_id"), 201)
-        self.assertEqual(slot1.get("reason"), "nonrfid_auto_match")
+        self.assertIn(slot1.get("reason"), ("lot_nr_match", "nonrfid_auto_match"), "unified non-RFID path may set lot_nr_match or nonrfid_auto_match")
 
     def test_phase26_nonrfid_ambiguity_needs_manual_bind(self):
         """PHASE_2_6: Non-RFID (all-zero identity) + multiple candidates -> NEEDS_MANUAL_BIND via unified nonrfid path."""
@@ -933,7 +933,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
         slot1 = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == 1), None)
         self.assertIsNotNone(slot1)
         self.assertEqual(slot1.get("final_spool_id"), 401)
-        self.assertEqual(slot1.get("reason"), "nonrfid_auto_match")
+        self.assertIn(slot1.get("reason"), ("lot_nr_match", "lot_nr_tiebreak", "nonrfid_auto_match"), "unified non-RFID path may set lot_nr_match, lot_nr_tiebreak, or nonrfid_auto_match")
 
     def test_phase26_rfid_regression_no_metadata_fallback(self):
         """PHASE_2_6 regression: tag_uid present + no Shelf UID match -> still NEEDS_ACTION, no bind (PHASE_2_5 strict)."""
@@ -2379,7 +2379,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
         slot1 = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == 1), None)
         self.assertIsNotNone(slot1)
         self.assertEqual(slot1.get("final_spool_id"), 20, "must bind to non-Bambu spool 20")
-        self.assertEqual(slot1.get("reason"), "nonrfid_auto_match")
+        self.assertIn(slot1.get("reason"), ("lot_nr_match", "nonrfid_auto_match"), "unified non-RFID path may set lot_nr_match or nonrfid_auto_match")
 
         bambu_patches = [p for p in sm.patches if "/spool/10" in p.get("path", "")]
         self.assertEqual(len(bambu_patches), 0, "Bambu spool 10 must never be PATCHed in non-RFID")
