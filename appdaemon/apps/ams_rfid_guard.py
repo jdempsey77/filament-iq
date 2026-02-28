@@ -25,6 +25,7 @@ import hassapi as hass
 
 
 BAMBU_VENDOR_NAMES = ("bambu", "bambu lab")
+_AMS_LOC_RE = re.compile(r"^AMS\d+_Slot\d+$", re.IGNORECASE)
 
 
 class ReasonCode:
@@ -205,6 +206,10 @@ class AmsRfidGuard(hass.Hass):
                 "spool_id": spool_id,
                 "location": location,
             }
+
+        # Only enforce identity invariants for spools currently in AMS slots
+        if not _AMS_LOC_RE.match(location):
+            return None
 
         # v4: lot_nr is the primary identity field; ha_spool_uuid is legacy
         lot_nr = str(spool.get("lot_nr") or "").strip()

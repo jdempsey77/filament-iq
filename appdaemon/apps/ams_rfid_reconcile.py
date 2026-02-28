@@ -372,6 +372,7 @@ class AmsRfidReconcile(hass.Hass):
         self.debounce_handle = None
         self.debounce_reasons = []
         self._active_run = None
+        self._pending_lot_nr_writes = {}
         self._missing_helper_warned = set()
         self._pending_helper_warned = set()
         self._domain_exception_class_logged = False
@@ -604,6 +605,16 @@ class AmsRfidReconcile(hass.Hass):
             spools = spools.get("items", [])
         if not isinstance(spools, list):
             raise RuntimeError("Spoolman /api/v1/spool did not return a list")
+
+        if self._pending_lot_nr_writes:
+            pending = self._pending_lot_nr_writes
+            self._pending_lot_nr_writes = {}
+            spool_by_id = {self._safe_int(s.get("id"), 0): s for s in spools}
+            for sid, lot_val in pending.items():
+                target = spool_by_id.get(sid)
+                if target is not None:
+                    target["lot_nr"] = lot_val
+                    self.log(f"PENDING_LOT_NR_MERGED spool_id={sid} lot_nr={lot_val}", level="INFO")
 
         # v4 lot_nr index: primary identity lookup (tray_uuid for RFID, sig for non-RFID)
         lotnr_to_spools = {}
@@ -1848,6 +1859,7 @@ class AmsRfidReconcile(hass.Hass):
 
         spool_index = {self._safe_int(s.get("id"), 0): s for s in spools}
         self._enroll_lot_nr(spool_id, enroll_tray_uuid, spool_index, reason="manual_enroll")
+        self._pending_lot_nr_writes[spool_id] = enroll_tray_uuid
         self._patch_spool_fields(spool_id, {"location": CANONICAL_LOCATION_BY_SLOT[slot]})
         self.log(
             f"MANUAL_ENROLL_LOT_NR_WRITTEN slot={slot} spool_id={spool_id} tray_uuid={enroll_tray_uuid}",
