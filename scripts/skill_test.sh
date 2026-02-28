@@ -91,6 +91,7 @@ PREFLIGHTS=(
   "./scripts/preflight_spoolman_location_update.sh"
   "./scripts/preflight_spoolman_uuid_present.sh"
   "./scripts/preflight_canonicalizer.sh"
+  "./scripts/preflight_helpers.sh"
   "./scripts/validate_helpers.sh"
 )
 

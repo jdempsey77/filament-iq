@@ -1,6 +1,7 @@
-# Required HA helpers (input_text). Validated by scripts/validate_helpers.sh.
-# Add new helpers here when the repo relies on them; find_missing_helpers.sh locates definitions.
+# Required HA helpers (input_text). Validated by scripts/preflight_helpers.sh.
+# Must stay in sync with the input_text: section of configuration.yaml.
 required_helpers:
+  # AMS slot core (6 slots × spool_id, expected_spool_id, status)
   - input_text.ams_slot_1_spool_id
   - input_text.ams_slot_1_expected_spool_id
   - input_text.ams_slot_1_status
@@ -19,21 +20,52 @@ required_helpers:
   - input_text.ams_slot_6_spool_id
   - input_text.ams_slot_6_expected_spool_id
   - input_text.ams_slot_6_status
+  # AMS slot tray signatures (6 slots)
   - input_text.ams_slot_1_tray_signature
   - input_text.ams_slot_2_tray_signature
   - input_text.ams_slot_3_tray_signature
   - input_text.ams_slot_4_tray_signature
   - input_text.ams_slot_5_tray_signature
   - input_text.ams_slot_6_tray_signature
+  # AMS slot expected color hex (6 slots)
   - input_text.ams_slot_1_expected_color_hex
   - input_text.ams_slot_2_expected_color_hex
   - input_text.ams_slot_3_expected_color_hex
   - input_text.ams_slot_4_expected_color_hex
   - input_text.ams_slot_5_expected_color_hex
   - input_text.ams_slot_6_expected_color_hex
+  # AMS slot unbound reason (6 slots)
+  - input_text.ams_slot_1_unbound_reason
+  - input_text.ams_slot_2_unbound_reason
+  - input_text.ams_slot_3_unbound_reason
+  - input_text.ams_slot_4_unbound_reason
+  - input_text.ams_slot_5_unbound_reason
+  - input_text.ams_slot_6_unbound_reason
+  # AMS slot RFID pending until (6 slots)
+  - input_text.ams_slot_1_rfid_pending_until
+  - input_text.ams_slot_2_rfid_pending_until
+  - input_text.ams_slot_3_rfid_pending_until
+  - input_text.ams_slot_4_rfid_pending_until
+  - input_text.ams_slot_5_rfid_pending_until
+  - input_text.ams_slot_6_rfid_pending_until
+  # Spoolman integration
   - input_text.spoolman_base_url
   - input_text.spoolman_new_filament_name
   - input_text.spoolman_new_filament_material
   - input_text.spoolman_new_filament_color_hex
   - input_text.spoolman_new_spool_location
   - input_text.spoolman_new_spool_uuid
+  # P1S print tracking state
+  - input_text.p1s_last_active_tray
+  - input_text.p1s_last_tray_entity
+  - input_text.p1s_trays_used_this_print
+  - input_text.p1s_init_seed_debug
+  - input_text.p1s_last_print_status_transition
+  - input_text.p1s_finish_automation_checkpoint
+  - input_text.p1s_slot_to_spool_binding_json
+  - input_text.p1s_last_mapping_json
+  - input_text.p1s_tray_remaining_start_json
+  - input_text.p1s_tray_remaining_end_json
+  - input_text.p1s_print_job_key
+  # Test / debug
+  - input_text.filament_test_last_result

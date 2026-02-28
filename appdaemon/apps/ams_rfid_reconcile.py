@@ -177,6 +177,11 @@ def _is_bambu_vendor(spool: dict) -> bool:
     return _vendor_name(spool).lower() == "bambu lab"
 
 
+def is_generic_filament_id(filament_id: str) -> bool:
+    """True when filament_id is a Bambu generic sentinel (ends in 99)."""
+    return str(filament_id or "").strip().upper().endswith("99")
+
+
 def _classify_unbound_reason(tray_meta, tag_uid, candidate_ids, ineligible_new_count, tray_empty=False, tray_state_str="", raw_tag_uid=None):
     """
     Classify why a slot is UNBOUND. Returns (reason, detail) for logging and transcripts.
@@ -255,6 +260,23 @@ def _rgb_distance(a_rgb, b_rgb) -> float:
         + (a_rgb[1] - b_rgb[1]) ** 2
         + (a_rgb[2] - b_rgb[2]) ** 2
     )
+
+
+def _color_distance(hex1: str, hex2: str) -> float:
+    """Euclidean RGB distance between two normalized 6-char hex colors. Returns 999 on parse error."""
+    try:
+        h1 = _normalize_hex_color(hex1)
+        h2 = _normalize_hex_color(hex2)
+        if h1 is None or h2 is None:
+            return 999.0
+        r1, g1, b1 = int(h1[0:2], 16), int(h1[2:4], 16), int(h1[4:6], 16)
+        r2, g2, b2 = int(h2[0:2], 16), int(h2[2:4], 16), int(h2[4:6], 16)
+        return ((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2) ** 0.5
+    except Exception:
+        return 999.0
+
+
+NONRFID_COLOR_TOLERANCE = 50.0
 
 
 def _colors_close(tray_hex: str, spool_hex: str, threshold: float = COLOR_DISTANCE_THRESHOLD):
@@ -901,9 +923,47 @@ class AmsRfidReconcile(hass.Hass):
                         self._log_validation_transcript(t)
                     continue
 
+                # ── Generic sentinel short-circuit: no auto-match possible ──
+                fid_raw = tray_meta.get("filament_id", "")
+                if is_generic_filament_id(fid_raw):
+                    self.log(
+                        f"NONRFID_SENTINEL_SKIP slot={slot} filament_id={fid_raw} reason=GENERIC_FILAMENT_NO_AUTO_MATCH",
+                        level="INFO",
+                    )
+                    status = STATUS_NEEDS_MANUAL_BIND
+                    if not status_only:
+                        self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
+                        self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
+                    self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_NONRFID_NO_MATCH)
+                    self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                    self._log_slot_status_change(slot, status, "", 0, tray_meta)
+                    t["decision"], t["reason"], t["action"] = "NON_RFID", "generic_sentinel", "needs_manual_bind"
+                    t["unbound_reason"] = UNBOUND_NONRFID_NO_MATCH
+                    t["final_spool_id"] = 0
+                    t["final_slot_status"] = status
+                    self._active_run["validation_transcripts"].append(t)
+                    if validation_mode:
+                        self._log_validation_transcript(t)
+                    unbound += 1
+                    continue
+
                 # ── Fingerprint changed / just confirmed / unbound → auto-match if confident ──
-                confident = self._is_confident_nonrfid(attrs, tray_state_str, tray_meta.get("filament_id", ""))
+                confident = self._is_confident_nonrfid(attrs, tray_state_str, fid_raw)
                 if confident:
+                    # Step 3 — filament_id exact match (before vendor+material)
+                    fid_resolved = self._try_filament_id_match(spools, fid_raw, slot, spool_index, nonrfid_sig,
+                                                                tray_meta, tray, previous_helper_spool_id,
+                                                                t, tray_empty, tray_state_str, status_only, validation_mode)
+                    if fid_resolved is not None:
+                        status = STATUS_OK_NONRFID
+                        ok += 1
+                        t["final_slot_status"] = status
+                        self._active_run["validation_transcripts"].append(t)
+                        if validation_mode:
+                            self._log_validation_transcript(t)
+                        continue
+
+                    # Step 4 — Vendor + material match
                     shelf_ids, _ = self._find_deterministic_candidates(spools, tray_meta, slot)
                     if len(shelf_ids) == 1:
                         resolved = shelf_ids[0]
@@ -1571,11 +1631,69 @@ class AmsRfidReconcile(hass.Hass):
             notification_id=f"rfid_manual_enroll_slot_{slot}",
         )
 
+    def _try_filament_id_match(self, spools, fid_raw, slot, spool_index, nonrfid_sig,
+                               tray_meta, tray, previous_helper_spool_id,
+                               t, tray_empty, tray_state_str, status_only, validation_mode):
+        """Step 3: filament_id exact match. Returns resolved spool_id or None."""
+        fid = str(fid_raw or "").strip()
+        if not fid or is_generic_filament_id(fid):
+            return None
+        fid_lower = fid.lower()
+        has_external_id = False
+        candidates = []
+        for spool in spools:
+            spool_id = self._safe_int(spool.get("id"), 0)
+            if spool_id <= 0:
+                continue
+            if self._extract_spool_uid(spool):
+                continue
+            location = str(spool.get("location", "")).strip().lower()
+            if location != "shelf":
+                continue
+            filament = spool.get("filament", {}) if isinstance(spool.get("filament", {}), dict) else {}
+            ext_id = str(filament.get("external_id", "") or "").strip()
+            if ext_id:
+                has_external_id = True
+                if ext_id.lower() == fid_lower:
+                    candidates.append(spool)
+        if not has_external_id:
+            self.log(f"NONRFID_FILAMENT_ID_NO_MATCH slot={slot} filament_id={fid} reason=no_external_ids_populated", level="DEBUG")
+            return None
+        if len(candidates) == 0:
+            self.log(f"NONRFID_FILAMENT_ID_NO_MATCH slot={slot} filament_id={fid} reason=no_matching_external_id", level="DEBUG")
+            return None
+        if len(candidates) > 1:
+            candidate_dicts = [s for s in candidates if self._safe_float(s.get("remaining_weight"), -1) > 0]
+            if candidate_dicts:
+                winner_id, _ = tiebreak_choose_spool(candidate_dicts, strict_mode=False)
+                if winner_id is not None:
+                    candidates = [s for s in candidates if self._safe_int(s.get("id"), 0) == winner_id]
+        if len(candidates) != 1:
+            self.log(f"NONRFID_FILAMENT_ID_NO_MATCH slot={slot} filament_id={fid} reason=ambiguous_{len(candidates)}_candidates", level="DEBUG")
+            return None
+        resolved = self._safe_int(candidates[0].get("id"), 0)
+        self.log(f"NONRFID_FILAMENT_ID_MATCH slot={slot} filament_id={fid} spool_id={resolved}", level="INFO")
+        if not status_only:
+            self._force_location_and_helpers(
+                slot, resolved, "", source="nonrfid_filament_id_match",
+                tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_sig,
+                previous_helper_spool_id=previous_helper_spool_id,
+                spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
+            )
+        t["decision"], t["reason"], t["action"] = "NON_RFID", "nonrfid_filament_id_match", "nonrfid_filament_id_match"
+        t["final_spool_id"], t["selected_spool_id"] = resolved, resolved
+        t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+        self._set_helper(f"input_text.ams_slot_{slot}_status", STATUS_OK_NONRFID)
+        self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+        self._log_slot_status_change(slot, STATUS_OK_NONRFID, "", resolved, tray_meta)
+        self._record_decision(slot, "nonrfid_filament_id_match", {"resolved_spool_id": resolved, "filament_id": fid})
+        return resolved
+
     def _find_deterministic_candidates(self, spools, tray_meta, slot):
-        tray_colors = set(tray_meta.get("color_candidates", []))
         candidates = []
         excluded_new_ids = []
         bambu_excluded = 0
+        tray_color_hex = tray_meta.get("color_hex", "")
         for spool in spools:
             spool_id = self._safe_int(spool.get("id"), 0)
             if spool_id <= 0:
@@ -1585,7 +1703,6 @@ class AmsRfidReconcile(hass.Hass):
                 self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "already_has_rfid"})
                 continue
             location = str(spool.get("location", "")).strip().lower()
-            # PHASE_2_5: exclude EOL and New from primary (Shelf) pool.
             if location == LOCATION_EMPTY.lower():
                 self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "location_empty"})
                 continue
@@ -1593,7 +1710,6 @@ class AmsRfidReconcile(hass.Hass):
                 excluded_new_ids.append(spool_id)
                 self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "location_new"})
                 continue
-            # Eligible: Shelf or any AMS slot; never New (already excluded above).
             if location != "shelf" and not (location.startswith("ams")):
                 self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "location_not_shelf_unknown"})
                 continue
@@ -1602,24 +1718,22 @@ class AmsRfidReconcile(hass.Hass):
                 f"RFID_ELIGIBLE_LOCATION slot={slot} spool_id={spool_id} location={spool.get('location', '')}",
                 level="DEBUG",
             )
-            if _is_bambu_vendor(spool):
+            filament = spool.get("filament", {}) if isinstance(spool.get("filament", {}), dict) else {}
+            spool_fid = str(filament.get("external_id", "") or "").strip()
+            if _is_bambu_vendor(spool) and is_generic_filament_id(spool_fid):
                 bambu_excluded += 1
-                self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "vendor_bambu_excluded_nonrfid"})
+                self.log(f"NONRFID_BAMBU_EXCLUDED slot={slot} spool_id={spool_id} reason=bambu_generic_sentinel", level="DEBUG")
+                self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "bambu_generic_sentinel"})
                 continue
 
-            filament = spool.get("filament", {}) if isinstance(spool.get("filament", {}), dict) else {}
             spool_material = self._material_key(filament.get("material", ""))
             tray_material = self._material_key(tray_meta.get("type", ""))
             if not spool_material or spool_material != tray_material:
                 self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "material_mismatch"})
                 continue
 
-            spool_color = self._normalize_color(str(filament.get("color_hex", "")))
-            if not spool_color or spool_color not in tray_colors:
-                self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "color_mismatch"})
-                continue
             candidates.append(spool)
-            self._record_decision(slot, "candidate_accept", {"spool_id": spool_id, "reason": "strict_match"})
+            self._record_decision(slot, "candidate_accept", {"spool_id": spool_id, "reason": "material_match"})
 
         if bambu_excluded:
             self.log(f"NON_RFID_FILTER_EXCLUDED_BAMBU={bambu_excluded} slot={slot}", level="INFO")
@@ -1648,12 +1762,31 @@ class AmsRfidReconcile(hass.Hass):
             if len(narrowed) == 1:
                 candidates = narrowed
 
+        # Color fuzzy tiebreaker: when multiple candidates remain, prefer closer color
+        if len(candidates) > 1 and tray_color_hex:
+            scored = []
+            for spool in candidates:
+                filament = spool.get("filament", {}) if isinstance(spool.get("filament", {}), dict) else {}
+                spool_hex = str(filament.get("color_hex", "") or "")
+                dist = _color_distance(tray_color_hex, spool_hex)
+                scored.append((dist, spool))
+            scored.sort(key=lambda x: x[0])
+            best_dist = scored[0][0]
+            if best_dist <= NONRFID_COLOR_TOLERANCE:
+                within = [s for d, s in scored if d <= NONRFID_COLOR_TOLERANCE]
+                if len(within) == 1:
+                    selected_id = self._safe_int(within[0].get("id"), 0)
+                    self.log(
+                        f"NONRFID_COLOR_TIEBREAK slot={slot} candidates={len(candidates)} selected_spool_id={selected_id} distance={best_dist:.1f}",
+                        level="INFO",
+                    )
+                    candidates = within
+
         ineligible_new_count = len(excluded_new_ids)
         return ([self._safe_int(s.get("id"), 0) for s in candidates], ineligible_new_count)
 
     def _find_deterministic_candidates_new_only(self, spools, tray_meta, slot):
-        """PHASE_2_6: Candidates with location New only (same material/color/vendor/name rules as Shelf). Returns (candidate_ids,)."""
-        tray_colors = set(tray_meta.get("color_candidates", []))
+        """PHASE_2_6: Candidates with location New only (same vendor+material rules as Shelf). Returns (candidate_ids,)."""
         candidates = []
         for spool in spools:
             spool_id = self._safe_int(spool.get("id"), 0)
@@ -1664,16 +1797,14 @@ class AmsRfidReconcile(hass.Hass):
             location = str(spool.get("location", "")).strip().lower()
             if location != "new":
                 continue
-            if _is_bambu_vendor(spool):
-                self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "vendor_bambu_excluded_nonrfid"})
-                continue
             filament = spool.get("filament", {}) if isinstance(spool.get("filament", {}), dict) else {}
+            spool_fid = str(filament.get("external_id", "") or "").strip()
+            if _is_bambu_vendor(spool) and is_generic_filament_id(spool_fid):
+                self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "bambu_generic_sentinel"})
+                continue
             spool_material = self._material_key(filament.get("material", ""))
             tray_material = self._material_key(tray_meta.get("type", ""))
             if not spool_material or spool_material != tray_material:
-                continue
-            spool_color = self._normalize_color(str(filament.get("color_hex", "")))
-            if not spool_color or spool_color not in tray_colors:
                 continue
             candidates.append(spool)
         if len(candidates) > 1:
