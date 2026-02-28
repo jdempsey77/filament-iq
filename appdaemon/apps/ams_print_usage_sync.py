@@ -89,7 +89,7 @@ class AmsPrintUsageSync(hass.Hass):
             return
 
         # ── build slot list ──────────────────────────────────────────
-        active_slots = self._parse_trays_used(trays_used_raw, start_map)
+        active_slots = sorted(int(k) for k in start_map if k.isdigit() and 1 <= int(k) <= 6)
 
         # ── compute per-slot consumption ─────────────────────────────
         rfid_results = []
