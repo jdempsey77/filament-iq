@@ -725,7 +725,7 @@ class AmsRfidReconcile(hass.Hass):
 
             if rfid_visible and helper_spool_id > 0:
                 helper_spool_obj_tg = spool_index.get(helper_spool_id) or {}
-                if not self._truth_guard_slot_patch(slot, t, tray_meta, tag_uid, helper_spool_id, helper_spool_obj_tg, tray_empty, tray_state_str):
+                if not self._truth_guard_slot_patch(slot, t, tray_meta, tag_uid, helper_spool_id, helper_spool_obj_tg, tray_empty, tray_state_str, tray_uuid=tray_uuid):
                     helper_spool_id = 0
                     previous_helper_spool_id = 0
 
@@ -2692,28 +2692,41 @@ class AmsRfidReconcile(hass.Hass):
         if validation_mode:
             self._log_validation_transcript(t)
 
-    def _truth_guard_slot_patch(self, slot, t, tray_meta, tag_uid, helper_spool_id, helper_spool_obj, tray_empty, tray_state_str):
+    def _truth_guard_slot_patch(self, slot, t, tray_meta, tag_uid, helper_spool_id, helper_spool_obj, tray_empty, tray_state_str, tray_uuid=""):
         """Return True if slot PATCHes are allowed.  False means truth violation detected:
         helpers/unbound_reason are already set, caller must skip all Spoolman writes and continue."""
         norm_tag = _normalize_rfid_tag_uid(tag_uid)
         rfid_visible = bool(norm_tag and norm_tag != "0000000000000000")
 
         if rfid_visible and helper_spool_id > 0:
+            # v4: compare tray_uuid against spool lot_nr (orientation-independent)
+            helper_lot_nr = str(helper_spool_obj.get("lot_nr") or "").strip() if isinstance(helper_spool_obj, dict) else ""
+            if tray_uuid and helper_lot_nr:
+                lot_nr_match = (helper_lot_nr == tray_uuid)
+            else:
+                lot_nr_match = False
+            # Fallback: legacy extra.rfid_tag_uid comparison
             helper_uid = self._extract_spool_uid(helper_spool_obj) if isinstance(helper_spool_obj, dict) else ""
-            if helper_uid and helper_uid != norm_tag:
+            legacy_match = bool(helper_uid and helper_uid == norm_tag)
+
+            if not lot_nr_match and not legacy_match and (helper_lot_nr or helper_uid):
+                mismatch_detail = (
+                    f"tray_uuid={tray_uuid} lot_nr={helper_lot_nr}" if tray_uuid
+                    else f"helper_uid={helper_uid} tag_uid={norm_tag}"
+                )
                 self.log(
                     f"TRUTH_GUARD_BLOCK slot={slot} mode=RFID_VISIBLE reason={UNBOUND_HELPER_RFID_MISMATCH} "
-                    f"helper={helper_spool_id} helper_uid={helper_uid} tag={norm_tag}",
+                    f"helper={helper_spool_id} {mismatch_detail}",
                     level="INFO",
                 )
                 self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
                 self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
                 self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_HELPER_RFID_MISMATCH)
                 t["unbound_reason"] = UNBOUND_HELPER_RFID_MISMATCH
-                t["unbound_detail"] = f"helper_uid={helper_uid} tag_uid={norm_tag}"
+                t["unbound_detail"] = mismatch_detail
                 self._notify(
                     f"RFID Truth Guard – Slot {slot}",
-                    f"Helper spool {helper_spool_id} RFID UID ({helper_uid}) does not match tray tag ({norm_tag}). Helper cleared.",
+                    f"Helper spool {helper_spool_id} identity does not match tray ({mismatch_detail}). Helper cleared.",
                     notification_id=f"truth_guard_rfid_mismatch_{slot}",
                 )
                 return False
