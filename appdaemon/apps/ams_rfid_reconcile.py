@@ -1655,11 +1655,14 @@ class AmsRfidReconcile(hass.Hass):
                             level="INFO",
                         )
                         if not status_only:
+                            self._enroll_lot_nr(resolved_spool_id, tray_uuid, spool_index, reason="rfid_auto_enrolled")
+                            lotnr_to_spools.setdefault(tray_uuid, [])
+                            if resolved_spool_id not in lotnr_to_spools[tray_uuid]:
+                                lotnr_to_spools[tray_uuid].append(resolved_spool_id)
                             if not self._rfid_bind_guard_ok(resolved_spool_id, tag_uid, spool_index, tray_uuid=tray_uuid):
                                 self._apply_rfid_bind_guard_fail(slot, t, tray_meta, tag_uid, resolved_spool_id, validation_mode)
                                 unbound += 1
                                 continue
-                            self._enroll_lot_nr(resolved_spool_id, tray_uuid, spool_index, reason="rfid_auto_enrolled")
                             self._force_location_and_helpers(
                                 slot, resolved_spool_id, tag_uid, source="rfid_auto_enrolled",
                                 tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
