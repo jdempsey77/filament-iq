@@ -68,38 +68,17 @@ class AmsPrintUsageSync(hass.Hass):
             print_weight_g = 0.0
 
         trays_used_raw = str(data.get("trays_used", "")).strip()
-        start_json_raw = str(data.get("start_json", "{}")).strip()
-        end_json_raw = str(data.get("end_json", "{}")).strip()
 
         # ── dedup ────────────────────────────────────────────────────
         if job_key and job_key in self._seen_job_keys:
             self.log(f"DEDUP_SKIP job_key={job_key}", level="INFO")
             return
 
-        # ── parse JSON payloads ──────────────────────────────────────
-        try:
-            start_map = json.loads(start_json_raw) if start_json_raw else {}
-        except (json.JSONDecodeError, TypeError):
-            self.log(
-                f"USAGE_SKIP reason=JSON_PARSE_ERROR field=start_json "
-                f"raw={start_json_raw!r}",
-                level="ERROR",
-            )
+        # ── parse JSON payloads (HA native types may pass dicts) ─────
+        start_map = self._coerce_json_field(data, "start_json")
+        end_map = self._coerce_json_field(data, "end_json")
+        if start_map is None or end_map is None:
             return
-        try:
-            end_map = json.loads(end_json_raw) if end_json_raw else {}
-        except (json.JSONDecodeError, TypeError):
-            self.log(
-                f"USAGE_SKIP reason=JSON_PARSE_ERROR field=end_json "
-                f"raw={end_json_raw!r}",
-                level="ERROR",
-            )
-            return
-
-        if not isinstance(start_map, dict):
-            start_map = {}
-        if not isinstance(end_map, dict):
-            end_map = {}
 
         # ── guard: no start data = cancelled before print ────────────
         if not start_map:
@@ -250,6 +229,30 @@ class AmsPrintUsageSync(hass.Hass):
                     pass
 
         return sorted(slots)
+
+    def _coerce_json_field(self, data, field):
+        """Extract a dict from event data, handling HA native types.
+
+        HA may pass the value as a native dict (from template rendering) or
+        as a JSON string.  Returns a dict on success, or None on fatal error
+        (with a log line written).
+        """
+        raw = data.get(field, {})
+        if isinstance(raw, dict):
+            return raw
+        raw_str = str(raw).strip()
+        if not raw_str:
+            return {}
+        try:
+            parsed = json.loads(raw_str)
+        except (json.JSONDecodeError, TypeError):
+            self.log(
+                f"USAGE_SKIP reason=JSON_PARSE_ERROR field={field} "
+                f"raw={raw_str!r}",
+                level="ERROR",
+            )
+            return None
+        return parsed if isinstance(parsed, dict) else {}
 
     def _read_spool_id(self, slot):
         raw = self.get_state(f"input_text.ams_slot_{slot}_spool_id")

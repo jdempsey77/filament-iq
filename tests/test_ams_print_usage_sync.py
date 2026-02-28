@@ -256,6 +256,24 @@ def test_dry_run_no_patch():
     assert not _has_log(app, "USAGE_PATCHED")
 
 
+def test_native_dict_event_data():
+    """HA native types pass dicts instead of JSON strings — app handles both."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+    )
+    _fire(app,
+          trays_used="4",
+          start_json={"4": 420.0},
+          end_json={"4": 110.0},
+          print_weight_g="200",
+          job_key="native_dict_test")
+
+    assert len(app._use_calls) == 1
+    assert app._use_calls[0]["spool_id"] == 10
+    assert abs(app._use_calls[0]["use_weight"] - 310.0) < 0.01
+    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10 use_weight=310.0")
+
+
 def test_spoolman_failure_continues():
     """First slot PUT fails → second slot still written."""
     app = _TestableUsageSync(
