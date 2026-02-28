@@ -963,6 +963,27 @@ template:
           {% elif status in ['pause', 'paused'] and has_error %}mdi:printer-alert
           {% elif status in ['pause', 'paused'] %}mdi:printer-3d-paused
           {% else %}mdi:printer-3d{% endif %}
+      - name: "AMS Unbound Slot Count"
+        unique_id: ams_unbound_slot_count
+        state: >-
+          {% set ns = namespace(count=0) %}
+          {% for i in range(1,7) %}
+          {% set r = states('input_text.ams_slot_' ~ i ~ '_unbound_reason') %}
+          {% if r not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}
+          {% set ns.count = ns.count + 1 %}
+          {% endif %}
+          {% endfor %}
+          {{ ns.count }}
+        icon: >-
+          {% set ns = namespace(count=0) %}
+          {% for i in range(1,7) %}
+          {% set r = states('input_text.ams_slot_' ~ i ~ '_unbound_reason') %}
+          {% if r not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}
+          {% set ns.count = ns.count + 1 %}
+          {% endif %}
+          {% endfor %}
+          {% if ns.count > 0 %}mdi:alert{% else %}mdi:check-circle{% endif %}
+        unit_of_measurement: slots
       # AMS Slot Manager: display name and remaining (g) per slot from persisted spool ID.
       - name: "AMS Slot 1 – name"
         unique_id: ams_slot_1_name
