@@ -18,7 +18,7 @@ p1s_choose_spool_for_slot_v1:
   mode: queued
   max: 10
   fields:
-    slot_number:
+    slot:
       description: "Slot number (1-6)"
       example: "1"
     material:
@@ -685,7 +685,7 @@ ams_slot_1_assign_and_update:
             - service: script.reload_spoolman_integration
             - event: bambu_rfid_manual_enroll_tag_to_spool
               event_data:
-                slot_number: 1
+                slot: 1
                 spool_id: "{{ final_spool_id }}"
             - action: browser_mod.notification
               data:
@@ -741,7 +741,7 @@ ams_slot_2_assign_and_update:
             - service: script.reload_spoolman_integration
             - event: bambu_rfid_manual_enroll_tag_to_spool
               event_data:
-                slot_number: 2
+                slot: 2
                 spool_id: "{{ final_spool_id }}"
             - action: browser_mod.notification
               data:
@@ -797,7 +797,7 @@ ams_slot_3_assign_and_update:
             - service: script.reload_spoolman_integration
             - event: bambu_rfid_manual_enroll_tag_to_spool
               event_data:
-                slot_number: 3
+                slot: 3
                 spool_id: "{{ final_spool_id }}"
             - action: browser_mod.notification
               data:
@@ -853,7 +853,7 @@ ams_slot_4_assign_and_update:
             - service: script.reload_spoolman_integration
             - event: bambu_rfid_manual_enroll_tag_to_spool
               event_data:
-                slot_number: 4
+                slot: 4
                 spool_id: "{{ final_spool_id }}"
             - action: browser_mod.notification
               data:
@@ -909,7 +909,7 @@ ams_slot_5_assign_and_update:
             - service: script.reload_spoolman_integration
             - event: bambu_rfid_manual_enroll_tag_to_spool
               event_data:
-                slot_number: 5
+                slot: 5
                 spool_id: "{{ final_spool_id }}"
             - action: browser_mod.notification
               data:
@@ -965,7 +965,7 @@ ams_slot_6_assign_and_update:
             - service: script.reload_spoolman_integration
             - event: bambu_rfid_manual_enroll_tag_to_spool
               event_data:
-                slot_number: 6
+                slot: 6
                 spool_id: "{{ final_spool_id }}"
             - action: browser_mod.notification
               data:
