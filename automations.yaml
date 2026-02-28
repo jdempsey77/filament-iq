@@ -1191,3 +1191,94 @@
             message: "Detected '{{ tray_text }}' in {{ ams_location }}. No matching Spoolman spool found on Shelf. Go to Spool Management to manually assign."
   mode: queued
   max: 10
+
+- id: ams_bind_reminder_push
+  alias: "AMS Bind Reminder Push"
+  description: "Push notification when an AMS slot needs binding"
+  triggers:
+    - trigger: state
+      entity_id:
+        - input_text.ams_slot_1_unbound_reason
+        - input_text.ams_slot_2_unbound_reason
+        - input_text.ams_slot_3_unbound_reason
+        - input_text.ams_slot_4_unbound_reason
+        - input_text.ams_slot_5_unbound_reason
+        - input_text.ams_slot_6_unbound_reason
+  conditions:
+    - condition: template
+      value_template: >-
+        {% set val = trigger.to_state.state | default('') %}
+        {{ val in ['UNBOUND_TAG_UID_NO_MATCH', 'UNBOUND_NO_RFID_TAG_ALL_ZERO', 'AMBIGUOUS_SIG'] }}
+  actions:
+    - variables:
+        slot_num: >-
+          {{ trigger.entity_id | regex_findall('ams_slot_(\d+)_unbound') | first }}
+    - action: notify.mobile_app_jd_pixel_10xl
+      data:
+        title: "AMS Slot {{ slot_num }} Needs Binding"
+        message: "⚠️ AMS Slot {{ slot_num }} needs binding — bind before printing to track filament usage"
+        data:
+          tag: "ams_bind_slot_{{ slot_num }}"
+  mode: queued
+  max: 6
+
+- id: ams_bind_reminder_clear
+  alias: "AMS Bind Reminder Clear"
+  description: "Clear bind reminder notification when slot is bound"
+  triggers:
+    - trigger: state
+      entity_id:
+        - input_text.ams_slot_1_unbound_reason
+        - input_text.ams_slot_2_unbound_reason
+        - input_text.ams_slot_3_unbound_reason
+        - input_text.ams_slot_4_unbound_reason
+        - input_text.ams_slot_5_unbound_reason
+        - input_text.ams_slot_6_unbound_reason
+  conditions:
+    - condition: template
+      value_template: >-
+        {% set val = trigger.to_state.state | default('') %}
+        {{ val == '' or val == 'unknown' or val == 'unavailable' }}
+  actions:
+    - variables:
+        slot_num: >-
+          {{ trigger.entity_id | regex_findall('ams_slot_(\d+)_unbound') | first }}
+    - action: notify.mobile_app_jd_pixel_10xl
+      data:
+        message: clear_notification
+        data:
+          tag: "ams_bind_slot_{{ slot_num }}"
+  mode: queued
+  max: 6
+
+- id: ams_print_unbound_warning
+  alias: "AMS Print With Unbound Warning"
+  description: "Urgent push when print starts with unbound slots"
+  triggers:
+    - trigger: state
+      entity_id: sensor.p1s_01p00c5a3101668_print_status
+      to:
+        - running
+        - printing
+  conditions:
+    - condition: template
+      value_template: >-
+        {% set reasons = [
+          states('input_text.ams_slot_1_unbound_reason'),
+          states('input_text.ams_slot_2_unbound_reason'),
+          states('input_text.ams_slot_3_unbound_reason'),
+          states('input_text.ams_slot_4_unbound_reason'),
+          states('input_text.ams_slot_5_unbound_reason'),
+          states('input_text.ams_slot_6_unbound_reason')
+        ] %}
+        {{ reasons | reject('in', ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY']) | list | length > 0 }}
+  actions:
+    - action: notify.mobile_app_jd_pixel_10xl
+      data:
+        title: "Print Started With Unbound Slots"
+        message: "🚨 Print started with unbound slot — filament usage won't be tracked!"
+        data:
+          tag: ams_print_unbound_warning
+          importance: high
+          channel: alarm_stream
+  mode: single

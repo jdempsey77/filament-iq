@@ -1086,6 +1086,34 @@ views:
     sections:
       - type: grid
         cards:
+          - type: conditional
+            conditions:
+              - condition: template
+                value_template: >-
+                  {% set reasons = [
+                    states('input_text.ams_slot_1_unbound_reason'),
+                    states('input_text.ams_slot_2_unbound_reason'),
+                    states('input_text.ams_slot_3_unbound_reason'),
+                    states('input_text.ams_slot_4_unbound_reason'),
+                    states('input_text.ams_slot_5_unbound_reason'),
+                    states('input_text.ams_slot_6_unbound_reason')
+                  ] %}
+                  {{ reasons | reject('in', ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY']) | list | length > 0 }}
+            card:
+              type: custom:mushroom-template-card
+              primary: One or more AMS slots need binding
+              secondary: Bind before printing to track filament usage
+              icon: mdi:alert
+              icon_color: red
+              card_mod:
+                style: |
+                  ha-card {
+                    background: rgba(var(--rgb-orange), 0.15) !important;
+                    border: 2px solid rgb(var(--rgb-orange)) !important;
+                  }
+            grid_options:
+              columns: 12
+              rows: 1
           - type: custom:mod-card
             style: |
               ha-card {
@@ -1585,7 +1613,10 @@ views:
                         secondary: >-
                           {% set sid = states('input_text.ams_slot_1_spool_id') %}
                           {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
-                          {% if vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {% endif %}{{ states('sensor.ams_slot_1_remaining_g') }}g remaining
+                          {% set reason = states('input_text.ams_slot_1_unbound_reason') %}
+                          {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}⚠️ BIND NEEDED
+                          {% elif vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {{ states('sensor.ams_slot_1_remaining_g') }}g remaining
+                          {% else %}{{ states('sensor.ams_slot_1_remaining_g') }}g remaining{% endif %}
                         icon: mdi:numeric-1-circle
                         icon_color: var(--rgb-state-entity)
                         tap_action:
@@ -1626,10 +1657,14 @@ views:
                             {% set c =
                             state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1',
                             'color') %}
+                            {% set reason = states('input_text.ams_slot_1_unbound_reason') %}
 
                             ha-card {
                               --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                              {% if state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'active') %}
+                              {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}
+                              border: 2px solid orange !important;
+                              background: rgba(255, 165, 0, 0.12) !important;
+                              {% elif state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'active') %}
                               font-weight: bold;
                               border: 2px solid var(--primary-color);
                               background: rgba(var(--rgb-primary-color), 0.15);
@@ -1695,7 +1730,10 @@ views:
                         secondary: >-
                           {% set sid = states('input_text.ams_slot_2_spool_id') %}
                           {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
-                          {% if vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {% endif %}{{ states('sensor.ams_slot_2_remaining_g') }}g remaining
+                          {% set reason = states('input_text.ams_slot_2_unbound_reason') %}
+                          {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}⚠️ BIND NEEDED
+                          {% elif vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {{ states('sensor.ams_slot_2_remaining_g') }}g remaining
+                          {% else %}{{ states('sensor.ams_slot_2_remaining_g') }}g remaining{% endif %}
                         icon: mdi:numeric-2-circle
                         icon_color: var(--rgb-state-entity)
                         tap_action:
@@ -1736,10 +1774,14 @@ views:
                             {% set c =
                             state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2',
                             'color') %}
+                            {% set reason = states('input_text.ams_slot_2_unbound_reason') %}
 
                             ha-card {
                               --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                              {% if state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'active') %}
+                              {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}
+                              border: 2px solid orange !important;
+                              background: rgba(255, 165, 0, 0.12) !important;
+                              {% elif state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'active') %}
                               font-weight: bold;
                               border: 2px solid var(--primary-color);
                               background: rgba(var(--rgb-primary-color), 0.15);
@@ -1805,7 +1847,10 @@ views:
                         secondary: >-
                           {% set sid = states('input_text.ams_slot_3_spool_id') %}
                           {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
-                          {% if vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {% endif %}{{ states('sensor.ams_slot_3_remaining_g') }}g remaining
+                          {% set reason = states('input_text.ams_slot_3_unbound_reason') %}
+                          {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}⚠️ BIND NEEDED
+                          {% elif vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {{ states('sensor.ams_slot_3_remaining_g') }}g remaining
+                          {% else %}{{ states('sensor.ams_slot_3_remaining_g') }}g remaining{% endif %}
                         icon: mdi:numeric-3-circle
                         icon_color: var(--rgb-state-entity)
                         tap_action:
@@ -1846,10 +1891,14 @@ views:
                             {% set c =
                             state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3',
                             'color') %}
+                            {% set reason = states('input_text.ams_slot_3_unbound_reason') %}
 
                             ha-card {
                               --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                              {% if state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'active') %}
+                              {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}
+                              border: 2px solid orange !important;
+                              background: rgba(255, 165, 0, 0.12) !important;
+                              {% elif state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'active') %}
                               font-weight: bold;
                               border: 2px solid var(--primary-color);
                               background: rgba(var(--rgb-primary-color), 0.15);
@@ -1915,7 +1964,10 @@ views:
                         secondary: >-
                           {% set sid = states('input_text.ams_slot_4_spool_id') %}
                           {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
-                          {% if vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {% endif %}{{ states('sensor.ams_slot_4_remaining_g') }}g remaining
+                          {% set reason = states('input_text.ams_slot_4_unbound_reason') %}
+                          {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}⚠️ BIND NEEDED
+                          {% elif vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {{ states('sensor.ams_slot_4_remaining_g') }}g remaining
+                          {% else %}{{ states('sensor.ams_slot_4_remaining_g') }}g remaining{% endif %}
                         icon: mdi:numeric-4-circle
                         icon_color: var(--rgb-state-entity)
                         tap_action:
@@ -1956,10 +2008,14 @@ views:
                             {% set c =
                             state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4',
                             'color') %}
+                            {% set reason = states('input_text.ams_slot_4_unbound_reason') %}
 
                             ha-card {
                               --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                              {% if state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'active') %}
+                              {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}
+                              border: 2px solid orange !important;
+                              background: rgba(255, 165, 0, 0.12) !important;
+                              {% elif state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'active') %}
                               font-weight: bold;
                               border: 2px solid var(--primary-color);
                               background: rgba(var(--rgb-primary-color), 0.15);
@@ -2380,7 +2436,10 @@ views:
                         secondary: >-
                           {% set sid = states('input_text.ams_slot_5_spool_id') %}
                           {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
-                          {% if vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {% endif %}{{ states('sensor.ams_slot_5_remaining_g') }}g remaining
+                          {% set reason = states('input_text.ams_slot_5_unbound_reason') %}
+                          {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}⚠️ BIND NEEDED
+                          {% elif vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {{ states('sensor.ams_slot_5_remaining_g') }}g remaining
+                          {% else %}{{ states('sensor.ams_slot_5_remaining_g') }}g remaining{% endif %}
                         icon: mdi:package-variant
                         icon_color: var(--rgb-state-entity)
                         tap_action:
@@ -2421,10 +2480,14 @@ views:
                             {% set c =
                             state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1',
                             'color') %}
+                            {% set reason = states('input_text.ams_slot_5_unbound_reason') %}
 
                             ha-card {
                               --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                              {% if state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'active') %}
+                              {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}
+                              border: 2px solid orange !important;
+                              background: rgba(255, 165, 0, 0.12) !important;
+                              {% elif state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'active') %}
                               font-weight: bold;
                               border: 2px solid var(--primary-color);
                               background: rgba(var(--rgb-primary-color), 0.15);
@@ -2578,7 +2641,10 @@ views:
                         secondary: >-
                           {% set sid = states('input_text.ams_slot_6_spool_id') %}
                           {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
-                          {% if vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {% endif %}{{ states('sensor.ams_slot_6_remaining_g') }}g remaining
+                          {% set reason = states('input_text.ams_slot_6_unbound_reason') %}
+                          {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}⚠️ BIND NEEDED
+                          {% elif vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {{ states('sensor.ams_slot_6_remaining_g') }}g remaining
+                          {% else %}{{ states('sensor.ams_slot_6_remaining_g') }}g remaining{% endif %}
                         icon: mdi:package-variant
                         icon_color: var(--rgb-state-entity)
                         tap_action:
@@ -2619,10 +2685,14 @@ views:
                             {% set c =
                             state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1',
                             'color') %}
+                            {% set reason = states('input_text.ams_slot_6_unbound_reason') %}
 
                             ha-card {
                               --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                              {% if state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'active') %}
+                              {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}
+                              border: 2px solid orange !important;
+                              background: rgba(255, 165, 0, 0.12) !important;
+                              {% elif state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'active') %}
                               font-weight: bold;
                               border: 2px solid var(--primary-color);
                               background: rgba(var(--rgb-primary-color), 0.15);
