@@ -1426,7 +1426,8 @@ class AmsRfidReconcile(hass.Hass):
                 unbound += 1 if status != STATUS_UNBOUND_MANUAL_CREATE else 0
                 if status == STATUS_UNBOUND_NO_TAG and not status_only:
                     self._force_location_and_helpers(
-                        slot, 0, "", source="unbind", previous_helper_spool_id=previous_helper_spool_id
+                        slot, 0, "", source="unbind", previous_helper_spool_id=previous_helper_spool_id,
+                        spool_index=spool_index,
                     )
 
             self._set_helper(f"input_text.ams_slot_{slot}_status", status)
@@ -1538,6 +1539,80 @@ class AmsRfidReconcile(hass.Hass):
             return "Shelf"
         return key
 
+    def _is_spool_active_in_other_slot(self, spool_id, current_slot):
+        """True if spool_id is the current spool_id helper of any slot (other than current_slot) whose tray is not empty."""
+        if spool_id <= 0:
+            return False
+        for other_slot in PHYSICAL_AMS_SLOTS:
+            if other_slot == current_slot:
+                continue
+            ot_entity = TRAY_ENTITY_BY_SLOT.get(other_slot)
+            if not ot_entity:
+                continue
+            ot_tray = self.get_state(ot_entity, attribute="all") or {}
+            ot_state = str(ot_tray.get("state", "") if isinstance(ot_tray, dict) else ot_tray or "").strip().lower()
+            if ot_state == "empty":
+                continue
+            other_helper = self._safe_int(self.get_state(f"input_text.ams_slot_{other_slot}_spool_id"), 0)
+            if other_helper == spool_id:
+                self.log(
+                    f"PREV_OCCUPANT_ACTIVE_IN_OTHER_SLOT spool_id={spool_id} current_slot={current_slot} active_slot={other_slot}",
+                    level="INFO",
+                )
+                return True
+        return False
+
+    def _clear_previous_occupant_guarded(self, slot, new_spool_id, spool_index):
+        """Move previous slot occupant to Shelf or Empty, with guards.
+        Only moves if:
+        1. Previous occupant's location matches this slot's canonical location
+        2. Previous occupant is not active in any other slot
+        """
+        slot_loc = CANONICAL_LOCATION_BY_SLOT.get(slot)
+        if not slot_loc:
+            return
+        norm_slot_loc = self._normalize_location(slot_loc)
+
+        prev_spools = []
+        for sid, spool in (spool_index or {}).items():
+            if sid <= 0 or sid == new_spool_id:
+                continue
+            spool_loc = self._normalize_location(str(spool.get("location", "")).strip())
+            if spool_loc == norm_slot_loc:
+                prev_spools.append(spool)
+
+        if not prev_spools:
+            self.log(f"PREV_OCCUPANT_NONE slot={slot}", level="DEBUG")
+            return
+
+        for prev in prev_spools:
+            prev_id = self._safe_int(prev.get("id"), 0)
+            if prev_id <= 0:
+                continue
+            actual_loc = self._normalize_location(str(prev.get("location", "")).strip())
+            if actual_loc != norm_slot_loc:
+                self.log(
+                    f"PREV_OCCUPANT_SKIP slot={slot} spool_id={prev_id} reason=location_mismatch expected={norm_slot_loc} actual={actual_loc}",
+                    level="INFO",
+                )
+                continue
+            if self._is_spool_active_in_other_slot(prev_id, slot):
+                self.log(
+                    f"PREV_OCCUPANT_SKIP slot={slot} spool_id={prev_id} reason=active_in_other_slot",
+                    level="INFO",
+                )
+                continue
+            rem = self._safe_float(prev.get("remaining_weight"), -1.0)
+            if rem <= 0 and rem != -1.0:
+                dest = LOCATION_EMPTY
+            else:
+                dest = LOCATION_NOT_IN_AMS
+            self._spoolman_patch(f"/api/v1/spool/{prev_id}", {"location": dest})
+            self.log(
+                f"PREV_OCCUPANT_MOVED slot={slot} spool_id={prev_id} from={norm_slot_loc} to={dest} remaining={rem}",
+                level="INFO",
+            )
+
     def _force_location_and_helpers(self, slot, spool_id, tag_uid, source, tray_meta=None, tray_state="", tray_identity=None, previous_helper_spool_id=0, spool_index=None, t=None, tray_empty=False, tray_state_str=""):
         slot_loc = CANONICAL_LOCATION_BY_SLOT.get(slot)
         if not slot_loc:
@@ -1550,27 +1625,7 @@ class AmsRfidReconcile(hass.Hass):
                 self.log(f"TRUTH_GUARD_FORCE_LOC_BLOCK slot={slot} spool_id={spool_id} source={source}", level="INFO")
                 return
 
-        dest_clear = LOCATION_NOT_IN_AMS
-
-        # One spool per location: clear previous occupant from this slot when binding changes or unbind.
-        # PHASE_2_5 EOL: if previous spool remaining_weight <= 0, move to Empty (end-of-life).
-        if previous_helper_spool_id > 0:
-            prev_at_slot = False
-            prev_spool = None
-            try:
-                prev_spool = self._spoolman_get(f"/api/v1/spool/{previous_helper_spool_id}")
-                if isinstance(prev_spool, dict):
-                    prev_loc = str(prev_spool.get("location", "")).strip()
-                    prev_at_slot = prev_loc == slot_loc
-            except Exception:
-                prev_at_slot = False
-            if prev_at_slot:
-                rem = self._safe_float(prev_spool.get("remaining_weight"), -1.0) if isinstance(prev_spool, dict) else -1.0
-                dest = LOCATION_EMPTY if rem <= 0 else dest_clear
-                self._spoolman_patch(f"/api/v1/spool/{previous_helper_spool_id}", {"location": dest})
-                self.log(
-                    f"CLEAR_PREVIOUS_SLOT_OCCUPANT slot={slot} old={previous_helper_spool_id} new={spool_id} from={slot_loc} to={dest}"
-                )
+        self._clear_previous_occupant_guarded(slot, spool_id, spool_index)
 
         # Unbind: set helper to 0 and tray_signature to "" then return (no new location write).
         if spool_id == 0:
@@ -1580,16 +1635,13 @@ class AmsRfidReconcile(hass.Hass):
             return
 
         desired_location = slot_loc
-        all_spools = self._spoolman_get("/api/v1/spool?limit=1000")
-        if isinstance(all_spools, dict) and "items" in all_spools:
-            all_spools = all_spools.get("items", [])
-        current_location = ""
-        for row in all_spools:
-            row_id = self._safe_int(row.get("id"), 0)
-            if row_id == spool_id:
-                current_location = str(row.get("location", ""))
-            if row_id > 0 and row_id != spool_id and str(row.get("location", "")) == desired_location:
-                self._spoolman_patch(f"/api/v1/spool/{row_id}", {"location": dest_clear})
+        current_location = str((spool_index or {}).get(spool_id, {}).get("location", "")) if spool_index else ""
+        if not current_location:
+            try:
+                spool_data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+                current_location = str(spool_data.get("location", "")) if isinstance(spool_data, dict) else ""
+            except Exception:
+                current_location = ""
         if current_location != desired_location:
             self._spoolman_patch(f"/api/v1/spool/{spool_id}", {"location": desired_location})
         else:

@@ -1876,7 +1876,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
         r._spoolman_get = count_get
         r._run_reconcile("test")
         spool_4_gets = [p for p in get_paths if p == "/api/v1/spool/4" or p.endswith("/spool/4")]
-        self.assertGreaterEqual(len(spool_4_gets), 2, "GET spool 4: at least clear-previous and _spool_exists (cached per run)")
+        self.assertGreaterEqual(len(spool_4_gets), 1, "GET spool 4: at least _spool_exists (guarded clearing uses spool_index)")
 
     def test_tray_uuid_missing_tag_uid_same_treat_as_unchanged(self):
         """Stored = tag_uid norm; this run tray_uuid missing but tag_uid same → SAME tray (hardening), no spool_id change."""
@@ -3928,6 +3928,193 @@ def test_rfid_tier2_not_applied_to_nonrfid(slot):
     tier2_logs = [m for m in logs if "TIER2" in m]
     assert len(tier2_logs) == 0, \
         f"non-RFID slot must never invoke Tier 2; got {tier2_logs}"
+
+
+# ── Previous Occupant Clearing Guard Tests ─────────────────────────────
+
+def _prev_occupant_state_map(slot, tag_uid, prev_spool_id=0):
+    """Build state_map for previous occupant guard tests.
+    Sets up slot with a valid RFID tray and prev_spool_id as previous helper.
+    All other slots are empty.
+    """
+    tray_ent = _tray_entity(slot)
+    attrs = {"tag_uid": tag_uid, "type": "PLA", "color": "ff0000", "name": "Bambu PLA",
+             "filament_id": "bambu", "tray_weight": 1000, "remain": 50}
+    state_map = {}
+    for s in range(1, 7):
+        state_map[f"input_text.ams_slot_{s}_spool_id"] = str(prev_spool_id) if s == slot else "0"
+        state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = str(prev_spool_id) if s == slot else "0"
+        state_map[f"input_text.ams_slot_{s}_status"] = ""
+        state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+        state_map[f"input_text.ams_slot_{s}_unbound_reason"] = ""
+        if s == slot:
+            state_map[tray_ent] = {"attributes": attrs, "state": "valid"}
+            state_map[f"{tray_ent}::all"] = {"attributes": attrs, "state": "valid"}
+        else:
+            empty_attrs = {"tag_uid": "", "type": "", "color": "", "name": "",
+                           "filament_id": "", "tray_weight": 0, "remain": 0}
+            state_map[_tray_entity(s)] = {"attributes": empty_attrs, "state": "empty"}
+            state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_attrs, "state": "empty"}
+    return state_map
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_prev_occupant_moved_to_shelf_when_remaining(slot):
+    """Previous occupant at correct location, not active elsewhere, remaining_weight > 0 -> moved to Shelf."""
+    tag = "AABBCCDD00112233"
+    new_spool_id = 20000 + slot
+    prev_spool_id = 30000 + slot
+    slot_loc = CANONICAL_LOCATION_BY_SLOT[slot]
+
+    new_spool = _spool(new_spool_id, rfid_tag_uid=tag, location="Shelf", remaining_weight=500)
+    prev_spool = _spool(prev_spool_id, rfid_tag_uid=None, location=slot_loc, remaining_weight=300)
+    sm = FakeSpoolman([new_spool, prev_spool], [_bambu_filament()])
+
+    state_map = _prev_occupant_state_map(slot, tag, prev_spool_id=prev_spool_id)
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("test")
+
+    loc_patches = [p for p in sm.patches if p.get("spool_id") == prev_spool_id and "location" in p.get("payload", {})]
+    assert len(loc_patches) > 0, "previous occupant must be moved"
+    assert loc_patches[-1]["payload"]["location"] == LOCATION_NOT_IN_AMS, \
+        f"remaining > 0 must move to Shelf; got {loc_patches[-1]['payload']['location']}"
+    logs = [msg for msg, _ in r._log_calls]
+    assert any("PREV_OCCUPANT_MOVED" in msg and str(prev_spool_id) in msg for msg in logs), \
+        f"must log PREV_OCCUPANT_MOVED; got {[m for m in logs if 'PREV_OCCUPANT' in m]}"
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_prev_occupant_moved_to_empty_when_depleted(slot):
+    """Previous occupant remaining_weight == 0 -> moved to Empty."""
+    tag = "AABBCCDD00112233"
+    new_spool_id = 21000 + slot
+    prev_spool_id = 31000 + slot
+    slot_loc = CANONICAL_LOCATION_BY_SLOT[slot]
+
+    new_spool = _spool(new_spool_id, rfid_tag_uid=tag, location="Shelf", remaining_weight=500)
+    prev_spool = _spool(prev_spool_id, rfid_tag_uid=None, location=slot_loc, remaining_weight=0)
+    sm = FakeSpoolman([new_spool, prev_spool], [_bambu_filament()])
+
+    state_map = _prev_occupant_state_map(slot, tag, prev_spool_id=prev_spool_id)
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("test")
+
+    loc_patches = [p for p in sm.patches if p.get("spool_id") == prev_spool_id and "location" in p.get("payload", {})]
+    assert len(loc_patches) > 0, "depleted previous occupant must be moved"
+    assert loc_patches[-1]["payload"]["location"] == LOCATION_EMPTY, \
+        f"remaining <= 0 must move to Empty; got {loc_patches[-1]['payload']['location']}"
+    logs = [msg for msg, _ in r._log_calls]
+    assert any("PREV_OCCUPANT_MOVED" in msg and str(prev_spool_id) in msg for msg in logs)
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_prev_occupant_skip_location_mismatch(slot):
+    """Previous occupant already at Shelf (not at slot's canonical location) -> skip."""
+    tag = "AABBCCDD00112233"
+    new_spool_id = 22000 + slot
+    prev_spool_id = 32000 + slot
+
+    new_spool = _spool(new_spool_id, rfid_tag_uid=tag, location="Shelf", remaining_weight=500)
+    prev_spool = _spool(prev_spool_id, rfid_tag_uid=None, location="Shelf", remaining_weight=300)
+    sm = FakeSpoolman([new_spool, prev_spool], [_bambu_filament()])
+
+    state_map = _prev_occupant_state_map(slot, tag, prev_spool_id=prev_spool_id)
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("test")
+
+    loc_patches = [p for p in sm.patches if p.get("spool_id") == prev_spool_id and "location" in p.get("payload", {})]
+    assert len(loc_patches) == 0, "previous occupant already at Shelf must NOT be moved"
+    logs = [msg for msg, _ in r._log_calls]
+    skip_logs = [m for m in logs if "PREV_OCCUPANT_SKIP" in m and "location_mismatch" in m]
+    assert len(skip_logs) == 0, \
+        "spool at Shelf shouldn't appear as prev occupant at slot (not at canonical location)"
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_prev_occupant_skip_active_in_other_slot(slot):
+    """Previous occupant is spool_id of another slot with non-empty tray -> skip via guard."""
+    tag = "AABBCCDD00112233"
+    new_spool_id = 23000 + slot
+    prev_spool_id = 33000 + slot
+    other_slot = (slot % 6) + 1
+    slot_loc = CANONICAL_LOCATION_BY_SLOT[slot]
+
+    new_spool = _spool(new_spool_id, rfid_tag_uid=tag, location="Shelf", remaining_weight=500)
+    prev_spool = _spool(prev_spool_id, rfid_tag_uid=None, location=slot_loc, remaining_weight=300)
+    sm = FakeSpoolman([new_spool, prev_spool], [_bambu_filament()])
+    spool_index = {new_spool_id: new_spool, prev_spool_id: prev_spool}
+
+    state_map = _prev_occupant_state_map(slot, tag, prev_spool_id=prev_spool_id)
+    other_ent = _tray_entity(other_slot)
+    other_attrs = {"tag_uid": "OTHER", "type": "PLA", "color": "ff0000", "name": "Other",
+                   "filament_id": "x", "tray_weight": 1000, "remain": 50}
+    state_map[other_ent] = {"attributes": other_attrs, "state": "valid"}
+    state_map[f"{other_ent}::all"] = {"attributes": other_attrs, "state": "valid"}
+    state_map[f"input_text.ams_slot_{other_slot}_spool_id"] = str(prev_spool_id)
+
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._clear_previous_occupant_guarded(slot, new_spool_id, spool_index)
+
+    loc_patches = [p for p in sm.patches if p.get("spool_id") == prev_spool_id and "location" in p.get("payload", {})]
+    assert len(loc_patches) == 0, \
+        "previous occupant active in another non-empty slot must NOT be moved"
+    logs = [msg for msg, _ in r._log_calls]
+    assert any("PREV_OCCUPANT_SKIP" in msg and "active_in_other_slot" in msg for msg in logs), \
+        f"must log PREV_OCCUPANT_SKIP active_in_other_slot; got {[m for m in logs if 'PREV_OCCUPANT' in m]}"
+    assert any("PREV_OCCUPANT_ACTIVE_IN_OTHER_SLOT" in msg and str(prev_spool_id) in msg for msg in logs), \
+        f"must log PREV_OCCUPANT_ACTIVE_IN_OTHER_SLOT; got {[m for m in logs if 'PREV_OCCUPANT' in m]}"
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_prev_occupant_none_when_no_previous(slot):
+    """No spool at slot's canonical location -> PREV_OCCUPANT_NONE logged, no PATCH."""
+    tag = "AABBCCDD00112233"
+    new_spool_id = 24000 + slot
+
+    new_spool = _spool(new_spool_id, rfid_tag_uid=tag, location="Shelf", remaining_weight=500)
+    sm = FakeSpoolman([new_spool], [_bambu_filament()])
+
+    state_map = _prev_occupant_state_map(slot, tag, prev_spool_id=0)
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("test")
+
+    move_patches = [p for p in sm.patches if "location" in p.get("payload", {}) and
+                    p.get("spool_id") != new_spool_id]
+    assert len(move_patches) == 0, "no previous occupant means no location PATCH for other spools"
+    logs = [msg for msg, _ in r._log_calls]
+    assert any("PREV_OCCUPANT_NONE" in msg for msg in logs), \
+        f"must log PREV_OCCUPANT_NONE; got {[m for m in logs if 'PREV_OCCUPANT' in m]}"
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_prev_occupant_skip_when_other_slot_tray_empty(slot):
+    """Previous occupant matches another slot's spool_id BUT that slot's tray is empty -> NOT skipped, move proceeds."""
+    tag = "AABBCCDD00112233"
+    new_spool_id = 25000 + slot
+    prev_spool_id = 35000 + slot
+    other_slot = (slot % 6) + 1
+    slot_loc = CANONICAL_LOCATION_BY_SLOT[slot]
+
+    new_spool = _spool(new_spool_id, rfid_tag_uid=tag, location="Shelf", remaining_weight=500)
+    prev_spool = _spool(prev_spool_id, rfid_tag_uid=None, location=slot_loc, remaining_weight=300)
+    sm = FakeSpoolman([new_spool, prev_spool], [_bambu_filament()])
+
+    state_map = _prev_occupant_state_map(slot, tag, prev_spool_id=prev_spool_id)
+    state_map[f"input_text.ams_slot_{other_slot}_spool_id"] = str(prev_spool_id)
+
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("test")
+
+    loc_patches = [p for p in sm.patches if p.get("spool_id") == prev_spool_id and "location" in p.get("payload", {})]
+    assert len(loc_patches) > 0, \
+        "previous occupant matching empty slot's helper must still be moved (tray empty = not in use)"
+    assert loc_patches[-1]["payload"]["location"] == LOCATION_NOT_IN_AMS, \
+        "remaining > 0 must move to Shelf"
+    logs = [msg for msg, _ in r._log_calls]
+    assert any("PREV_OCCUPANT_MOVED" in msg and str(prev_spool_id) in msg for msg in logs), \
+        "must log PREV_OCCUPANT_MOVED (not skipped)"
+    assert not any("PREV_OCCUPANT_SKIP" in msg for msg in logs), \
+        "must NOT log PREV_OCCUPANT_SKIP when other slot tray is empty"
 
 
 if __name__ == "__main__":
