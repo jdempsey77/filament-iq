@@ -387,6 +387,11 @@ class AmsRfidReconcile(hass.Hass):
             self.listen_state(self._on_tray_state_change, entity_id, attribute="all")
             self.log(f"AMS RFID reconcile listening: slot={slot} entity={entity_id}")
 
+        for slot in PHYSICAL_AMS_SLOTS:
+            helper_entity = f"input_text.ams_slot_{slot}_spool_id"
+            self.listen_state(self._on_helper_spool_id_change, helper_entity)
+            self.log(f"AMS RFID reconcile listening helper: slot={slot} entity={helper_entity}")
+
         self.listen_event(self._on_reconcile_event, "bambu_rfid_reconcile_now")
         self.listen_event(self._on_reconcile_all_event, "AMS_RECONCILE_ALL")
         self.listen_state(self._on_manual_reconcile_button, "input_button.p1s_rfid_reconcile_now")
@@ -528,6 +533,22 @@ class AmsRfidReconcile(hass.Hass):
             until_utc = datetime.datetime.utcnow() + datetime.timedelta(seconds=RFID_PENDING_SECONDS)
             self._set_rfid_pending_until(slot, until_utc)
         self._schedule_reconcile(f"tray_update:{entity}")
+
+    def _on_helper_spool_id_change(self, entity, attribute, old, new, kwargs):
+        new_val = self._safe_int(new, 0)
+        old_val = self._safe_int(old, 0)
+        if new_val == old_val:
+            return
+        slot = next(
+            (s for s in PHYSICAL_AMS_SLOTS if f"input_text.ams_slot_{s}_spool_id" == entity),
+            None,
+        )
+        if slot is None:
+            return
+        if self._active_run is not None:
+            return
+        self.log(f"HELPER_SPOOL_ID_CHANGED slot={slot} old={old_val} new={new_val}", level="INFO")
+        self._schedule_reconcile(f"helper_change_slot_{slot}")
 
     def _on_manual_enroll_event(self, event_name, data, kwargs):
         payload = data or {}
@@ -985,7 +1006,7 @@ class AmsRfidReconcile(hass.Hass):
                         lotnr_nonrfid_ids = list(set(lotnr_to_spools.get(lot_sig, [])))
                         if len(lotnr_nonrfid_ids) == 1:
                             resolved = lotnr_nonrfid_ids[0]
-                            self.log(f"NONRFID_LOT_NR_MATCH slot={slot} lot_sig={lot_sig} spool_id={resolved}", level="INFO")
+                            self.log(f"NONRFID_AUTO_MATCH slot={slot} spool_id={resolved} sig={lot_sig}", level="INFO")
                             if not status_only:
                                 self._force_location_and_helpers(
                                     slot, resolved, "", source="nonrfid_lot_nr_match",
@@ -993,9 +1014,10 @@ class AmsRfidReconcile(hass.Hass):
                                     previous_helper_spool_id=previous_helper_spool_id,
                                     spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
                                 )
+                                self._enroll_lot_nr(resolved, lot_sig, spool_index, reason="nonrfid_lot_nr_match")
                             status = STATUS_OK_NONRFID
                             ok += 1
-                            t["decision"], t["reason"], t["action"] = "NON_RFID", "lot_nr_match", "nonrfid_lot_nr_match"
+                            t["decision"], t["reason"], t["action"] = "NON_RFID", "lot_nr_match", "nonrfid_auto_match"
                             t["final_spool_id"], t["selected_spool_id"] = resolved, resolved
                             t["final_slot_status"] = status
                             t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
@@ -1008,7 +1030,26 @@ class AmsRfidReconcile(hass.Hass):
                                 self._log_validation_transcript(t)
                             continue
                         elif len(lotnr_nonrfid_ids) > 1:
-                            self.log(f"NONRFID_LOT_NR_AMBIGUOUS slot={slot} lot_sig={lot_sig} candidates={lotnr_nonrfid_ids}", level="WARNING")
+                            self.log(
+                                f"NONRFID_LOT_NR_AMBIGUOUS slot={slot} sig={lot_sig} candidates={lotnr_nonrfid_ids}",
+                                level="WARNING",
+                            )
+                            status = STATUS_NEEDS_MANUAL_BIND
+                            if not status_only:
+                                self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
+                                self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
+                            self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "AMBIGUOUS_SIG")
+                            self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                            self._log_slot_status_change(slot, status, "", 0, tray_meta)
+                            t["decision"], t["reason"], t["action"] = "NON_RFID", "ambiguous_sig", "needs_manual_bind"
+                            t["unbound_reason"] = "AMBIGUOUS_SIG"
+                            t["final_spool_id"] = 0
+                            t["final_slot_status"] = status
+                            self._active_run["validation_transcripts"].append(t)
+                            if validation_mode:
+                                self._log_validation_transcript(t)
+                            unbound += 1
+                            continue
 
                     # v4 Step 3 — migration fallback: HA_SIG in comment → promote to lot_nr
                     if lot_sig:
