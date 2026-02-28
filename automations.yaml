@@ -846,7 +846,7 @@
       target:
         entity_id: input_text.p1s_tray_remaining_end_json
       data:
-        value: "{{ end_json_built }}"
+        value: "{{ end_json_built | to_json }}"
 
     # 6. Fire P1S_PRINT_USAGE_READY event for AppDaemon
     - event: P1S_PRINT_USAGE_READY
@@ -856,7 +856,7 @@
         print_weight_g: "{{ states('sensor.p1s_01p00c5a3101668_print_weight') | float(0) }}"
         trays_used: "{{ states('input_text.p1s_trays_used_this_print') }}"
         start_json: "{{ states('input_text.p1s_tray_remaining_start_json') }}"
-        end_json: "{{ end_json_built }}"
+        end_json: "{{ end_json_built | to_json }}"
         print_status: "{{ trigger_state }}"
 
     # 7. Checkpoint complete
@@ -870,7 +870,7 @@
     - variables:
         message_lines: >
           {% set start = states('input_text.p1s_tray_remaining_start_json') | from_json %}
-          {% set end = end_json_built | from_json %}
+          {% set end = end_json_built if end_json_built is mapping else (end_json_built | from_json) %}
           {% set job_label = (states('sensor.p1s_01p00c5a3101668_task_name') | replace('.gcode.3mf', '') | replace('.3mf', '') | trim) %}
           {% set ns = namespace(lines=['Job: ' ~ job_label, 'Status: ' ~ trigger_state, '']) %}
           {% for slot, start_g in start.items() %}
