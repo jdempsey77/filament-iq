@@ -1366,6 +1366,7 @@ class AmsRfidReconcile(hass.Hass):
                                     tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
                                     previous_helper_spool_id=previous_helper_spool_id,
                                     spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
+                                    tray_uuid=tray_uuid,
                                 )
                                 # v4: enroll tray_uuid to lot_nr if not already set
                                 if tray_uuid:
@@ -1411,6 +1412,7 @@ class AmsRfidReconcile(hass.Hass):
                                 tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
                                 previous_helper_spool_id=previous_helper_spool_id,
                                 spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
+                                tray_uuid=tray_uuid,
                             )
                             # v4: enroll tray_uuid to lot_nr if not already set
                             if tray_uuid:
@@ -1455,6 +1457,7 @@ class AmsRfidReconcile(hass.Hass):
                                 tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
                                 previous_helper_spool_id=previous_helper_spool_id,
                                 spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
+                                tray_uuid=tray_uuid,
                             )
                             # v4: enroll tray_uuid to lot_nr if not already set
                             if tray_uuid:
@@ -1503,6 +1506,7 @@ class AmsRfidReconcile(hass.Hass):
                                     tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
                                     previous_helper_spool_id=previous_helper_spool_id,
                                     spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
+                                    tray_uuid=tray_uuid,
                                 )
                                 # v4: enroll tray_uuid to lot_nr if not already set
                                 if tray_uuid:
@@ -1744,7 +1748,7 @@ class AmsRfidReconcile(hass.Hass):
                 level="INFO",
             )
 
-    def _force_location_and_helpers(self, slot, spool_id, tag_uid, source, tray_meta=None, tray_state="", tray_identity=None, previous_helper_spool_id=0, spool_index=None, t=None, tray_empty=False, tray_state_str=""):
+    def _force_location_and_helpers(self, slot, spool_id, tag_uid, source, tray_meta=None, tray_state="", tray_identity=None, previous_helper_spool_id=0, spool_index=None, t=None, tray_empty=False, tray_state_str="", tray_uuid=""):
         slot_loc = CANONICAL_LOCATION_BY_SLOT.get(slot)
         if not slot_loc:
             return
@@ -1752,7 +1756,7 @@ class AmsRfidReconcile(hass.Hass):
 
         if spool_id > 0 and spool_index is not None:
             helper_spool_obj = spool_index.get(spool_id)
-            if not self._truth_guard_slot_patch(slot, t or {}, tray_meta or {}, tag_uid, spool_id, helper_spool_obj, tray_empty, tray_state_str):
+            if not self._truth_guard_slot_patch(slot, t or {}, tray_meta or {}, tag_uid, spool_id, helper_spool_obj, tray_empty, tray_state_str, tray_uuid=tray_uuid):
                 self.log(f"TRUTH_GUARD_FORCE_LOC_BLOCK slot={slot} spool_id={spool_id} source={source}", level="INFO")
                 return
 
@@ -2617,21 +2621,36 @@ class AmsRfidReconcile(hass.Hass):
         rfid_visible = bool(norm_tag and norm_tag != "0000000000000000")
 
         if rfid_visible and helper_spool_id > 0:
-            # v4: compare tray_uuid against spool lot_nr (orientation-independent)
+            # v4: lot_nr is the primary identity — compare against tray_uuid
             helper_lot_nr = str(helper_spool_obj.get("lot_nr") or "").strip() if isinstance(helper_spool_obj, dict) else ""
             if tray_uuid and helper_lot_nr:
-                lot_nr_match = (helper_lot_nr == tray_uuid)
-            else:
-                lot_nr_match = False
-            # Fallback: legacy extra.rfid_tag_uid comparison
-            helper_uid = self._extract_spool_uid(helper_spool_obj) if isinstance(helper_spool_obj, dict) else ""
-            legacy_match = bool(helper_uid and helper_uid == norm_tag)
-
-            if not lot_nr_match and not legacy_match and (helper_lot_nr or helper_uid):
-                mismatch_detail = (
-                    f"tray_uuid={tray_uuid} lot_nr={helper_lot_nr}" if tray_uuid
-                    else f"helper_uid={helper_uid} tag_uid={norm_tag}"
+                if helper_lot_nr == tray_uuid:
+                    return True
+                # lot_nr populated but doesn't match → definite mismatch
+                mismatch_detail = f"tray_uuid={tray_uuid} lot_nr={helper_lot_nr}"
+                self.log(
+                    f"TRUTH_GUARD_BLOCK slot={slot} mode=RFID_VISIBLE reason={UNBOUND_HELPER_RFID_MISMATCH} "
+                    f"helper={helper_spool_id} {mismatch_detail}",
+                    level="INFO",
                 )
+                self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
+                self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
+                self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_HELPER_RFID_MISMATCH)
+                t["unbound_reason"] = UNBOUND_HELPER_RFID_MISMATCH
+                t["unbound_detail"] = mismatch_detail
+                self._notify(
+                    f"RFID Truth Guard – Slot {slot}",
+                    f"Helper spool {helper_spool_id} identity does not match tray ({mismatch_detail}). Helper cleared.",
+                    notification_id=f"truth_guard_rfid_mismatch_{slot}",
+                )
+                return False
+
+            # Migration fallback: lot_nr empty, check legacy extra.rfid_tag_uid
+            helper_uid = self._extract_spool_uid(helper_spool_obj) if isinstance(helper_spool_obj, dict) else ""
+            if helper_uid:
+                if helper_uid == norm_tag:
+                    return True
+                mismatch_detail = f"helper_uid={helper_uid} tag_uid={norm_tag}"
                 self.log(
                     f"TRUTH_GUARD_BLOCK slot={slot} mode=RFID_VISIBLE reason={UNBOUND_HELPER_RFID_MISMATCH} "
                     f"helper={helper_spool_id} {mismatch_detail}",
