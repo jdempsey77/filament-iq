@@ -376,7 +376,6 @@ spoolman_set_new_spool_uuid:
         target: input_text.spoolman_new_spool_uuid
 
 # Add spool to Spoolman from dashboard (uses spoolman_new_spool_* helpers).
-# Runs script.spoolman_set_new_spool_uuid (python_script.gen_uuid), waits, then POSTs with extra.ha_spool_uuid.
 spoolman_add_spool:
   alias: Add spool to Spoolman
   sequence:
@@ -385,19 +384,16 @@ spoolman_add_spool:
             - condition: template
               value_template: "{{ (states('input_select.spoolman_new_spool_filament') or '') | trim != '' and ' - ' in (states('input_select.spoolman_new_spool_filament') or '') }}"
           sequence:
-            - action: input_text.set_value
-              data:
-                entity_id: input_text.spoolman_new_spool_uuid
-                value: ""
-            - action: script.spoolman_set_new_spool_uuid
-            - wait_template: "{{ states('input_text.spoolman_new_spool_uuid') not in ['', 'unknown', 'unavailable'] }}"
-              timeout: "00:00:10"
-            - action: rest_command.ams_spoolman_create_spool
-            - action: input_text.set_value
-              data:
-                entity_id: input_text.spoolman_new_spool_uuid
-                value: ""
+            - variables:
+                qty: "{{ states('input_number.spoolman_new_spool_quantity') | int(1) }}"
+            - repeat:
+                count: "{{ qty }}"
+                sequence:
+                  - action: rest_command.ams_spoolman_create_spool
             - action: script.reload_spoolman_integration
+            - action: browser_mod.notification
+              data:
+                message: "✅ Spool added to Spoolman"
 
 # Manual entrypoint for AMS reconciliation (fires AMS_RECONCILE_ALL event for AppDaemon).
 reconcile_all_ams_slots:
@@ -695,6 +691,13 @@ ams_slot_1_assign_and_update:
                 remaining_weight: "{{ remaining | float | round(2) }}"
                 location: "AMS1_Slot1"
             - service: script.reload_spoolman_integration
+            - event: bambu_rfid_manual_enroll_tag_to_spool
+              event_data:
+                slot_number: 1
+                spool_id: "{{ final_spool_id }}"
+            - action: browser_mod.notification
+              data:
+                message: "✅ Slot 1 updated"
 
 ams_slot_2_assign_and_update:
   alias: Slot 2 – Assign & Update
@@ -744,6 +747,13 @@ ams_slot_2_assign_and_update:
                 remaining_weight: "{{ remaining | float | round(2) }}"
                 location: "AMS1_Slot2"
             - service: script.reload_spoolman_integration
+            - event: bambu_rfid_manual_enroll_tag_to_spool
+              event_data:
+                slot_number: 2
+                spool_id: "{{ final_spool_id }}"
+            - action: browser_mod.notification
+              data:
+                message: "✅ Slot 2 updated"
 
 ams_slot_3_assign_and_update:
   alias: Slot 3 – Assign & Update
@@ -793,6 +803,13 @@ ams_slot_3_assign_and_update:
                 remaining_weight: "{{ remaining | float | round(2) }}"
                 location: "AMS1_Slot3"
             - service: script.reload_spoolman_integration
+            - event: bambu_rfid_manual_enroll_tag_to_spool
+              event_data:
+                slot_number: 3
+                spool_id: "{{ final_spool_id }}"
+            - action: browser_mod.notification
+              data:
+                message: "✅ Slot 3 updated"
 
 ams_slot_4_assign_and_update:
   alias: Slot 4 – Assign & Update
@@ -842,6 +859,13 @@ ams_slot_4_assign_and_update:
                 remaining_weight: "{{ remaining | float | round(2) }}"
                 location: "AMS1_Slot4"
             - service: script.reload_spoolman_integration
+            - event: bambu_rfid_manual_enroll_tag_to_spool
+              event_data:
+                slot_number: 4
+                spool_id: "{{ final_spool_id }}"
+            - action: browser_mod.notification
+              data:
+                message: "✅ Slot 4 updated"
 
 ams_slot_5_assign_and_update:
   alias: Slot 5 – Assign & Update
@@ -891,6 +915,13 @@ ams_slot_5_assign_and_update:
                 remaining_weight: "{{ remaining | float | round(2) }}"
                 location: "AMS2_HT_Slot1"
             - service: script.reload_spoolman_integration
+            - event: bambu_rfid_manual_enroll_tag_to_spool
+              event_data:
+                slot_number: 5
+                spool_id: "{{ final_spool_id }}"
+            - action: browser_mod.notification
+              data:
+                message: "✅ Slot 5 updated"
 
 ams_slot_6_assign_and_update:
   alias: Slot 6 – Assign & Update
@@ -940,3 +971,10 @@ ams_slot_6_assign_and_update:
                 remaining_weight: "{{ remaining | float | round(2) }}"
                 location: "AMS2_HT_Slot2"
             - service: script.reload_spoolman_integration
+            - event: bambu_rfid_manual_enroll_tag_to_spool
+              event_data:
+                slot_number: 6
+                spool_id: "{{ final_spool_id }}"
+            - action: browser_mod.notification
+              data:
+                message: "✅ Slot 6 updated"

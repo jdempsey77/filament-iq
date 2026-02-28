@@ -48,8 +48,8 @@ input_text:
     max: 9
   # Add spool form (test dashboard): location for new spool. Filament ID and remaining from input_number.
   spoolman_new_spool_location:
-    name: New spool – location (e.g. Shelf, AMS1_Slot1)
-    initial: "Shelf"
+    name: New spool – location (e.g. New, Shelf, AMS1_Slot1)
+    initial: "New"
     max: 64
   ams_slot_1_spool_id:
     name: AMS Slot 1 (AMS1_Slot1) – Spoolman spool ID
@@ -454,6 +454,13 @@ input_number:
     unit_of_measurement: g
     mode: box
     initial: 1000
+  spoolman_new_spool_quantity:
+    name: New spool – quantity
+    min: 1
+    max: 20
+    step: 1
+    mode: box
+    initial: 1
   ams_slot_1_gross_weight:
     name: AMS Slot 1 – gross scale (g)
     min: 0
@@ -1458,8 +1465,7 @@ rest_command:
     method: POST
     content_type: "application/json"
     payload: >-
-      {% set uuid_val = states('input_text.spoolman_new_spool_uuid') | default('') | trim %}
-      {{ {'filament_id': ((states('input_select.spoolman_new_spool_filament') or '').split(' - ')[0] | trim | int(1)) if ' - ' in (states('input_select.spoolman_new_spool_filament') or '') else (states('input_number.spoolman_new_spool_filament_id') | int(1)), 'location': (states('input_text.spoolman_new_spool_location') | default('') | trim) or 'Shelf', 'remaining_weight': states('input_number.spoolman_new_spool_remaining_weight') | float(0), 'archived': false, 'extra': {'ha_spool_uuid': '"' ~ uuid_val ~ '"'} if uuid_val else {}} | tojson }}
+      {{ {'filament_id': ((states('input_select.spoolman_new_spool_filament') or '').split(' - ')[0] | trim | int(1)) if ' - ' in (states('input_select.spoolman_new_spool_filament') or '') else (states('input_number.spoolman_new_spool_filament_id') | int(1)), 'location': (states('input_text.spoolman_new_spool_location') | default('') | trim) or 'New', 'remaining_weight': states('input_number.spoolman_new_spool_remaining_weight') | float(0), 'archived': false} | tojson }}
 # Load frontend themes from the themes folder
 frontend:
   themes: !include_dir_merge_named themes
