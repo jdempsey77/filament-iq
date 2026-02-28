@@ -3762,5 +3762,173 @@ def test_nonrfid_bambu_generic_filament_id_excluded(slot):
         f"must log NONRFID_BAMBU_EXCLUDED; got {[m for m in logs if 'BAMBU' in m]}"
 
 
+# ── Tier 2 RFID Tests ─────────────────────────────────────────────────
+
+def _rfid_state_map(slot, tag_uid, source_slot=None, source_slot_state="empty",
+                    extra_state=None):
+    """Build a state_map for RFID Tier 2 tests.
+    slot: the slot being reconciled (tray has tag_uid)
+    source_slot: if set, the slot where the spool came from
+    source_slot_state: state of the source slot's tray ('empty', 'valid', etc.)
+    extra_state: additional state_map overrides
+    """
+    tray_ent = _tray_entity(slot)
+    attrs = {"tag_uid": tag_uid, "type": "PLA", "color": "ff0000", "name": "Bambu PLA",
+             "filament_id": "bambu", "tray_weight": 1000, "remain": 50}
+    state_map = {}
+    for s in range(1, 7):
+        state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+        state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+        state_map[f"input_text.ams_slot_{s}_status"] = ""
+        state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+        state_map[f"input_text.ams_slot_{s}_unbound_reason"] = ""
+        if s == slot:
+            state_map[tray_ent] = {"attributes": attrs, "state": "valid"}
+            state_map[f"{tray_ent}::all"] = {"attributes": attrs, "state": "valid"}
+        elif s == source_slot:
+            empty_attrs = {"tag_uid": "", "type": "", "color": "", "name": "",
+                           "filament_id": "", "tray_weight": 0, "remain": 0}
+            state_map[_tray_entity(s)] = {"attributes": empty_attrs, "state": source_slot_state}
+            state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_attrs, "state": source_slot_state}
+        else:
+            empty_attrs = {"tag_uid": "", "type": "", "color": "", "name": "",
+                           "filament_id": "", "tray_weight": 0, "remain": 0}
+            state_map[_tray_entity(s)] = {"attributes": empty_attrs, "state": "empty"}
+            state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_attrs, "state": "empty"}
+    if extra_state:
+        state_map.update(extra_state)
+    return state_map
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_rfid_tier2_slot_to_slot_move_binds(slot):
+    """Spool moved between AMS slots: Tier 1 (tag_to_spools) misses, Tier 2 finds it at source
+    slot whose tray is empty -> bind via Tier 2, TIER2_MATCH logged."""
+    tag = "AABBCCDD00112233"
+    source_slot = (slot % 6) + 1
+    source_loc = CANONICAL_LOCATION_BY_SLOT[source_slot]
+    spool_id = 7000 + slot
+
+    spool = _spool(spool_id, rfid_tag_uid=tag, location="Empty", remaining_weight=500)
+    sm = FakeSpoolman([spool], [_bambu_filament()])
+
+    state_map = _rfid_state_map(slot, tag, source_slot=source_slot, source_slot_state="empty")
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+
+    tier2_spool = dict(spool)
+    tier2_spool["location"] = source_loc
+    original_method = r._find_tier2_candidates
+    r._find_tier2_candidates = lambda s, t, tm, si: [tier2_spool] if s == slot else original_method(s, t, tm, si)
+
+    r._run_reconcile("test")
+
+    status_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"]
+    assert len(status_writes) > 0
+    assert status_writes[-1].get("value") == "OK", \
+        f"Tier 2 bind must produce STATUS_OK; got {status_writes[-1].get('value')}"
+    logs = [msg for msg, _ in r._log_calls]
+    assert any("TIER2_MATCH" in msg and str(spool_id) in msg for msg in logs), \
+        f"must log TIER2_MATCH; got tier-related: {[m for m in logs if 'TIER2' in m]}"
+    assert any("TIER2_LOCATION_UPDATE" in msg for msg in logs), \
+        "must log TIER2_LOCATION_UPDATE"
+    summary = r._last_summary
+    assert summary is not None
+    slot_t = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == slot), None)
+    assert slot_t is not None
+    assert slot_t.get("final_spool_id") == spool_id
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_rfid_tier2_source_slot_not_empty_skips(slot):
+    """Spool at another AMS slot but that slot's tray is NOT empty -> Tier 2 skips, NEEDS_ACTION."""
+    tag = "AABBCCDD00112233"
+    source_slot = (slot % 6) + 1
+    source_loc = CANONICAL_LOCATION_BY_SLOT[source_slot]
+    spool_id = 8000 + slot
+
+    spool = _spool(spool_id, rfid_tag_uid=tag, location=source_loc, remaining_weight=500)
+    spool_index = {spool_id: spool}
+    state_map = _rfid_state_map(slot, tag, source_slot=source_slot, source_slot_state="valid")
+    r = TestableReconcile(FakeSpoolman([spool], []), state_map, args=_DEFAULT_ARGS)
+
+    result = r._find_tier2_candidates(slot, tag, {}, spool_index)
+    assert len(result) == 0, "source slot tray not empty -> no Tier 2 candidates"
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_rfid_tier2_active_in_other_slot_excluded(slot):
+    """Spool at AMS slot (empty tray) but active spool_id of another non-empty slot -> excluded."""
+    tag = "AABBCCDD00112233"
+    source_slot = (slot % 6) + 1
+    blocker_slot = ((slot + 1) % 6) + 1
+    if blocker_slot == slot:
+        blocker_slot = ((slot + 2) % 6) + 1
+    if blocker_slot == source_slot:
+        blocker_slot = ((slot + 3) % 6) + 1
+
+    source_loc = CANONICAL_LOCATION_BY_SLOT[source_slot]
+    spool_id = 9000 + slot
+
+    spool = _spool(spool_id, rfid_tag_uid=tag, location=source_loc, remaining_weight=500)
+    spool_index = {spool_id: spool}
+
+    state_map = _rfid_state_map(slot, tag, source_slot=source_slot, source_slot_state="empty")
+    blocker_ent = _tray_entity(blocker_slot)
+    blocker_attrs = {"tag_uid": "OTHER", "type": "PLA", "color": "ff0000", "name": "Other",
+                     "filament_id": "x", "tray_weight": 1000, "remain": 50}
+    state_map[blocker_ent] = {"attributes": blocker_attrs, "state": "valid"}
+    state_map[f"{blocker_ent}::all"] = {"attributes": blocker_attrs, "state": "valid"}
+    state_map[f"input_text.ams_slot_{blocker_slot}_spool_id"] = str(spool_id)
+
+    r = TestableReconcile(FakeSpoolman([spool], []), state_map, args=_DEFAULT_ARGS)
+    result = r._find_tier2_candidates(slot, tag, {}, spool_index)
+    assert len(result) == 0, "spool active in another non-empty slot must be excluded"
+    logs = [msg for msg, _ in r._log_calls]
+    assert any("TIER2_EXCLUDED" in msg and str(spool_id) in msg for msg in logs), \
+        f"must log TIER2_EXCLUDED; got {[m for m in logs if 'TIER2' in m]}"
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_rfid_tier2_falls_through_to_needs_action_when_no_match(slot):
+    """Tier 2 finds no UID match at empty AMS slots -> falls through to NEEDS_ACTION."""
+    tag = "AABBCCDD00112233"
+    spool_id = 10000 + slot
+    other_slot = (slot % 6) + 1
+
+    spool_different_uid = _spool(spool_id, rfid_tag_uid="DIFFERENTUID12345678",
+                                 location=CANONICAL_LOCATION_BY_SLOT[other_slot], remaining_weight=500)
+    sm = FakeSpoolman([spool_different_uid], [_bambu_filament()])
+    state_map = _rfid_state_map(slot, tag)
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("test")
+
+    status_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"]
+    assert len(status_writes) > 0
+    assert status_writes[-1].get("value") == STATUS_UNBOUND_ACTION_REQUIRED, \
+        f"no Tier 2 match must fall through to NEEDS_ACTION; got {status_writes[-1].get('value')}"
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_rfid_tier2_not_applied_to_nonrfid(slot):
+    """All-zero tag_uid (non-RFID) -> Tier 2 never called, no TIER2 logs."""
+    attrs = _nonrfid_attrs_standalone(name="Overture PLA", filament_id="OV01",
+                                      tray_type="PLA", color="ff0000")
+    spool_id = 11000 + slot
+    other_slot = (slot % 6) + 1
+    spools = [_spool(spool_id, remaining_weight=500, rfid_tag_uid="AABBCCDD00112233",
+                     location=CANONICAL_LOCATION_BY_SLOT[other_slot], vendor_name="Overture",
+                     name="Overture PLA Red")]
+    spools[0]["filament"]["external_id"] = "OV01"
+    sm = FakeSpoolman(spools, [])
+    state_map = _nonrfid_state_map_standalone(slot, attrs)
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("test")
+
+    logs = [msg for msg, _ in r._log_calls]
+    tier2_logs = [m for m in logs if "TIER2" in m]
+    assert len(tier2_logs) == 0, \
+        f"non-RFID slot must never invoke Tier 2; got {tier2_logs}"
+
+
 if __name__ == "__main__":
     unittest.main()

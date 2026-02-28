@@ -1352,7 +1352,53 @@ class AmsRfidReconcile(hass.Hass):
                         self._notify_conflict(slot, tag_uid, tray_meta, mapped_ids, "DUPLICATE_UID")
                         self._record_no_write(slot, "conflict_multiple_bound_matches", {"matches": mapped_ids})
                 else:
-                    # RFID no eligible match (Shelf/AMS*) => NEEDS_ACTION + notify; do NOT create, do NOT metadata match
+                    # Tier 2 — AMS slots with empty tray (RFID only)
+                    tier2_candidates = self._find_tier2_candidates(slot, tag_uid, tray_meta, spool_index)
+                    if tier2_candidates:
+                        if len(tier2_candidates) == 1:
+                            resolved_spool_id = self._safe_int(tier2_candidates[0].get("id"), 0)
+                        else:
+                            winner_id, _ = tiebreak_choose_spool(tier2_candidates, strict_mode=False)
+                            resolved_spool_id = winner_id or 0
+                        if resolved_spool_id > 0:
+                            old_loc = str(tier2_candidates[0].get("location", ""))
+                            new_loc = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                            self.log(
+                                f"TIER2_MATCH slot={slot} spool_id={resolved_spool_id} tag_uid={tag_uid}",
+                                level="INFO",
+                            )
+                            self.log(
+                                f"TIER2_LOCATION_UPDATE slot={slot} spool_id={resolved_spool_id} from={old_loc} to={new_loc}",
+                                level="INFO",
+                            )
+                            if not status_only:
+                                if not self._rfid_bind_guard_ok(resolved_spool_id, tag_uid, spool_index):
+                                    self._apply_rfid_bind_guard_fail(slot, t, tray_meta, tag_uid, resolved_spool_id, validation_mode)
+                                    unbound += 1
+                                    continue
+                                self._force_location_and_helpers(
+                                    slot, resolved_spool_id, tag_uid, source="tier2_ams_empty",
+                                    tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=current_tray_sig,
+                                    previous_helper_spool_id=previous_helper_spool_id,
+                                    spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
+                                )
+                            t["converge_reason"] = "tier2_ams_empty"
+                            status = STATUS_OK
+                            ok += 1
+                            t["decision"], t["reason"], t["action"] = "OK", "TIER2_AMS_EMPTY", "tier2_bind"
+                            t["uid_lookup_count"] = 1
+                            t["final_spool_id"], t["selected_spool_id"] = resolved_spool_id, resolved_spool_id
+                            t["final_location"] = new_loc
+                            self._record_decision(slot, "tier2_ams_empty", {"tag_uid": tag_uid, "resolved_spool_id": resolved_spool_id})
+                            self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                            self._log_slot_status_change(slot, status, tag_uid, resolved_spool_id, tray_meta)
+                            t["final_slot_status"] = status
+                            self._active_run["validation_transcripts"].append(t)
+                            if validation_mode:
+                                self._log_validation_transcript(t)
+                            continue
+
+                    # RFID no eligible match after Tier 1+2 => NEEDS_ACTION
                     self.log(
                         f"RFID_MATCH_DEBUG slot={slot} "
                         f"slot_tag={slot_tag} "
@@ -1688,6 +1734,66 @@ class AmsRfidReconcile(hass.Hass):
         self._log_slot_status_change(slot, STATUS_OK_NONRFID, "", resolved, tray_meta)
         self._record_decision(slot, "nonrfid_filament_id_match", {"resolved_spool_id": resolved, "filament_id": fid})
         return resolved
+
+    def _find_tier2_candidates(self, slot, tag_uid, tray_meta, spool_index):
+        """Tier 2: RFID spools at AMS slot locations where that slot's tray is currently empty."""
+        if not tag_uid:
+            return []
+        slot_tag = _normalize_rfid_tag_uid(tag_uid)
+        if not slot_tag:
+            return []
+
+        candidates = []
+        for other_slot, other_loc in CANONICAL_LOCATION_BY_SLOT.items():
+            if other_slot == slot:
+                continue
+            other_entity = TRAY_ENTITY_BY_SLOT.get(other_slot)
+            if not other_entity:
+                continue
+            other_tray = self.get_state(other_entity, attribute="all") or {}
+            other_state = str(other_tray.get("state", "") if isinstance(other_tray, dict) else other_tray or "").strip().lower()
+            if other_state != "empty":
+                continue
+            norm_loc = self._normalize_location(other_loc)
+            for spool_id, spool in spool_index.items():
+                if spool_id <= 0:
+                    continue
+                spool_loc = self._normalize_location(str(spool.get("location", "")).strip())
+                if spool_loc != norm_loc:
+                    continue
+                spool_uid = self._extract_spool_uid(spool)
+                if spool_uid != slot_tag:
+                    continue
+                candidates.append(spool)
+                self.log(
+                    f"TIER2_CANDIDATE slot={slot} source_slot={other_slot} spool_id={spool_id} uid_match=True",
+                    level="INFO",
+                )
+
+        filtered = []
+        for spool in candidates:
+            spool_id = self._safe_int(spool.get("id"), 0)
+            excluded = False
+            for other_slot in range(1, 7):
+                if other_slot == slot:
+                    continue
+                ot_entity = TRAY_ENTITY_BY_SLOT[other_slot]
+                ot_tray = self.get_state(ot_entity, attribute="all") or {}
+                ot_state = str(ot_tray.get("state", "") if isinstance(ot_tray, dict) else ot_tray or "").strip().lower()
+                if ot_state != "empty":
+                    other_spool_id = self._safe_int(
+                        self.get_state(f"input_text.ams_slot_{other_slot}_spool_id"), 0
+                    )
+                    if other_spool_id > 0 and other_spool_id == spool_id:
+                        self.log(
+                            f"TIER2_EXCLUDED slot={slot} spool_id={spool_id} reason=active_in_other_slot other_slot={other_slot}",
+                            level="INFO",
+                        )
+                        excluded = True
+                        break
+            if not excluded:
+                filtered.append(spool)
+        return filtered
 
     def _find_deterministic_candidates(self, spools, tray_meta, slot):
         candidates = []
