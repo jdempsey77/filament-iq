@@ -954,8 +954,8 @@ class AmsRfidReconcile(hass.Hass):
                 lot_sig = self._build_lot_sig_for_lookup(tray_meta)
                 if lot_sig:
                     lotnr_nonrfid_ids = list(set(lotnr_to_spools.get(lot_sig, [])))
-                    # Unenrolled fallback only when tray is not generic (generic sentinel blocks weaker heuristics)
-                    unenrolled_ids = self._unenrolled_candidates_for_tray(tray_meta, spools, slot) if not is_generic_filament_id(fid_raw) else []
+                    # Unenrolled fallback runs for all trays (including generic); sentinel skip is last resort when zero candidates
+                    unenrolled_ids = self._unenrolled_candidates_for_tray(tray_meta, spools, slot)
                     all_nonrfid_ids = list(set(lotnr_nonrfid_ids) | set(unenrolled_ids))
                     if len(all_nonrfid_ids) == 1:
                         resolved = all_nonrfid_ids[0]
@@ -1071,7 +1071,7 @@ class AmsRfidReconcile(hass.Hass):
                         unbound += 1
                         continue
 
-                # ── Generic sentinel short-circuit: no lot_nr match above, block weaker heuristics ──
+                # ── Generic sentinel last resort: only when zero lot_nr + zero unenrolled candidates ──
                 if is_generic_filament_id(fid_raw):
                     self.log(
                         f"NONRFID_SENTINEL_SKIP slot={slot} filament_id={fid_raw} reason=GENERIC_FILAMENT_NO_AUTO_MATCH",

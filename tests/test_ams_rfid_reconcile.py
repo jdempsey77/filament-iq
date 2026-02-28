@@ -3592,7 +3592,7 @@ def test_color_distance_unit():
 
 @pytest.mark.parametrize("slot", _ALL_SLOTS)
 def test_nonrfid_generic_sentinel_short_circuits_to_needs_action(slot):
-    """filament_id=GFL99 -> NEEDS_MANUAL_BIND before waterfall, NONRFID_SENTINEL_SKIP logged."""
+    """Generic tray (GFL99) + matching unenrolled spool -> bind via unenrolled; sentinel is last resort when zero candidates."""
     attrs = _nonrfid_attrs_standalone(name="Generic PLA", filament_id="GFL99", tray_type="PLA", color="ff0000")
     spools = [_spool(101, remaining_weight=500, rfid_tag_uid=None, location="Shelf",
                      color_hex="ff0000", vendor_name="Overture", name="Overture PLA")]
@@ -3602,11 +3602,10 @@ def test_nonrfid_generic_sentinel_short_circuits_to_needs_action(slot):
     r._run_reconcile("test")
     status_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"]
     assert len(status_writes) > 0
-    assert status_writes[-1].get("value") == STATUS_NEEDS_MANUAL_BIND
+    assert status_writes[-1].get("value") == STATUS_OK_NONRFID, "generic tray + matching spool must bind via unenrolled"
     logs = [msg for msg, _ in r._log_calls]
-    assert any("NONRFID_SENTINEL_SKIP" in msg and "GFL99" in msg for msg in logs), \
-        f"must log NONRFID_SENTINEL_SKIP; got {[m for m in logs if 'SENTINEL' in m]}"
-    assert len(sm.patches) == 0, "sentinel must block waterfall — no Spoolman patches"
+    assert any("NONRFID_UNENROLLED_MATCH" in msg for msg in logs), "must log unenrolled match when binding"
+    assert not any("NONRFID_SENTINEL_SKIP" in msg for msg in logs), "sentinel must not fire when unenrolled match exists"
 
 
 @pytest.mark.parametrize("fid", ["GFL99", "GFG99", "GFA99"])
