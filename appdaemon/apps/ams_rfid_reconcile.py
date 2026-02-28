@@ -973,8 +973,59 @@ class AmsRfidReconcile(hass.Hass):
                         self._log_validation_transcript(t)
                     continue
 
-                # ── Generic sentinel short-circuit: no auto-match possible ──
+                # ── v4 lot_nr lookup (runs before sentinel skip so enrolled generics still match) ──
                 fid_raw = tray_meta.get("filament_id", "")
+                lot_sig = self._build_lot_sig_for_lookup(tray_meta)
+                if lot_sig:
+                    lotnr_nonrfid_ids = list(set(lotnr_to_spools.get(lot_sig, [])))
+                    if len(lotnr_nonrfid_ids) == 1:
+                        resolved = lotnr_nonrfid_ids[0]
+                        self.log(f"NONRFID_AUTO_MATCH slot={slot} spool_id={resolved} sig={lot_sig}", level="INFO")
+                        if not status_only:
+                            self._force_location_and_helpers(
+                                slot, resolved, "", source="nonrfid_lot_nr_match",
+                                tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_sig,
+                                previous_helper_spool_id=previous_helper_spool_id,
+                                spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
+                            )
+                            self._enroll_lot_nr(resolved, lot_sig, spool_index, reason="nonrfid_lot_nr_match")
+                        status = STATUS_OK_NONRFID
+                        ok += 1
+                        t["decision"], t["reason"], t["action"] = "NON_RFID", "lot_nr_match", "nonrfid_auto_match"
+                        t["final_spool_id"], t["selected_spool_id"] = resolved, resolved
+                        t["final_slot_status"] = status
+                        t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                        self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+                        self._log_slot_status_change(slot, status, "", resolved, tray_meta)
+                        self._record_decision(slot, "nonrfid_lot_nr_match", {"resolved_spool_id": resolved, "lot_sig": lot_sig})
+                        self._active_run["validation_transcripts"].append(t)
+                        if validation_mode:
+                            self._log_validation_transcript(t)
+                        continue
+                    elif len(lotnr_nonrfid_ids) > 1:
+                        self.log(
+                            f"NONRFID_LOT_NR_AMBIGUOUS slot={slot} sig={lot_sig} candidates={lotnr_nonrfid_ids}",
+                            level="WARNING",
+                        )
+                        status = STATUS_NEEDS_MANUAL_BIND
+                        if not status_only:
+                            self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
+                            self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
+                        self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "AMBIGUOUS_SIG")
+                        self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._log_slot_status_change(slot, status, "", 0, tray_meta)
+                        t["decision"], t["reason"], t["action"] = "NON_RFID", "ambiguous_sig", "needs_manual_bind"
+                        t["unbound_reason"] = "AMBIGUOUS_SIG"
+                        t["final_spool_id"] = 0
+                        t["final_slot_status"] = status
+                        self._active_run["validation_transcripts"].append(t)
+                        if validation_mode:
+                            self._log_validation_transcript(t)
+                        unbound += 1
+                        continue
+
+                # ── Generic sentinel short-circuit: no lot_nr match above, block weaker heuristics ──
                 if is_generic_filament_id(fid_raw):
                     self.log(
                         f"NONRFID_SENTINEL_SKIP slot={slot} filament_id={fid_raw} reason=GENERIC_FILAMENT_NO_AUTO_MATCH",
@@ -1000,57 +1051,6 @@ class AmsRfidReconcile(hass.Hass):
                 # ── Fingerprint changed / just confirmed / unbound → auto-match if confident ──
                 confident = self._is_confident_nonrfid(attrs, tray_state_str, fid_raw)
                 if confident:
-                    # v4 Step 2 — lot_nr exact match (sig = type|filament_id|color_hex)
-                    lot_sig = self._build_lot_sig(tray_meta)
-                    if lot_sig:
-                        lotnr_nonrfid_ids = list(set(lotnr_to_spools.get(lot_sig, [])))
-                        if len(lotnr_nonrfid_ids) == 1:
-                            resolved = lotnr_nonrfid_ids[0]
-                            self.log(f"NONRFID_AUTO_MATCH slot={slot} spool_id={resolved} sig={lot_sig}", level="INFO")
-                            if not status_only:
-                                self._force_location_and_helpers(
-                                    slot, resolved, "", source="nonrfid_lot_nr_match",
-                                    tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_sig,
-                                    previous_helper_spool_id=previous_helper_spool_id,
-                                    spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
-                                )
-                                self._enroll_lot_nr(resolved, lot_sig, spool_index, reason="nonrfid_lot_nr_match")
-                            status = STATUS_OK_NONRFID
-                            ok += 1
-                            t["decision"], t["reason"], t["action"] = "NON_RFID", "lot_nr_match", "nonrfid_auto_match"
-                            t["final_spool_id"], t["selected_spool_id"] = resolved, resolved
-                            t["final_slot_status"] = status
-                            t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
-                            self._set_helper(f"input_text.ams_slot_{slot}_status", status)
-                            self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
-                            self._log_slot_status_change(slot, status, "", resolved, tray_meta)
-                            self._record_decision(slot, "nonrfid_lot_nr_match", {"resolved_spool_id": resolved, "lot_sig": lot_sig})
-                            self._active_run["validation_transcripts"].append(t)
-                            if validation_mode:
-                                self._log_validation_transcript(t)
-                            continue
-                        elif len(lotnr_nonrfid_ids) > 1:
-                            self.log(
-                                f"NONRFID_LOT_NR_AMBIGUOUS slot={slot} sig={lot_sig} candidates={lotnr_nonrfid_ids}",
-                                level="WARNING",
-                            )
-                            status = STATUS_NEEDS_MANUAL_BIND
-                            if not status_only:
-                                self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
-                                self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
-                            self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "AMBIGUOUS_SIG")
-                            self._set_helper(f"input_text.ams_slot_{slot}_status", status)
-                            self._log_slot_status_change(slot, status, "", 0, tray_meta)
-                            t["decision"], t["reason"], t["action"] = "NON_RFID", "ambiguous_sig", "needs_manual_bind"
-                            t["unbound_reason"] = "AMBIGUOUS_SIG"
-                            t["final_spool_id"] = 0
-                            t["final_slot_status"] = status
-                            self._active_run["validation_transcripts"].append(t)
-                            if validation_mode:
-                                self._log_validation_transcript(t)
-                            unbound += 1
-                            continue
-
                     # v4 Step 3 — migration fallback: HA_SIG in comment → promote to lot_nr
                     if lot_sig:
                         ha_sig_test = self._compute_ha_sig(tray_meta, slot=slot, spool_index=spool_index, expected_spool_id=0, candidate_ids=[])
@@ -2492,6 +2492,21 @@ class AmsRfidReconcile(hass.Hass):
         if not typ or not fid or not hex_:
             return ""
         if is_generic_filament_id(fid):
+            return ""
+        return f"{typ}|{fid}|{hex_}"[:255]
+
+    def _build_lot_sig_for_lookup(self, tray_meta):
+        """Like _build_lot_sig but allows generic filament IDs.
+
+        Used for lot_nr index lookup where even generic filaments may have
+        been previously enrolled. Not used for writing new lot_nr values.
+        """
+        typ = (str(tray_meta.get("type", "") or "").strip()).lower()
+        fid = (str(tray_meta.get("filament_id", "") or "").strip()).lower()
+        hex_ = (str(tray_meta.get("color_hex", "") or "").strip().replace("#", "").lower())
+        if len(hex_) == 8:
+            hex_ = hex_[:6]
+        if not typ or not fid or not hex_:
             return ""
         return f"{typ}|{fid}|{hex_}"[:255]
 
