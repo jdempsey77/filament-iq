@@ -410,36 +410,9 @@ class AmsRfidReconcile(hass.Hass):
     def _on_homeassistant_start(self, event_name, data, kwargs):
         self._schedule_reconcile("homeassistant_started")
 
-    def _startup_lot_nr_patches(self):
-        """v4: one-time lot_nr enrollment for known spools that predate lot_nr migration."""
-        patches = [
-            (41, "38D1181E8F024FDA9D040D3BE3A20312"),  # Bambu Green
-        ]
-        slot4_spool_id = self._safe_int(self.get_state("input_text.ams_slot_4_spool_id"), 0)
-        if slot4_spool_id > 0:
-            patches.append((slot4_spool_id, "C482963767A24ACBB858F95D4376A2E5"))  # Bambu Gray
-        for spool_id, lot_nr_value in patches:
-            try:
-                spool = self._spoolman_get(f"/api/v1/spool/{spool_id}")
-                if not isinstance(spool, dict):
-                    continue
-                existing = str(spool.get("lot_nr") or "").strip()
-                if existing:
-                    if existing != lot_nr_value:
-                        self.log(
-                            f"STARTUP_LOT_NR_SKIP spool_id={spool_id} existing={existing} expected={lot_nr_value}",
-                            level="WARNING",
-                        )
-                    continue
-                self._patch_spool_fields(spool_id, {"lot_nr": lot_nr_value})
-                self.log(f"STARTUP_LOT_NR_PATCHED spool_id={spool_id} lot_nr={lot_nr_value}")
-            except Exception as exc:
-                self.log(f"STARTUP_LOT_NR_ERROR spool_id={spool_id} error={exc}", level="ERROR")
-
     def _run_reconcile_startup(self, kwargs):
         if DomainException is None:
             self._clear_legacy_signatures()
-            self._startup_lot_nr_patches()
             self._run_reconcile("startup_delay")
             return
         budget_sec = self.startup_wait_helpers_seconds
@@ -495,7 +468,6 @@ class AmsRfidReconcile(hass.Hass):
             return
         self.log("STARTUP_WAIT_HELPERS_READY", level="INFO")
         self._clear_legacy_signatures()
-        self._startup_lot_nr_patches()
         self._run_reconcile("startup_delay")
 
     def _run_reconcile_poll(self, kwargs):
