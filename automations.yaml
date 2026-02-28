@@ -812,15 +812,7 @@
 
     # 4. Build end_json from fuel gauge sensors
     - variables:
-        end_json_built: >
-          {% set tray_entities = [
-            'sensor.p1s_01p00c5a3101668_ams_1_tray_1',
-            'sensor.p1s_01p00c5a3101668_ams_1_tray_2',
-            'sensor.p1s_01p00c5a3101668_ams_1_tray_3',
-            'sensor.p1s_01p00c5a3101668_ams_1_tray_4',
-            'sensor.p1s_01p00c5a3101668_ams_128_tray_1',
-            'sensor.p1s_01p00c5a3101668_ams_129_tray_1'
-          ] %}
+        end_json_built: >-
           {% set fuel_gauge_sensors = [
             'sensor.p1s_tray_1_fuel_gauge_remaining',
             'sensor.p1s_tray_2_fuel_gauge_remaining',
@@ -829,15 +821,10 @@
             'sensor.p1s_tray_5_fuel_gauge_remaining',
             'sensor.p1s_tray_6_fuel_gauge_remaining'
           ] %}
-          {% set trays_used = states('input_text.p1s_trays_used_this_print').split(',') | map('trim') | select | list %}
           {% set ns = namespace(pairs=[]) %}
-          {% for tray in trays_used %}
-            {% for i in range(6) %}
-              {% if tray == tray_entities[i] or tray == (i+1)|string %}
-                {% set remaining = states(fuel_gauge_sensors[i]) | float(0) %}
-                {% set ns.pairs = ns.pairs + ['"' ~ (i+1)|string ~ '": ' ~ remaining] %}
-              {% endif %}
-            {% endfor %}
+          {% for i in range(6) %}
+            {% set remaining = states(fuel_gauge_sensors[i]) | float(0) %}
+            {% set ns.pairs = ns.pairs + ['"' ~ (i+1)|string ~ '": ' ~ remaining] %}
           {% endfor %}
           {{ '{' ~ ns.pairs | join(', ') ~ '}' }}
 
