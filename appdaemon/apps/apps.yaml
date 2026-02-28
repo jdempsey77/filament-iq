@@ -1,0 +1,41 @@
+ams_rfid_reconcile:
+  # Single writer ownership:
+  # - Owns writes for: input_text.ams_slot_{1..6}_spool_id
+  #                    input_text.ams_slot_{1..6}_expected_spool_id
+  #                    input_text.ams_slot_{1..6}_status
+  # - Legacy YAML RFID writers are disabled fail-closed in automations.yaml.
+  # Disable app only via this flag.
+  enabled: true
+  module: ams_rfid_reconcile
+  class: AmsRfidReconcile
+  spoolman_url: http://192.168.4.124:7912
+  startup_delay_seconds: 8
+  debounce_seconds: 3
+  safety_poll_seconds: 600
+  # strict_mode_reregister: when true, never auto-pick when >1 candidate (same color/filament); require manual spool_id (bambu_rfid_manual_enroll_tag_to_spool).
+  strict_mode_reregister: false
+  evidence_log_path: /addon_configs/a0d7b954_appdaemon/ams_rfid_reconcile_evidence.log
+  debug_logs: false
+
+ams_rfid_guard:
+  module: ams_rfid_guard
+  class: AmsRfidGuard
+  enabled: true
+  spoolman_base_url: http://192.168.4.124:7912
+  scan_interval_seconds: 300
+  rfid_managed_patterns:
+    - bambu
+    - bambu lab
+  notify_cooldown_minutes: 360
+  dry_run: false
+  # dry_run: true   # Set true to log violations without PATCHing
+  use_cache_trigger: false
+  # missing_ha_spool_uuid_mode: warn_only (default) | quarantine
+  missing_ha_spool_uuid_mode: warn_only
+
+# Populates input_select.spoolman_new_spool_filament from Spoolman /api/v1/filament (no trailing slash on base).
+spoolman_dropdown_sync:
+  module: spoolman_dropdown_sync
+  class: SpoolmanDropdownSync
+  enabled: true
+  spoolman_base_url: http://192.168.4.124:7912
