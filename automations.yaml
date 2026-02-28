@@ -934,10 +934,32 @@
                       entity_id: input_text.p1s_finish_automation_checkpoint
                     data:
                       value: "slot{{ repeat.index }}_decrement_{{ used_g }}g"
-                  - service: spoolman.use_spool_filament
-                    data:
-                      id: "{{ spool_id }}"
-                      use_weight: "{{ used_g }}"
+    # Build end_json from per-slot input_numbers for event payload
+    - variables:
+        end_json_built: >
+          {% set ns = namespace(pairs=[]) %}
+          {% for i in range(1, 7) %}
+            {% set start = states('input_number.p1s_start_slot_' ~ i ~ '_g')|int(0) %}
+            {% if start > 0 %}
+              {% set endv = states('input_number.p1s_end_slot_' ~ i ~ '_g')|float(0) %}
+              {% set ns.pairs = ns.pairs + ['"' ~ i ~ '": ' ~ endv] %}
+            {% endif %}
+          {% endfor %}
+          {{ '{' ~ ns.pairs|join(', ') ~ '}' }}
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.p1s_tray_remaining_end_json
+      data:
+        value: "{{ end_json_built }}"
+    - event: P1S_PRINT_USAGE_READY
+      event_data:
+        job_key: "{{ states('input_text.p1s_print_job_key') }}"
+        task_name: "{{ states('sensor.p1s_01p00c5a3101668_task_name') }}"
+        print_weight_g: "{{ states('sensor.p1s_01p00c5a3101668_print_weight') | float(0) }}"
+        trays_used: "{{ states('input_text.p1s_trays_used_this_print') }}"
+        start_json: "{{ states('input_text.p1s_tray_remaining_start_json') }}"
+        end_json: "{{ states('input_text.p1s_tray_remaining_end_json') }}"
+        print_status: "{{ trigger_state }}"
     # Reload Spoolman
     - service: script.reload_spoolman_integration
     - service: input_text.set_value
