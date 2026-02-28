@@ -94,7 +94,7 @@ def _bambu_filament(material="PLA", color_hex="ff0000", name="Bambu PLA", fid=1)
     }
 
 
-def _spool(sid, filament_id=1, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000", material="PLA", name="Bambu PLA", comment=None, ha_spool_uuid=None, vendor_name="Bambu Lab", initial_weight=None):
+def _spool(sid, filament_id=1, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000", material="PLA", name="Bambu PLA", comment=None, ha_spool_uuid=None, vendor_name="Bambu Lab", initial_weight=None, lot_nr=None):
     f = _bambu_filament(material=material, color_hex=color_hex, name=name, fid=filament_id)
     f["vendor"] = {"name": vendor_name}
     extra = {}
@@ -112,6 +112,8 @@ def _spool(sid, filament_id=1, remaining_weight=500, rfid_tag_uid=None, location
     }
     if comment is not None:
         out["comment"] = comment
+    if lot_nr is not None:
+        out["lot_nr"] = lot_nr
     if initial_weight is not None:
         out["initial_weight"] = initial_weight
     return out
@@ -219,6 +221,9 @@ class TestableReconcile(AmsRfidReconcile):
         self.debounce_reasons = []
         self._missing_helper_warned = set()
         self._pending_helper_warned = set()
+        self._pending_lot_nr_writes = {}
+        self._suppress_helper_change_until = {}
+        self._domain_exception_class_logged = False
         self._evidence_lines = []
         self._log_calls = []
 
@@ -1140,12 +1145,11 @@ class TestAmsRfidReconcile(unittest.TestCase):
         r = TestableReconcile(sm, state_map, args=self.args)
         r._run_reconcile("test")
 
-        expected_ha_sig = "HA_SIG=bambu|filament_id=bambu|type=pla|color_hex=ff0000"
-        comment_patches = [p for p in sm.patches if p.get("payload", {}).get("comment") == expected_ha_sig]
-        self.assertGreater(len(comment_patches), 0, "expected a PATCH that stamps spool comment with HA_SIG")
-        self.assertEqual(len(comment_patches), 1, "expected exactly one comment PATCH (idempotent convergence)")
-        self.assertEqual(comment_patches[0]["path"], "/api/v1/spool/101")
-        self.assertEqual(comment_patches[0]["payload"], {"comment": expected_ha_sig})
+        # v4: identity in lot_nr only (RFID: tray_uuid written to lot_nr)
+        lot_nr_patches = [p for p in sm.patches if p.get("path") == "/api/v1/spool/101" and (p.get("payload") or {}).get("lot_nr")]
+        self.assertGreater(len(lot_nr_patches), 0, "expected a PATCH that stamps spool lot_nr")
+        self.assertEqual(len(lot_nr_patches), 1, "expected exactly one lot_nr PATCH (idempotent convergence)")
+        self.assertEqual(lot_nr_patches[0]["path"], "/api/v1/spool/101")
         status_writes = [w for w in r._helper_writes if "status" in w.get("entity_id", "")]
         ok_write = next((w for w in status_writes if w.get("value") == "OK"), None)
         self.assertIsNotNone(ok_write, "status should be OK for this bind")
@@ -1198,9 +1202,9 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertEqual(len(comment_patches), 0, "expected no comment PATCH when ha_sig is None (missing color)")
 
     def test_ha_sig_converge_does_not_use_tray_signature_helper(self):
-        """Stamping works without input_text.ams_slot_*_tray_signature (e.g. when helper is unavailable)."""
+        """v4: Identity written to lot_nr without input_text.ams_slot_*_tray_signature (e.g. when helper is unavailable)."""
         tag = "C7D26F7B00000100"
-        spools = [_spool(1, remaining_weight=500, rfid_tag_uid=json.dumps(tag), location="Shelf", comment="")]
+        spools = [_spool(1, remaining_weight=500, rfid_tag_uid=json.dumps(tag), location="Shelf", lot_nr="")]
         filaments = [{"id": 1, "name": "Bambu PLA Basic", "material": "PLA", "color_hex": "ff0000",
                      "vendor": {"name": "Bambu Lab"}, "external_id": "bambu"}]
         sm = FakeSpoolman(spools, filaments)
@@ -1216,10 +1220,10 @@ class TestAmsRfidReconcile(unittest.TestCase):
         # Do NOT set input_text.ams_slot_*_tray_signature (simulates unavailable helper)
         r = TestableReconcile(sm, state_map, args=self.args)
         r._run_reconcile("test")
-        expected_ha_sig = "HA_SIG=bambu|filament_id=bambu|type=pla|color_hex=ff0000"
-        comment_patches = [p for p in sm.patches if p.get("payload", {}).get("comment") == expected_ha_sig]
-        self.assertEqual(len(comment_patches), 1, "expected one comment PATCH even without tray_signature helper")
-        self.assertEqual(comment_patches[0]["path"], "/api/v1/spool/1")
+        # v4: RFID bind writes tray_uuid (tag) to lot_nr, not comment
+        lot_nr_patches = [p for p in sm.patches if p.get("path") == "/api/v1/spool/1" and (p.get("payload") or {}).get("lot_nr")]
+        self.assertEqual(len(lot_nr_patches), 1, "expected one lot_nr PATCH even without tray_signature helper")
+        self.assertEqual(lot_nr_patches[0]["path"], "/api/v1/spool/1")
 
     def test_sticky_must_not_override_when_helper_uid_mismatch(self):
         """PHASE_2_6_1: Sticky must not override UID-resolved spool when helper spool UID != tray tag_uid."""
@@ -1272,7 +1276,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
             state_map[f"input_text.ams_slot_{s}_status"] = ""
         r = TestableReconcile(sm, state_map, args=self.args)
         # Force guard to fail so we hit the UNBOUND_SELECTED_UID_MISMATCH path (no bind, no HA_SIG)
-        r._rfid_bind_guard_ok = lambda resolved_spool_id, tag_uid, spool_index: False
+        r._rfid_bind_guard_ok = lambda resolved_spool_id, tag_uid, spool_index, tray_uuid="": False
         r._run_reconcile("test")
         summary = getattr(r, "_last_summary", None)
         self.assertIsNotNone(summary)
@@ -2195,12 +2199,10 @@ class TestAmsRfidReconcile(unittest.TestCase):
         r._active_run = {"reason": "test", "writes": [], "decisions": [], "no_write_paths": [],
                          "conflicts": [], "unknown_tags": [], "auto_registers": [],
                          "validation_transcripts": [], "spool_exists_cache": {}}
-        r._converge_ha_sig(
-            slot, 7, tray_meta, spool_index, reason="test_guard",
-            tag_uid="", tray_empty=False, tray_state_str="valid",
-        )
-        comment_patches = [p for p in sm.patches if "comment" in (p.get("payload") or {})]
-        self.assertEqual(len(comment_patches), 0, "truth guard must block ha_sig comment PATCH on material mismatch")
+        # v4: _converge_lot_nr replaces _converge_ha_sig; truth guard blocks lot_nr PATCH on material mismatch
+        r._converge_lot_nr(slot, 7, tray_meta, spool_index, tray_uuid="", tag_uid="")
+        lot_nr_patches = [p for p in sm.patches if "lot_nr" in (p.get("payload") or {})]
+        self.assertEqual(len(lot_nr_patches), 0, "truth guard must block lot_nr PATCH on material mismatch")
 
 
     def test_truth_guard_force_location_blocks_on_rfid_mismatch(self):
@@ -3359,8 +3361,9 @@ def test_nonrfid_helper_sees_spool_and_registers(slot):
     expected_loc = CANONICAL_LOCATION_BY_SLOT[slot]
     loc_patches = [p for p in sm.patches if p.get("path") == f"/api/v1/spool/{spool_id}" and (p.get("payload") or {}).get("location")]
     assert len(loc_patches) > 0, f"must PATCH spool {spool_id} location"
-    comment_patches = [p for p in sm.patches if p.get("path") == f"/api/v1/spool/{spool_id}" and (p.get("payload") or {}).get("comment", "").startswith("ha_sig=")]
-    assert len(comment_patches) > 0, f"must PATCH spool {spool_id} comment with ha_sig"
+    # v4: identity in lot_nr only (no comment/ha_sig write)
+    lot_nr_patches = [p for p in sm.patches if p.get("path") == f"/api/v1/spool/{spool_id}" and (p.get("payload") or {}).get("lot_nr")]
+    assert len(lot_nr_patches) > 0, f"must PATCH spool {spool_id} lot_nr when registered"
 
 
 @pytest.mark.parametrize("slot", _ALL_SLOTS)
@@ -3818,7 +3821,7 @@ def test_rfid_tier2_slot_to_slot_move_binds(slot):
     tier2_spool = dict(spool)
     tier2_spool["location"] = source_loc
     original_method = r._find_tier2_candidates
-    r._find_tier2_candidates = lambda s, t, tm, si: [tier2_spool] if s == slot else original_method(s, t, tm, si)
+    r._find_tier2_candidates = lambda s, t, tm, si, tray_uuid="": [tier2_spool] if s == slot else original_method(s, t, tm, si, tray_uuid=tray_uuid)
 
     r._run_reconcile("test")
 

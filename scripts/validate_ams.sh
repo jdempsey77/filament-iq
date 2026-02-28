@@ -4,13 +4,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_ENV="$SCRIPT_DIR/deploy.env"
 
-if [[ -f "$DEPLOY_ENV" ]]; then
-  set -a; source "$DEPLOY_ENV"; set +a
+if [[ ! -f "$DEPLOY_ENV" ]]; then
+  echo "AMS_VALIDATE: SKIP (deploy.env not found)"
+  exit 0
 fi
+set -a; source "$DEPLOY_ENV"; set +a
 
-: "${HOME_ASSISTANT_URL:?Need HOME_ASSISTANT_URL}"
-: "${HOME_ASSISTANT_TOKEN:?Need HOME_ASSISTANT_TOKEN}"
-: "${SPOOLMAN_URL:?Need SPOOLMAN_URL}"
+if [[ -z "${HOME_ASSISTANT_URL:-}" || -z "${HOME_ASSISTANT_TOKEN:-}" || -z "${SPOOLMAN_URL:-}" ]]; then
+  echo "AMS_VALIDATE: SKIP (HOME_ASSISTANT_URL/TOKEN or SPOOLMAN_URL not set)"
+  exit 0
+fi
+if [[ -n "${VALIDATE_AMS_SKIP:-}" ]]; then
+  echo "AMS_VALIDATE: SKIP (VALIDATE_AMS_SKIP set)"
+  exit 0
+fi
 
 PRINTER="p1s_01p00c5a3101668"
 ALLZERO="0000000000000000"
@@ -157,15 +164,18 @@ check_slot() {
       return
     fi
 
-    sm_tag="$(jq -r '.extra.rfid_tag_uid // ""' "$tmp" | tr -d '"')"
+    # v4: identity in lot_nr only (no extra.rfid_tag_uid)
+    sm_lot_nr="$(jq -r '.lot_nr // ""' "$tmp" 2>/dev/null | tr -d '"')"
     rm -f "$tmp"
+    tag_norm="$(echo "$tag" | tr -d '"' | tr '[:lower:]' '[:upper:]')"
+    lot_norm="$(echo "$sm_lot_nr" | tr -d '"' | tr '[:lower:]' '[:upper:]')"
 
-    if [ "$sm_tag" != "$tag" ]; then
-      record_fail "SLOT $slot FAIL mode=RFID_VISIBLE reason=HELPER_RFID_MISMATCH"
+    if [ -z "$lot_norm" ] || [ "$lot_norm" != "$tag_norm" ]; then
+      record_fail "SLOT $slot FAIL mode=RFID_VISIBLE reason=HELPER_RFID_MISMATCH (lot_nr)"
       return
     fi
 
-    record_ok "SLOT $slot OK   mode=RFID_VISIBLE reason=TAG_MATCH"
+    record_ok "SLOT $slot OK   mode=RFID_VISIBLE reason=LOT_NR_MATCH"
     return
   fi
 

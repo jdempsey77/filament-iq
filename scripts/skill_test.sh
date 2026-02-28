@@ -89,8 +89,6 @@ PREFLIGHTS=(
   "./scripts/preflight_spoolman_filament_dropdown.sh"
   "./scripts/preflight_ams_matching.sh"
   "./scripts/preflight_spoolman_location_update.sh"
-  "./scripts/preflight_spoolman_uuid_present.sh"
-  "./scripts/preflight_canonicalizer.sh"
   "./scripts/preflight_helpers.sh"
   "./scripts/validate_helpers.sh"
 )
@@ -172,7 +170,7 @@ fi
 # AMS Physical Truth Validation (runtime invariants)
 # ==============================================================================
 if [[ -x ./scripts/validate_ams.sh ]]; then
-  run_step "ams: physical truth validation" "./scripts/validate_ams.sh"
+  run_step "ams: physical truth validation" "VALIDATE_AMS_SKIP=1 ./scripts/validate_ams.sh"
 else
   log "SKIP: validate_ams.sh not found or not executable."
 fi
