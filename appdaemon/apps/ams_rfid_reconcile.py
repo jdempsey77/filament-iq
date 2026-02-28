@@ -1009,6 +1009,62 @@ class AmsRfidReconcile(hass.Hass):
                             self._log_validation_transcript(t)
                         continue
                     elif len(lotnr_nonrfid_ids) > 1:
+                        # Tiebreak: filter to spools available for this slot, pick lowest remaining_weight
+                        current_slot_loc = self._normalize_location(CANONICAL_LOCATION_BY_SLOT.get(slot, ""))
+                        available = []
+                        for cid in lotnr_nonrfid_ids:
+                            cs = spool_index.get(cid)
+                            if not isinstance(cs, dict):
+                                continue
+                            cloc = self._normalize_location(str(cs.get("location", "")).strip())
+                            if cloc == current_slot_loc or cloc in ("shelf", "new", ""):
+                                available.append(cs)
+                        if len(available) == 1:
+                            resolved = self._safe_int(available[0].get("id"), 0)
+                            rem = self._safe_float(available[0].get("remaining_weight"), 0)
+                            self.log(
+                                f"NONRFID_AUTO_MATCH_TIEBREAK slot={slot} spool_id={resolved} sig={lot_sig} remaining={rem} "
+                                f"reason=single_available filtered_from={len(lotnr_nonrfid_ids)}",
+                                level="INFO",
+                            )
+                        elif len(available) > 1:
+                            available.sort(key=lambda s: self._safe_float(s.get("remaining_weight"), 0))
+                            resolved = self._safe_int(available[0].get("id"), 0)
+                            rem = self._safe_float(available[0].get("remaining_weight"), 0)
+                            runner_up = self._safe_float(available[1].get("remaining_weight"), 0)
+                            if rem < runner_up:
+                                self.log(
+                                    f"NONRFID_AUTO_MATCH_TIEBREAK slot={slot} spool_id={resolved} sig={lot_sig} remaining={rem} "
+                                    f"runner_up={runner_up} reason=lowest_remaining",
+                                    level="INFO",
+                                )
+                            else:
+                                resolved = 0
+                        else:
+                            resolved = 0
+                        if resolved > 0:
+                            if not status_only:
+                                self._force_location_and_helpers(
+                                    slot, resolved, "", source="nonrfid_lot_nr_tiebreak",
+                                    tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_sig,
+                                    previous_helper_spool_id=previous_helper_spool_id,
+                                    spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
+                                )
+                                self._enroll_lot_nr(resolved, lot_sig, spool_index, reason="nonrfid_lot_nr_tiebreak")
+                            status = STATUS_OK_NONRFID
+                            ok += 1
+                            t["decision"], t["reason"], t["action"] = "NON_RFID", "lot_nr_tiebreak", "nonrfid_auto_match"
+                            t["final_spool_id"], t["selected_spool_id"] = resolved, resolved
+                            t["final_slot_status"] = status
+                            t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                            self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                            self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+                            self._log_slot_status_change(slot, status, "", resolved, tray_meta)
+                            self._record_decision(slot, "nonrfid_lot_nr_tiebreak", {"resolved_spool_id": resolved, "lot_sig": lot_sig})
+                            self._active_run["validation_transcripts"].append(t)
+                            if validation_mode:
+                                self._log_validation_transcript(t)
+                            continue
                         self.log(
                             f"NONRFID_LOT_NR_AMBIGUOUS slot={slot} sig={lot_sig} candidates={lotnr_nonrfid_ids}",
                             level="WARNING",
