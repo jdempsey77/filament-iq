@@ -820,11 +820,7 @@ class AmsRfidReconcile(hass.Hass):
             raw_tag_uid_ht = attrs.get("tag_uid") if attrs.get("tag_uid") is not None else ""
             raw_tray_uuid_ht = attrs.get("tray_uuid") if attrs.get("tray_uuid") is not None else ""
             nonrfid_enabled = (self.get_state("input_boolean.p1s_nonrfid_enabled") or "").strip().lower() == "on"
-            if nonrfid_enabled and not tray_empty and self._is_all_zero_identity(raw_tag_uid_ht, raw_tray_uuid_ht):
-                self.log(
-                    f"NONRFID_GUARD_HIT slot={slot} empty={tray_empty} raw_tag_uid={raw_tag_uid_ht!r} raw_tray_uuid={raw_tray_uuid_ht!r}",
-                    level="INFO",
-                )
+            if nonrfid_enabled and self._is_all_zero_identity(raw_tag_uid_ht, raw_tray_uuid_ht):
                 helper_entity = f"input_text.ams_slot_{slot}_spool_id"
                 raw = self.get_state(helper_entity)
                 try:
@@ -833,6 +829,32 @@ class AmsRfidReconcile(hass.Hass):
                     helper_spool_id = 0
                 self.log(
                     f"NONRFID_HELPER_READ slot={slot} entity_id={helper_entity} raw={raw!r} parsed={helper_spool_id}",
+                    level="INFO",
+                )
+                if tray_empty and helper_spool_id > 0:
+                    if not status_only:
+                        self._clear_previous_occupant_guarded(slot, 0, spool_index)
+                        self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
+                        self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
+                    self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_TRAY_EMPTY)
+                    self._set_helper(f"input_text.ams_slot_{slot}_status", STATUS_UNBOUND_NO_TAG)
+                    self.log(
+                        f"NONRFID_EMPTY_TRAY_CLEAR slot={slot} reason=tray_empty prior_spool_id={helper_spool_id}",
+                        level="INFO",
+                    )
+                    unbound += 1
+                    t["decision"], t["reason"], t["action"] = "UNBOUND", "tray_empty", "nonrfid_empty_clear"
+                    t["unbound_reason"] = UNBOUND_TRAY_EMPTY
+                    t["final_slot_status"] = STATUS_UNBOUND_NO_TAG
+                    t["final_spool_id"] = 0
+                    self._active_run["validation_transcripts"].append(t)
+                    if validation_mode:
+                        self._log_validation_transcript(t)
+                    continue
+                if tray_empty:
+                    continue
+                self.log(
+                    f"NONRFID_GUARD_HIT slot={slot} empty={tray_empty} raw_tag_uid={raw_tag_uid_ht!r} raw_tray_uuid={raw_tray_uuid_ht!r}",
                     level="INFO",
                 )
                 # ── Non-RFID signature + pending confirmation ──
