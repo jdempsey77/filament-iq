@@ -373,6 +373,7 @@ class AmsRfidReconcile(hass.Hass):
         self.debounce_reasons = []
         self._active_run = None
         self._pending_lot_nr_writes = {}
+        self._suppress_helper_change_until = {}
         self._missing_helper_warned = set()
         self._pending_helper_warned = set()
         self._domain_exception_class_logged = False
@@ -546,6 +547,10 @@ class AmsRfidReconcile(hass.Hass):
         if slot is None:
             return
         if self._active_run is not None:
+            return
+        suppress_until = self._suppress_helper_change_until.get(slot)
+        if suppress_until and datetime.datetime.utcnow() < suppress_until:
+            self.log(f"HELPER_SPOOL_ID_CHANGE_SUPPRESSED slot={slot} old={old_val} new={new_val}", level="DEBUG")
             return
         self.log(f"HELPER_SPOOL_ID_CHANGED slot={slot} old={old_val} new={new_val}", level="INFO")
         self._schedule_reconcile(f"helper_change_slot_{slot}")
@@ -1693,6 +1698,9 @@ class AmsRfidReconcile(hass.Hass):
         self._append_evidence(summary)
         if len(self._active_run["writes"]) == 0:
             self._debug("No writes performed in this reconcile run", {"reason": reason})
+        suppress_until = datetime.datetime.utcnow() + datetime.timedelta(seconds=5)
+        for s in slots_to_process:
+            self._suppress_helper_change_until[s] = suppress_until
         self._active_run = None
 
     def _normalize_location(self, loc):
@@ -1905,6 +1913,7 @@ class AmsRfidReconcile(hass.Hass):
         spool_index = {self._safe_int(s.get("id"), 0): s for s in spools}
         self._enroll_lot_nr(spool_id, enroll_tray_uuid, spool_index, reason="manual_enroll")
         self._pending_lot_nr_writes[spool_id] = enroll_tray_uuid
+        self._clear_previous_occupant_guarded(slot, spool_id, spool_index)
         self._patch_spool_fields(spool_id, {"location": CANONICAL_LOCATION_BY_SLOT[slot]})
         self.log(
             f"MANUAL_ENROLL_LOT_NR_WRITTEN slot={slot} spool_id={spool_id} tray_uuid={enroll_tray_uuid}",
