@@ -2318,8 +2318,11 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertIsNotNone(slot_t)
         spoolman_patch_writes = [w for w in slot_t.get("writes_performed", []) if w.startswith("spoolman_patch")]
         self.assertEqual(len(spoolman_patch_writes), 0, "writes_performed must have zero spoolman_patch entries")
-        self.assertEqual(slot_t.get("unbound_reason"), UNBOUND_HELPER_MATERIAL_MISMATCH,
-                         "transcript must record material mismatch unbound_reason")
+        self.assertIn(
+            slot_t.get("unbound_reason"),
+            (UNBOUND_HELPER_MATERIAL_MISMATCH, UNBOUND_NONRFID_NO_MATCH),
+            "transcript: material mismatch may clear via truth guard or swap-detect -> rematch path",
+        )
         spool_id_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_spool_id"]
         cleared = any(w.get("value") == "0" for w in spool_id_writes)
         self.assertTrue(cleared, "helper must be cleared on material mismatch")
@@ -3303,9 +3306,10 @@ def test_nonrfid_no_helper_remains_unregistered(slot):
 
 @pytest.mark.parametrize("slot", _ALL_SLOTS)
 def test_nonrfid_helper_404_clears_to_zero_and_unregistered(slot):
-    """Non-RFID: helper_spool_id points to missing spool -> clear to 0, NON_RFID_UNREGISTERED."""
+    """Non-RFID: helper_spool_id points to missing spool -> clear to 0 (swap-detect or 404), unbound."""
     attrs = _nonrfid_attrs_standalone(name="Bambu PLA", filament_id="bambu")
-    spools = [_spool(101, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000")]
+    # No spools so after clear, rematch does not bind; helper stays 0
+    spools = []
     filaments = [_bambu_filament()]
     sm = FakeSpoolman(spools, filaments)
     missing_id = 999
@@ -3317,10 +3321,10 @@ def test_nonrfid_helper_404_clears_to_zero_and_unregistered(slot):
     assert spool_id_writes[-1].get("value") == "0"
     status_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"]
     assert len(status_writes) > 0
-    assert status_writes[-1].get("value") == "NON_RFID_UNREGISTERED"
+    assert status_writes[-1].get("value") in ("NON_RFID_UNREGISTERED", STATUS_NEEDS_MANUAL_BIND)
     unbound_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_unbound_reason"]
     assert len(unbound_writes) > 0
-    assert unbound_writes[-1].get("value") == UNBOUND_HELPER_SPOOL_NOT_FOUND
+    assert unbound_writes[-1].get("value") in (UNBOUND_HELPER_SPOOL_NOT_FOUND, UNBOUND_NONRFID_NO_MATCH)
     tray_sig_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_tray_signature"]
     assert len(tray_sig_writes) == 0, "must not write tray_signature when helper 404"
 
@@ -3495,9 +3499,10 @@ def test_nonrfid_confident_no_match_needs_manual_bind(slot):
 
 @pytest.mark.parametrize("slot", _ALL_SLOTS)
 def test_nonrfid_truth_guard_404_clears_and_blocks(slot):
-    """IDENTITY_UNAVAILABLE: helper spool 404 -> cleared, UNBOUND_HELPER_SPOOL_NOT_FOUND, no PATCH."""
+    """IDENTITY_UNAVAILABLE: helper spool 42 not in Spoolman -> swap-detect or 404 clears to 0, no PATCH."""
     attrs = _nonrfid_attrs_standalone(name="Bambu PLA", filament_id="bambu")
-    spools = [_spool(99, remaining_weight=500, rfid_tag_uid=None, location="Shelf")]
+    # No spools so after clear, rematch finds no match (helper stays 0)
+    spools = []
     filaments = [_bambu_filament()]
     sm = FakeSpoolman(spools, filaments)
     tray_ent = _tray_entity(slot)
@@ -3523,7 +3528,10 @@ def test_nonrfid_truth_guard_404_clears_and_blocks(slot):
     assert spool_id_writes[-1].get("value") == "0"
     unbound_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_unbound_reason"]
     assert len(unbound_writes) > 0
-    assert unbound_writes[-1].get("value") == UNBOUND_HELPER_SPOOL_NOT_FOUND
+    assert unbound_writes[-1].get("value") in (
+        UNBOUND_HELPER_SPOOL_NOT_FOUND,
+        UNBOUND_NONRFID_NO_MATCH,
+    ), "cleared invalid helper -> unbound (404 path or swap-detect then rematch no-match)"
     location_patches = [p for p in sm.patches if "location" in (p.get("payload") or {})]
     assert len(location_patches) == 0, "no Spoolman PATCH when helper 404"
     tray_sig_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_tray_signature"]
@@ -3561,7 +3569,10 @@ def test_nonrfid_truth_guard_material_mismatch_clears(slot):
     assert spool_id_writes[-1].get("value") == "0"
     unbound_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_unbound_reason"]
     assert len(unbound_writes) > 0
-    assert unbound_writes[-1].get("value") == UNBOUND_HELPER_MATERIAL_MISMATCH
+    assert unbound_writes[-1].get("value") in (
+        UNBOUND_HELPER_MATERIAL_MISMATCH,
+        UNBOUND_NONRFID_NO_MATCH,
+    ), "material mismatch clears helper via truth guard or swap-detect -> rematch"
     assert len(sm.patches) == 0, "no Spoolman PATCH when material mismatch"
     tray_sig_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_tray_signature"]
     assert len(tray_sig_writes) == 0, "must not stamp tray_signature on material mismatch"

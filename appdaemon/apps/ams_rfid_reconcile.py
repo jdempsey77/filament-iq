@@ -854,6 +854,21 @@ class AmsRfidReconcile(hass.Hass):
                 just_confirmed = stored_tray_sig.startswith("PENDING:")
                 ht_needs_rematch = fp_changed or just_confirmed or helper_spool_id <= 0
 
+                if not ht_needs_rematch and helper_spool_id > 0 and not tray_empty:
+                    # Detect physical spool swap: tray identity vs bound spool's lot_nr (or material+color if no lot_nr)
+                    if not self._nonrfid_tray_matches_bound_spool(tray_meta, helper_spool_id, spool_index):
+                        spool_obj = spool_index.get(helper_spool_id) or {}
+                        existing_lot_nr = str(spool_obj.get("lot_nr") or "").strip()
+                        self.log(
+                            f"NONRFID_SPOOL_SWAP_DETECTED slot={slot} helper={helper_spool_id} tray_sig={nonrfid_sig} spool_lot_nr={existing_lot_nr}",
+                            level="INFO",
+                        )
+                        ht_needs_rematch = True
+                        helper_spool_id = 0
+                        if not status_only:
+                            self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
+                            self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
+
                 if not ht_needs_rematch and helper_spool_id > 0:
                     # Fingerprint stable, existing binding — validate helper spool (existing logic)
                     helper_valid = True
@@ -2682,6 +2697,28 @@ class AmsRfidReconcile(hass.Hass):
         if not typ or not fid or not hex_:
             return ""
         return f"{typ}|{fid}|{hex_}"[:255]
+
+    def _nonrfid_tray_matches_bound_spool(self, tray_meta, helper_spool_id, spool_index):
+        """True if tray's current identity matches the bound spool; False if swapped (trigger rematch).
+        Compares tray lot_sig to spool lot_nr when spool has lot_nr; else compares material + color_hex."""
+        spool_obj = spool_index.get(helper_spool_id) or {}
+        existing_lot_nr = str(spool_obj.get("lot_nr") or "").strip()
+        tray_lot_sig = self._build_lot_sig_for_lookup(tray_meta)
+        if _is_lot_nr_uuid(existing_lot_nr):
+            return False  # RFID-enrolled spool cannot match non-RFID tray
+        if existing_lot_nr and tray_lot_sig:
+            return existing_lot_nr == tray_lot_sig
+        # Spool has no lot_nr yet: compare material + color_hex
+        tray_type_norm = (str(tray_meta.get("type", "") or "").strip()).upper()
+        tray_hex = (str(tray_meta.get("color_hex", "") or "").strip().replace("#", "").lower())
+        if len(tray_hex) == 8:
+            tray_hex = tray_hex[:6]
+        filament = spool_obj.get("filament") or {}
+        spool_mat = (str(filament.get("material", "") or "").strip()).upper()
+        spool_hex = (str(filament.get("color_hex", "") or "").strip().replace("#", "").lower())
+        if len(spool_hex) == 8:
+            spool_hex = spool_hex[:6]
+        return bool(tray_type_norm and spool_mat and tray_type_norm == spool_mat and tray_hex == spool_hex)
 
     def _unenrolled_candidates_for_tray(self, tray_meta, spools, slot):
         """Spools with no lot_nr that match tray material + color_hex. Excludes spools in other AMS slots.
