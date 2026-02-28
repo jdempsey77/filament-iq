@@ -195,41 +195,6 @@ class AmsPrintUsageSync(hass.Hass):
 
     # ── helpers ───────────────────────────────────────────────────────
 
-    def _parse_trays_used(self, trays_used_raw, start_map):
-        """Parse trays_used CSV into sorted list of slot numbers.
-
-        Handles both slot numbers ("1,4") and legacy entity IDs.
-        Falls back to slots present in start_map.
-        """
-        slots = set()
-        for token in trays_used_raw.split(","):
-            token = token.strip()
-            if not token:
-                continue
-            if token in ("1", "2", "3", "4", "5", "6"):
-                slots.add(int(token))
-                continue
-            if token in SLOT_BY_TRAY_ENTITY:
-                slots.add(SLOT_BY_TRAY_ENTITY[token])
-                continue
-            try:
-                n = int(token)
-                if 1 <= n <= 6:
-                    slots.add(n)
-            except ValueError:
-                pass
-
-        if not slots:
-            for k in start_map:
-                try:
-                    n = int(k)
-                    if 1 <= n <= 6:
-                        slots.add(n)
-                except ValueError:
-                    pass
-
-        return sorted(slots)
-
     def _coerce_json_field(self, data, field):
         """Extract a dict from event data, handling HA native types.
 

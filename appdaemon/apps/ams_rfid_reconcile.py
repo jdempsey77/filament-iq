@@ -29,26 +29,14 @@ from pathlib import Path
 
 import hassapi as hass
 
-# Shared canonicalizer for Spoolman extra fields (prevent double-quoted rfid_tag_uid / ha_spool_uuid).
-# Module lives in appdaemon/apps/ alongside this file (same directory AppDaemon loads from).
-try:
-    from spoolman_extra_canonicalizer import (
-        canonicalize_extra_scalar as _canonicalize_extra_scalar,
-        canonicalize_ha_spool_uuid as _canon_ha_uuid,
-        canonicalize_rfid_tag_uid as _canon_rfid,
-        encode_extra_json_string as _encode_extra_json,
-        is_double_encoded as _is_double_encoded,
-        validate_extra_value_no_quotes,
-    )
-except ImportError as _import_err:
-    import logging as _logging
-    _logging.getLogger("ams_rfid_reconcile").error(
-        "FATAL: spoolman_extra_canonicalizer import failed — reconciler cannot start safely. "
-        "Ensure appdaemon/apps/spoolman_extra_canonicalizer.py exists. Error: %s", _import_err,
-    )
-    raise RuntimeError(
-        f"spoolman_extra_canonicalizer is required but failed to import: {_import_err}"
-    ) from _import_err
+# v4: canonicalizer retired (moved to _retired/). These symbols are set to None so
+# existing fallback guards (`if _canon_rfid is not None`) degrade gracefully.
+_canonicalize_extra_scalar = None
+_canon_ha_uuid = None
+_canon_rfid = None
+_encode_extra_json = None
+_is_double_encoded = None
+validate_extra_value_no_quotes = None
 
 try:
     from appdaemon.exceptions import DomainException
@@ -2208,39 +2196,6 @@ class AmsRfidReconcile(hass.Hass):
             if lot_sig:
                 self._enroll_lot_nr(resolved_spool_id, lot_sig, spool_index, reason="converge_nonrfid")
 
-    def _converge_ha_sig(self, slot, resolved_spool_id, tray_meta, spool_index, reason="converge", tag_uid="", tray_empty=False, tray_state_str=""):
-        """
-        Idempotent HA signature convergence: compute ha_sig from tray_meta (no input_text helpers);
-        if spool.comment != ha_sig, PATCH comment. Only logs when patch occurs (or DEBUG when sig None).
-        Updates spool_index cache when PATCHing so later reads see the new comment.
-        """
-        ha_sig = self._compute_ha_sig(
-            tray_meta,
-            slot=slot,
-            spool_index=spool_index,
-            expected_spool_id=resolved_spool_id,
-            candidate_ids=[resolved_spool_id],
-        )
-        if not ha_sig or not str(ha_sig).strip():
-            self.log(
-                f"HA_SIG_STAMP_SKIPPED reason=empty_sig slot={slot} spool_id={resolved_spool_id} why=missing_filament_id_or_type_or_color",
-                level="DEBUG",
-            )
-            return
-        spool = spool_index.get(resolved_spool_id) or self._spoolman_get(f"/api/v1/spool/{resolved_spool_id}")
-        if not isinstance(spool, dict):
-            return
-        if not self._truth_guard_slot_patch(slot, {}, tray_meta or {}, tag_uid, resolved_spool_id, spool, tray_empty, tray_state_str):
-            self.log(f"TRUTH_GUARD_HA_SIG_BLOCK slot={slot} spool_id={resolved_spool_id} reason={reason}", level="INFO")
-            return
-        comment_now = (spool.get("comment") or "").strip()
-        if comment_now == ha_sig:
-            return
-        self._spoolman_patch(f"/api/v1/spool/{resolved_spool_id}", {"comment": ha_sig})
-        if isinstance(spool_index, dict) and resolved_spool_id in spool_index:
-            spool_index[resolved_spool_id]["comment"] = ha_sig
-        self.log(f"HA_SIG_STAMPED slot={slot} spool_id={resolved_spool_id} ha_sig={ha_sig} reason={reason}")
-
     def _find_flow_b_candidates(self, spools, ha_sig):
         """
         Flow B: Find spools matching HA_SIG in comment for auto-bind.
@@ -2569,67 +2524,6 @@ class AmsRfidReconcile(hass.Hass):
             fields = dict(fields)
             fields["location"] = self._normalize_location(fields["location"])
         self._spoolman_patch(path, fields)
-
-    def _patch_spool_extra_robust(self, spool_id: int, extra: dict, location=None):
-        """
-        PATCH spool extra (and optional location). Spoolman requires extra values as valid JSON
-        (JSON-in-string). Canonicalize via canonicalize_extra_scalar; reject double-encoded/unsafe;
-        build payload with encode_extra_json_string (single encode).
-        """
-        path = f"/api/v1/spool/{spool_id}"
-        extra = dict(extra)
-        if _canonicalize_extra_scalar is not None:
-            for key in ("rfid_tag_uid", "ha_spool_uuid"):
-                if key not in extra or extra[key] is None:
-                    continue
-                raw = extra[key]
-                if _is_double_encoded is not None and _is_double_encoded(raw):
-                    self.log(
-                        f"SPOOLMAN_EXTRA_SKIP spool_id={spool_id} reason=double_encoded key={key}",
-                        level="WARNING",
-                    )
-                    return
-                clean, err = _canonicalize_extra_scalar(raw, key)
-                if err is not None:
-                    self.log(
-                        f"SPOOLMAN_EXTRA_SKIP spool_id={spool_id} key={key} reason={err}",
-                        level="WARNING",
-                    )
-                    return
-                extra[key] = clean
-        else:
-            for key, canon in (("rfid_tag_uid", self._canonicalize_tag_uid), ("ha_spool_uuid", self._canonicalize_ha_spool_uuid)):
-                if key in extra and extra[key] is not None:
-                    raw = extra[key]
-                    extra[key] = canon(raw)
-                    if _is_double_encoded is not None and _is_double_encoded(raw):
-                        self.log(
-                            f"SPOOLMAN_EXTRA_SKIP spool_id={spool_id} reason=double_encoded key={key}",
-                            level="WARNING",
-                        )
-                        return
-        if validate_extra_value_no_quotes is not None:
-            for key in ("rfid_tag_uid", "ha_spool_uuid"):
-                v = extra.get(key)
-                if isinstance(v, str) and ('"' in v or "\\" in v):
-                    self.log(
-                        f"SPOOLMAN_EXTRA_SKIP spool_id={spool_id} reason=quotes_after_canonicalization key={key} value={v!r}",
-                        level="WARNING",
-                    )
-                    return
-        if _encode_extra_json is not None:
-            payload_extra = {}
-            for k, v in extra.items():
-                if k in ("rfid_tag_uid", "ha_spool_uuid") and isinstance(v, str):
-                    payload_extra[k] = _encode_extra_json(v)
-                else:
-                    payload_extra[k] = v
-        else:
-            payload_extra = {k: json.dumps(v) if k in ("rfid_tag_uid", "ha_spool_uuid") and isinstance(v, str) else v for k, v in extra.items()}
-        payload = {"extra": payload_extra}
-        if location is not None:
-            payload["location"] = self._normalize_location(location)
-        self._spoolman_patch(path, payload)
 
     def _json_text_to_str(self, v) -> str:
         """Parse Spoolman JSON literal (e.g. '\\\"764D...\\\"') to plain string for UID comparison."""
