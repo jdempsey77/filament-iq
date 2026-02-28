@@ -1,15 +1,1083 @@
-# Paste this entire file into a storage-mode "Test" dashboard in HA:
-# Settings → Dashboards → Add dashboard (title: Test) → Open it → ⋮ → Edit dashboard → ⋮ → Raw configuration
-# Replace the contents with this file. Save and reload. You can then edit and see config directly in HA.
-#
-# 3D Printer dashboard with integrated Spoolman management. All spool management, filament tracking,
-# and printer controls are on a single page. Click AMS tray cards to open popups for slot management.
-#
-# If input_number.ams_slot_* cards show "unavailable": ensure configuration.yaml is loaded in HA
-# (the repo's configuration.yaml defines input_number.ams_slot_N_gross_weight, _filament_id,
-# _tare_override, _extras_weight). Then: Developer Tools → YAML → reload "Input Number" or restart HA.
-title: Test
 views:
+  - title: Home
+    icon: mdi:home
+    badges: []
+    card_mod:
+      style: |
+        ha-card {
+          border: 4px solid #ffffff !important;
+          border-radius: 12px !important;
+
+              
+              box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+    cards: []
+    type: sections
+    background:
+      opacity: 100
+      alignment: center
+      size: cover
+      repeat: repeat
+      attachment: fixed
+    sections:
+      - type: grid
+        cards:
+          - type: custom:digital-clock
+            card_mod:
+              style: |
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+          - square: false
+            type: grid
+            columns: 2
+            cards:
+              - type: custom:mushroom-entity-card
+                entity: light.jerry_bedroom_table_lamp
+                name: Jerry's Lamp
+                icon: mdi:lamp
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                    ha-card ha-icon {
+                      color: {% if is_state('light.jerry_bedroom_table_lamp', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: light.tricia_bedroom_table_lamp
+                name: Tricia Lamp
+                icon: mdi:lamp
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                    ha-card ha-icon {
+                      color: {% if is_state('light.tricia_bedroom_table_lamp', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                    }
+                    ha-card .name {
+                      white-space: normal !important;
+                      overflow: visible !important;
+                      text-overflow: clip !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: light.master_bedroom_fan_light
+                name: Fan Light
+                icon: mdi:ceiling-fan-light
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                    ha-card ha-icon {
+                      color: {% if is_state('light.master_bedroom_fan_light', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                    }
+              - type: custom:mushroom-fan-card
+                entity: fan.upstairs
+                name: Air Purifier
+                icon: mdi:air-filter
+                icon_animation: true
+                card_mod:
+                  style: |
+                    mushroom-fan-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: switch.miriam_clara_bedroom_ceiling_fan_light
+                name: M&C Light
+                icon: mdi:ceiling-fan-light
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                    ha-card ha-icon {
+                      color: {% if is_state('switch.miriam_clara_bedroom_ceiling_fan_light', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: switch.nate_fan_light
+                name: Nate Light
+                icon: mdi:ceiling-fan-light
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                    ha-card ha-icon {
+                      color: {% if is_state('switch.nate_fan_light', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: switch.in_wall_outlet_tr_500s
+                icon: mdi:lamp
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: switch.miriam_smart_plug
+                icon: mdi:lamp
+                tap_action:
+                  action: toggle
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                icon_color: accent
+              - type: custom:mushroom-entity-card
+                entity: switch.clara_smart_plug
+                icon: mdi:lamp
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: switch.playroom_spot_lights
+                name: Playroom
+                icon: mdi:light-recessed
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: cover.ratgdov25i_ca08df_door
+                name: Left Garage Door
+                icon: mdi:garage
+                tap_action:
+                  action: more-info
+                hold_action:
+                  action: toggle
+                icon_color: red
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: cover.ratgdov25i_47a44c_door
+                name: Right Garage Door
+                icon: mdi:garage
+                tap_action:
+                  action: more-info
+                hold_action:
+                  action: toggle
+                icon_color: red
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+      - type: grid
+        cards:
+          - show_current: true
+            show_forecast: true
+            type: weather-forecast
+            entity: weather.forecast_home
+            forecast_type: daily
+            card_mod:
+              style: |
+                ha-card {
+                  border: 8px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+            grid_options:
+              columns: 12
+              rows: 3
+          - type: custom:mushroom-climate-card
+            entity: climate.downstairs_thermostat
+            tap_action:
+              action: more-info
+            card_mod:
+              style: |
+                mushroom-climate-card ha-card,
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+            grid_options:
+              columns: 12
+              rows: 1
+          - type: grid
+            square: false
+            columns: 2
+            cards:
+              - type: custom:mushroom-fan-card
+                entity: fan.master_bedroom_fan
+                name: Bedroom Fan
+                icon: mdi:fan
+                tap_action:
+                  action: more-info
+                icon_animation: true
+                fill_container: false
+                show_percentage_control: true
+                show_oscillate_control: false
+                card_mod:
+                  style: |
+                    mushroom-fan-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+              - type: custom:mushroom-fan-card
+                entity: fan.nate_fan
+                name: Nate Fan
+                icon: mdi:fan
+                tap_action:
+                  action: more-info
+                icon_animation: true
+                card_mod:
+                  style: |
+                    mushroom-fan-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                show_percentage_control: true
+              - type: custom:mushroom-fan-card
+                entity: fan.miriam_clara_bedroom_mc_ceiling_fan
+                name: M&C Fan
+                icon: mdi:fan
+                tap_action:
+                  action: more-info
+                icon_animation: true
+                card_mod:
+                  style: |
+                    mushroom-fan-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                show_percentage_control: true
+              - type: custom:mushroom-fan-card
+                entity: fan.playroom_ceiling_fan
+                name: Playroom Fan
+                icon: mdi:fan
+                tap_action:
+                  action: more-info
+                icon_animation: true
+                show_percentage_control: true
+                card_mod:
+                  style: |
+                    mushroom-fan-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+    max_columns: 2
+  - title: Main Floor
+    icon: mdi:sofa
+    subview: false
+    badges: []
+    card_mod:
+      style: |
+        ha-card {
+          border: 4px solid #ffffff !important;
+          border-radius: 12px !important;
+
+              
+              box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+    cards: []
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: custom:digital-clock
+            card_mod:
+              style: |
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+          - square: false
+            type: grid
+            columns: 2
+            cards:
+              - type: custom:mushroom-entity-card
+                entity: switch.in_wall_outlet_tr_500s
+                icon: mdi:lamp
+                tap_action:
+                  action: toggle
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: light.living_room_fireplace_lights
+                icon: mdi:light-recessed
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                    ha-card ha-icon {
+                      color: {% if is_state('light.living_room_fireplace_lights', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                    }
+          - square: false
+            type: grid
+            columns: 2
+            cards:
+              - type: custom:mushroom-entity-card
+                entity: light.kitchen_lights
+                icon: mdi:light-recessed
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                fill_container: false
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                    ha-card ha-icon {
+                      color: {% if is_state('light.kitchen_lights', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: light.kitchen_pendant_lights
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                    ha-card ha-icon {
+                      color: {% if is_state('light.kitchen_pendant_lights', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: switch.kitchen_table_light
+                icon: mdi:ceiling-light
+                tap_action:
+                  action: toggle
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                icon_color: accent
+              - type: custom:mushroom-entity-card
+                entity: switch.kitchen_under_cabinet
+                name: Cabinet Lights
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: switch.in_wall_switch_on_off
+                icon: mdi:ceiling-light
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+      - type: grid
+        cards:
+          - show_current: true
+            show_forecast: true
+            type: weather-forecast
+            entity: weather.forecast_home
+            forecast_type: hourly
+            card_mod:
+              style: |
+                ha-card {
+                  border: 8px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+          - type: custom:mushroom-climate-card
+            entity: climate.downstairs_thermostat
+            tap_action:
+              action: more-info
+            card_mod:
+              style: |
+                mushroom-climate-card ha-card,
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+            grid_options:
+              columns: 12
+              rows: 1
+          - type: conditional
+            conditions:
+              - entity: sensor.dishwasher_status
+                state: Running
+            card:
+              type: entities
+              show_header_toggle: false
+              entities:
+                - entity: sensor.dishwasher_status
+                  name: Dishwasher Status
+                - entity: sensor.vt838979b_dishwasher_time_remaining
+                  name: Time Remaining
+                  icon: mdi:timer
+                - entity: sensor.vt838979b_dishwasher_cycle_name
+                  name: Cycle Name
+                  icon: mdi:washing-machine
+                - entity: sensor.vt838979b_dishwasher_cycle_state
+                  name: Cycle State
+                  icon: mdi:state-machine
+                - entity: sensor.dishwasher_last_finished_display
+                  name: Last Finished
+                  icon: mdi:clock-check
+              card_mod:
+                style: |
+                  ha-card {
+                    border: 4px solid #ffffff !important;
+                    border-radius: 12px !important;
+                    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                  }
+                  ha-card .info { font-size: 0.75em !important; }
+                  ha-card .state {
+                    font-size: 0.7em !important;
+                    white-space: normal !important;
+                    word-wrap: break-word !important;
+                    overflow-wrap: break-word !important;
+                    overflow: visible !important;
+                    text-overflow: clip !important;
+                    max-width: 100% !important;
+                    line-height: 1.3 !important;
+                  }
+                  ha-card ha-state-label {
+                    white-space: normal !important;
+                    word-wrap: break-word !important;
+                  }
+          - type: conditional
+            conditions:
+              - entity: sensor.dishwasher_status
+                state_not: Running
+            card:
+              type: entities
+              show_header_toggle: false
+              entities:
+                - entity: sensor.dishwasher_status
+                  name: Dishwasher Status
+                - entity: sensor.dishwasher_last_finished_display
+                  name: Last Finished
+                  icon: mdi:clock-check
+              card_mod:
+                style: |
+                  ha-card {
+                    border: 4px solid #ffffff !important;
+                    border-radius: 12px !important;
+                    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                  }
+                  ha-card .info { font-size: 0.75em !important; }
+                  ha-card .state {
+                    font-size: 0.7em !important;
+                    white-space: normal !important;
+                    word-wrap: break-word !important;
+                    overflow-wrap: break-word !important;
+                    overflow: visible !important;
+                    text-overflow: clip !important;
+                    max-width: 100% !important;
+                    line-height: 1.3 !important;
+                  }
+                  ha-card ha-state-label {
+                    white-space: normal !important;
+                    word-wrap: break-word !important;
+                  }
+  - title: Basement
+    icon: mdi:home-floor-b
+    subview: false
+    badges: []
+    card_mod:
+      style: |
+        ha-card {
+          border: 4px solid #ffffff !important;
+          border-radius: 12px !important;
+
+              
+              box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+    cards: []
+    type: sections
+    sections:
+      - type: grid
+        cards:
+          - type: custom:digital-clock
+            card_mod:
+              style: |
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+          - square: false
+            type: grid
+            columns: 2
+            cards:
+              - type: custom:mushroom-entity-card
+                entity: light.basement_bar_lights
+                name: Bar Lights
+                icon: mdi:light-recessed
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                    ha-card ha-icon {
+                      color: {% if is_state('light.basement_bar_lights', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: light.basement_tv_lights
+                name: TV Lights
+                icon: mdi:light-recessed
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                    ha-card ha-icon {
+                      color: {% if is_state('light.basement_tv_lights', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: light.basement_stairs_sconces
+                name: Basement Stairs
+                icon: mdi:wall-sconce
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                    ha-card ha-icon {
+                      color: {% if is_state('light.basement_stairs_sconces', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: switch.basement_basement_hall_lights
+                name: Hall Lights
+                icon: mdi:light-recessed
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: light.red_series_dimmer
+                name: Backdoor
+                icon: mdi:light-recessed
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                    ha-card ha-icon {
+                      color: {% if is_state('light.red_series_dimmer', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: switch.in_wall_switch_on_off_3
+                name: Guestroom
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: switch.in_wall_outlet_tr_500s_5
+                name: Bedroom Outlet 1
+                tap_action:
+                  action: toggle
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                icon_color: accent
+              - type: custom:mushroom-entity-card
+                entity: switch.in_wall_outlet_tr_500s_7
+                name: Bedroom Outlet 2
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: light.officelamps
+                name: Office Lamp
+                icon: mdi:desk-lamp
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                    ha-card ha-icon {
+                      color: {% if is_state('light.officelamps', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: switch.office_sconces
+                name: Office Light
+                icon: mdi:wall-sconce
+                tap_action:
+                  action: toggle
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                icon_color: accent
+              - type: custom:mushroom-fan-card
+                entity: fan.office_air_purifier
+                name: Air Purifier
+                icon: mdi:air-filter
+                card_mod:
+                  style: |
+                    mushroom-fan-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                    ha-card ha-icon {
+                      color: {% if states('fan.office_air_purifier') != 'off' and states('fan.office_air_purifier') != 'unavailable' and states('fan.office_air_purifier') != 'unknown' %} #FFD700 {% else %} white {% endif %} !important;
+                    }
+                icon_animation: true
+      - type: grid
+        cards:
+          - show_current: true
+            show_forecast: true
+            type: weather-forecast
+            entity: weather.forecast_home
+            forecast_type: daily
+            card_mod:
+              style: |
+                ha-card {
+                  border: 8px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+          - type: sensor
+            entity: sensor.office_plant_soil_moisture
+            name: Plant Moisture
+            graph: line
+            hours_to_show: 72
+            detail: 2
+            grid_options:
+              columns: 12
+              rows: 2
+            card_mod:
+              style: |
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+    max_columns: 2
+  - title: outside
+    icon: mdi:weather-sunny
+    subview: false
+    badges: []
+    card_mod:
+      style: |
+        ha-card {
+          border: 4px solid #ffffff !important;
+          border-radius: 12px !important;
+
+              
+              box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+    cards: []
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        cards:
+          - type: custom:digital-clock
+            card_mod:
+              style: |
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+          - type: grid
+            square: false
+            columns: 2
+            cards:
+              - type: custom:mushroom-entity-card
+                entity: switch.exterior_flood_light
+                icon: mdi:light-flood-down
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: switch.exterior_deck_camera_flood_light
+                name: Deck Camera Light
+                icon: mdi:string-lights
+                tap_action:
+                  action: toggle
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                icon_color: accent
+              - type: custom:mushroom-entity-card
+                entity: switch.in_wall_switch_on_off_5
+                icon: mdi:globe-light
+                tap_action:
+                  action: toggle
+                icon_color: accent
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+              - type: custom:mushroom-entity-card
+                entity: switch.in_wall_outlet_tr_500s_4
+                icon: mdi:power-socket-us
+                tap_action:
+                  action: toggle
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                icon_color: accent
+              - type: custom:mushroom-entity-card
+                entity: switch.in_wall_switch_on_off_4
+                name: Basement Door
+                icon: mdi:globe-light
+                tap_action:
+                  action: toggle
+                card_mod:
+                  style: |
+                    mushroom-entity-card ha-card,
+                    ha-card {
+                      border: 4px solid #ffffff !important;
+                      border-radius: 12px !important;
+                      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    }
+                icon_color: accent
+      - type: grid
+        square: false
+        columns: 2
+        cards:
+          - type: custom:weather-chart-card
+            entity: weather.forecast_home
+            show_main: true
+            show_temperature: true
+            show_current_condition: true
+            show_attributes: true
+            show_time: false
+            show_time_seconds: false
+            show_day: false
+            show_date: false
+            show_humidity: true
+            show_pressure: true
+            show_wind_direction: true
+            show_wind_speed: true
+            show_sun: true
+            show_feels_like: false
+            show_dew_point: false
+            show_wind_gust_speed: false
+            show_visibility: false
+            show_last_changed: false
+            use_12hour_format: false
+            icons_size: 25
+            animated_icons: false
+            icon_style: style1
+            autoscroll: false
+            forecast:
+              precipitation_type: rainfall
+              show_probability: false
+              labels_font_size: '11'
+              precip_bar_size: '100'
+              style: style1
+              show_wind_forecast: true
+              condition_icons: true
+              round_temp: false
+              type: hourly
+              number_of_forecasts: '0'
+              disable_animation: false
+            units:
+              speed: ''
+      - type: grid
+        cards:
+          - type: custom:mushroom-template-card
+            primary: Wind Speed
+            secondary: >-
+              {{ state_attr('weather.forecast_home', 'wind_speed') | round(1) }}
+              {{ state_attr('weather.forecast_home', 'wind_speed_unit') }}
+            icon: mdi:weather-windy
+            icon_color: var(--rgb-state-entity)
+            tap_action:
+              action: more-info
+              entity: weather.forecast_home
+            card_mod:
+              style: |
+                :host {
+                  --card-border-width: 4px;
+                  --card-border-color: #ffffff;
+                }
+                mushroom-template-card ha-card,
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+          - type: custom:mushroom-template-card
+            primary: UV Index
+            secondary: '{{ state_attr(''weather.forecast_home'', ''uv_index'') | round(1) }}'
+            icon: mdi:weather-sunny
+            icon_color: var(--rgb-state-entity)
+            tap_action:
+              action: more-info
+              entity: weather.forecast_home
+            card_mod:
+              style: |
+                :host {
+                  --card-border-width: 4px;
+                  --card-border-color: #ffffff;
+                }
+                mushroom-template-card ha-card,
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+          - type: custom:mushroom-template-card
+            primary: Cloud Coverage
+            secondary: >-
+              {{ state_attr('weather.forecast_home', 'cloud_coverage') |
+              round(0) }}%
+            icon: mdi:weather-cloudy
+            icon_color: var(--rgb-state-entity)
+            tap_action:
+              action: more-info
+              entity: weather.forecast_home
+            card_mod:
+              style: |
+                :host {
+                  --card-border-width: 4px;
+                  --card-border-color: #ffffff;
+                }
+                mushroom-template-card ha-card,
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+          - type: custom:mushroom-template-card
+            primary: Pressure
+            secondary: >-
+              {{ state_attr('weather.forecast_home', 'pressure') | round(2) }}
+              {{ state_attr('weather.forecast_home', 'pressure_unit') }}
+            icon: mdi:gauge
+            icon_color: var(--rgb-state-entity)
+            tap_action:
+              action: more-info
+              entity: weather.forecast_home
+            card_mod:
+              style: |
+                :host {
+                  --card-border-width: 4px;
+                  --card-border-color: #ffffff;
+                }
+                mushroom-template-card ha-card,
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+          - type: custom:advanced-camera-card
+            cameras:
+              - camera_entity: camera.front_door_doorbell
+                name: Frontdoor
+              - camera_entity: camera.driveway_camera
+                name: Driveway
+              - camera_entity: camera.backyard_camera
+                name: Backyard
+            view:
+              default: live
+              default_cycle_camera: true
+              default_reset:
+                every_seconds: 10
+            card_mod:
+              style: |
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
   - title: 3D Printer
     icon: mdi:printer-3d
     path: printer
@@ -478,8 +1546,11 @@ views:
                                 type: vertical-stack
                                 cards:
                                   - type: markdown
-                                    content: |
-                                      **Current Tray:** {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_1') }}  
+                                    content: >
+                                      **Current Tray:** {{
+                                      states('sensor.p1s_01p00c5a3101668_ams_1_tray_1')
+                                      }}  
+
                                       **Location:** AMS1_Slot1
                                   - type: entities
                                     entities:
@@ -487,8 +1558,6 @@ views:
                                         name: Select Spool
                                       - entity: input_select.ams_slot_1_spool_type
                                         name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_1_filament_id
-                                        name: Spoolman Filament ID
                                       - entity: input_number.ams_slot_1_gross_weight
                                         name: Scale Weight (g)
                                   - type: custom:mushroom-template-card
@@ -514,8 +1583,9 @@ views:
                           {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_1')
                           }}
                         secondary: >-
-                          {{ states('sensor.ams_slot_1_remaining_g') }} g
-                          remaining
+                          {% set sid = states('input_text.ams_slot_1_spool_id') %}
+                          {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
+                          {% if vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {% endif %}{{ states('sensor.ams_slot_1_remaining_g') }}g remaining
                         icon: mdi:numeric-1-circle
                         icon_color: var(--rgb-state-entity)
                         tap_action:
@@ -528,8 +1598,11 @@ views:
                                 type: vertical-stack
                                 cards:
                                   - type: markdown
-                                    content: |
-                                      **Current Tray:** {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_1') }}  
+                                    content: >
+                                      **Current Tray:** {{
+                                      states('sensor.p1s_01p00c5a3101668_ams_1_tray_1')
+                                      }}  
+
                                       **Location:** AMS1_Slot1
                                   - type: entities
                                     entities:
@@ -537,8 +1610,6 @@ views:
                                         name: Select Spool
                                       - entity: input_select.ams_slot_1_spool_type
                                         name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_1_filament_id
-                                        name: Spoolman Filament ID
                                       - entity: input_number.ams_slot_1_gross_weight
                                         name: Scale Weight (g)
                                   - type: custom:mushroom-template-card
@@ -585,8 +1656,11 @@ views:
                                 type: vertical-stack
                                 cards:
                                   - type: markdown
-                                    content: |
-                                      **Current Tray:** {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_2') }}  
+                                    content: >
+                                      **Current Tray:** {{
+                                      states('sensor.p1s_01p00c5a3101668_ams_1_tray_2')
+                                      }}  
+
                                       **Location:** AMS1_Slot2
                                   - type: entities
                                     entities:
@@ -594,8 +1668,6 @@ views:
                                         name: Select Spool
                                       - entity: input_select.ams_slot_2_spool_type
                                         name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_2_filament_id
-                                        name: Spoolman Filament ID
                                       - entity: input_number.ams_slot_2_gross_weight
                                         name: Scale Weight (g)
                                   - type: custom:mushroom-template-card
@@ -621,8 +1693,9 @@ views:
                           {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_2')
                           }}
                         secondary: >-
-                          {{ states('sensor.ams_slot_2_remaining_g') }} g
-                          remaining
+                          {% set sid = states('input_text.ams_slot_2_spool_id') %}
+                          {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
+                          {% if vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {% endif %}{{ states('sensor.ams_slot_2_remaining_g') }}g remaining
                         icon: mdi:numeric-2-circle
                         icon_color: var(--rgb-state-entity)
                         tap_action:
@@ -635,8 +1708,11 @@ views:
                                 type: vertical-stack
                                 cards:
                                   - type: markdown
-                                    content: |
-                                      **Current Tray:** {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_2') }}  
+                                    content: >
+                                      **Current Tray:** {{
+                                      states('sensor.p1s_01p00c5a3101668_ams_1_tray_2')
+                                      }}  
+
                                       **Location:** AMS1_Slot2
                                   - type: entities
                                     entities:
@@ -644,8 +1720,6 @@ views:
                                         name: Select Spool
                                       - entity: input_select.ams_slot_2_spool_type
                                         name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_2_filament_id
-                                        name: Spoolman Filament ID
                                       - entity: input_number.ams_slot_2_gross_weight
                                         name: Scale Weight (g)
                                   - type: custom:mushroom-template-card
@@ -692,8 +1766,11 @@ views:
                                 type: vertical-stack
                                 cards:
                                   - type: markdown
-                                    content: |
-                                      **Current Tray:** {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_3') }}  
+                                    content: >
+                                      **Current Tray:** {{
+                                      states('sensor.p1s_01p00c5a3101668_ams_1_tray_3')
+                                      }}  
+
                                       **Location:** AMS1_Slot3
                                   - type: entities
                                     entities:
@@ -701,8 +1778,6 @@ views:
                                         name: Select Spool
                                       - entity: input_select.ams_slot_3_spool_type
                                         name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_3_filament_id
-                                        name: Spoolman Filament ID
                                       - entity: input_number.ams_slot_3_gross_weight
                                         name: Scale Weight (g)
                                   - type: custom:mushroom-template-card
@@ -728,8 +1803,9 @@ views:
                           {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_3')
                           }}
                         secondary: >-
-                          {{ states('sensor.ams_slot_3_remaining_g') }} g
-                          remaining
+                          {% set sid = states('input_text.ams_slot_3_spool_id') %}
+                          {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
+                          {% if vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {% endif %}{{ states('sensor.ams_slot_3_remaining_g') }}g remaining
                         icon: mdi:numeric-3-circle
                         icon_color: var(--rgb-state-entity)
                         tap_action:
@@ -742,8 +1818,11 @@ views:
                                 type: vertical-stack
                                 cards:
                                   - type: markdown
-                                    content: |
-                                      **Current Tray:** {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_3') }}  
+                                    content: >
+                                      **Current Tray:** {{
+                                      states('sensor.p1s_01p00c5a3101668_ams_1_tray_3')
+                                      }}  
+
                                       **Location:** AMS1_Slot3
                                   - type: entities
                                     entities:
@@ -751,8 +1830,6 @@ views:
                                         name: Select Spool
                                       - entity: input_select.ams_slot_3_spool_type
                                         name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_3_filament_id
-                                        name: Spoolman Filament ID
                                       - entity: input_number.ams_slot_3_gross_weight
                                         name: Scale Weight (g)
                                   - type: custom:mushroom-template-card
@@ -799,8 +1876,11 @@ views:
                                 type: vertical-stack
                                 cards:
                                   - type: markdown
-                                    content: |
-                                      **Current Tray:** {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_4') }}  
+                                    content: >
+                                      **Current Tray:** {{
+                                      states('sensor.p1s_01p00c5a3101668_ams_1_tray_4')
+                                      }}  
+
                                       **Location:** AMS1_Slot4
                                   - type: entities
                                     entities:
@@ -808,8 +1888,6 @@ views:
                                         name: Select Spool
                                       - entity: input_select.ams_slot_4_spool_type
                                         name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_4_filament_id
-                                        name: Spoolman Filament ID
                                       - entity: input_number.ams_slot_4_gross_weight
                                         name: Scale Weight (g)
                                   - type: custom:mushroom-template-card
@@ -835,8 +1913,9 @@ views:
                           {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_4')
                           }}
                         secondary: >-
-                          {{ states('sensor.ams_slot_4_remaining_g') }} g
-                          remaining
+                          {% set sid = states('input_text.ams_slot_4_spool_id') %}
+                          {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
+                          {% if vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {% endif %}{{ states('sensor.ams_slot_4_remaining_g') }}g remaining
                         icon: mdi:numeric-4-circle
                         icon_color: var(--rgb-state-entity)
                         tap_action:
@@ -849,8 +1928,11 @@ views:
                                 type: vertical-stack
                                 cards:
                                   - type: markdown
-                                    content: |
-                                      **Current Tray:** {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_4') }}  
+                                    content: >
+                                      **Current Tray:** {{
+                                      states('sensor.p1s_01p00c5a3101668_ams_1_tray_4')
+                                      }}  
+
                                       **Location:** AMS1_Slot4
                                   - type: entities
                                     entities:
@@ -858,8 +1940,6 @@ views:
                                         name: Select Spool
                                       - entity: input_select.ams_slot_4_spool_type
                                         name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_4_filament_id
-                                        name: Spoolman Filament ID
                                       - entity: input_number.ams_slot_4_gross_weight
                                         name: Scale Weight (g)
                                   - type: custom:mushroom-template-card
@@ -977,6 +2057,95 @@ views:
                         icon_color: var(--rgb-state-entity)
                         tap_action:
                           action: none
+          - type: custom:mushroom-template-card
+            primary: Add Spool to Spoolman
+            secondary: Create a new physical spool
+            icon: mdi:plus-circle-outline
+            tap_action:
+              action: fire-dom-event
+              browser_mod:
+                service: browser_mod.popup
+                data:
+                  title: Add Spool to Spoolman
+                  content:
+                    type: vertical-stack
+                    cards:
+                      - type: entities
+                        entities:
+                          - entity: input_select.spoolman_new_spool_filament
+                            name: Filament (required)
+                          - entity: input_text.spoolman_new_spool_location
+                            name: Location (e.g. Shelf)
+                          - entity: input_number.spoolman_new_spool_remaining_weight
+                            name: Remaining Weight (g)
+                      - type: horizontal-stack
+                        cards:
+                          - type: custom:mushroom-template-card
+                            primary: Refresh filament list
+                            secondary: Fetch from Spoolman
+                            icon: mdi:refresh
+                            icon_color: blue
+                            tap_action:
+                              action: call-service
+                              service: script.refresh_filament_dropdown
+                              data: {}
+                          - type: custom:mushroom-template-card
+                            primary: Add spool
+                            secondary: Create in Spoolman
+                            icon: mdi:plus-circle-outline
+                            icon_color: green
+                            tap_action:
+                              action: call-service
+                              service: script.spoolman_add_spool
+                              data: {}
+            color: green
+            features_position: bottom
+            grid_options:
+              columns: 12
+              rows: 1
+          - type: custom:mushroom-template-card
+            primary: Add Filament to Spoolman
+            secondary: Create a new filament type
+            icon: mdi:plus-circle
+            tap_action:
+              action: fire-dom-event
+              browser_mod:
+                service: browser_mod.popup
+                data:
+                  title: Add Filament to Spoolman
+                  content:
+                    type: vertical-stack
+                    cards:
+                      - type: entities
+                        entities:
+                          - entity: input_text.spoolman_new_filament_name
+                            name: Filament Name
+                          - entity: input_text.spoolman_new_filament_material
+                            name: Material (PLA, PETG, etc.)
+                          - entity: input_number.spoolman_new_filament_diameter
+                            name: Diameter (mm)
+                          - entity: input_number.spoolman_new_filament_density
+                            name: Density (g/cm³)
+                          - entity: input_number.spoolman_new_filament_weight
+                            name: Spool Weight (g)
+                          - entity: input_select.spoolman_new_filament_vendor
+                            name: Vendor
+                          - entity: input_text.spoolman_new_filament_color_hex
+                            name: Color Hex (optional)
+                      - type: custom:mushroom-template-card
+                        primary: Add to Spoolman
+                        secondary: Create filament type
+                        icon: mdi:plus-circle
+                        icon_color: green
+                        tap_action:
+                          action: call-service
+                          service: script.spoolman_add_filament
+                          data: {}
+            color: blue
+            features_position: bottom
+            grid_options:
+              columns: 12
+              rows: 1
       - type: grid
         cards:
           - type: custom:mod-card
@@ -1172,17 +2341,18 @@ views:
                                 type: vertical-stack
                                 cards:
                                   - type: markdown
-                                    content: |
-                                      **Current Tray:** {{ states('sensor.p1s_01p00c5a3101668_ams_128_tray_1') }}  
-                                      **Location:** AMS2_HT_Slot1
+                                    content: >
+                                      **Current Tray:** {{
+                                      states('sensor.p1s_01p00c5a3101668_ams_128_tray_1')
+                                      }}  
+
+                                      **Location:** AMS1_Slot5
                                   - type: entities
                                     entities:
                                       - entity: input_select.ams_slot_5_select_spool
                                         name: Select Spool
                                       - entity: input_select.ams_slot_5_spool_type
                                         name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_5_filament_id
-                                        name: Spoolman Filament ID
                                       - entity: input_number.ams_slot_5_gross_weight
                                         name: Scale Weight (g)
                                   - type: custom:mushroom-template-card
@@ -1208,8 +2378,9 @@ views:
                           {{ states('sensor.p1s_01p00c5a3101668_ams_128_tray_1')
                           }}
                         secondary: >-
-                          {{ states('sensor.ams_slot_5_remaining_g') }} g
-                          remaining
+                          {% set sid = states('input_text.ams_slot_5_spool_id') %}
+                          {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
+                          {% if vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {% endif %}{{ states('sensor.ams_slot_5_remaining_g') }}g remaining
                         icon: mdi:package-variant
                         icon_color: var(--rgb-state-entity)
                         tap_action:
@@ -1222,17 +2393,18 @@ views:
                                 type: vertical-stack
                                 cards:
                                   - type: markdown
-                                    content: |
-                                      **Current Tray:** {{ states('sensor.p1s_01p00c5a3101668_ams_128_tray_1') }}  
-                                      **Location:** AMS2_HT_Slot1
+                                    content: >
+                                      **Current Tray:** {{
+                                      states('sensor.p1s_01p00c5a3101668_ams_128_tray_1')
+                                      }}  
+
+                                      **Location:** AMS1_Slot5
                                   - type: entities
                                     entities:
                                       - entity: input_select.ams_slot_5_select_spool
                                         name: Select Spool
                                       - entity: input_select.ams_slot_5_spool_type
                                         name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_5_filament_id
-                                        name: Spoolman Filament ID
                                       - entity: input_number.ams_slot_5_gross_weight
                                         name: Scale Weight (g)
                                   - type: custom:mushroom-template-card
@@ -1367,17 +2539,18 @@ views:
                                 type: vertical-stack
                                 cards:
                                   - type: markdown
-                                    content: |
-                                      **Current Tray:** {{ states('sensor.p1s_01p00c5a3101668_ams_129_tray_1') }}  
-                                      **Location:** AMS2_HT_Slot2
+                                    content: >
+                                      **Current Tray:** {{
+                                      states('sensor.p1s_01p00c5a3101668_ams_129_tray_1')
+                                      }}  
+
+                                      **Location:** AMS1_Slot6
                                   - type: entities
                                     entities:
                                       - entity: input_select.ams_slot_6_select_spool
                                         name: Select Spool
                                       - entity: input_select.ams_slot_6_spool_type
                                         name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_6_filament_id
-                                        name: Spoolman Filament ID
                                       - entity: input_number.ams_slot_6_gross_weight
                                         name: Scale Weight (g)
                                   - type: custom:mushroom-template-card
@@ -1403,8 +2576,9 @@ views:
                           {{ states('sensor.p1s_01p00c5a3101668_ams_129_tray_1')
                           }}
                         secondary: >-
-                          {{ states('sensor.ams_slot_6_remaining_g') }} g
-                          remaining
+                          {% set sid = states('input_text.ams_slot_6_spool_id') %}
+                          {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
+                          {% if vendor and vendor not in ['unknown', 'unavailable', 'none', 'None'] %}{{ vendor }} · {% endif %}{{ states('sensor.ams_slot_6_remaining_g') }}g remaining
                         icon: mdi:package-variant
                         icon_color: var(--rgb-state-entity)
                         tap_action:
@@ -1417,17 +2591,18 @@ views:
                                 type: vertical-stack
                                 cards:
                                   - type: markdown
-                                    content: |
-                                      **Current Tray:** {{ states('sensor.p1s_01p00c5a3101668_ams_129_tray_1') }}  
-                                      **Location:** AMS2_HT_Slot2
+                                    content: >
+                                      **Current Tray:** {{
+                                      states('sensor.p1s_01p00c5a3101668_ams_129_tray_1')
+                                      }}  
+
+                                      **Location:** AMS1_Slot6
                                   - type: entities
                                     entities:
                                       - entity: input_select.ams_slot_6_select_spool
                                         name: Select Spool
                                       - entity: input_select.ams_slot_6_spool_type
                                         name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_6_filament_id
-                                        name: Spoolman Filament ID
                                       - entity: input_number.ams_slot_6_gross_weight
                                         name: Scale Weight (g)
                                   - type: custom:mushroom-template-card
@@ -1530,701 +2705,238 @@ views:
                             icon_color: var(--rgb-state-entity)
                             tap_action:
                               action: none
-      # ── AMS Slot Status (boring when healthy, actionable when broken) ──
-      - type: grid
-        columns: 2
-        cards:
-          # ── Slot 1 ──
-          - type: vertical-stack
-            cards:
-              - type: markdown
-                content: |
-                  ### Slot 1
-                  {% set tray = 'sensor.p1s_01p00c5a3101668_ams_1_tray_1' %}
-                  **Loaded:** {{ state_attr(tray, 'name') or states(tray) or '—' }}  
-                  **Material:** {{ state_attr(tray, 'type') or '—' }} · **Color:** {{ state_attr(tray, 'color') or '—' }}  
-                  **Remaining:** {{ states('sensor.ams_slot_1_remaining_g') }} g
-              - type: entities
-                entities:
-                  - entity: input_text.ams_slot_1_status
-                    name: Status
-                  - entity: input_text.ams_slot_1_spool_id
-                    name: Spool ID
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_text.ams_slot_1_status
-                    state_not:
-                      - "OK"
-                      - "OK: FIXED_EXPECTED"
-                      - ""
-                      - unknown
-                      - unavailable
-                card:
-                  type: vertical-stack
-                  cards:
-                    - type: markdown
-                      content: "**Needs Action**"
-                    - type: entities
-                      entities:
-                        - entity: input_text.ams_slot_1_expected_spool_id
-                          name: Expected Spool ID
-                        - entity: input_text.ams_slot_1_unbound_reason
-                          name: Unbound Reason
-                    - type: button
-                      entity: input_button.p1s_rfid_reconcile_now
-                      name: Reconcile Now
-                      icon: mdi:refresh
-                    - type: markdown
-                      content: "Manual bind: TODO (missing input_select.ams_slot_1_manual_spool / bind script)"
-          # ── Slot 2 ──
-          - type: vertical-stack
-            cards:
-              - type: markdown
-                content: |
-                  ### Slot 2
-                  {% set tray = 'sensor.p1s_01p00c5a3101668_ams_1_tray_2' %}
-                  **Loaded:** {{ state_attr(tray, 'name') or states(tray) or '—' }}  
-                  **Material:** {{ state_attr(tray, 'type') or '—' }} · **Color:** {{ state_attr(tray, 'color') or '—' }}  
-                  **Remaining:** {{ states('sensor.ams_slot_2_remaining_g') }} g
-              - type: entities
-                entities:
-                  - entity: input_text.ams_slot_2_status
-                    name: Status
-                  - entity: input_text.ams_slot_2_spool_id
-                    name: Spool ID
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_text.ams_slot_2_status
-                    state_not:
-                      - "OK"
-                      - "OK: FIXED_EXPECTED"
-                      - ""
-                      - unknown
-                      - unavailable
-                card:
-                  type: vertical-stack
-                  cards:
-                    - type: markdown
-                      content: "**Needs Action**"
-                    - type: entities
-                      entities:
-                        - entity: input_text.ams_slot_2_expected_spool_id
-                          name: Expected Spool ID
-                        - entity: input_text.ams_slot_2_unbound_reason
-                          name: Unbound Reason
-                    - type: button
-                      entity: input_button.p1s_rfid_reconcile_now
-                      name: Reconcile Now
-                      icon: mdi:refresh
-                    - type: markdown
-                      content: "Manual bind: TODO (missing input_select.ams_slot_2_manual_spool / bind script)"
-          # ── Slot 3 ──
-          - type: vertical-stack
-            cards:
-              - type: markdown
-                content: |
-                  ### Slot 3
-                  {% set tray = 'sensor.p1s_01p00c5a3101668_ams_1_tray_3' %}
-                  **Loaded:** {{ state_attr(tray, 'name') or states(tray) or '—' }}  
-                  **Material:** {{ state_attr(tray, 'type') or '—' }} · **Color:** {{ state_attr(tray, 'color') or '—' }}  
-                  **Remaining:** {{ states('sensor.ams_slot_3_remaining_g') }} g
-              - type: entities
-                entities:
-                  - entity: input_text.ams_slot_3_status
-                    name: Status
-                  - entity: input_text.ams_slot_3_spool_id
-                    name: Spool ID
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_text.ams_slot_3_status
-                    state_not:
-                      - "OK"
-                      - "OK: FIXED_EXPECTED"
-                      - ""
-                      - unknown
-                      - unavailable
-                card:
-                  type: vertical-stack
-                  cards:
-                    - type: markdown
-                      content: "**Needs Action**"
-                    - type: entities
-                      entities:
-                        - entity: input_text.ams_slot_3_expected_spool_id
-                          name: Expected Spool ID
-                        - entity: input_text.ams_slot_3_unbound_reason
-                          name: Unbound Reason
-                    - type: button
-                      entity: input_button.p1s_rfid_reconcile_now
-                      name: Reconcile Now
-                      icon: mdi:refresh
-                    - type: markdown
-                      content: "Manual bind: TODO (missing input_select.ams_slot_3_manual_spool / bind script)"
-          # ── Slot 4 ──
-          - type: vertical-stack
-            cards:
-              - type: markdown
-                content: |
-                  ### Slot 4
-                  {% set tray = 'sensor.p1s_01p00c5a3101668_ams_1_tray_4' %}
-                  **Loaded:** {{ state_attr(tray, 'name') or states(tray) or '—' }}  
-                  **Material:** {{ state_attr(tray, 'type') or '—' }} · **Color:** {{ state_attr(tray, 'color') or '—' }}  
-                  **Remaining:** {{ states('sensor.ams_slot_4_remaining_g') }} g
-              - type: entities
-                entities:
-                  - entity: input_text.ams_slot_4_status
-                    name: Status
-                  - entity: input_text.ams_slot_4_spool_id
-                    name: Spool ID
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_text.ams_slot_4_status
-                    state_not:
-                      - "OK"
-                      - "OK: FIXED_EXPECTED"
-                      - ""
-                      - unknown
-                      - unavailable
-                card:
-                  type: vertical-stack
-                  cards:
-                    - type: markdown
-                      content: "**Needs Action**"
-                    - type: entities
-                      entities:
-                        - entity: input_text.ams_slot_4_expected_spool_id
-                          name: Expected Spool ID
-                        - entity: input_text.ams_slot_4_unbound_reason
-                          name: Unbound Reason
-                    - type: button
-                      entity: input_button.p1s_rfid_reconcile_now
-                      name: Reconcile Now
-                      icon: mdi:refresh
-                    - type: markdown
-                      content: "Manual bind: TODO (missing input_select.ams_slot_4_manual_spool / bind script)"
-          # ── Slot 5 (HT1) ──
-          - type: vertical-stack
-            cards:
-              - type: markdown
-                content: |
-                  ### Slot 5 (HT1)
-                  {% set tray = 'sensor.p1s_01p00c5a3101668_ams_128_tray_1' %}
-                  **Loaded:** {{ state_attr(tray, 'name') or states(tray) or '—' }}  
-                  **Material:** {{ state_attr(tray, 'type') or '—' }} · **Color:** {{ state_attr(tray, 'color') or '—' }}  
-                  **Remaining:** {{ states('sensor.ams_slot_5_remaining_g') }} g
-              - type: entities
-                entities:
-                  - entity: input_text.ams_slot_5_status
-                    name: Status
-                  - entity: input_text.ams_slot_5_spool_id
-                    name: Spool ID
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_text.ams_slot_5_status
-                    state_not:
-                      - "OK"
-                      - "OK: FIXED_EXPECTED"
-                      - ""
-                      - unknown
-                      - unavailable
-                card:
-                  type: vertical-stack
-                  cards:
-                    - type: markdown
-                      content: "**Needs Action**"
-                    - type: entities
-                      entities:
-                        - entity: input_text.ams_slot_5_expected_spool_id
-                          name: Expected Spool ID
-                        - entity: input_text.ams_slot_5_unbound_reason
-                          name: Unbound Reason
-                    - type: button
-                      entity: input_button.p1s_rfid_reconcile_now
-                      name: Reconcile Now
-                      icon: mdi:refresh
-                    - type: markdown
-                      content: "Manual bind: TODO (missing input_select.ams_slot_5_manual_spool / bind script)"
-          # ── Slot 6 (HT2) ──
-          - type: vertical-stack
-            cards:
-              - type: markdown
-                content: |
-                  ### Slot 6 (HT2)
-                  {% set tray = 'sensor.p1s_01p00c5a3101668_ams_129_tray_1' %}
-                  **Loaded:** {{ state_attr(tray, 'name') or states(tray) or '—' }}  
-                  **Material:** {{ state_attr(tray, 'type') or '—' }} · **Color:** {{ state_attr(tray, 'color') or '—' }}  
-                  **Remaining:** {{ states('sensor.ams_slot_6_remaining_g') }} g
-              - type: entities
-                entities:
-                  - entity: input_text.ams_slot_6_status
-                    name: Status
-                  - entity: input_text.ams_slot_6_spool_id
-                    name: Spool ID
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_text.ams_slot_6_status
-                    state_not:
-                      - "OK"
-                      - "OK: FIXED_EXPECTED"
-                      - ""
-                      - unknown
-                      - unavailable
-                card:
-                  type: vertical-stack
-                  cards:
-                    - type: markdown
-                      content: "**Needs Action**"
-                    - type: entities
-                      entities:
-                        - entity: input_text.ams_slot_6_expected_spool_id
-                          name: Expected Spool ID
-                        - entity: input_text.ams_slot_6_unbound_reason
-                          name: Unbound Reason
-                    - type: button
-                      entity: input_button.p1s_rfid_reconcile_now
-                      name: Reconcile Now
-                      icon: mdi:refresh
-                    - type: markdown
-                      content: "Manual bind: TODO (missing input_select.ams_slot_6_manual_spool / bind script)"
-      # ── AMS Slot Overview (TEST) ──
-      - type: grid
-        columns: 2
-        cards:
-          - type: custom:mushroom-title-card
-            title: AMS Slot Overview (TEST)
-          # ── Slot 1 ──
-          - type: vertical-stack
-            cards:
-              - type: custom:mushroom-template-card
-                primary: Slot 1
-                secondary: >-
-                  {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_1') or '—' }}
-                  · {{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'type') or '—' }}
-                  · {{ states('sensor.ams_slot_1_remaining_g') | default('—') }} g
-                icon: mdi:numeric-1-circle
-                icon_color: var(--rgb-state-entity)
-                card_mod:
-                  style: >
-                    {% set c =
-                    state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1',
-                    'color') %}
-
-                    ha-card {
-                      --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                    }
-              - type: entities
-                entities:
-                  - entity: input_text.ams_slot_1_status
-                    name: Status
-                  - entity: input_text.ams_slot_1_spool_id
-                    name: Spool ID
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_text.ams_slot_1_status
-                    state_not:
-                      - "OK"
-                      - "OK: FIXED_EXPECTED"
-                      - ""
-                      - unknown
-                      - unavailable
-                card:
-                  type: vertical-stack
-                  cards:
-                    - type: entities
-                      entities:
-                        - entity: input_text.ams_slot_1_expected_spool_id
-                          name: Expected Spool ID
-                        - entity: input_text.ams_slot_1_unbound_reason
-                          name: Unbound Reason
-                    - type: button
-                      entity: input_button.p1s_rfid_reconcile_now
-                      name: Reconcile Now
-                      icon: mdi:refresh
-                    - type: markdown
-                      content: "Manual bind: TODO (missing input_select/script)"
-          # ── Slot 2 ──
-          - type: vertical-stack
-            cards:
-              - type: custom:mushroom-template-card
-                primary: Slot 2
-                secondary: >-
-                  {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_2') or '—' }}
-                  · {{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'type') or '—' }}
-                  · {{ states('sensor.ams_slot_2_remaining_g') | default('—') }} g
-                icon: mdi:numeric-2-circle
-                icon_color: var(--rgb-state-entity)
-                card_mod:
-                  style: >
-                    {% set c =
-                    state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2',
-                    'color') %}
-
-                    ha-card {
-                      --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                    }
-              - type: entities
-                entities:
-                  - entity: input_text.ams_slot_2_status
-                    name: Status
-                  - entity: input_text.ams_slot_2_spool_id
-                    name: Spool ID
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_text.ams_slot_2_status
-                    state_not:
-                      - "OK"
-                      - "OK: FIXED_EXPECTED"
-                      - ""
-                      - unknown
-                      - unavailable
-                card:
-                  type: vertical-stack
-                  cards:
-                    - type: entities
-                      entities:
-                        - entity: input_text.ams_slot_2_expected_spool_id
-                          name: Expected Spool ID
-                        - entity: input_text.ams_slot_2_unbound_reason
-                          name: Unbound Reason
-                    - type: button
-                      entity: input_button.p1s_rfid_reconcile_now
-                      name: Reconcile Now
-                      icon: mdi:refresh
-                    - type: markdown
-                      content: "Manual bind: TODO (missing input_select/script)"
-          # ── Slot 3 ──
-          - type: vertical-stack
-            cards:
-              - type: custom:mushroom-template-card
-                primary: Slot 3
-                secondary: >-
-                  {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_3') or '—' }}
-                  · {{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'type') or '—' }}
-                  · {{ states('sensor.ams_slot_3_remaining_g') | default('—') }} g
-                icon: mdi:numeric-3-circle
-                icon_color: var(--rgb-state-entity)
-                card_mod:
-                  style: >
-                    {% set c =
-                    state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3',
-                    'color') %}
-
-                    ha-card {
-                      --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                    }
-              - type: entities
-                entities:
-                  - entity: input_text.ams_slot_3_status
-                    name: Status
-                  - entity: input_text.ams_slot_3_spool_id
-                    name: Spool ID
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_text.ams_slot_3_status
-                    state_not:
-                      - "OK"
-                      - "OK: FIXED_EXPECTED"
-                      - ""
-                      - unknown
-                      - unavailable
-                card:
-                  type: vertical-stack
-                  cards:
-                    - type: entities
-                      entities:
-                        - entity: input_text.ams_slot_3_expected_spool_id
-                          name: Expected Spool ID
-                        - entity: input_text.ams_slot_3_unbound_reason
-                          name: Unbound Reason
-                    - type: button
-                      entity: input_button.p1s_rfid_reconcile_now
-                      name: Reconcile Now
-                      icon: mdi:refresh
-                    - type: markdown
-                      content: "Manual bind: TODO (missing input_select/script)"
-          # ── Slot 4 ──
-          - type: vertical-stack
-            cards:
-              - type: custom:mushroom-template-card
-                primary: Slot 4
-                secondary: >-
-                  {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_4') or '—' }}
-                  · {{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'type') or '—' }}
-                  · {{ states('sensor.ams_slot_4_remaining_g') | default('—') }} g
-                icon: mdi:numeric-4-circle
-                icon_color: var(--rgb-state-entity)
-                card_mod:
-                  style: >
-                    {% set c =
-                    state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4',
-                    'color') %}
-
-                    ha-card {
-                      --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                    }
-              - type: entities
-                entities:
-                  - entity: input_text.ams_slot_4_status
-                    name: Status
-                  - entity: input_text.ams_slot_4_spool_id
-                    name: Spool ID
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_text.ams_slot_4_status
-                    state_not:
-                      - "OK"
-                      - "OK: FIXED_EXPECTED"
-                      - ""
-                      - unknown
-                      - unavailable
-                card:
-                  type: vertical-stack
-                  cards:
-                    - type: entities
-                      entities:
-                        - entity: input_text.ams_slot_4_expected_spool_id
-                          name: Expected Spool ID
-                        - entity: input_text.ams_slot_4_unbound_reason
-                          name: Unbound Reason
-                    - type: button
-                      entity: input_button.p1s_rfid_reconcile_now
-                      name: Reconcile Now
-                      icon: mdi:refresh
-                    - type: markdown
-                      content: "Manual bind: TODO (missing input_select/script)"
-          # ── Slot 5 (HT1) ──
-          - type: vertical-stack
-            cards:
-              - type: custom:mushroom-template-card
-                primary: Slot 5 (HT1)
-                secondary: >-
-                  {{ states('sensor.p1s_01p00c5a3101668_ams_128_tray_1') or '—' }}
-                  · {{ state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'type') or '—' }}
-                  · {{ states('sensor.ams_slot_5_remaining_g') | default('—') }} g
-                icon: mdi:numeric-5-circle
-                icon_color: var(--rgb-state-entity)
-                card_mod:
-                  style: >
-                    {% set c =
-                    state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1',
-                    'color') %}
-
-                    ha-card {
-                      --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                    }
-              - type: entities
-                entities:
-                  - entity: input_text.ams_slot_5_status
-                    name: Status
-                  - entity: input_text.ams_slot_5_spool_id
-                    name: Spool ID
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_text.ams_slot_5_status
-                    state_not:
-                      - "OK"
-                      - "OK: FIXED_EXPECTED"
-                      - ""
-                      - unknown
-                      - unavailable
-                card:
-                  type: vertical-stack
-                  cards:
-                    - type: entities
-                      entities:
-                        - entity: input_text.ams_slot_5_expected_spool_id
-                          name: Expected Spool ID
-                        - entity: input_text.ams_slot_5_unbound_reason
-                          name: Unbound Reason
-                    - type: button
-                      entity: input_button.p1s_rfid_reconcile_now
-                      name: Reconcile Now
-                      icon: mdi:refresh
-                    - type: markdown
-                      content: "Manual bind: TODO (missing input_select/script)"
-          # ── Slot 6 (HT2) ──
-          - type: vertical-stack
-            cards:
-              - type: custom:mushroom-template-card
-                primary: Slot 6 (HT2)
-                secondary: >-
-                  {{ states('sensor.p1s_01p00c5a3101668_ams_129_tray_1') or '—' }}
-                  · {{ state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'type') or '—' }}
-                  · {{ states('sensor.ams_slot_6_remaining_g') | default('—') }} g
-                icon: mdi:numeric-6-circle
-                icon_color: var(--rgb-state-entity)
-                card_mod:
-                  style: >
-                    {% set c =
-                    state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1',
-                    'color') %}
-
-                    ha-card {
-                      --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                    }
-              - type: entities
-                entities:
-                  - entity: input_text.ams_slot_6_status
-                    name: Status
-                  - entity: input_text.ams_slot_6_spool_id
-                    name: Spool ID
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_text.ams_slot_6_status
-                    state_not:
-                      - "OK"
-                      - "OK: FIXED_EXPECTED"
-                      - ""
-                      - unknown
-                      - unavailable
-                card:
-                  type: vertical-stack
-                  cards:
-                    - type: entities
-                      entities:
-                        - entity: input_text.ams_slot_6_expected_spool_id
-                          name: Expected Spool ID
-                        - entity: input_text.ams_slot_6_unbound_reason
-                          name: Unbound Reason
-                    - type: button
-                      entity: input_button.p1s_rfid_reconcile_now
-                      name: Reconcile Now
-                      icon: mdi:refresh
-                    - type: markdown
-                      content: "Manual bind: TODO (missing input_select/script)"
-      - type: grid
-        columns: 2
-        cards:
-          - type: custom:mushroom-title-card
-            title: Add filament to Spoolman
-          - type: custom:mod-card
-            style: |
-              ha-card { border-radius: 12px !important; padding: 12px !important; }
-            card:
-              type: vertical-stack
-              cards:
-                - type: custom:mushroom-entity-card
-                  entity: input_text.spoolman_base_url
-                  name: Spoolman API URL (set this first)
-                  icon: mdi:link
-                  icon_color: amber
-                - type: horizontal-stack
-                  cards:
-                    - type: custom:mushroom-entity-card
-                      entity: input_text.spoolman_new_filament_name
-                      name: Name
-                      icon: mdi:form-textbox
-                      icon_color: amber
-                    - type: custom:mushroom-entity-card
-                      entity: input_text.spoolman_new_filament_material
-                      name: Material (PLA, PETG…)
-                      icon: mdi:cylinder
-                      icon_color: blue
-                - type: horizontal-stack
-                  cards:
-                    - type: custom:mushroom-entity-card
-                      entity: input_number.spoolman_new_filament_diameter
-                      name: Diameter (mm)
-                      icon: mdi:circle-outline
-                      icon_color: accent
-                      tap_action:
-                        action: more-info
-                    - type: custom:mushroom-entity-card
-                      entity: input_number.spoolman_new_filament_density
-                      name: Density (g/cm³)
-                      icon: mdi:weight
-                      icon_color: accent
-                      tap_action:
-                        action: more-info
-                - type: horizontal-stack
-                  cards:
-                    - type: custom:mushroom-entity-card
-                      entity: input_number.spoolman_new_filament_vendor_id
-                      name: Vendor ID (0 = none)
-                      icon: mdi:factory
-                      icon_color: blue
-                      tap_action:
-                        action: more-info
-                    - type: custom:mushroom-entity-card
-                      entity: input_text.spoolman_new_filament_color_hex
-                      name: Color hex (optional)
-                      icon: mdi:palette
-                      icon_color: purple
-                - type: horizontal-stack
-                  cards:
-                    - type: custom:mushroom-template-card
-                      primary: Add to Spoolman
-                      secondary: Creates filament and reloads list
-                      icon: mdi:plus-circle
-                      icon_color: green
-                      tap_action:
-                        action: call-service
-                        service: script.spoolman_add_filament
-                        data: {}
-      - type: grid
-        columns: 2
-        cards:
-          - type: custom:mushroom-title-card
-            title: Add spool to Spoolman
-          - type: custom:mod-card
-            style: |
-              ha-card { border-radius: 12px !important; padding: 12px !important; }
-            card:
-              type: vertical-stack
-              cards:
-                - type: horizontal-stack
-                  cards:
-                    - type: custom:mushroom-entity-card
-                      entity: input_select.spoolman_new_spool_filament
-                      name: Filament (required)
-                      icon: mdi:format-list-dropdown
-                      icon_color: blue
-                      tap_action:
-                        action: more-info
-                    - type: custom:mushroom-entity-card
-                      entity: input_text.spoolman_new_spool_location
-                      name: Location (e.g. Shelf)
-                      icon: mdi:map-marker
-                      icon_color: amber
-                - type: horizontal-stack
-                  cards:
-                    - type: custom:mushroom-entity-card
-                      entity: input_number.spoolman_new_spool_remaining_weight
-                      name: Remaining (g)
-                      icon: mdi:weight
-                      icon_color: accent
-                      tap_action:
-                        action: more-info
-                    - type: custom:mushroom-template-card
-                      primary: Refresh filament list
-                      secondary: Fetch from Spoolman and fill dropdown
-                      icon: mdi:refresh
-                      icon_color: blue
-                      tap_action:
-                        action: call-service
-                        service: script.refresh_filament_dropdown
-                        data: {}
-                    - type: custom:mushroom-template-card
-                      primary: Add spool
-                      secondary: Creates spool and reloads list
-                      icon: mdi:plus-circle-outline
-                      icon_color: green
-                      tap_action:
-                        action: call-service
-                        service: script.spoolman_add_spool
-                        data: {}
-      - type: grid
-        cards: []
     cards: []
+  - type: sections
+    max_columns: 1
+    title: 'Sonos '
+    path: sonos
+    icon: mdi:music
+    panel: true
+    cards: []
+    visible:
+      - user: 5ba38a59d2654d9c80f3b5a6ee129256
+    sections:
+      - type: grid
+        cards:
+          - type: custom:sonos-card
+            card_mod:
+              style: |
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+  - type: sections
+    visible:
+      - user: 5ba38a59d2654d9c80f3b5a6ee129256
+    max_columns: 4
+    title: Outlets
+    icon: mdi:power-socket-us
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Basement Hall Sensors
+            heading_style: title
+          - type: tile
+            entity: sensor.invisoutlet_humidity_2
+          - type: tile
+            entity: sensor.invisoutlet_temperature_2
+          - type: tile
+            entity: sensor.bthome_sensor_ff21_humidity
+            vertical: false
+            features_position: bottom
+          - type: tile
+            entity: sensor.bthome_sensor_ff21_temperature
+            vertical: false
+            features_position: bottom
+      - square: false
+        type: grid
+        columns: 1
+        cards:
+          - type: heading
+            heading: Outside
+            heading_style: title
+          - type: custom:mushroom-entity-card
+            entity: switch.outdoor_03
+            icon: mdi:power-socket-us
+            tap_action:
+              action: toggle
+            icon_color: accent
+            card_mod:
+              style: |
+                mushroom-entity-card ha-card,
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+                ha-card ha-icon {
+                  color: {% if is_state('switch.outdoor_03', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                }
+          - type: custom:mushroom-entity-card
+            entity: switch.in_wall_outlet_tr_500s_4
+            icon: mdi:power-socket-us
+            tap_action:
+              action: toggle
+            icon_color: accent
+            card_mod:
+              style: |
+                mushroom-entity-card ha-card,
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+                ha-card ha-icon {
+                  color: {% if is_state('switch.in_wall_outlet_tr_500s_4', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                }
+          - type: custom:mushroom-entity-card
+            entity: switch.in_wall_outlet_tr_500s_3
+            name: Fire Pit Outlet
+            icon: mdi:fire
+            tap_action:
+              action: toggle
+            icon_color: accent
+            card_mod:
+              style: |
+                mushroom-entity-card ha-card,
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+                ha-card ha-icon {
+                  color: {% if is_state('switch.in_wall_outlet_tr_500s_3', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                }
+          - type: heading
+            heading: Basement Bedroom
+            heading_style: title
+          - type: custom:mushroom-entity-card
+            entity: switch.in_wall_outlet_tr_500s_5
+            icon: mdi:power-socket-us
+            tap_action:
+              action: toggle
+            icon_color: accent
+            card_mod:
+              style: |
+                mushroom-entity-card ha-card,
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+                ha-card ha-icon {
+                  color: {% if is_state('switch.in_wall_outlet_tr_500s_5', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                }
+          - type: custom:mushroom-entity-card
+            entity: switch.in_wall_outlet_tr_500s_7
+            icon: mdi:power-socket-us
+            tap_action:
+              action: toggle
+            icon_color: accent
+            card_mod:
+              style: |
+                mushroom-entity-card ha-card,
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+                ha-card ha-icon {
+                  color: {% if is_state('switch.in_wall_outlet_tr_500s_7', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                }
+          - type: heading
+            heading_style: title
+            heading: 'Office '
+          - type: custom:mushroom-entity-card
+            entity: switch.invisoutlet_switch_1
+            icon: mdi:power-socket-us
+            tap_action:
+              action: toggle
+            icon_color: accent
+            card_mod:
+              style: |
+                mushroom-entity-card ha-card,
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+                ha-card ha-icon {
+                  color: {% if is_state('switch.invisoutlet_switch_1', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                }
+          - type: custom:mushroom-entity-card
+            entity: switch.invisoutlet_switch_2
+            icon: mdi:power-socket-us
+            tap_action:
+              action: toggle
+            icon_color: accent
+            card_mod:
+              style: |
+                mushroom-entity-card ha-card,
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+                ha-card ha-icon {
+                  color: {% if is_state('switch.invisoutlet_switch_2', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                }
+          - type: heading
+            heading: Bedrooms
+            heading_style: title
+          - type: custom:mushroom-entity-card
+            entity: switch.clara_smart_plug
+            name: Clara's Smart Plug
+            icon: mdi:power-socket-us
+            tap_action:
+              action: toggle
+            icon_color: accent
+            card_mod:
+              style: |
+                mushroom-entity-card ha-card,
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+                ha-card ha-icon {
+                  color: {% if is_state('switch.clara_smart_plug', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                }
+          - type: custom:mushroom-entity-card
+            entity: switch.in_wall_outlet_tr_500s_2
+            name: Nate Outlet
+            icon: mdi:power-socket-us
+            tap_action:
+              action: toggle
+            icon_color: accent
+            card_mod:
+              style: |
+                mushroom-entity-card ha-card,
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+                ha-card ha-icon {
+                  color: {% if is_state('switch.in_wall_outlet_tr_500s_2', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                }
+          - type: custom:mushroom-entity-card
+            entity: switch.miriam_smart_plug
+            name: Miriam's Smart Plug
+            icon: mdi:power-socket-us
+            tap_action:
+              action: toggle
+            icon_color: accent
+            card_mod:
+              style: |
+                mushroom-entity-card ha-card,
+                ha-card {
+                  border: 4px solid #ffffff !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+                ha-card ha-icon {
+                  color: {% if is_state('switch.miriam_smart_plug', 'on') %} #FFD700 {% else %} white {% endif %} !important;
+                }
