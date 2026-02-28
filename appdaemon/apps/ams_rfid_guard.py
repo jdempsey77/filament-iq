@@ -206,23 +206,27 @@ class AmsRfidGuard(hass.Hass):
                 "location": location,
             }
 
-        # Invariant A: rfid_tag_uid present => ha_spool_uuid must be non-empty
-        if tag_uid and not ha_spool_uuid:
+        # v4: lot_nr is the primary identity field; ha_spool_uuid is legacy
+        lot_nr = str(spool.get("lot_nr") or "").strip()
+        has_identity = bool(ha_spool_uuid or lot_nr)
+
+        # Invariant A: rfid_tag_uid present => identity must exist (lot_nr or ha_spool_uuid)
+        if tag_uid and not has_identity:
             violation = _make_violation(
                 ReasonCode.RFID_TAG_MANUAL,
-                "Spool has rfid_tag_uid but ha_spool_uuid is missing",
-                "ha_spool_uuid must be non-empty",
+                "Spool has rfid_tag_uid but no identity (lot_nr or ha_spool_uuid)",
+                "lot_nr or ha_spool_uuid must be non-empty",
             )
             if self.missing_ha_spool_uuid_mode == "warn_only":
                 violation["warn_only"] = True
             return violation
 
-        # Invariant B: RFID-managed filament => ha_spool_uuid must be non-empty
-        if self._is_rfid_managed_filament(filament) and not ha_spool_uuid:
+        # Invariant B: RFID-managed filament => identity must exist
+        if self._is_rfid_managed_filament(filament) and not has_identity:
             violation = _make_violation(
                 ReasonCode.RFID_FILAMENT_MANUAL,
-                "Spool has Bambu/RFID-managed filament but ha_spool_uuid is missing",
-                "ha_spool_uuid must be non-empty",
+                "Spool has Bambu/RFID-managed filament but no identity (lot_nr or ha_spool_uuid)",
+                "lot_nr or ha_spool_uuid must be non-empty",
             )
             if self.missing_ha_spool_uuid_mode == "warn_only":
                 violation["warn_only"] = True

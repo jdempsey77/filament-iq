@@ -1840,7 +1840,13 @@ class AmsRfidReconcile(hass.Hass):
         if existing_lot and existing_lot != enroll_tray_uuid:
             raise RuntimeError(f"lot_nr conflict on spool_id={spool_id} existing={existing_lot}")
 
-        self._patch_spool_fields(spool_id, {"lot_nr": enroll_tray_uuid, "location": CANONICAL_LOCATION_BY_SLOT[slot]})
+        spool_index = {self._safe_int(s.get("id"), 0): s for s in spools}
+        self._enroll_lot_nr(spool_id, enroll_tray_uuid, spool_index, reason="manual_enroll")
+        self._patch_spool_fields(spool_id, {"location": CANONICAL_LOCATION_BY_SLOT[slot]})
+        self.log(
+            f"MANUAL_ENROLL_LOT_NR_WRITTEN slot={slot} spool_id={spool_id} tray_uuid={enroll_tray_uuid}",
+            level="INFO",
+        )
         self._notify(
             "RFID Manual Enroll Applied",
             f"slot={slot} spool_id={spool_id} tray_uuid={enroll_tray_uuid}",
