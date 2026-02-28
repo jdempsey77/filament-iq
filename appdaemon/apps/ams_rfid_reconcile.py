@@ -1636,14 +1636,14 @@ class AmsRfidReconcile(hass.Hass):
                         sig_candidate_ids = list(set(lotnr_to_spools.get(lot_sig, [])))
                         # 2) Unenrolled spools: no lot_nr, match material + color_hex (from existing spools list)
                         tray_type_norm = (str(tray_meta.get("type") or "").strip()).upper()
-                        tray_hex = (str(tray_meta.get("color_hex") or "").strip().replace("#", "").lower()
+                        tray_hex = (str(tray_meta.get("color_hex") or "").strip().replace("#", "").lower())
                         if len(tray_hex) == 8:
                             tray_hex = tray_hex[:6]
                         unenrolled_ids = []
                         for spool in spools:
                             if not isinstance(spool, dict):
                                 continue
-                            if (str(spool.get("lot_nr") or "").strip():
+                            if (str(spool.get("lot_nr") or "").strip()):
                                 continue
                             loc = str(spool.get("location", "")).strip().lower()
                             if loc == "new" or loc == LOCATION_EMPTY.lower():
@@ -1652,7 +1652,7 @@ class AmsRfidReconcile(hass.Hass):
                                 continue
                             filament = spool.get("filament") or {}
                             spool_mat = (str(filament.get("material") or "").strip()).upper()
-                            spool_hex = (str(filament.get("color_hex") or "").strip().replace("#", "").lower()
+                            spool_hex = (str(filament.get("color_hex") or "").strip().replace("#", "").lower())
                             if len(spool_hex) == 8:
                                 spool_hex = spool_hex[:6]
                             if tray_type_norm and spool_mat and tray_type_norm != spool_mat:
