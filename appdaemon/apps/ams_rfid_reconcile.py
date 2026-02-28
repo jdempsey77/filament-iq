@@ -1002,8 +1002,31 @@ class AmsRfidReconcile(hass.Hass):
                     all_nonrfid_ids = list(set(lotnr_nonrfid_ids) | set(unenrolled_ids))
                     # Exclude RFID-enrolled spools (lot_nr = 32-char UUID); they must not match non-RFID trays
                     all_nonrfid_ids = [cid for cid in all_nonrfid_ids if not _is_lot_nr_uuid((spool_index.get(cid) or {}).get("lot_nr"))]
+                    # Exclude spools actively bound to another slot (avoid slot-to-slot move stealing)
+                    all_nonrfid_ids = [cid for cid in all_nonrfid_ids if not self._is_spool_active_in_other_slot(cid, slot)]
                     if len(all_nonrfid_ids) == 1:
                         resolved = all_nonrfid_ids[0]
+                        if self._is_spool_active_in_other_slot(resolved, slot):
+                            self.log(
+                                f"NONRFID_LOT_NR_AMBIGUOUS slot={slot} sig={lot_sig} candidates={[resolved]} reason=spool_active_in_other_slot",
+                                level="WARNING",
+                            )
+                            status = STATUS_NEEDS_MANUAL_BIND
+                            if not status_only:
+                                self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
+                                self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
+                            self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "AMBIGUOUS_SIG")
+                            self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                            self._log_slot_status_change(slot, status, "", 0, tray_meta)
+                            t["decision"], t["reason"], t["action"] = "NON_RFID", "ambiguous_sig", "needs_manual_bind"
+                            t["unbound_reason"] = "AMBIGUOUS_SIG"
+                            t["final_slot_status"] = status
+                            t["final_spool_id"] = 0
+                            self._active_run["validation_transcripts"].append(t)
+                            if validation_mode:
+                                self._log_validation_transcript(t)
+                            unbound += 1
+                            continue
                         from_unenrolled = resolved in set(unenrolled_ids)
                         if from_unenrolled:
                             self.log(f"NONRFID_UNENROLLED_MATCH slot={slot} spool_id={resolved} sig={lot_sig}", level="INFO")
@@ -1068,33 +1091,40 @@ class AmsRfidReconcile(hass.Hass):
                         else:
                             resolved = 0
                         if resolved > 0:
-                            from_unenrolled = resolved in set(unenrolled_ids)
-                            if from_unenrolled:
-                                self.log(f"NONRFID_UNENROLLED_MATCH slot={slot} spool_id={resolved} sig={lot_sig}", level="INFO")
-                            if not status_only:
-                                source = "nonrfid_unenrolled_match" if from_unenrolled else "nonrfid_lot_nr_tiebreak"
-                                self._force_location_and_helpers(
-                                    slot, resolved, "", source=source,
-                                    tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_sig,
-                                    previous_helper_spool_id=previous_helper_spool_id,
-                                    spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
+                            if self._is_spool_active_in_other_slot(resolved, slot):
+                                self.log(
+                                    f"NONRFID_LOT_NR_AMBIGUOUS slot={slot} sig={lot_sig} tiebreak_resolved={resolved} reason=spool_active_in_other_slot",
+                                    level="WARNING",
                                 )
-                                reason = "nonrfid_unenrolled_match" if from_unenrolled else "nonrfid_lot_nr_tiebreak"
-                                self._enroll_lot_nr(resolved, lot_sig, spool_index, reason=reason)
-                            status = STATUS_OK_NONRFID
-                            ok += 1
-                            t["decision"], t["reason"], t["action"] = "NON_RFID", "lot_nr_tiebreak", "nonrfid_auto_match"
-                            t["final_spool_id"], t["selected_spool_id"] = resolved, resolved
-                            t["final_slot_status"] = status
-                            t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
-                            self._set_helper(f"input_text.ams_slot_{slot}_status", status)
-                            self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
-                            self._log_slot_status_change(slot, status, "", resolved, tray_meta)
-                            self._record_decision(slot, "nonrfid_lot_nr_tiebreak", {"resolved_spool_id": resolved, "lot_sig": lot_sig})
-                            self._active_run["validation_transcripts"].append(t)
-                            if validation_mode:
-                                self._log_validation_transcript(t)
-                            continue
+                                resolved = 0
+                            if resolved > 0:
+                                from_unenrolled = resolved in set(unenrolled_ids)
+                                if from_unenrolled:
+                                    self.log(f"NONRFID_UNENROLLED_MATCH slot={slot} spool_id={resolved} sig={lot_sig}", level="INFO")
+                                if not status_only:
+                                    source = "nonrfid_unenrolled_match" if from_unenrolled else "nonrfid_lot_nr_tiebreak"
+                                    self._force_location_and_helpers(
+                                        slot, resolved, "", source=source,
+                                        tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_sig,
+                                        previous_helper_spool_id=previous_helper_spool_id,
+                                        spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
+                                    )
+                                    reason = "nonrfid_unenrolled_match" if from_unenrolled else "nonrfid_lot_nr_tiebreak"
+                                    self._enroll_lot_nr(resolved, lot_sig, spool_index, reason=reason)
+                                status = STATUS_OK_NONRFID
+                                ok += 1
+                                t["decision"], t["reason"], t["action"] = "NON_RFID", "lot_nr_tiebreak", "nonrfid_auto_match"
+                                t["final_spool_id"], t["selected_spool_id"] = resolved, resolved
+                                t["final_slot_status"] = status
+                                t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                                self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                                self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+                                self._log_slot_status_change(slot, status, "", resolved, tray_meta)
+                                self._record_decision(slot, "nonrfid_lot_nr_tiebreak", {"resolved_spool_id": resolved, "lot_sig": lot_sig})
+                                self._active_run["validation_transcripts"].append(t)
+                                if validation_mode:
+                                    self._log_validation_transcript(t)
+                                continue
                         self.log(
                             f"NONRFID_LOT_NR_AMBIGUOUS slot={slot} sig={lot_sig} candidates={all_nonrfid_ids}",
                             level="WARNING",
@@ -2281,8 +2311,8 @@ class AmsRfidReconcile(hass.Hass):
                 self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "lot_nr_uuid_rfid_enrolled"})
                 continue
 
-            spool_material = self._material_key(filament.get("material", ""))
-            tray_material = self._material_key(tray_meta.get("type", ""))
+            spool_material = self._normalize_material(filament.get("material", ""))
+            tray_material = self._normalize_material(tray_meta.get("type", ""))
             if not spool_material or spool_material != tray_material:
                 self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "material_mismatch"})
                 continue
@@ -2360,8 +2390,8 @@ class AmsRfidReconcile(hass.Hass):
             if _is_lot_nr_uuid(str(spool.get("lot_nr") or "").strip()):
                 self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "lot_nr_uuid_rfid_enrolled"})
                 continue
-            spool_material = self._material_key(filament.get("material", ""))
-            tray_material = self._material_key(tray_meta.get("type", ""))
+            spool_material = self._normalize_material(filament.get("material", ""))
+            tray_material = self._normalize_material(tray_meta.get("type", ""))
             if not spool_material or spool_material != tray_material:
                 continue
             candidates.append(spool)
@@ -2460,8 +2490,8 @@ class AmsRfidReconcile(hass.Hass):
             return
         spool = spool_index.get(resolved_spool_id) if isinstance(spool_index, dict) else None
         if isinstance(spool, dict) and tray_meta:
-            tray_type = (str(tray_meta.get("type") or "").strip()).upper()
-            spool_mat = str((spool.get("filament") or {}).get("material") or spool.get("filament_id") or "").strip().upper()
+            tray_type = self._normalize_material(tray_meta.get("type", ""))
+            spool_mat = self._normalize_material((spool.get("filament") or {}).get("material") or spool.get("filament_id") or "")
             if tray_type and spool_mat and tray_type != spool_mat:
                 self.log(
                     f"CONVERGE_LOT_NR_SKIP slot={slot} spool_id={resolved_spool_id} tray_type={tray_type} spool_material={spool_mat} (material mismatch)",
@@ -2730,13 +2760,13 @@ class AmsRfidReconcile(hass.Hass):
             return False  # RFID-enrolled spool cannot match non-RFID tray
         if existing_lot_nr and tray_lot_sig:
             return existing_lot_nr == tray_lot_sig
-        # Spool has no lot_nr yet: compare material + color_hex
-        tray_type_norm = (str(tray_meta.get("type", "") or "").strip()).upper()
+        # Spool has no lot_nr yet: compare material + color_hex (normalize material: PLA+ -> PLA, etc.)
+        tray_type_norm = self._normalize_material(tray_meta.get("type", ""))
         tray_hex = (str(tray_meta.get("color_hex", "") or "").strip().replace("#", "").lower())
         if len(tray_hex) == 8:
             tray_hex = tray_hex[:6]
         filament = spool_obj.get("filament") or {}
-        spool_mat = (str(filament.get("material", "") or "").strip()).upper()
+        spool_mat = self._normalize_material(filament.get("material", ""))
         spool_hex = (str(filament.get("color_hex", "") or "").strip().replace("#", "").lower())
         if len(spool_hex) == 8:
             spool_hex = spool_hex[:6]
@@ -2745,7 +2775,7 @@ class AmsRfidReconcile(hass.Hass):
     def _unenrolled_candidates_for_tray(self, tray_meta, spools, slot):
         """Spools with no lot_nr that match tray material + color_hex. Excludes spools in other AMS slots.
         Same logic as RFID sig fallback unenrolled search; used by non-RFID and RFID paths."""
-        tray_type_norm = (str(tray_meta.get("type") or "").strip()).upper()
+        tray_type_norm = self._normalize_material(tray_meta.get("type", ""))
         tray_hex = (str(tray_meta.get("color_hex") or "").strip().replace("#", "").lower())
         if len(tray_hex) == 8:
             tray_hex = tray_hex[:6]
@@ -2767,7 +2797,7 @@ class AmsRfidReconcile(hass.Hass):
             spool_fid = str(filament.get("external_id", "") or "").strip()
             if _is_bambu_vendor(spool) and is_generic_filament_id(spool_fid):
                 continue
-            spool_mat = (str(filament.get("material") or "").strip()).upper()
+            spool_mat = self._normalize_material(filament.get("material", ""))
             spool_hex = (str(filament.get("color_hex") or "").strip().replace("#", "").lower())
             if len(spool_hex) == 8:
                 spool_hex = spool_hex[:6]
@@ -2996,8 +3026,8 @@ class AmsRfidReconcile(hass.Hass):
 
         if not rfid_visible and not tray_empty and helper_spool_id > 0 and isinstance(helper_spool_obj, dict):
             filament = helper_spool_obj.get("filament") if isinstance(helper_spool_obj.get("filament"), dict) else {}
-            spool_material = str(filament.get("material") or "").strip().upper()
-            tray_type = str(tray_meta.get("type") or "").strip().upper() if tray_meta else ""
+            spool_material = self._normalize_material(filament.get("material", ""))
+            tray_type = self._normalize_material(tray_meta.get("type", "") if tray_meta else "")
             if spool_material and tray_type and spool_material != tray_type:
                 self.log(
                     f"TRUTH_GUARD_BLOCK slot={slot} mode=IDENTITY_UNAVAILABLE reason={UNBOUND_HELPER_MATERIAL_MISMATCH} "
@@ -3061,6 +3091,19 @@ class AmsRfidReconcile(hass.Hass):
         value = str(raw or "").strip().lower()
         value = re.sub(r"\s+", " ", value)
         return value
+
+    def _normalize_material(self, material: str) -> str:
+        """Normalize material for comparison: strip, upper; PLA+ -> PLA, PETG-CF -> PETG, ABS* -> ABS."""
+        s = str(material or "").strip().upper()
+        if not s:
+            return s
+        if s.startswith("PLA"):
+            return "PLA"
+        if s.startswith("PETG"):
+            return "PETG"
+        if s.startswith("ABS"):
+            return "ABS"
+        return s
 
     def _is_tray_empty(self, tray_state, attrs):
         """Return True if tray state indicates empty (no filament). Physical slots 1–4 only."""
