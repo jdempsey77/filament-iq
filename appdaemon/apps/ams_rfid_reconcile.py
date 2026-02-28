@@ -163,6 +163,12 @@ def is_generic_filament_id(filament_id: str) -> bool:
     return str(filament_id or "").strip().upper().endswith("99")
 
 
+def _is_lot_nr_uuid(lot_nr) -> bool:
+    """True when lot_nr is a 32-char hex UUID (RFID-enrolled); such spools must not match non-RFID trays."""
+    s = str(lot_nr or "").strip()
+    return bool(s and re.fullmatch(r"[0-9a-fA-F]{32}", s))
+
+
 def _classify_unbound_reason(tray_meta, tag_uid, candidate_ids, ineligible_new_count, tray_empty=False, tray_state_str="", raw_tag_uid=None):
     """
     Classify why a slot is UNBOUND. Returns (reason, detail) for logging and transcripts.
@@ -957,6 +963,8 @@ class AmsRfidReconcile(hass.Hass):
                     # Unenrolled fallback runs for all trays (including generic); sentinel skip is last resort when zero candidates
                     unenrolled_ids = self._unenrolled_candidates_for_tray(tray_meta, spools, slot)
                     all_nonrfid_ids = list(set(lotnr_nonrfid_ids) | set(unenrolled_ids))
+                    # Exclude RFID-enrolled spools (lot_nr = 32-char UUID); they must not match non-RFID trays
+                    all_nonrfid_ids = [cid for cid in all_nonrfid_ids if not _is_lot_nr_uuid((spool_index.get(cid) or {}).get("lot_nr"))]
                     if len(all_nonrfid_ids) == 1:
                         resolved = all_nonrfid_ids[0]
                         from_unenrolled = resolved in set(unenrolled_ids)
@@ -2231,6 +2239,10 @@ class AmsRfidReconcile(hass.Hass):
                 self.log(f"NONRFID_BAMBU_EXCLUDED slot={slot} spool_id={spool_id} reason=bambu_generic_sentinel", level="DEBUG")
                 self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "bambu_generic_sentinel"})
                 continue
+            lot_nr = str(spool.get("lot_nr") or "").strip()
+            if _is_lot_nr_uuid(lot_nr):
+                self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "lot_nr_uuid_rfid_enrolled"})
+                continue
 
             spool_material = self._material_key(filament.get("material", ""))
             tray_material = self._material_key(tray_meta.get("type", ""))
@@ -2307,6 +2319,9 @@ class AmsRfidReconcile(hass.Hass):
             spool_fid = str(filament.get("external_id", "") or "").strip()
             if _is_bambu_vendor(spool) and is_generic_filament_id(spool_fid):
                 self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "bambu_generic_sentinel"})
+                continue
+            if _is_lot_nr_uuid(str(spool.get("lot_nr") or "").strip()):
+                self._record_decision(slot, "candidate_reject", {"spool_id": spool_id, "reason": "lot_nr_uuid_rfid_enrolled"})
                 continue
             spool_material = self._material_key(filament.get("material", ""))
             tray_material = self._material_key(tray_meta.get("type", ""))
@@ -2679,7 +2694,10 @@ class AmsRfidReconcile(hass.Hass):
         for spool in spools:
             if not isinstance(spool, dict):
                 continue
-            if (str(spool.get("lot_nr") or "").strip()):
+            lot_nr = (str(spool.get("lot_nr") or "").strip())
+            if _is_lot_nr_uuid(lot_nr):
+                continue  # RFID-enrolled (UUID lot_nr), never match to non-RFID tray
+            if lot_nr:
                 continue
             loc = str(spool.get("location", "")).strip().lower()
             if loc == "new" or loc == LOCATION_EMPTY.lower():
