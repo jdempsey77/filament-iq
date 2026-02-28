@@ -833,7 +833,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
     # ---------- PHASE_2_6: Non-RFID deterministic matching (Shelf-first, New fallback) ----------
 
     def test_phase26_nonrfid_shelf_one_match_binds(self):
-        """PHASE_2_6: Non-RFID tray + one Shelf candidate (material/color) -> bind, status OK. Bambu excluded; Overture eligible."""
+        """PHASE_2_6: Non-RFID (all-zero identity) tray + one Shelf candidate -> unified nonrfid auto-match."""
         spools = [_spool(201, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000", vendor_name="Overture", name="Overture PLA")]
         filaments = [{"id": 1, "name": "Overture PLA", "material": "PLA", "color_hex": "ff0000",
                      "vendor": {"name": "Overture"}, "external_id": "overture"}]
@@ -854,7 +854,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
 
         status_writes = [w for w in r._helper_writes if w.get("entity_id") == "input_text.ams_slot_1_status"]
         self.assertGreater(len(status_writes), 0)
-        self.assertEqual(status_writes[-1].get("value"), "OK")
+        self.assertEqual(status_writes[-1].get("value"), STATUS_OK_NONRFID)
         patches_201 = [p for p in sm.patches if p.get("path") == "/api/v1/spool/201"]
         self.assertGreaterEqual(len(patches_201), 1, "expected location PATCH to spool 201")
         summary = getattr(r, "_last_summary", None)
@@ -863,10 +863,10 @@ class TestAmsRfidReconcile(unittest.TestCase):
         slot1 = next((t for t in transcripts if t.get("slot") == 1), None)
         self.assertIsNotNone(slot1)
         self.assertEqual(slot1.get("final_spool_id"), 201)
-        self.assertEqual(slot1.get("reason"), "shelf_match")
+        self.assertEqual(slot1.get("reason"), "nonrfid_auto_match")
 
-    def test_phase26_nonrfid_ambiguity_needs_action(self):
-        """PHASE_2_6: Non-RFID + multiple Shelf candidates, tie-break fails -> NEEDS_ACTION, no bind."""
+    def test_phase26_nonrfid_ambiguity_needs_manual_bind(self):
+        """PHASE_2_6: Non-RFID (all-zero identity) + multiple candidates -> NEEDS_MANUAL_BIND via unified nonrfid path."""
         spools = [
             _spool(301, remaining_weight=200, rfid_tag_uid=None, location="Shelf", color_hex="00ff00", vendor_name="Overture", name="Overture PLA"),
             _spool(302, remaining_weight=250, rfid_tag_uid=None, location="Shelf", color_hex="00ff00", vendor_name="Overture", name="Overture PLA"),
@@ -890,14 +890,12 @@ class TestAmsRfidReconcile(unittest.TestCase):
 
         status_writes = [w for w in r._helper_writes if w.get("entity_id") == "input_text.ams_slot_1_status"]
         self.assertGreater(len(status_writes), 0)
-        self.assertEqual(status_writes[-1].get("value"), STATUS_UNBOUND_ACTION_REQUIRED)
-        bind_patches = [p for p in sm.patches if "path" in p and "/api/v1/spool/" in p.get("path", "")]
-        self.assertEqual(len([p for p in bind_patches if p.get("path") in ("/api/v1/spool/301", "/api/v1/spool/302") and p.get("payload", {}).get("location")]), 0,
-                         "must not bind when ambiguous (tie-break may still pick one; if so this may need relax)")
+        self.assertEqual(status_writes[-1].get("value"), STATUS_NEEDS_MANUAL_BIND)
 
     def test_phase26_nonrfid_new_fallback_unambiguous_binds(self):
-        """PHASE_2_6: No Shelf match + exactly one New candidate -> bind + New fallback notify. Bambu excluded; Overture eligible."""
-        spools = [_spool(401, remaining_weight=500, rfid_tag_uid=None, location="New", color_hex="0000ff", material="PETG", name="Overture PETG", vendor_name="Overture")]
+        """PHASE_2_6: Non-RFID unified path — spool with location=New is only a Shelf candidate;
+        nonrfid auto-match via _find_deterministic_candidates includes 'New'."""
+        spools = [_spool(401, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="0000ff", material="PETG", name="Overture PETG", vendor_name="Overture")]
         filaments = [{"id": 1, "name": "Overture PETG", "material": "PETG", "color_hex": "0000ff",
                      "vendor": {"name": "Overture"}, "external_id": "overture"}]
         sm = FakeSpoolman(spools, filaments)
@@ -916,17 +914,12 @@ class TestAmsRfidReconcile(unittest.TestCase):
         r = TestableReconcile(sm, state_map, args=self.args)
         r._run_reconcile("test")
 
-        status_writes = [w for w in r._helper_writes if w.get("entity_id") == "input_text.ams_slot_1_status"]
-        self.assertGreater(len(status_writes), 0)
-        self.assertEqual(status_writes[-1].get("value"), "OK")
-        patches_401 = [p for p in sm.patches if p.get("path") == "/api/v1/spool/401"]
-        self.assertGreaterEqual(len(patches_401), 1)
         summary = getattr(r, "_last_summary", None)
         self.assertIsNotNone(summary)
         slot1 = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == 1), None)
         self.assertIsNotNone(slot1)
         self.assertEqual(slot1.get("final_spool_id"), 401)
-        self.assertEqual(slot1.get("reason"), "new_fallback")
+        self.assertEqual(slot1.get("reason"), "nonrfid_auto_match")
 
     def test_ht_nonrfid_helper_set_location_sync(self):
         """HT non-RFID tray (all-zero tag/tray_uuid) + helper_spool_id > 0 -> location sync, status OK."""
@@ -975,7 +968,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
         slot5 = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == slot), None)
         self.assertIsNotNone(slot5)
         self.assertEqual(slot5.get("final_spool_id"), 101)
-        self.assertEqual(slot5.get("reason"), "ht_present")
+        self.assertEqual(slot5.get("reason"), "nonrfid_present")
 
     def test_ht_nonrfid_no_helper_remains_unregistered(self):
         """HT non-RFID tray (all-zero tag/tray_uuid) + helper_spool_id == 0 -> NON_RFID_UNREGISTERED, no location sync."""
@@ -1119,10 +1112,10 @@ class TestAmsRfidReconcile(unittest.TestCase):
         r._run_reconcile("test")
         tray_sig_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_tray_signature"]
         self.assertGreater(len(tray_sig_writes), 0, "must write tray_signature when registered")
-        self.assertTrue(tray_sig_writes[-1].get("value", "").startswith("NONRFID|"))
+        self.assertIn("|", tray_sig_writes[-1].get("value", ""), "tray_signature must be pipe-separated")
 
     def test_ht_nonrfid_slot5_helper_4_sees_four_and_registers(self):
-        """HT slot 5 all-zero: state_map ams_slot_5_spool_id=4 -> live read sees 4, nonrfid_ht_present, NONRFID fingerprint, Spoolman GET/PATCH for spool 4."""
+        """Slot 5 all-zero: state_map ams_slot_5_spool_id=4 -> live read sees 4, nonrfid_present, Spoolman GET/PATCH for spool 4."""
         ht_attrs = {
             "tag_uid": "0000000000000000",
             "tray_uuid": "00000000000000000000000000000000",
@@ -1164,14 +1157,14 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertEqual(status_writes[-1].get("value"), "OK", "live read must see helper_spool_id=4 and register")
         tray_sig_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_tray_signature"]
         self.assertGreater(len(tray_sig_writes), 0)
-        self.assertTrue(tray_sig_writes[-1].get("value", "").startswith("NONRFID|"))
+        self.assertIn("|", tray_sig_writes[-1].get("value", ""), "tray_signature must be pipe-separated")
         location_4 = [p for p in sm.patches if p.get("path") == "/api/v1/spool/4" and (p.get("payload") or {}).get("location")]
-        self.assertGreater(len(location_4), 0, "must PATCH spool 4 location (HT path used helper_spool_id=4)")
-        comment_4 = [p for p in sm.patches if p.get("path") == "/api/v1/spool/4" and (p.get("payload") or {}).get("comment", "").startswith("ha_sig=NONRFID|")]
-        self.assertGreater(len(comment_4), 0, "must PATCH spool 4 comment with NONRFID fingerprint ha_sig")
+        self.assertGreater(len(location_4), 0, "must PATCH spool 4 location (nonrfid path used helper_spool_id=4)")
+        comment_4 = [p for p in sm.patches if p.get("path") == "/api/v1/spool/4" and (p.get("payload") or {}).get("comment", "").startswith("ha_sig=")]
+        self.assertGreater(len(comment_4), 0, "must PATCH spool 4 comment with ha_sig")
 
-    def test_ht_nonrfid_slot5_empty_tag_tray_uuid_uses_ht_branch_not_generic_unbound(self):
-        """Runtime normalization: slot 5 with tag_uid=\"\" and tray_uuid=\"\" -> HT branch runs, NOT UNBOUND_NO_RFID_TAG_ALL_ZERO."""
+    def test_ht_nonrfid_slot5_empty_tag_tray_uuid_uses_nonrfid_branch_not_generic_unbound(self):
+        """Runtime normalization: slot 5 with tag_uid=\"\" and tray_uuid=\"\" -> nonrfid branch runs, NOT UNBOUND_NO_RFID_TAG_ALL_ZERO."""
         ht_attrs = {
             "tag_uid": "",
             "tray_uuid": "",
@@ -1211,11 +1204,11 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertEqual(
             [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"][-1].get("value"),
             "OK",
-            "HT branch must run when tag_uid/tray_uuid empty (normalized); status must be OK",
+            "nonrfid branch must run when tag_uid/tray_uuid empty (normalized); status must be OK",
         )
         tray_sig = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_tray_signature"]
         self.assertGreater(len(tray_sig), 0)
-        self.assertTrue(tray_sig[-1].get("value", "").startswith("NONRFID|"))
+        self.assertIn("|", tray_sig[-1].get("value", ""), "tray_signature must be pipe-separated")
         location_4 = [p for p in sm.patches if p.get("path") == "/api/v1/spool/4" and (p.get("payload") or {}).get("location")]
         self.assertGreater(len(location_4), 0, "must PATCH spool 4 location")
         summary = getattr(r, "_last_summary", None)
@@ -1224,12 +1217,12 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertIsNotNone(slot5)
         self.assertNotEqual(
             slot5.get("unbound_reason"), UNBOUND_NO_RFID_TAG_ALL_ZERO,
-            "generic UNBOUND_NO_RFID_TAG_ALL_ZERO must NOT be used when HT branch runs",
+            "generic UNBOUND_NO_RFID_TAG_ALL_ZERO must NOT be used when nonrfid branch runs",
         )
-        self.assertEqual(slot5.get("reason"), "ht_present")
+        self.assertEqual(slot5.get("reason"), "nonrfid_present")
 
-    def test_ht_nonrfid_slot5_literal_zeros_trigger_ht_branch_not_generic_unbound(self):
-        """Literal raw_tag_uid=0000... and raw_tray_uuid=000...000 -> HT branch runs, tray_signature written, no UNBOUND_NO_RFID_TAG_ALL_ZERO."""
+    def test_ht_nonrfid_slot5_literal_zeros_trigger_nonrfid_branch_not_generic_unbound(self):
+        """Literal raw_tag_uid=0000... and raw_tray_uuid=000...000 -> nonrfid branch runs, tray_signature written, no UNBOUND_NO_RFID_TAG_ALL_ZERO."""
         ht_attrs = {
             "tag_uid": "0000000000000000",
             "tray_uuid": "00000000000000000000000000000000",
@@ -1272,19 +1265,19 @@ class TestAmsRfidReconcile(unittest.TestCase):
         )
         tray_sig = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_tray_signature"]
         self.assertGreater(len(tray_sig), 0)
-        self.assertTrue(tray_sig[-1].get("value", "").startswith("NONRFID|"))
+        self.assertIn("|", tray_sig[-1].get("value", ""), "tray_signature must be pipe-separated")
         summary = getattr(r, "_last_summary", None)
         self.assertIsNotNone(summary)
         slot5 = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == slot), None)
         self.assertIsNotNone(slot5)
         self.assertNotEqual(
             slot5.get("unbound_reason"), UNBOUND_NO_RFID_TAG_ALL_ZERO,
-            "literal 000... must trigger HT branch, not generic UNBOUND_NO_RFID_TAG_ALL_ZERO",
+            "literal 000... must trigger nonrfid branch, not generic UNBOUND_NO_RFID_TAG_ALL_ZERO",
         )
-        self.assertEqual(slot5.get("reason"), "ht_present")
+        self.assertEqual(slot5.get("reason"), "nonrfid_present")
 
     def test_ht_nonrfid_slot6_helper_7_sees_seven_and_registers(self):
-        """HT slot 6 all-zero: state_map ams_slot_6_spool_id=7 -> live read sees 7, nonrfid_ht_present, NONRFID fingerprint."""
+        """Slot 6 all-zero: state_map ams_slot_6_spool_id=7 -> live read sees 7, nonrfid_present."""
         ht_attrs = {
             "tag_uid": "0000000000000000",
             "tray_uuid": "00000000000000000000000000000000",
@@ -1327,7 +1320,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
         )
         tray_sig = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_tray_signature"]
         self.assertGreater(len(tray_sig), 0)
-        self.assertTrue(tray_sig[-1].get("value", "").startswith("NONRFID|"))
+        self.assertIn("|", tray_sig[-1].get("value", ""), "tray_signature must be pipe-separated")
         location_7 = [p for p in sm.patches if p.get("path") == "/api/v1/spool/7" and (p.get("payload") or {}).get("location")]
         self.assertGreater(len(location_7), 0)
 
@@ -2945,7 +2938,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
         slot1 = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == 1), None)
         self.assertIsNotNone(slot1)
         self.assertEqual(slot1.get("final_spool_id"), 20, "must bind to non-Bambu spool 20")
-        self.assertEqual(slot1.get("reason"), "shelf_match")
+        self.assertEqual(slot1.get("reason"), "nonrfid_auto_match")
 
         bambu_patches = [p for p in sm.patches if "/spool/10" in p.get("path", "")]
         self.assertEqual(len(bambu_patches), 0, "Bambu spool 10 must never be PATCHed in non-RFID")
@@ -3513,32 +3506,34 @@ class TestAmsRfidReconcile(unittest.TestCase):
             "_state": state,
         }
 
-    def test_ht_fingerprint_allzero_produces_nonrfid_prefix(self):
-        """HT tray with all-zero IDs and type/color/state -> fingerprint starts with NONRFID|, not all zeros."""
+    def test_allzero_identity_produces_pipe_separated_signature(self):
+        """Tray with all-zero IDs -> _build_tray_signature produces pipe-separated, no NONRFID| prefix."""
         r = TestableReconcile(FakeSpoolman([], []), {}, args=self.args)
         attrs = self._ht_attrs(tray_type="PLA", color="FFFFFFFF", state="Overture PLA")
-        fp = r._compute_ht_fingerprint(attrs, "Overture PLA")
-        self.assertTrue(fp.startswith("NONRFID|"), f"fingerprint must start with NONRFID|, got: {fp}")
-        self.assertNotEqual(fp, "0" * len(fp), "fingerprint must not be all zeros")
-        self.assertIn("PLA", fp)
-        self.assertIn("FFFFFFFF", fp)
-        self.assertLessEqual(len(fp), 255)
+        tray_meta = r._tray_meta(attrs, "Overture PLA")
+        sig = r._build_tray_signature(tray_meta, "Overture PLA", "")
+        self.assertIn("|", sig, "signature must be pipe-separated")
+        self.assertFalse(sig.startswith("NONRFID|"), "must not use old NONRFID| format")
+        self.assertIn("pla", sig)
+        self.assertLessEqual(len(sig), 255)
 
-    def test_ht_fingerprint_change_triggers_pending_then_confirm(self):
-        """Fingerprint changes from PETG/gray to PLA/white -> first run PENDING, second run confirms."""
+    def test_signature_change_triggers_pending_then_confirm(self):
+        """Signature changes from PETG/gray to PLA/white -> first run PENDING, second run confirms."""
         slot = 5
         ht_petg = self._ht_attrs(tray_type="PETG", color="808080", name="Generic PETG", state="valid")
         ht_pla = self._ht_attrs(tray_type="PLA", color="FFFFFF", name="Overture PLA", state="valid")
 
         r_initial = TestableReconcile(FakeSpoolman([], []), {}, args=self.args)
-        fp_petg = r_initial._compute_ht_fingerprint(ht_petg, "valid")
-        fp_pla = r_initial._compute_ht_fingerprint(ht_pla, "valid")
-        self.assertNotEqual(fp_petg, fp_pla, "different tray must produce different fingerprint")
+        meta_petg = r_initial._tray_meta(ht_petg, "valid")
+        meta_pla = r_initial._tray_meta(ht_pla, "valid")
+        sig_petg = r_initial._build_tray_signature(meta_petg, "valid", "")
+        sig_pla = r_initial._build_tray_signature(meta_pla, "valid", "")
+        self.assertNotEqual(sig_petg, sig_pla, "different tray must produce different signature")
 
         spools_empty = []
         filaments = []
 
-        state_map_1 = self._ht_state_map(slot, ht_pla, stored_sig=fp_petg)
+        state_map_1 = self._ht_state_map(slot, ht_pla, stored_sig=sig_petg)
         sm1 = FakeSpoolman(spools_empty, filaments)
         r1 = TestableReconcile(sm1, state_map_1, args=self.args)
         r1._run_reconcile("test")
@@ -3558,7 +3553,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
         status_2 = [w for w in r2._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"]
         self.assertGreater(len(status_2), 0)
         self.assertNotEqual(status_2[-1].get("value"), STATUS_WAITING_CONFIRMATION,
-                            "second observation of same fingerprint should confirm and not stay PENDING")
+                            "second observation of same signature should confirm and not stay PENDING")
 
     def test_ht_confident_no_match_sets_needs_manual_bind(self):
         """Confident HT tray with no matching non-Bambu spool -> NEEDS_MANUAL_BIND + NONRFID_NO_MATCH_CONFIDENT."""
@@ -3633,10 +3628,11 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertNotEqual(final_status, STATUS_WAITING_CONFIRMATION)
         self.assertNotEqual(final_status, STATUS_NEEDS_MANUAL_BIND)
 
-    def test_ht_low_confidence_generic_state(self):
-        """HT tray with 'GENERIC ...' state -> LOW_CONFIDENCE, no auto-match."""
+    def test_ht_low_confidence_generic_state_sentinel_filament(self):
+        """Tray with GENERIC state + sentinel filament_id ending in 99 -> LOW_CONFIDENCE, no auto-match."""
         slot = 5
         ht = self._ht_attrs(tray_type="PLA", color="FF0000", state="Generic Filament")
+        ht["filament_id"] = "GFA99"
         sm = FakeSpoolman([], [])
         state_map = self._ht_state_map(slot, ht)
         r = TestableReconcile(sm, state_map, args=self.args)
