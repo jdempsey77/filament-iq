@@ -32,10 +32,12 @@ git fetch -q origin "${BASE_BRANCH}" || true
 
 if [[ "${LIGHT_DEPLOY_LOCAL:-0}" == "1" ]]; then
   note "Local mode: HEAD~1..HEAD"
-  mapfile -t changed < <(git diff --name-only HEAD~1..HEAD)
+  changed=()
+  while IFS= read -r line; do changed+=("$line"); done < <(git diff --name-only HEAD~1..HEAD)
 else
   note "Branch mode: ${base_ref}..."
-  mapfile -t changed < <(git diff --name-only "${base_ref}...")
+  changed=()
+  while IFS= read -r line; do changed+=("$line"); done < <(git diff --name-only "${base_ref}...")
 fi
 
 if [[ "${#changed[@]}" -eq 0 ]]; then
@@ -92,7 +94,7 @@ done <<< "${reloadables}"
 
 dedup_flags=()
 for f in "${push_flags[@]}"; do
-  [[ " ${dedup_flags[*]} " == *" ${f} "* ]] || dedup_flags+=("${f}")
+  [[ " ${dedup_flags[*]:-} " == *" ${f} "* ]] || dedup_flags+=("${f}")
 done
 
 [[ -x "${MANAGE_HA}" ]] || fail "manage_ha.sh not executable: ${MANAGE_HA}"
