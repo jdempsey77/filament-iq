@@ -20,7 +20,9 @@ from collections import OrderedDict
 
 import hassapi as hass
 
-SEEN_JOBS_PATH = "/config/appdaemon/apps/data/seen_job_keys.json"
+# Path next to this app so it works under /config/appdaemon/apps or /addon_configs/.../apps
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+SEEN_JOBS_PATH = os.path.join(_APP_DIR, "data", "seen_job_keys.json")
 
 TRAY_ENTITY_BY_SLOT = {
     1: "sensor.p1s_01p00c5a3101668_ams_1_tray_1",
@@ -45,6 +47,7 @@ class AmsPrintUsageSync(hass.Hass):
         self.dry_run = bool(self.args.get("dry_run", False))
         self.min_consumption_g = float(self.args.get("min_consumption_g", 2))
         self._seen_job_keys = self._load_seen_job_keys()
+        self._ensure_data_dir()
 
         if not self.enabled:
             self.log("AmsPrintUsageSync disabled via config", level="WARNING")
@@ -222,6 +225,20 @@ class AmsPrintUsageSync(hass.Hass):
                 level="WARNING",
             )
             return OrderedDict()
+
+    def _ensure_data_dir(self):
+        """Create data directory and empty seen_job_keys.json if missing (so path exists before first print)."""
+        try:
+            dir_path = os.path.dirname(SEEN_JOBS_PATH)
+            os.makedirs(dir_path, exist_ok=True)
+            if not os.path.isfile(SEEN_JOBS_PATH):
+                with open(SEEN_JOBS_PATH, "w", encoding="utf-8") as f:
+                    json.dump([], f)
+        except OSError as e:
+            self.log(
+                f"AmsPrintUsageSync: could not ensure data dir {os.path.dirname(SEEN_JOBS_PATH)}: {e}",
+                level="WARNING",
+            )
 
     def _persist_seen_job_keys(self):
         """Write current _seen_job_keys to disk. Creates directory if needed. On error, log and do not crash."""
