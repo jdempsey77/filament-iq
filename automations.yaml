@@ -310,7 +310,7 @@
 
 - id: spoolman_low_filament_warning
   alias: Spoolman low filament warning
-  description: Notify when active spool remaining weight is below 50g (critical) or 100g (warning). Uses printer active_tray when available, else dropdown.
+  description: Notify when any AMS slot (1–6) has remaining weight below 50g (critical) or 100g (warning). Uses reconciler helpers (spool_id, remaining_g, name) per slot.
   trigger:
   - platform: state
     entity_id:
@@ -318,37 +318,77 @@
       - sensor.p1s_01p00c5a3101668_active_tray
   - platform: time
     at: "09:00:00"
-  variables:
-    active_spool: "{% set tray = states('sensor.p1s_01p00c5a3101668_active_tray') %}{% set sel = states('input_select.active_filament_spool') %}{% if tray and tray not in ['', 'unknown', 'unavailable'] %}{{ tray }}{% else %}{{ sel }}{% endif %}"
-    # Map display name → slot 1–6. Add new names when you swap filament.
-    slot_num: "{% set s = active_spool %}{% if s == 'Overture PETG Black (AMS2 HT Slot 1)' %}5{% elif s == 'Overture PETG Clear (AMS2 HT Slot 2)' %}6{% elif s == 'Overture PLA White (AMS1 Slot 1)' %}1{% elif s == 'Overture PLA Red (AMS1 Slot 2)' or s == 'Bambu Lab - Red (AMS1 Slot 2)' or 'Slot 2' in s and 'Red' in s %}2{% elif s == 'Overture PLA Black (AMS1 Slot 3)' or s == 'Marsworks - Marswork PLA Black Refill' %}3{% elif s == 'Bambu Lab PLA Light Blue (AMS1 Slot 4)' %}4{% else %}0{% endif %}"
-    spool_id: "{{ states('input_text.ams_slot_' ~ slot_num ~ '_spool_id') }}"
-    remaining_g: "{{ states('sensor.ams_slot_' ~ slot_num ~ '_remaining_g') | float(0) }}"
   condition:
   - condition: template
-    value_template: "{{ (slot_num | string) != '0' }}"
-  - condition: template
-    value_template: "{{ active_spool not in ['none', 'unknown', 'unavailable', '', none] }}"
-  - condition: template
-    value_template: "{{ remaining_g not in ['unknown', 'unavailable', ''] }}"
+    value_template: >-
+      {% set ns = namespace(found=false) %}
+      {% for i in range(1, 7) %}
+        {% set remaining = states('sensor.ams_slot_' ~ i ~ '_remaining_g') | float(0) %}
+        {% set spool_id = states('input_text.ams_slot_' ~ i ~ '_spool_id') %}
+        {% if remaining > 0 and remaining < 100 and spool_id not in ['0', '', 'unknown', 'unavailable'] %}
+          {% set ns.found = true %}
+        {% endif %}
+      {% endfor %}
+      {{ ns.found }}
   action:
+  - variables:
+      critical_msg: >-
+        {% set lines = [] %}
+        {% for i in range(1, 7) %}
+        {% set remaining = states('sensor.ams_slot_' ~ i ~ '_remaining_g') | float(0) %}
+        {% set spool_id = states('input_text.ams_slot_' ~ i ~ '_spool_id') %}
+        {% set name = states('sensor.ams_slot_' ~ i ~ '_name') | default('Slot ' ~ i) %}
+        {% if remaining > 0 and remaining < 50 and spool_id not in ['0', '', 'unknown', 'unavailable'] %}
+        {{ lines.append('Slot ' ~ i ~ ': ' ~ name ~ ', ' ~ (remaining | round(1)) ~ ' g') or '' }}
+        {% endif %}
+        {% endfor %}
+        {{ lines | join('\n') }}
+      warning_msg: >-
+        {% set lines = [] %}
+        {% for i in range(1, 7) %}
+        {% set remaining = states('sensor.ams_slot_' ~ i ~ '_remaining_g') | float(0) %}
+        {% set spool_id = states('input_text.ams_slot_' ~ i ~ '_spool_id') %}
+        {% set name = states('sensor.ams_slot_' ~ i ~ '_name') | default('Slot ' ~ i) %}
+        {% if remaining >= 50 and remaining < 100 and spool_id not in ['0', '', 'unknown', 'unavailable'] %}
+        {{ lines.append('Slot ' ~ i ~ ': ' ~ name ~ ', ' ~ (remaining | round(1)) ~ ' g') or '' }}
+        {% endif %}
+        {% endfor %}
+        {{ lines | join('\n') }}
   - choose:
     - conditions:
       - condition: template
-        value_template: "{{ remaining_g < 50 }}"
+        value_template: >-
+          {% set ns = namespace(found=false) %}
+          {% for i in range(1, 7) %}
+            {% set remaining = states('sensor.ams_slot_' ~ i ~ '_remaining_g') | float(0) %}
+            {% set spool_id = states('input_text.ams_slot_' ~ i ~ '_spool_id') %}
+            {% if remaining > 0 and remaining < 50 and spool_id not in ['0', '', 'unknown', 'unavailable'] %}
+              {% set ns.found = true %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.found }}
       sequence:
       - action: notify.persistent_notification
         data:
           title: "Spoolman – critical low filament (< 50 g)"
-          message: "Spool « {{ active_spool }} » has {{ remaining_g | round(1) }} g remaining."
+          message: "{{ critical_msg }}"
     - conditions:
       - condition: template
-        value_template: "{{ remaining_g < 100 }}"
+        value_template: >-
+          {% set ns = namespace(found=false) %}
+          {% for i in range(1, 7) %}
+            {% set remaining = states('sensor.ams_slot_' ~ i ~ '_remaining_g') | float(0) %}
+            {% set spool_id = states('input_text.ams_slot_' ~ i ~ '_spool_id') %}
+            {% if remaining >= 50 and remaining < 100 and spool_id not in ['0', '', 'unknown', 'unavailable'] %}
+              {% set ns.found = true %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.found }}
       sequence:
       - action: notify.persistent_notification
         data:
           title: "Spoolman – low filament (< 100 g)"
-          message: "Spool « {{ active_spool }} » has {{ remaining_g | round(1) }} g remaining."
+          message: "{{ warning_msg }}"
   mode: single
 
 - id: p1s_capture_active_tray_entity
