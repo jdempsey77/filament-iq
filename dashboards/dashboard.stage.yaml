@@ -1569,6 +1569,16 @@ views:
                                       action: call-service
                                       service: script.ams_slot_1_assign_and_update
                                       data: {}
+                                  - type: button
+                                    name: Force Accept
+                                    icon: mdi:check-circle-outline
+                                    tap_action:
+                                      action: call-service
+                                      service: input_text.set_value
+                                      target:
+                                        entity_id: input_text.ams_slot_1_unbound_reason
+                                      data:
+                                        value: "FORCE_ACCEPTED"
                         card_mod:
                           style: |
                             ha-card { opacity: 0.8; }
@@ -1620,6 +1630,16 @@ views:
                                       action: call-service
                                       service: script.ams_slot_1_assign_and_update
                                       data: {}
+                                  - type: button
+                                    name: Force Accept
+                                    icon: mdi:check-circle-outline
+                                    tap_action:
+                                      action: call-service
+                                      service: input_text.set_value
+                                      target:
+                                        entity_id: input_text.ams_slot_1_unbound_reason
+                                      data:
+                                        value: "FORCE_ACCEPTED"
                         card_mod:
                           style: >
                             {% set c =
@@ -1678,6 +1698,16 @@ views:
                                       action: call-service
                                       service: script.ams_slot_2_assign_and_update
                                       data: {}
+                                  - type: button
+                                    name: Force Accept
+                                    icon: mdi:check-circle-outline
+                                    tap_action:
+                                      action: call-service
+                                      service: input_text.set_value
+                                      target:
+                                        entity_id: input_text.ams_slot_2_unbound_reason
+                                      data:
+                                        value: "FORCE_ACCEPTED"
                         card_mod:
                           style: |
                             ha-card { opacity: 0.8; }
@@ -1729,6 +1759,16 @@ views:
                                       action: call-service
                                       service: script.ams_slot_2_assign_and_update
                                       data: {}
+                                  - type: button
+                                    name: Force Accept
+                                    icon: mdi:check-circle-outline
+                                    tap_action:
+                                      action: call-service
+                                      service: input_text.set_value
+                                      target:
+                                        entity_id: input_text.ams_slot_2_unbound_reason
+                                      data:
+                                        value: "FORCE_ACCEPTED"
                         card_mod:
                           style: >
                             {% set c =
@@ -1787,6 +1827,16 @@ views:
                                       action: call-service
                                       service: script.ams_slot_3_assign_and_update
                                       data: {}
+                                  - type: button
+                                    name: Force Accept
+                                    icon: mdi:check-circle-outline
+                                    tap_action:
+                                      action: call-service
+                                      service: input_text.set_value
+                                      target:
+                                        entity_id: input_text.ams_slot_3_unbound_reason
+                                      data:
+                                        value: "FORCE_ACCEPTED"
                         card_mod:
                           style: |
                             ha-card { opacity: 0.8; }
@@ -1838,6 +1888,16 @@ views:
                                       action: call-service
                                       service: script.ams_slot_3_assign_and_update
                                       data: {}
+                                  - type: button
+                                    name: Force Accept
+                                    icon: mdi:check-circle-outline
+                                    tap_action:
+                                      action: call-service
+                                      service: input_text.set_value
+                                      target:
+                                        entity_id: input_text.ams_slot_3_unbound_reason
+                                      data:
+                                        value: "FORCE_ACCEPTED"
                         card_mod:
                           style: >
                             {% set c =
@@ -1896,6 +1956,16 @@ views:
                                       action: call-service
                                       service: script.ams_slot_4_assign_and_update
                                       data: {}
+                                  - type: button
+                                    name: Force Accept
+                                    icon: mdi:check-circle-outline
+                                    tap_action:
+                                      action: call-service
+                                      service: input_text.set_value
+                                      target:
+                                        entity_id: input_text.ams_slot_4_unbound_reason
+                                      data:
+                                        value: "FORCE_ACCEPTED"
                         card_mod:
                           style: |
                             ha-card { opacity: 0.8; }
@@ -1947,6 +2017,16 @@ views:
                                       action: call-service
                                       service: script.ams_slot_4_assign_and_update
                                       data: {}
+                                  - type: button
+                                    name: Force Accept
+                                    icon: mdi:check-circle-outline
+                                    tap_action:
+                                      action: call-service
+                                      service: input_text.set_value
+                                      target:
+                                        entity_id: input_text.ams_slot_4_unbound_reason
+                                      data:
+                                        value: "FORCE_ACCEPTED"
                         card_mod:
                           style: >
                             {% set c =
@@ -2360,6 +2440,16 @@ views:
                                       action: call-service
                                       service: script.ams_slot_5_assign_and_update
                                       data: {}
+                                  - type: button
+                                    name: Force Accept
+                                    icon: mdi:check-circle-outline
+                                    tap_action:
+                                      action: call-service
+                                      service: input_text.set_value
+                                      target:
+                                        entity_id: input_text.ams_slot_5_unbound_reason
+                                      data:
+                                        value: "FORCE_ACCEPTED"
                         card_mod:
                           style: |
                             ha-card { opacity: 0.8; }
@@ -2411,6 +2501,16 @@ views:
                                       action: call-service
                                       service: script.ams_slot_5_assign_and_update
                                       data: {}
+                                  - type: button
+                                    name: Force Accept
+                                    icon: mdi:check-circle-outline
+                                    tap_action:
+                                      action: call-service
+                                      service: input_text.set_value
+                                      target:
+                                        entity_id: input_text.ams_slot_5_unbound_reason
+                                      data:
+                                        value: "FORCE_ACCEPTED"
                         card_mod:
                           style: >
                             {% set c =
@@ -2557,6 +2657,16 @@ views:
                                       action: call-service
                                       service: script.ams_slot_6_assign_and_update
                                       data: {}
+                                  - type: button
+                                    name: Force Accept
+                                    icon: mdi:check-circle-outline
+                                    tap_action:
+                                      action: call-service
+                                      service: input_text.set_value
+                                      target:
+                                        entity_id: input_text.ams_slot_6_unbound_reason
+                                      data:
+                                        value: "FORCE_ACCEPTED"
                         card_mod:
                           style: |
                             ha-card { opacity: 0.8; }
@@ -2608,6 +2718,16 @@ views:
                                       action: call-service
                                       service: script.ams_slot_6_assign_and_update
                                       data: {}
+                                  - type: button
+                                    name: Force Accept
+                                    icon: mdi:check-circle-outline
+                                    tap_action:
+                                      action: call-service
+                                      service: input_text.set_value
+                                      target:
+                                        entity_id: input_text.ams_slot_6_unbound_reason
+                                      data:
+                                        value: "FORCE_ACCEPTED"
                         card_mod:
                           style: >
                             {% set c =

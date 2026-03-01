@@ -1024,7 +1024,7 @@ template:
           {% set reason = states('input_text.ams_slot_1_unbound_reason') %}
           {% set sid = states('input_text.ams_slot_1_spool_id') %}
           {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
-          {% elif reason not in ['', 'unknown', 'unavailable'] %}needs_bind
+          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
           {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
           {% else %}unknown
           {% endif %}
@@ -1071,7 +1071,7 @@ template:
           {% set reason = states('input_text.ams_slot_2_unbound_reason') %}
           {% set sid = states('input_text.ams_slot_2_spool_id') %}
           {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
-          {% elif reason not in ['', 'unknown', 'unavailable'] %}needs_bind
+          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
           {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
           {% else %}unknown
           {% endif %}
@@ -1118,7 +1118,7 @@ template:
           {% set reason = states('input_text.ams_slot_3_unbound_reason') %}
           {% set sid = states('input_text.ams_slot_3_spool_id') %}
           {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
-          {% elif reason not in ['', 'unknown', 'unavailable'] %}needs_bind
+          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
           {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
           {% else %}unknown
           {% endif %}
@@ -1165,7 +1165,7 @@ template:
           {% set reason = states('input_text.ams_slot_4_unbound_reason') %}
           {% set sid = states('input_text.ams_slot_4_spool_id') %}
           {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
-          {% elif reason not in ['', 'unknown', 'unavailable'] %}needs_bind
+          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
           {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
           {% else %}unknown
           {% endif %}
@@ -1212,7 +1212,7 @@ template:
           {% set reason = states('input_text.ams_slot_5_unbound_reason') %}
           {% set sid = states('input_text.ams_slot_5_spool_id') %}
           {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
-          {% elif reason not in ['', 'unknown', 'unavailable'] %}needs_bind
+          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
           {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
           {% else %}unknown
           {% endif %}
@@ -1259,7 +1259,7 @@ template:
           {% set reason = states('input_text.ams_slot_6_unbound_reason') %}
           {% set sid = states('input_text.ams_slot_6_spool_id') %}
           {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
-          {% elif reason not in ['', 'unknown', 'unavailable'] %}needs_bind
+          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
           {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
           {% else %}unknown
           {% endif %}

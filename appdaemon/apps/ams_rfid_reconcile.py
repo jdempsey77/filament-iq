@@ -720,18 +720,36 @@ class AmsRfidReconcile(hass.Hass):
             if (reason.startswith("manual") and rfid_visible and not tray_empty
                     and _prev_entry is not None and _prev_entry["identity"] == current_tray_sig
                     and (_time_mod.time() - _prev_entry["change_ts"]) >= RFID_STUCK_SECONDS):
-                status = STATUS_RFID_IDENTITY_STUCK
-                t["decision"], t["reason"], t["action"] = "STUCK", "rfid_identity_stuck", "rfid_identity_stuck"
-                t["unbound_reason"] = UNBOUND_RFID_NOT_REFRESHED
-                self._set_helper(f"input_text.ams_slot_{slot}_status", status)
-                self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_RFID_NOT_REFRESHED)
-                self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
-                t["final_slot_status"], t["final_spool_id"] = status, helper_spool_id
-                self._active_run["validation_transcripts"].append(t)
-                if validation_mode:
-                    self._log_validation_transcript(t)
-                unbound += 1
-                continue
+                # Check if RFID tag actually matches the assigned spool
+                _stuck_spool_obj = spool_index.get(helper_spool_id) or {}
+                _stuck_lot_nr = (_stuck_spool_obj.get("lot_nr") or "").strip()
+                _stuck_tray_uuid = (tray_uuid or "").strip()
+                _rfid_matches_spool = (
+                    helper_spool_id > 0
+                    and _stuck_lot_nr
+                    and _stuck_tray_uuid
+                    and _stuck_lot_nr.upper() == _stuck_tray_uuid.upper()
+                )
+                if _rfid_matches_spool:
+                    self.log(
+                        f"RFID_STUCK_SKIP slot={slot} spool_id={helper_spool_id} "
+                        f"lot_nr_matches_tray_uuid=True",
+                        level="INFO",
+                    )
+                    # Fall through to normal RFID matching below — don't flag as stuck
+                else:
+                    status = STATUS_RFID_IDENTITY_STUCK
+                    t["decision"], t["reason"], t["action"] = "STUCK", "rfid_identity_stuck", "rfid_identity_stuck"
+                    t["unbound_reason"] = UNBOUND_RFID_NOT_REFRESHED
+                    self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                    self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_RFID_NOT_REFRESHED)
+                    self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
+                    t["final_slot_status"], t["final_spool_id"] = status, helper_spool_id
+                    self._active_run["validation_transcripts"].append(t)
+                    if validation_mode:
+                        self._log_validation_transcript(t)
+                    unbound += 1
+                    continue
 
             if rfid_visible and helper_spool_id > 0:
                 helper_spool_obj_tg = spool_index.get(helper_spool_id) or {}
