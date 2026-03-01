@@ -1234,8 +1234,8 @@
   conditions:
     - condition: template
       value_template: >-
-        {% set val = trigger.to_state.state | default('') %}
-        {{ val in ['UNBOUND_TAG_UID_NO_MATCH', 'UNBOUND_NO_RFID_TAG_ALL_ZERO', 'AMBIGUOUS_SIG'] }}
+        {{ trigger.to_state.state | default('') not in
+        ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] }}
   actions:
     - variables:
         slot_num: >-
