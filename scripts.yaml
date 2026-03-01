@@ -680,7 +680,7 @@ ams_slot_1_assign_and_update:
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 1 updated"
-        - default:
+        default:
           - action: browser_mod.notification
             data:
               message: "Select a spool from the dropdown first."
@@ -730,7 +730,7 @@ ams_slot_2_assign_and_update:
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 2 updated"
-        - default:
+        default:
           - action: browser_mod.notification
             data:
               message: "Select a spool from the dropdown first."
@@ -780,7 +780,7 @@ ams_slot_3_assign_and_update:
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 3 updated"
-        - default:
+        default:
           - action: browser_mod.notification
             data:
               message: "Select a spool from the dropdown first."
@@ -830,7 +830,7 @@ ams_slot_4_assign_and_update:
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 4 updated"
-        - default:
+        default:
           - action: browser_mod.notification
             data:
               message: "Select a spool from the dropdown first."
@@ -880,7 +880,7 @@ ams_slot_5_assign_and_update:
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 5 updated"
-        - default:
+        default:
           - action: browser_mod.notification
             data:
               message: "Select a spool from the dropdown first."
@@ -930,7 +930,7 @@ ams_slot_6_assign_and_update:
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 6 updated"
-        - default:
+        default:
           - action: browser_mod.notification
             data:
               message: "Select a spool from the dropdown first."
