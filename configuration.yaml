@@ -291,6 +291,9 @@ input_boolean:
   p1s_nonrfid_enabled:
     name: P1S Non-RFID Spool Support Enabled
     icon: mdi:toggle-switch
+  appdaemon_startup_suppress_swap:
+    name: AppDaemon startup – suppress spool swap detection
+    initial: false
 
 input_button:
   p1s_rfid_reconcile_now:

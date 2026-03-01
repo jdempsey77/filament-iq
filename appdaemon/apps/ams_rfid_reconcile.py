@@ -417,6 +417,14 @@ class AmsRfidReconcile(hass.Hass):
         self._schedule_reconcile("homeassistant_started")
 
     def _run_reconcile_startup(self, kwargs):
+        # Suppress HA spool-swap detection for 90s after startup (avoids false positives from bulk helper updates).
+        try:
+            self.call_service(
+                "input_boolean/turn_on",
+                entity_id="input_boolean.appdaemon_startup_suppress_swap",
+            )
+        except Exception as e:
+            self.log("Failed to set appdaemon_startup_suppress_swap on: %s" % (e,), level="WARNING")
         if DomainException is None:
             self._clear_legacy_signatures()
             self._run_reconcile("startup_delay")

@@ -1,3 +1,7 @@
+# Required input_boolean helpers. Must stay in sync with input_boolean: in configuration.yaml.
+required_input_boolean_helpers:
+  - input_boolean.appdaemon_startup_suppress_swap
+
 # Required HA helpers (input_text). Validated by scripts/preflight_helpers.sh.
 # Must stay in sync with the input_text: section of configuration.yaml.
 required_helpers:

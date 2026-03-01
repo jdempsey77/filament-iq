@@ -896,6 +896,9 @@
     - condition: state
       entity_id: input_boolean.p1s_print_active
       state: 'on'
+    - condition: state
+      entity_id: input_boolean.appdaemon_startup_suppress_swap
+      state: 'off'
   action:
     - service: input_boolean.turn_on
       target:
@@ -906,6 +909,29 @@
         message: "{{ trigger.to_state.entity_id }} changed from {{ trigger.from_state.state }} to {{ trigger.to_state.state }} while print active. Automatic filament tracking disabled for this print. Manual reconciliation required."
   mode: queued
   max: 10
+
+# After AppDaemon/reconcile startup, suppress spool-swap detection for 90s to avoid false positives from bulk helper updates.
+- id: appdaemon_startup_suppress_swap_clear
+  alias: AppDaemon startup – suppress spool swap detection then clear
+  description: On appdaemon_startup or ams_rfid_reconcile_startup (or when suppress boolean turns on), ensure suppress is on then turn it off after 90s.
+  trigger:
+    - platform: event
+      event_type:
+        - appdaemon_startup
+        - ams_rfid_reconcile_startup
+    - platform: state
+      entity_id: input_boolean.appdaemon_startup_suppress_swap
+      to: 'on'
+  action:
+    - service: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.appdaemon_startup_suppress_swap
+    - delay:
+        seconds: 90
+    - service: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.appdaemon_startup_suppress_swap
+  mode: restart
 
 # Reload automations when Spoolman fires a threshold event (info/warning/critical).
 # The Spoolman integration does not fire an event when spools are added/updated;
