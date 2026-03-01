@@ -1542,8 +1542,6 @@ views:
                                     entities:
                                       - entity: input_select.ams_slot_1_select_spool
                                         name: Select Spool
-                                      - entity: input_number.ams_slot_1_gross_weight
-                                        name: Remaining Weight (g)
                                   - type: custom:mushroom-template-card
                                     primary: Bind Spool
                                     secondary: Assign spool to this slot
@@ -1551,8 +1549,9 @@ views:
                                     icon_color: green
                                     tap_action:
                                       action: call-service
-                                      service: script.ams_slot_1_assign_and_update
-                                      data: {}
+                                      service: script.turn_on
+                                      data:
+                                        entity_id: script.ams_slot_1_assign_and_update
                         card_mod:
                           style: |
                             ha-card { opacity: 0.8; }
@@ -1606,8 +1605,6 @@ views:
                                     entities:
                                       - entity: input_select.ams_slot_1_select_spool
                                         name: Select Spool
-                                      - entity: input_number.ams_slot_1_gross_weight
-                                        name: Remaining Weight (g)
                                   - type: custom:mushroom-template-card
                                     primary: Bind Spool
                                     secondary: Assign spool to this slot
@@ -1615,8 +1612,9 @@ views:
                                     icon_color: green
                                     tap_action:
                                       action: call-service
-                                      service: script.ams_slot_1_assign_and_update
-                                      data: {}
+                                      service: script.turn_on
+                                      data:
+                                        entity_id: script.ams_slot_1_assign_and_update
                         card_mod:
                           style: >
                             {% set c = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'color') %}
@@ -1703,8 +1701,6 @@ views:
                                     entities:
                                       - entity: input_select.ams_slot_2_select_spool
                                         name: Select Spool
-                                      - entity: input_number.ams_slot_2_gross_weight
-                                        name: Remaining Weight (g)
                                   - type: custom:mushroom-template-card
                                     primary: Bind Spool
                                     secondary: Assign spool to this slot
@@ -1712,8 +1708,9 @@ views:
                                     icon_color: green
                                     tap_action:
                                       action: call-service
-                                      service: script.ams_slot_2_assign_and_update
-                                      data: {}
+                                      service: script.turn_on
+                                      data:
+                                        entity_id: script.ams_slot_2_assign_and_update
                         card_mod:
                           style: |
                             ha-card { opacity: 0.8; }
@@ -1767,8 +1764,6 @@ views:
                                     entities:
                                       - entity: input_select.ams_slot_2_select_spool
                                         name: Select Spool
-                                      - entity: input_number.ams_slot_2_gross_weight
-                                        name: Remaining Weight (g)
                                   - type: custom:mushroom-template-card
                                     primary: Bind Spool
                                     secondary: Assign spool to this slot
@@ -1776,8 +1771,9 @@ views:
                                     icon_color: green
                                     tap_action:
                                       action: call-service
-                                      service: script.ams_slot_2_assign_and_update
-                                      data: {}
+                                      service: script.turn_on
+                                      data:
+                                        entity_id: script.ams_slot_2_assign_and_update
                         card_mod:
                           style: >
                             {% set c = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'color') %}
@@ -1864,8 +1860,6 @@ views:
                                     entities:
                                       - entity: input_select.ams_slot_3_select_spool
                                         name: Select Spool
-                                      - entity: input_number.ams_slot_3_gross_weight
-                                        name: Remaining Weight (g)
                                   - type: custom:mushroom-template-card
                                     primary: Bind Spool
                                     secondary: Assign spool to this slot
@@ -1873,8 +1867,9 @@ views:
                                     icon_color: green
                                     tap_action:
                                       action: call-service
-                                      service: script.ams_slot_3_assign_and_update
-                                      data: {}
+                                      service: script.turn_on
+                                      data:
+                                        entity_id: script.ams_slot_3_assign_and_update
                         card_mod:
                           style: |
                             ha-card { opacity: 0.8; }
@@ -1928,8 +1923,6 @@ views:
                                     entities:
                                       - entity: input_select.ams_slot_3_select_spool
                                         name: Select Spool
-                                      - entity: input_number.ams_slot_3_gross_weight
-                                        name: Remaining Weight (g)
                                   - type: custom:mushroom-template-card
                                     primary: Bind Spool
                                     secondary: Assign spool to this slot
@@ -1937,8 +1930,9 @@ views:
                                     icon_color: green
                                     tap_action:
                                       action: call-service
-                                      service: script.ams_slot_3_assign_and_update
-                                      data: {}
+                                      service: script.turn_on
+                                      data:
+                                        entity_id: script.ams_slot_3_assign_and_update
                         card_mod:
                           style: >
                             {% set c = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'color') %}
@@ -2025,8 +2019,6 @@ views:
                                     entities:
                                       - entity: input_select.ams_slot_4_select_spool
                                         name: Select Spool
-                                      - entity: input_number.ams_slot_4_gross_weight
-                                        name: Remaining Weight (g)
                                   - type: custom:mushroom-template-card
                                     primary: Bind Spool
                                     secondary: Assign spool to this slot
@@ -2034,8 +2026,9 @@ views:
                                     icon_color: green
                                     tap_action:
                                       action: call-service
-                                      service: script.ams_slot_4_assign_and_update
-                                      data: {}
+                                      service: script.turn_on
+                                      data:
+                                        entity_id: script.ams_slot_4_assign_and_update
                         card_mod:
                           style: |
                             ha-card { opacity: 0.8; }
@@ -2089,8 +2082,6 @@ views:
                                     entities:
                                       - entity: input_select.ams_slot_4_select_spool
                                         name: Select Spool
-                                      - entity: input_number.ams_slot_4_gross_weight
-                                        name: Remaining Weight (g)
                                   - type: custom:mushroom-template-card
                                     primary: Bind Spool
                                     secondary: Assign spool to this slot
@@ -2098,8 +2089,9 @@ views:
                                     icon_color: green
                                     tap_action:
                                       action: call-service
-                                      service: script.ams_slot_4_assign_and_update
-                                      data: {}
+                                      service: script.turn_on
+                                      data:
+                                        entity_id: script.ams_slot_4_assign_and_update
                         card_mod:
                           style: >
                             {% set c = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'color') %}
@@ -2513,8 +2505,6 @@ views:
                                     entities:
                                       - entity: input_select.ams_slot_5_select_spool
                                         name: Select Spool
-                                      - entity: input_number.ams_slot_5_gross_weight
-                                        name: Remaining Weight (g)
                                   - type: custom:mushroom-template-card
                                     primary: Bind Spool
                                     secondary: Assign spool to this slot
@@ -2522,8 +2512,9 @@ views:
                                     icon_color: green
                                     tap_action:
                                       action: call-service
-                                      service: script.ams_slot_5_assign_and_update
-                                      data: {}
+                                      service: script.turn_on
+                                      data:
+                                        entity_id: script.ams_slot_5_assign_and_update
                         card_mod:
                           style: |
                             ha-card { opacity: 0.8; }
@@ -2577,8 +2568,6 @@ views:
                                     entities:
                                       - entity: input_select.ams_slot_5_select_spool
                                         name: Select Spool
-                                      - entity: input_number.ams_slot_5_gross_weight
-                                        name: Remaining Weight (g)
                                   - type: custom:mushroom-template-card
                                     primary: Bind Spool
                                     secondary: Assign spool to this slot
@@ -2586,8 +2575,9 @@ views:
                                     icon_color: green
                                     tap_action:
                                       action: call-service
-                                      service: script.ams_slot_5_assign_and_update
-                                      data: {}
+                                      service: script.turn_on
+                                      data:
+                                        entity_id: script.ams_slot_5_assign_and_update
                         card_mod:
                           style: >
                             {% set c = state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'color') %}
@@ -2753,8 +2743,6 @@ views:
                                     entities:
                                       - entity: input_select.ams_slot_6_select_spool
                                         name: Select Spool
-                                      - entity: input_number.ams_slot_6_gross_weight
-                                        name: Remaining Weight (g)
                                   - type: custom:mushroom-template-card
                                     primary: Bind Spool
                                     secondary: Assign spool to this slot
@@ -2762,8 +2750,9 @@ views:
                                     icon_color: green
                                     tap_action:
                                       action: call-service
-                                      service: script.ams_slot_6_assign_and_update
-                                      data: {}
+                                      service: script.turn_on
+                                      data:
+                                        entity_id: script.ams_slot_6_assign_and_update
                         card_mod:
                           style: |
                             ha-card { opacity: 0.8; }
@@ -2817,8 +2806,6 @@ views:
                                     entities:
                                       - entity: input_select.ams_slot_6_select_spool
                                         name: Select Spool
-                                      - entity: input_number.ams_slot_6_gross_weight
-                                        name: Remaining Weight (g)
                                   - type: custom:mushroom-template-card
                                     primary: Bind Spool
                                     secondary: Assign spool to this slot
@@ -2826,8 +2813,9 @@ views:
                                     icon_color: green
                                     tap_action:
                                       action: call-service
-                                      service: script.ams_slot_6_assign_and_update
-                                      data: {}
+                                      service: script.turn_on
+                                      data:
+                                        entity_id: script.ams_slot_6_assign_and_update
                         card_mod:
                           style: >
                             {% set c = state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'color') %}

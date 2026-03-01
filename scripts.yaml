@@ -663,7 +663,6 @@ ams_slot_1_assign_and_update:
                 location: "Shelf"
     - variables:
         final_spool_id: "{{ states('input_text.ams_slot_1_spool_id') | int }}"
-        remaining: "{{ states('input_number.ams_slot_1_gross_weight') | float(0) | round(1) }}"
     - choose:
         - conditions:
             - condition: template
@@ -672,7 +671,6 @@ ams_slot_1_assign_and_update:
             - service: spoolman.patch_spool
               data:
                 id: "{{ final_spool_id }}"
-                remaining_weight: "{{ remaining | float | round(2) }}"
                 location: "AMS1_Slot1"
             - service: script.reload_spoolman_integration
             - event: bambu_rfid_manual_enroll_tag_to_spool
@@ -715,7 +713,6 @@ ams_slot_2_assign_and_update:
                 location: "Shelf"
     - variables:
         final_spool_id: "{{ states('input_text.ams_slot_2_spool_id') | int }}"
-        remaining: "{{ states('input_number.ams_slot_2_gross_weight') | float(0) | round(1) }}"
     - choose:
         - conditions:
             - condition: template
@@ -724,7 +721,6 @@ ams_slot_2_assign_and_update:
             - service: spoolman.patch_spool
               data:
                 id: "{{ final_spool_id }}"
-                remaining_weight: "{{ remaining | float | round(2) }}"
                 location: "AMS1_Slot2"
             - service: script.reload_spoolman_integration
             - event: bambu_rfid_manual_enroll_tag_to_spool
@@ -767,7 +763,6 @@ ams_slot_3_assign_and_update:
                 location: "Shelf"
     - variables:
         final_spool_id: "{{ states('input_text.ams_slot_3_spool_id') | int }}"
-        remaining: "{{ states('input_number.ams_slot_3_gross_weight') | float(0) | round(1) }}"
     - choose:
         - conditions:
             - condition: template
@@ -776,7 +771,6 @@ ams_slot_3_assign_and_update:
             - service: spoolman.patch_spool
               data:
                 id: "{{ final_spool_id }}"
-                remaining_weight: "{{ remaining | float | round(2) }}"
                 location: "AMS1_Slot3"
             - service: script.reload_spoolman_integration
             - event: bambu_rfid_manual_enroll_tag_to_spool
@@ -819,7 +813,6 @@ ams_slot_4_assign_and_update:
                 location: "Shelf"
     - variables:
         final_spool_id: "{{ states('input_text.ams_slot_4_spool_id') | int }}"
-        remaining: "{{ states('input_number.ams_slot_4_gross_weight') | float(0) | round(1) }}"
     - choose:
         - conditions:
             - condition: template
@@ -828,7 +821,6 @@ ams_slot_4_assign_and_update:
             - service: spoolman.patch_spool
               data:
                 id: "{{ final_spool_id }}"
-                remaining_weight: "{{ remaining | float | round(2) }}"
                 location: "AMS1_Slot4"
             - service: script.reload_spoolman_integration
             - event: bambu_rfid_manual_enroll_tag_to_spool
@@ -871,7 +863,6 @@ ams_slot_5_assign_and_update:
                 location: "Shelf"
     - variables:
         final_spool_id: "{{ states('input_text.ams_slot_5_spool_id') | int }}"
-        remaining: "{{ states('input_number.ams_slot_5_gross_weight') | float(0) | round(1) }}"
     - choose:
         - conditions:
             - condition: template
@@ -880,7 +871,6 @@ ams_slot_5_assign_and_update:
             - service: spoolman.patch_spool
               data:
                 id: "{{ final_spool_id }}"
-                remaining_weight: "{{ remaining | float | round(2) }}"
                 location: "AMS2_HT_Slot1"
             - service: script.reload_spoolman_integration
             - event: bambu_rfid_manual_enroll_tag_to_spool
@@ -923,7 +913,6 @@ ams_slot_6_assign_and_update:
                 location: "Shelf"
     - variables:
         final_spool_id: "{{ states('input_text.ams_slot_6_spool_id') | int }}"
-        remaining: "{{ states('input_number.ams_slot_6_gross_weight') | float(0) | round(1) }}"
     - choose:
         - conditions:
             - condition: template
@@ -932,7 +921,6 @@ ams_slot_6_assign_and_update:
             - service: spoolman.patch_spool
               data:
                 id: "{{ final_spool_id }}"
-                remaining_weight: "{{ remaining | float | round(2) }}"
                 location: "AMS2_HT_Slot2"
             - service: script.reload_spoolman_integration
             - event: bambu_rfid_manual_enroll_tag_to_spool
