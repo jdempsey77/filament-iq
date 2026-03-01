@@ -62,3 +62,13 @@ Scripts:
 - Deploy gates
 - Preflights
 - Evidence capture
+
+---
+
+## AppDaemon data artifacts
+- **seen_job_keys.json** — persisted under `appdaemon/apps/data/` by `ams_print_usage_sync`. Used for job_key dedup so the same print is not applied twice to Spoolman. Path is relative to the app file so it works under `/config/appdaemon/apps` or addon config paths.
+
+---
+
+## Dashboard
+The main dashboard is **storage-type** (UI-managed in Home Assistant). It is **not** deployed by script; updates are done by **manual copy/paste** of YAML from repo (e.g. `dashboards/dashboard.test.storage.yaml`) into HA dashboard raw configuration. Stage dashboard (`dashboards/dashboard.stage.yaml`) is deployed to `/lovelace-stage` via `./scripts/manage_ha.sh --stage` when that file changes.

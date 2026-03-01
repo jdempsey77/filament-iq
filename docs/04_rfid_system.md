@@ -14,12 +14,15 @@ Non-RFID indicator: both fields are all-zero
 `tag_uid` is no longer stored or matched.
 `extra.rfid_tag_uid` is retired — read-only during migration fallback window, never written.
 
+**UUID-format `lot_nr`:** When `lot_nr` is a 32-char hex string, the spool is treated as RFID-enrolled. Such spools are **excluded from all non-RFID candidate pools** (they must not match non-RFID trays).
+
 ---
 ## Matching Order
 1. Match `tray_uuid` against `spool.lot_nr` — primary path
-2. Fallback (migration only): match `tag_uid` against `extra.rfid_tag_uid` via canonicalizer
-   - On match: write `tray_uuid` to `lot_nr`, bind
+2. **Unenrolled spool fallback:** on first insert, if `lot_nr` is empty, sig-based search (material + color) can match unenrolled spools; on match, write `tray_uuid` to `lot_nr`, bind
 3. If no match at any tier: NEEDS_ACTION, notify user
+
+Migration fallback (canonicalizer / `extra.rfid_tag_uid` → `lot_nr`) is **retired**. No canonicalizer tier.
 
 Matching occurs before non-RFID logic. RFID path takes priority when `tray_uuid` is non-zero.
 

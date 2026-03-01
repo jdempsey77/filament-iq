@@ -47,6 +47,4 @@ Rules:
 | `extra.ha_spool_uuid` | Retired | No longer generated or written. |
 | Spoolman `comment` | Freed | Was HA_SIG storage. Now human-only. |
 
-**Spoolman extra field encoding rules no longer apply.** The canonicalizer
-(`spoolman_extra_canonicalizer.py`) is migration-only and will be retired after
-all spools have `lot_nr` populated.
+**Spoolman extra field encoding rules no longer apply.** The canonicalizer is **retired** (moved to _retired/). Identity is stored only in `lot_nr`; no migration fallback tier.
