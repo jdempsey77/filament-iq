@@ -1574,7 +1574,7 @@ views:
                         secondary: >-
                           {% set sid = states('input_text.ams_slot_1_spool_id') %}
                           {% set reason = states('input_text.ams_slot_1_unbound_reason') %}
-                          {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}⚠️ BIND NEEDED
+                          {% if (reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY']) and (sid | int(0) == 0) %}⚠️ BIND NEEDED
                           {% else %}
                           {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
                           {% set color = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') %}
@@ -1733,7 +1733,7 @@ views:
                         secondary: >-
                           {% set sid = states('input_text.ams_slot_2_spool_id') %}
                           {% set reason = states('input_text.ams_slot_2_unbound_reason') %}
-                          {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}⚠️ BIND NEEDED
+                          {% if (reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY']) and (sid | int(0) == 0) %}⚠️ BIND NEEDED
                           {% else %}
                           {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
                           {% set color = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') %}
@@ -1892,7 +1892,7 @@ views:
                         secondary: >-
                           {% set sid = states('input_text.ams_slot_3_spool_id') %}
                           {% set reason = states('input_text.ams_slot_3_unbound_reason') %}
-                          {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}⚠️ BIND NEEDED
+                          {% if (reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY']) and (sid | int(0) == 0) %}⚠️ BIND NEEDED
                           {% else %}
                           {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
                           {% set color = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') %}
@@ -2051,7 +2051,7 @@ views:
                         secondary: >-
                           {% set sid = states('input_text.ams_slot_4_spool_id') %}
                           {% set reason = states('input_text.ams_slot_4_unbound_reason') %}
-                          {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}⚠️ BIND NEEDED
+                          {% if (reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY']) and (sid | int(0) == 0) %}⚠️ BIND NEEDED
                           {% else %}
                           {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
                           {% set color = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') %}
@@ -2537,7 +2537,7 @@ views:
                         secondary: >-
                           {% set sid = states('input_text.ams_slot_5_spool_id') %}
                           {% set reason = states('input_text.ams_slot_5_unbound_reason') %}
-                          {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}⚠️ BIND NEEDED
+                          {% if (reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY']) and (sid | int(0) == 0) %}⚠️ BIND NEEDED
                           {% else %}
                           {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
                           {% set color = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') %}
@@ -2775,7 +2775,7 @@ views:
                         secondary: >-
                           {% set sid = states('input_text.ams_slot_6_spool_id') %}
                           {% set reason = states('input_text.ams_slot_6_unbound_reason') %}
-                          {% if reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}⚠️ BIND NEEDED
+                          {% if (reason not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY']) and (sid | int(0) == 0) %}⚠️ BIND NEEDED
                           {% else %}
                           {% set vendor = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') %}
                           {% set color = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') %}

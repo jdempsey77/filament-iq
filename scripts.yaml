@@ -677,6 +677,11 @@ ams_slot_1_assign_and_update:
               event_data:
                 slot: 1
                 spool_id: "{{ final_spool_id }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_1_unbound_reason
+              data:
+                value: ""
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 1 updated"
@@ -727,6 +732,11 @@ ams_slot_2_assign_and_update:
               event_data:
                 slot: 2
                 spool_id: "{{ final_spool_id }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_2_unbound_reason
+              data:
+                value: ""
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 2 updated"
@@ -777,6 +787,11 @@ ams_slot_3_assign_and_update:
               event_data:
                 slot: 3
                 spool_id: "{{ final_spool_id }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_3_unbound_reason
+              data:
+                value: ""
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 3 updated"
@@ -827,6 +842,11 @@ ams_slot_4_assign_and_update:
               event_data:
                 slot: 4
                 spool_id: "{{ final_spool_id }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_4_unbound_reason
+              data:
+                value: ""
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 4 updated"
@@ -877,6 +897,11 @@ ams_slot_5_assign_and_update:
               event_data:
                 slot: 5
                 spool_id: "{{ final_spool_id }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_5_unbound_reason
+              data:
+                value: ""
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 5 updated"
@@ -927,6 +952,11 @@ ams_slot_6_assign_and_update:
               event_data:
                 slot: 6
                 spool_id: "{{ final_spool_id }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_6_unbound_reason
+              data:
+                value: ""
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 6 updated"
