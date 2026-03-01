@@ -999,15 +999,15 @@ template:
         unique_id: ams_slot_1_material
         state: >-
           {% set sid = states('input_text.ams_slot_1_spool_id') %}
-          {% if sid in ['0', '', 'unknown', 'unavailable'] %}—
-          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('—') }}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('Unknown') }}
           {% endif %}
       - name: "AMS Slot 1 – vendor"
         unique_id: ams_slot_1_vendor
         state: >-
           {% set sid = states('input_text.ams_slot_1_spool_id') %}
-          {% if sid in ['0', '', 'unknown', 'unavailable'] %}—
-          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('—') }}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('Unknown') }}
           {% endif %}
       - name: "AMS Slot 1 – color hex"
         unique_id: ams_slot_1_color_hex
@@ -1046,15 +1046,15 @@ template:
         unique_id: ams_slot_2_material
         state: >-
           {% set sid = states('input_text.ams_slot_2_spool_id') %}
-          {% if sid in ['0', '', 'unknown', 'unavailable'] %}—
-          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('—') }}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('Unknown') }}
           {% endif %}
       - name: "AMS Slot 2 – vendor"
         unique_id: ams_slot_2_vendor
         state: >-
           {% set sid = states('input_text.ams_slot_2_spool_id') %}
-          {% if sid in ['0', '', 'unknown', 'unavailable'] %}—
-          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('—') }}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('Unknown') }}
           {% endif %}
       - name: "AMS Slot 2 – color hex"
         unique_id: ams_slot_2_color_hex
@@ -1093,15 +1093,15 @@ template:
         unique_id: ams_slot_3_material
         state: >-
           {% set sid = states('input_text.ams_slot_3_spool_id') %}
-          {% if sid in ['0', '', 'unknown', 'unavailable'] %}—
-          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('—') }}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('Unknown') }}
           {% endif %}
       - name: "AMS Slot 3 – vendor"
         unique_id: ams_slot_3_vendor
         state: >-
           {% set sid = states('input_text.ams_slot_3_spool_id') %}
-          {% if sid in ['0', '', 'unknown', 'unavailable'] %}—
-          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('—') }}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('Unknown') }}
           {% endif %}
       - name: "AMS Slot 3 – color hex"
         unique_id: ams_slot_3_color_hex
@@ -1140,15 +1140,15 @@ template:
         unique_id: ams_slot_4_material
         state: >-
           {% set sid = states('input_text.ams_slot_4_spool_id') %}
-          {% if sid in ['0', '', 'unknown', 'unavailable'] %}—
-          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('—') }}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('Unknown') }}
           {% endif %}
       - name: "AMS Slot 4 – vendor"
         unique_id: ams_slot_4_vendor
         state: >-
           {% set sid = states('input_text.ams_slot_4_spool_id') %}
-          {% if sid in ['0', '', 'unknown', 'unavailable'] %}—
-          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('—') }}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('Unknown') }}
           {% endif %}
       - name: "AMS Slot 4 – color hex"
         unique_id: ams_slot_4_color_hex
@@ -1187,15 +1187,15 @@ template:
         unique_id: ams_slot_5_material
         state: >-
           {% set sid = states('input_text.ams_slot_5_spool_id') %}
-          {% if sid in ['0', '', 'unknown', 'unavailable'] %}—
-          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('—') }}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('Unknown') }}
           {% endif %}
       - name: "AMS Slot 5 – vendor"
         unique_id: ams_slot_5_vendor
         state: >-
           {% set sid = states('input_text.ams_slot_5_spool_id') %}
-          {% if sid in ['0', '', 'unknown', 'unavailable'] %}—
-          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('—') }}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('Unknown') }}
           {% endif %}
       - name: "AMS Slot 5 – color hex"
         unique_id: ams_slot_5_color_hex
@@ -1234,15 +1234,15 @@ template:
         unique_id: ams_slot_6_material
         state: >-
           {% set sid = states('input_text.ams_slot_6_spool_id') %}
-          {% if sid in ['0', '', 'unknown', 'unavailable'] %}—
-          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('—') }}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('Unknown') }}
           {% endif %}
       - name: "AMS Slot 6 – vendor"
         unique_id: ams_slot_6_vendor
         state: >-
           {% set sid = states('input_text.ams_slot_6_spool_id') %}
-          {% if sid in ['0', '', 'unknown', 'unavailable'] %}—
-          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('—') }}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('Unknown') }}
           {% endif %}
       - name: "AMS Slot 6 – color hex"
         unique_id: ams_slot_6_color_hex
