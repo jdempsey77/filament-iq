@@ -8,16 +8,19 @@ Non-RFID slots: best-effort equal share of (print_weight_g - rfid_total_g).
 
 Slot-to-spool mapping: input_text.ams_slot_{1-6}_spool_id (reconciler-owned, read-only).
 Spoolman write:         PUT /api/v1/spool/{id}/use {"use_weight": grams}
-Dedup:                  in-memory job_key set (capped at 50 entries).
+Dedup:                  job_key set persisted to disk (capped at 50 entries).
 """
 
 import json
+import os
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections import OrderedDict
 
 import hassapi as hass
+
+SEEN_JOBS_PATH = "/config/appdaemon/apps/data/seen_job_keys.json"
 
 TRAY_ENTITY_BY_SLOT = {
     1: "sensor.p1s_01p00c5a3101668_ams_1_tray_1",
@@ -41,7 +44,7 @@ class AmsPrintUsageSync(hass.Hass):
         ).rstrip("/")
         self.dry_run = bool(self.args.get("dry_run", False))
         self.min_consumption_g = float(self.args.get("min_consumption_g", 2))
-        self._seen_job_keys = OrderedDict()
+        self._seen_job_keys = self._load_seen_job_keys()
 
         if not self.enabled:
             self.log("AmsPrintUsageSync disabled via config", level="WARNING")
@@ -180,6 +183,7 @@ class AmsPrintUsageSync(hass.Hass):
             self._seen_job_keys[job_key] = True
             while len(self._seen_job_keys) > MAX_SEEN_JOBS:
                 self._seen_job_keys.popitem(last=False)
+            self._persist_seen_job_keys()
 
         # ── summary ──────────────────────────────────────────────────
         total_consumed = sum(c for _, _, c in all_results)
@@ -192,6 +196,46 @@ class AmsPrintUsageSync(hass.Hass):
             f"patched={patched} skipped={skipped}",
             level="INFO",
         )
+
+    # ── dedup persistence ─────────────────────────────────────────────
+
+    def _load_seen_job_keys(self):
+        """Load seen job_keys from disk. On missing/corrupt file, return empty OrderedDict."""
+        try:
+            with open(SEEN_JOBS_PATH, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            if isinstance(raw, list):
+                keys = [str(k) for k in raw if k]
+            elif isinstance(raw, dict):
+                keys = [str(k) for k in raw if k]
+            else:
+                keys = []
+            # Keep at most MAX_SEEN_JOBS (most recent when order matters)
+            if len(keys) > MAX_SEEN_JOBS:
+                keys = keys[-MAX_SEEN_JOBS:]
+            return OrderedDict.fromkeys(keys, True)
+        except FileNotFoundError:
+            return OrderedDict()
+        except (json.JSONDecodeError, TypeError, OSError) as e:
+            self.log(
+                f"AmsPrintUsageSync: could not load seen_job_keys from {SEEN_JOBS_PATH}: {e}. Starting empty.",
+                level="WARNING",
+            )
+            return OrderedDict()
+
+    def _persist_seen_job_keys(self):
+        """Write current _seen_job_keys to disk. Creates directory if needed. On error, log and do not crash."""
+        try:
+            dir_path = os.path.dirname(SEEN_JOBS_PATH)
+            os.makedirs(dir_path, exist_ok=True)
+            keys = list(self._seen_job_keys.keys())
+            with open(SEEN_JOBS_PATH, "w", encoding="utf-8") as f:
+                json.dump(keys, f, indent=None)
+        except OSError as e:
+            self.log(
+                f"AmsPrintUsageSync: could not persist seen_job_keys to {SEEN_JOBS_PATH}: {e}",
+                level="WARNING",
+            )
 
     # ── helpers ───────────────────────────────────────────────────────
 
