@@ -666,6 +666,11 @@ ams_slot_assign_and_update:
                 entity_id: "input_text.ams_slot_{{ slot }}_spool_id"
               data:
                 value: "{{ spool_id }}"
+            - service: input_text.set_value
+              target:
+                entity_id: "input_text.ams_slot_{{ slot }}_expected_spool_id"
+              data:
+                value: "{{ spool_id }}"
     - choose:
         - conditions:
             - condition: template
@@ -720,6 +725,11 @@ ams_slot_1_assign_and_update:
             - service: input_text.set_value
               target:
                 entity_id: input_text.ams_slot_1_spool_id
+              data:
+                value: "{{ spool_id }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_1_expected_spool_id
               data:
                 value: "{{ spool_id }}"
     - choose:
@@ -777,6 +787,11 @@ ams_slot_2_assign_and_update:
                 entity_id: input_text.ams_slot_2_spool_id
               data:
                 value: "{{ spool_id }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_2_expected_spool_id
+              data:
+                value: "{{ spool_id }}"
     - choose:
         - conditions:
             - condition: template
@@ -830,6 +845,11 @@ ams_slot_3_assign_and_update:
             - service: input_text.set_value
               target:
                 entity_id: input_text.ams_slot_3_spool_id
+              data:
+                value: "{{ spool_id }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_3_expected_spool_id
               data:
                 value: "{{ spool_id }}"
     - choose:
@@ -887,6 +907,11 @@ ams_slot_4_assign_and_update:
                 entity_id: input_text.ams_slot_4_spool_id
               data:
                 value: "{{ spool_id }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_4_expected_spool_id
+              data:
+                value: "{{ spool_id }}"
     - choose:
         - conditions:
             - condition: template
@@ -942,6 +967,11 @@ ams_slot_5_assign_and_update:
                 entity_id: input_text.ams_slot_5_spool_id
               data:
                 value: "{{ spool_id }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_5_expected_spool_id
+              data:
+                value: "{{ spool_id }}"
     - choose:
         - conditions:
             - condition: template
@@ -995,6 +1025,11 @@ ams_slot_6_assign_and_update:
             - service: input_text.set_value
               target:
                 entity_id: input_text.ams_slot_6_spool_id
+              data:
+                value: "{{ spool_id }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.ams_slot_6_expected_spool_id
               data:
                 value: "{{ spool_id }}"
     - choose:

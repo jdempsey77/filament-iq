@@ -757,6 +757,26 @@ class AmsRfidReconcile(hass.Hass):
                     helper_spool_id = 0
                     previous_helper_spool_id = 0
 
+            # ── FORCE_ACCEPTED: user explicitly accepted this binding — do not overwrite ──
+            current_unbound_reason = (self.get_state(f"input_text.ams_slot_{slot}_unbound_reason") or "").strip()
+            if current_unbound_reason == "FORCE_ACCEPTED" and helper_spool_id > 0:
+                self.log(
+                    f"FORCE_ACCEPTED_SKIP slot={slot} spool_id={helper_spool_id} — user force-accepted, preserving binding",
+                    level="INFO",
+                )
+                status = STATUS_OK_NONRFID if not rfid_visible else STATUS_OK
+                self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                # Don't touch unbound_reason — leave FORCE_ACCEPTED in place
+                ok += 1
+                t["decision"], t["reason"], t["action"] = "FORCE_ACCEPTED", "user_force_accepted", "preserve_binding"
+                t["final_spool_id"] = helper_spool_id
+                t["final_slot_status"] = status
+                t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                self._active_run["validation_transcripts"].append(t)
+                if validation_mode:
+                    self._log_validation_transcript(t)
+                continue
+
             # Bound invariant wins over pending: spool_id == expected_spool_id > 0 -> stay NON_RFID_REGISTERED
             if not tag_uid and helper_spool_id > 0 and helper_expected > 0 and helper_spool_id == helper_expected:
                 status = STATUS_NON_RFID_REGISTERED
@@ -1178,6 +1198,27 @@ class AmsRfidReconcile(hass.Hass):
                         f"NONRFID_SENTINEL_SKIP slot={slot} filament_id={fid_raw} reason=GENERIC_FILAMENT_NO_AUTO_MATCH",
                         level="INFO",
                     )
+                    # If user already manually bound a spool, respect it
+                    if helper_spool_id > 0:
+                        self.log(
+                            f"NONRFID_SENTINEL_MANUAL_BIND_PRESERVED slot={slot} spool_id={helper_spool_id} "
+                            f"— generic filament but manual bind exists, keeping binding",
+                            level="INFO",
+                        )
+                        status = STATUS_OK_NONRFID
+                        self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+                        self._log_slot_status_change(slot, status, "", helper_spool_id, tray_meta)
+                        ok += 1
+                        t["decision"], t["reason"], t["action"] = "NON_RFID", "generic_sentinel_manual_preserved", "nonrfid_registered"
+                        t["final_spool_id"] = helper_spool_id
+                        t["final_slot_status"] = status
+                        t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                        self._active_run["validation_transcripts"].append(t)
+                        if validation_mode:
+                            self._log_validation_transcript(t)
+                        continue
+                    # No manual bind — flag for user
                     status = STATUS_NEEDS_MANUAL_BIND
                     if not status_only:
                         self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
