@@ -634,6 +634,76 @@ update_spoolman_tray_6:
         id: "{{ states('input_text.ams_slot_6_spool_id') | int }}"
         remaining_weight: "{{ states('input_number.spoolman_tray_6_remaining') | float }}"
 
+# Unified assign + update script (replaces per-slot copies). Takes slot as a field.
+ams_slot_assign_and_update:
+  alias: "AMS Slot – Assign & Update (unified)"
+  description: "Parse dropdown, assign spool, move old to Shelf, update Spoolman location, fire enroll event, clear unbound_reason."
+  mode: single
+  fields:
+    slot:
+      description: "Slot number (1-6)"
+      example: "1"
+  sequence:
+    - variables:
+        selected: "{{ states('input_select.ams_slot_' ~ slot ~ '_select_spool') }}"
+        spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
+        old_spool_id: "{{ states('input_text.ams_slot_' ~ slot ~ '_spool_id') | int(0) }}"
+        location_map:
+          "1": "AMS1_Slot1"
+          "2": "AMS1_Slot2"
+          "3": "AMS1_Slot3"
+          "4": "AMS1_Slot4"
+          "5": "AMS128_Slot1"
+          "6": "AMS129_Slot1"
+        target_location: "{{ location_map[slot | string] }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ spool_id > 0 }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: "input_text.ams_slot_{{ slot }}_spool_id"
+              data:
+                value: "{{ spool_id }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ old_spool_id > 0 and old_spool_id != spool_id }}"
+          sequence:
+            - service: spoolman.patch_spool
+              data:
+                id: "{{ old_spool_id }}"
+                location: "Shelf"
+    - variables:
+        final_spool_id: "{{ states('input_text.ams_slot_' ~ slot ~ '_spool_id') | int }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ final_spool_id > 0 }}"
+          sequence:
+            - service: spoolman.patch_spool
+              data:
+                id: "{{ final_spool_id }}"
+                location: "{{ target_location }}"
+            - service: script.reload_spoolman_integration
+            - event: bambu_rfid_manual_enroll_tag_to_spool
+              event_data:
+                slot: "{{ slot | int }}"
+                spool_id: "{{ final_spool_id }}"
+            - service: input_text.set_value
+              target:
+                entity_id: "input_text.ams_slot_{{ slot }}_unbound_reason"
+              data:
+                value: ""
+            - action: browser_mod.notification
+              data:
+                message: "✅ Slot {{ slot }} bound"
+      default:
+        - action: browser_mod.notification
+          data:
+            message: "Select a spool from the dropdown first."
+
 # Combined assign + update scripts (one per slot). Parse dropdown, assign if valid, calculate remaining, update Spoolman.
 ams_slot_1_assign_and_update:
   alias: Slot 1 – Assign & Update
@@ -891,7 +961,7 @@ ams_slot_5_assign_and_update:
             - service: spoolman.patch_spool
               data:
                 id: "{{ final_spool_id }}"
-                location: "AMS2_HT_Slot1"
+                location: "AMS128_Slot1"
             - service: script.reload_spoolman_integration
             - event: bambu_rfid_manual_enroll_tag_to_spool
               event_data:
@@ -946,7 +1016,7 @@ ams_slot_6_assign_and_update:
             - service: spoolman.patch_spool
               data:
                 id: "{{ final_spool_id }}"
-                location: "AMS2_HT_Slot2"
+                location: "AMS129_Slot1"
             - service: script.reload_spoolman_integration
             - event: bambu_rfid_manual_enroll_tag_to_spool
               event_data:
