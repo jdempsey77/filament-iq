@@ -2963,7 +2963,7 @@ views:
     cards: []
   - type: sections
     max_columns: 1
-    title: 'Sonos '
+    title: Sonos
     path: sonos
     icon: mdi:music
     panel: true
@@ -2986,6 +2986,7 @@ views:
       - user: 5ba38a59d2654d9c80f3b5a6ee129256
     max_columns: 4
     title: Outlets
+    path: outlets
     icon: mdi:power-socket-us
     sections:
       - type: grid

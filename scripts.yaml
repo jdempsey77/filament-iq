@@ -682,6 +682,10 @@ ams_slot_1_assign_and_update:
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 1 updated"
+        - default:
+          - action: browser_mod.notification
+            data:
+              message: "Select a spool from the dropdown first."
 
 ams_slot_2_assign_and_update:
   alias: Slot 2 – Assign & Update
@@ -730,6 +734,10 @@ ams_slot_2_assign_and_update:
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 2 updated"
+        - default:
+          - action: browser_mod.notification
+            data:
+              message: "Select a spool from the dropdown first."
 
 ams_slot_3_assign_and_update:
   alias: Slot 3 – Assign & Update
@@ -778,6 +786,10 @@ ams_slot_3_assign_and_update:
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 3 updated"
+        - default:
+          - action: browser_mod.notification
+            data:
+              message: "Select a spool from the dropdown first."
 
 ams_slot_4_assign_and_update:
   alias: Slot 4 – Assign & Update
@@ -826,6 +838,10 @@ ams_slot_4_assign_and_update:
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 4 updated"
+        - default:
+          - action: browser_mod.notification
+            data:
+              message: "Select a spool from the dropdown first."
 
 ams_slot_5_assign_and_update:
   alias: Slot 5 – Assign & Update
@@ -874,6 +890,10 @@ ams_slot_5_assign_and_update:
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 5 updated"
+        - default:
+          - action: browser_mod.notification
+            data:
+              message: "Select a spool from the dropdown first."
 
 ams_slot_6_assign_and_update:
   alias: Slot 6 – Assign & Update
@@ -922,3 +942,7 @@ ams_slot_6_assign_and_update:
             - action: browser_mod.notification
               data:
                 message: "✅ Slot 6 updated"
+        - default:
+          - action: browser_mod.notification
+            data:
+              message: "Select a spool from the dropdown first."
