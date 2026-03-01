@@ -708,6 +708,7 @@ class AmsRfidReconcile(hass.Hass):
             norm_tag_tg = _normalize_rfid_tag_uid(tag_uid)
             rfid_visible = bool(norm_tag_tg and norm_tag_tg != "0000000000000000")
 
+            _rfid_stuck_skip_matched = False
             # ── RFID identity-stuck tracker ──
             import time as _time_mod
             _rit = getattr(self, "_rfid_identity_tracker", None)
@@ -736,6 +737,7 @@ class AmsRfidReconcile(hass.Hass):
                         f"lot_nr_matches_tray_uuid=True",
                         level="INFO",
                     )
+                    _rfid_stuck_skip_matched = True
                     # Fall through to normal RFID matching below — don't flag as stuck
                 else:
                     status = STATUS_RFID_IDENTITY_STUCK
@@ -751,7 +753,8 @@ class AmsRfidReconcile(hass.Hass):
                     unbound += 1
                     continue
 
-            if rfid_visible and helper_spool_id > 0:
+            # Skip truth guard when RFID_STUCK_SKIP already verified lot_nr == tray_uuid
+            if rfid_visible and helper_spool_id > 0 and not _rfid_stuck_skip_matched:
                 helper_spool_obj_tg = spool_index.get(helper_spool_id) or {}
                 if not self._truth_guard_slot_patch(slot, t, tray_meta, tag_uid, helper_spool_id, helper_spool_obj_tg, tray_empty, tray_state_str, tray_uuid=tray_uuid):
                     helper_spool_id = 0
