@@ -41,5 +41,8 @@ deploy.env/
 scripts/deploy.env
 scripts/deploy.env.local
 
+# AppDaemon runtime data (e.g. seen_job_keys.json)
+appdaemon/apps/data/
+
 # Local editor settings
 .vscode/
