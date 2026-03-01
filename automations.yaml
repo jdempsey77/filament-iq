@@ -1271,11 +1271,15 @@
         - input_text.ams_slot_4_unbound_reason
         - input_text.ams_slot_5_unbound_reason
         - input_text.ams_slot_6_unbound_reason
+      for: "00:00:30"
   conditions:
     - condition: template
       value_template: >-
         {{ trigger.to_state.state | default('') not in
         ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] }}
+    - condition: state
+      entity_id: input_boolean.appdaemon_startup_suppress_swap
+      state: 'off'
   actions:
     - variables:
         slot_num: >-
@@ -1283,9 +1287,14 @@
     - action: notify.mobile_app_jd_pixel_10xl
       data:
         title: "AMS Slot {{ slot_num }} Needs Binding"
-        message: "⚠️ AMS Slot {{ slot_num }} needs binding — bind before printing to track filament usage"
+        message: >-
+          ⚠️ Slot {{ slot_num }}: {{ states('sensor.ams_slot_' ~ slot_num ~ '_name') }}
+          Reason: {{ trigger.to_state.state }}
+          Open dashboard to bind.
         data:
           tag: "ams_bind_slot_{{ slot_num }}"
+          clickAction: "/lovelace/3d-printer"
+          url: "/lovelace/3d-printer"
   mode: queued
   max: 6
 
