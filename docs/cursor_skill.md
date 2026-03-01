@@ -248,6 +248,40 @@ Outputs:
 
 ------------------------------------------------------------------------
 
+# Phase 3b — Bind-flow verification (diagnostics)
+
+When reconciler reports ok=6 but dashboard shows "N ports not bound", or "Bind Spool" does nothing, run these checks (from repo root; set `HOME_ASSISTANT_TOKEN` and use your HA URL, e.g. `http://192.168.4.124:8123`).
+
+**1. Script present on server (if 0, script never deployed):**
+```bash
+./scripts/ssh_ha.sh "grep -c 'ams_slot_6_assign_and_update' /config/scripts.yaml"
+```
+
+**2. Dropdown options populated (empty/None → regex parse yields spool_id=0):**
+```bash
+curl -s -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" \
+  "http://192.168.4.124:8123/api/states/input_select.ams_slot_6_select_spool" \
+  | python3 -m json.tool | grep -E "state|options" | head -10
+```
+
+**3. Manual enroll event uses `slot` (not `slot_number`) on server:**
+```bash
+./scripts/ssh_ha.sh "grep -A5 'bambu_rfid_manual_enroll' /config/scripts.yaml | head -20"
+```
+
+**4. Unbound_reason vs dashboard (stale helpers → dashboard shows unbound despite ok=6):**
+```bash
+for i in 1 2 3 4 5 6; do
+  val=$(curl -s -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" \
+    "http://192.168.4.124:8123/api/states/input_text.ams_slot_${i}_unbound_reason" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['state'])")
+  echo "Slot $i: $val"
+done
+```
+If slots show non-empty `unbound_reason` but reconciler says bound, clear with `./scripts/clear_ams_unbound_reasons.sh` or the one-liner from the script.
+
+------------------------------------------------------------------------
+
 # PHASE_2_5 Workflow (Authoritative)
 
 PHASE_2_5 implements deterministic spool matching policy:

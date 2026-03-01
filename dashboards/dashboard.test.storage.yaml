@@ -1508,7 +1508,7 @@ views:
                   tap_action:
                     action: more-info
                 - type: grid
-                  columns: 2
+                  columns: 1
                   square: false
                   cards:
                     - type: conditional
@@ -1522,6 +1522,9 @@ views:
                         secondary: Empty
                         icon: mdi:numeric-1-circle-outline
                         icon_color: grey
+                        card_mod:
+                          style: |
+                            ha-card { min-height: 64px; padding: 12px 16px; }
                         tap_action:
                           action: fire-dom-event
                           browser_mod:
@@ -1569,6 +1572,7 @@ views:
                             - UNBOUND_TRAY_EMPTY
                       card:
                         type: custom:mushroom-template-card
+                        multiline_secondary: true
                         primary: >-
                           {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_1') }}
                         secondary: >-
@@ -1585,6 +1589,10 @@ views:
                           {% endif %}
                         icon: mdi:numeric-1-circle
                         icon_color: var(--rgb-state-entity)
+                        card_mod:
+                          style: |
+                            ha-card { min-height: 64px; padding: 12px 16px; }
+                            mushroom-template-card .info .secondary { white-space: normal; line-height: 1.35; }
                         tap_action:
                           action: fire-dom-event
                           browser_mod:
@@ -1644,6 +1652,7 @@ views:
                             - UNBOUND_TRAY_EMPTY
                       card:
                         type: custom:mushroom-template-card
+                        multiline_secondary: true
                         primary: >-
                           {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_1') }}
                         secondary: >-
@@ -1663,6 +1672,8 @@ views:
                             {% set c = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'color') %}
 
                             ha-card {
+                              min-height: 64px;
+                              padding: 12px 16px;
                               --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
                               {% if state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'active') %}
                               font-weight: bold;
@@ -1670,6 +1681,7 @@ views:
                               background: rgba(var(--rgb-primary-color), 0.15);
                               {% endif %}
                             }
+                            mushroom-template-card .info .secondary { white-space: normal; line-height: 1.35; }
                     - type: conditional
                       conditions:
                         - condition: state
@@ -1681,6 +1693,9 @@ views:
                         secondary: Empty
                         icon: mdi:numeric-2-circle-outline
                         icon_color: grey
+                        card_mod:
+                          style: |
+                            ha-card { min-height: 64px; padding: 12px 16px; }
                         tap_action:
                           action: fire-dom-event
                           browser_mod:
@@ -1728,6 +1743,7 @@ views:
                             - UNBOUND_TRAY_EMPTY
                       card:
                         type: custom:mushroom-template-card
+                        multiline_secondary: true
                         primary: >-
                           {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_2') }}
                         secondary: >-
@@ -1779,6 +1795,8 @@ views:
                             {% set c = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'color') %}
 
                             ha-card {
+                              min-height: 64px;
+                              padding: 12px 16px;
                               --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
                               {% if state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'active') %}
                               font-weight: bold;
@@ -1789,6 +1807,7 @@ views:
                               background: rgba(255, 165, 0, 0.12) !important;
                               {% endif %}
                             }
+                            mushroom-template-card .info .secondary { white-space: normal; line-height: 1.35; }
                     - type: conditional
                       conditions:
                         - condition: state
@@ -1803,6 +1822,7 @@ views:
                             - UNBOUND_TRAY_EMPTY
                       card:
                         type: custom:mushroom-template-card
+                        multiline_secondary: true
                         primary: >-
                           {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_2') }}
                         secondary: >-
@@ -1822,6 +1842,8 @@ views:
                             {% set c = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'color') %}
 
                             ha-card {
+                              min-height: 64px;
+                              padding: 12px 16px;
                               --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
                               {% if state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'active') %}
                               font-weight: bold;
@@ -1829,6 +1851,7 @@ views:
                               background: rgba(var(--rgb-primary-color), 0.15);
                               {% endif %}
                             }
+                            mushroom-template-card .info .secondary { white-space: normal; line-height: 1.35; }
                     - type: conditional
                       conditions:
                         - condition: state
@@ -1840,6 +1863,9 @@ views:
                         secondary: Empty
                         icon: mdi:numeric-3-circle-outline
                         icon_color: grey
+                        card_mod:
+                          style: |
+                            ha-card { min-height: 64px; padding: 12px 16px; }
                         tap_action:
                           action: fire-dom-event
                           browser_mod:
@@ -1887,6 +1913,7 @@ views:
                             - UNBOUND_TRAY_EMPTY
                       card:
                         type: custom:mushroom-template-card
+                        multiline_secondary: true
                         primary: >-
                           {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_3') }}
                         secondary: >-
@@ -1938,6 +1965,8 @@ views:
                             {% set c = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'color') %}
 
                             ha-card {
+                              min-height: 64px;
+                              padding: 12px 16px;
                               --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
                               {% if state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'active') %}
                               font-weight: bold;
@@ -1948,6 +1977,7 @@ views:
                               background: rgba(255, 165, 0, 0.12) !important;
                               {% endif %}
                             }
+                            mushroom-template-card .info .secondary { white-space: normal; line-height: 1.35; }
                     - type: conditional
                       conditions:
                         - condition: state
@@ -1962,6 +1992,7 @@ views:
                             - UNBOUND_TRAY_EMPTY
                       card:
                         type: custom:mushroom-template-card
+                        multiline_secondary: true
                         primary: >-
                           {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_3') }}
                         secondary: >-
@@ -1981,6 +2012,8 @@ views:
                             {% set c = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'color') %}
 
                             ha-card {
+                              min-height: 64px;
+                              padding: 12px 16px;
                               --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
                               {% if state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'active') %}
                               font-weight: bold;
@@ -1988,6 +2021,7 @@ views:
                               background: rgba(var(--rgb-primary-color), 0.15);
                               {% endif %}
                             }
+                            mushroom-template-card .info .secondary { white-space: normal; line-height: 1.35; }
                     - type: conditional
                       conditions:
                         - condition: state
@@ -1999,6 +2033,9 @@ views:
                         secondary: Empty
                         icon: mdi:numeric-4-circle-outline
                         icon_color: grey
+                        card_mod:
+                          style: |
+                            ha-card { min-height: 64px; padding: 12px 16px; }
                         tap_action:
                           action: fire-dom-event
                           browser_mod:
@@ -2046,6 +2083,7 @@ views:
                             - UNBOUND_TRAY_EMPTY
                       card:
                         type: custom:mushroom-template-card
+                        multiline_secondary: true
                         primary: >-
                           {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_4') }}
                         secondary: >-
@@ -2097,6 +2135,8 @@ views:
                             {% set c = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'color') %}
 
                             ha-card {
+                              min-height: 64px;
+                              padding: 12px 16px;
                               --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
                               {% if state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'active') %}
                               font-weight: bold;
@@ -2107,6 +2147,7 @@ views:
                               background: rgba(255, 165, 0, 0.12) !important;
                               {% endif %}
                             }
+                            mushroom-template-card .info .secondary { white-space: normal; line-height: 1.35; }
                     - type: conditional
                       conditions:
                         - condition: state
@@ -2121,6 +2162,7 @@ views:
                             - UNBOUND_TRAY_EMPTY
                       card:
                         type: custom:mushroom-template-card
+                        multiline_secondary: true
                         primary: >-
                           {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_4') }}
                         secondary: >-
@@ -2140,6 +2182,8 @@ views:
                             {% set c = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'color') %}
 
                             ha-card {
+                              min-height: 64px;
+                              padding: 12px 16px;
                               --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
                               {% if state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'active') %}
                               font-weight: bold;
@@ -2147,6 +2191,7 @@ views:
                               background: rgba(var(--rgb-primary-color), 0.15);
                               {% endif %}
                             }
+                            mushroom-template-card .info .secondary { white-space: normal; line-height: 1.35; }
                 - type: horizontal-stack
                   cards:
                     - type: custom:mushroom-entity-card
@@ -2485,6 +2530,9 @@ views:
                         secondary: Empty
                         icon: mdi:package-variant-closed
                         icon_color: grey
+                        card_mod:
+                          style: |
+                            ha-card { min-height: 64px; padding: 12px 16px; }
                         tap_action:
                           action: fire-dom-event
                           browser_mod:
@@ -2532,6 +2580,7 @@ views:
                             - UNBOUND_TRAY_EMPTY
                       card:
                         type: custom:mushroom-template-card
+                        multiline_secondary: true
                         primary: >-
                           {{ states('sensor.p1s_01p00c5a3101668_ams_128_tray_1') }}
                         secondary: >-
@@ -2583,6 +2632,8 @@ views:
                             {% set c = state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'color') %}
 
                             ha-card {
+                              min-height: 64px;
+                              padding: 12px 16px;
                               --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
                               {% if state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'active') %}
                               font-weight: bold;
@@ -2593,6 +2644,7 @@ views:
                               background: rgba(255, 165, 0, 0.12) !important;
                               {% endif %}
                             }
+                            mushroom-template-card .info .secondary { white-space: normal; line-height: 1.35; }
                     - type: conditional
                       conditions:
                         - condition: state
@@ -2607,6 +2659,7 @@ views:
                             - UNBOUND_TRAY_EMPTY
                       card:
                         type: custom:mushroom-template-card
+                        multiline_secondary: true
                         primary: >-
                           {{ states('sensor.p1s_01p00c5a3101668_ams_128_tray_1') }}
                         secondary: >-
@@ -2626,6 +2679,8 @@ views:
                             {% set c = state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'color') %}
 
                             ha-card {
+                              min-height: 64px;
+                              padding: 12px 16px;
                               --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
                               {% if state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'active') %}
                               font-weight: bold;
@@ -2633,6 +2688,7 @@ views:
                               background: rgba(var(--rgb-primary-color), 0.15);
                               {% endif %}
                             }
+                            mushroom-template-card .info .secondary { white-space: normal; line-height: 1.35; }
                     - type: custom:mushroom-entity-card
                       entity: sensor.p1s_01p00c5a3101668_ams_128_humidity
                       name: Humidity
@@ -2723,6 +2779,9 @@ views:
                         secondary: Empty
                         icon: mdi:package-variant-closed
                         icon_color: grey
+                        card_mod:
+                          style: |
+                            ha-card { min-height: 64px; padding: 12px 16px; }
                         tap_action:
                           action: fire-dom-event
                           browser_mod:
@@ -2770,6 +2829,7 @@ views:
                             - UNBOUND_TRAY_EMPTY
                       card:
                         type: custom:mushroom-template-card
+                        multiline_secondary: true
                         primary: >-
                           {{ states('sensor.p1s_01p00c5a3101668_ams_129_tray_1') }}
                         secondary: >-
@@ -2821,6 +2881,8 @@ views:
                             {% set c = state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'color') %}
 
                             ha-card {
+                              min-height: 64px;
+                              padding: 12px 16px;
                               --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
                               {% if state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'active') %}
                               font-weight: bold;
@@ -2831,6 +2893,7 @@ views:
                               background: rgba(255, 165, 0, 0.12) !important;
                               {% endif %}
                             }
+                            mushroom-template-card .info .secondary { white-space: normal; line-height: 1.35; }
                     - type: conditional
                       conditions:
                         - condition: state
@@ -2845,6 +2908,7 @@ views:
                             - UNBOUND_TRAY_EMPTY
                       card:
                         type: custom:mushroom-template-card
+                        multiline_secondary: true
                         primary: >-
                           {{ states('sensor.p1s_01p00c5a3101668_ams_129_tray_1') }}
                         secondary: >-
@@ -2864,6 +2928,8 @@ views:
                             {% set c = state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'color') %}
 
                             ha-card {
+                              min-height: 64px;
+                              padding: 12px 16px;
                               --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
                               {% if state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'active') %}
                               font-weight: bold;
@@ -2871,6 +2937,7 @@ views:
                               background: rgba(var(--rgb-primary-color), 0.15);
                               {% endif %}
                             }
+                            mushroom-template-card .info .secondary { white-space: normal; line-height: 1.35; }
                     - type: custom:mushroom-entity-card
                       entity: sensor.p1s_01p00c5a3101668_ams_129_humidity
                       name: Humidity
