@@ -1078,6 +1078,7 @@
 - id: ams_tray_auto_detect_and_assign
   alias: AMS – auto-detect tray change and assign Spoolman spool
   description: When an AMS tray changes (new filament loaded), try to match to a Spoolman spool on Shelf and auto-assign if unique match.
+  initial_state: false
   trigger:
     - platform: state
       entity_id:
