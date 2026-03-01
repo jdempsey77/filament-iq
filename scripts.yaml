@@ -638,10 +638,6 @@ update_spoolman_tray_6:
 ams_slot_1_assign_and_update:
   alias: Slot 1 – Assign & Update
   sequence:
-    # Safety: Block if print is active
-    - condition: state
-      entity_id: input_boolean.p1s_print_active
-      state: 'off'
     - variables:
         selected: "{{ states('input_select.ams_slot_1_select_spool') }}"
         spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
@@ -667,11 +663,7 @@ ams_slot_1_assign_and_update:
                 location: "Shelf"
     - variables:
         final_spool_id: "{{ states('input_text.ams_slot_1_spool_id') | int }}"
-        gross: "{{ states('input_number.ams_slot_1_gross_weight') | float(0) }}"
-        stype: "{{ states('input_select.ams_slot_1_spool_type') }}"
-        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_1_tare_override') | float(0) }}{% endif %}"
-        extras: "{{ states('input_number.ams_slot_1_extras_weight') | float(0) }}"
-        remaining: "{% if stype == 'Bambu Lab (plastic)' or stype == 'Overture cardboard' %}{{ [0, gross - tare] | max }}{% else %}{{ [0, gross - tare - extras] | max }}{% endif %}"
+        remaining: "{{ states('input_number.ams_slot_1_gross_weight') | float(0) | round(1) }}"
     - choose:
         - conditions:
             - condition: template
@@ -694,10 +686,6 @@ ams_slot_1_assign_and_update:
 ams_slot_2_assign_and_update:
   alias: Slot 2 – Assign & Update
   sequence:
-    # Safety: Block if print is active
-    - condition: state
-      entity_id: input_boolean.p1s_print_active
-      state: 'off'
     - variables:
         selected: "{{ states('input_select.ams_slot_2_select_spool') }}"
         spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
@@ -723,11 +711,7 @@ ams_slot_2_assign_and_update:
                 location: "Shelf"
     - variables:
         final_spool_id: "{{ states('input_text.ams_slot_2_spool_id') | int }}"
-        gross: "{{ states('input_number.ams_slot_2_gross_weight') | float(0) }}"
-        stype: "{{ states('input_select.ams_slot_2_spool_type') }}"
-        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_2_tare_override') | float(0) }}{% endif %}"
-        extras: "{{ states('input_number.ams_slot_2_extras_weight') | float(0) }}"
-        remaining: "{% if stype == 'Bambu Lab (plastic)' or stype == 'Overture cardboard' %}{{ [0, gross - tare] | max }}{% else %}{{ [0, gross - tare - extras] | max }}{% endif %}"
+        remaining: "{{ states('input_number.ams_slot_2_gross_weight') | float(0) | round(1) }}"
     - choose:
         - conditions:
             - condition: template
@@ -750,10 +734,6 @@ ams_slot_2_assign_and_update:
 ams_slot_3_assign_and_update:
   alias: Slot 3 – Assign & Update
   sequence:
-    # Safety: Block if print is active
-    - condition: state
-      entity_id: input_boolean.p1s_print_active
-      state: 'off'
     - variables:
         selected: "{{ states('input_select.ams_slot_3_select_spool') }}"
         spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
@@ -779,11 +759,7 @@ ams_slot_3_assign_and_update:
                 location: "Shelf"
     - variables:
         final_spool_id: "{{ states('input_text.ams_slot_3_spool_id') | int }}"
-        gross: "{{ states('input_number.ams_slot_3_gross_weight') | float(0) }}"
-        stype: "{{ states('input_select.ams_slot_3_spool_type') }}"
-        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_3_tare_override') | float(0) }}{% endif %}"
-        extras: "{{ states('input_number.ams_slot_3_extras_weight') | float(0) }}"
-        remaining: "{% if stype == 'Bambu Lab (plastic)' or stype == 'Overture cardboard' %}{{ [0, gross - tare] | max }}{% else %}{{ [0, gross - tare - extras] | max }}{% endif %}"
+        remaining: "{{ states('input_number.ams_slot_3_gross_weight') | float(0) | round(1) }}"
     - choose:
         - conditions:
             - condition: template
@@ -806,10 +782,6 @@ ams_slot_3_assign_and_update:
 ams_slot_4_assign_and_update:
   alias: Slot 4 – Assign & Update
   sequence:
-    # Safety: Block if print is active
-    - condition: state
-      entity_id: input_boolean.p1s_print_active
-      state: 'off'
     - variables:
         selected: "{{ states('input_select.ams_slot_4_select_spool') }}"
         spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
@@ -835,11 +807,7 @@ ams_slot_4_assign_and_update:
                 location: "Shelf"
     - variables:
         final_spool_id: "{{ states('input_text.ams_slot_4_spool_id') | int }}"
-        gross: "{{ states('input_number.ams_slot_4_gross_weight') | float(0) }}"
-        stype: "{{ states('input_select.ams_slot_4_spool_type') }}"
-        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_4_tare_override') | float(0) }}{% endif %}"
-        extras: "{{ states('input_number.ams_slot_4_extras_weight') | float(0) }}"
-        remaining: "{% if stype == 'Bambu Lab (plastic)' or stype == 'Overture cardboard' %}{{ [0, gross - tare] | max }}{% else %}{{ [0, gross - tare - extras] | max }}{% endif %}"
+        remaining: "{{ states('input_number.ams_slot_4_gross_weight') | float(0) | round(1) }}"
     - choose:
         - conditions:
             - condition: template
@@ -862,10 +830,6 @@ ams_slot_4_assign_and_update:
 ams_slot_5_assign_and_update:
   alias: Slot 5 – Assign & Update
   sequence:
-    # Safety: Block if print is active
-    - condition: state
-      entity_id: input_boolean.p1s_print_active
-      state: 'off'
     - variables:
         selected: "{{ states('input_select.ams_slot_5_select_spool') }}"
         spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
@@ -891,11 +855,7 @@ ams_slot_5_assign_and_update:
                 location: "Shelf"
     - variables:
         final_spool_id: "{{ states('input_text.ams_slot_5_spool_id') | int }}"
-        gross: "{{ states('input_number.ams_slot_5_gross_weight') | float(0) }}"
-        stype: "{{ states('input_select.ams_slot_5_spool_type') }}"
-        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_5_tare_override') | float(0) }}{% endif %}"
-        extras: "{{ states('input_number.ams_slot_5_extras_weight') | float(0) }}"
-        remaining: "{% if stype == 'Bambu Lab (plastic)' or stype == 'Overture cardboard' %}{{ [0, gross - tare] | max }}{% else %}{{ [0, gross - tare - extras] | max }}{% endif %}"
+        remaining: "{{ states('input_number.ams_slot_5_gross_weight') | float(0) | round(1) }}"
     - choose:
         - conditions:
             - condition: template
@@ -918,10 +878,6 @@ ams_slot_5_assign_and_update:
 ams_slot_6_assign_and_update:
   alias: Slot 6 – Assign & Update
   sequence:
-    # Safety: Block if print is active
-    - condition: state
-      entity_id: input_boolean.p1s_print_active
-      state: 'off'
     - variables:
         selected: "{{ states('input_select.ams_slot_6_select_spool') }}"
         spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
@@ -947,11 +903,7 @@ ams_slot_6_assign_and_update:
                 location: "Shelf"
     - variables:
         final_spool_id: "{{ states('input_text.ams_slot_6_spool_id') | int }}"
-        gross: "{{ states('input_number.ams_slot_6_gross_weight') | float(0) }}"
-        stype: "{{ states('input_select.ams_slot_6_spool_type') }}"
-        tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_6_tare_override') | float(0) }}{% endif %}"
-        extras: "{{ states('input_number.ams_slot_6_extras_weight') | float(0) }}"
-        remaining: "{% if stype == 'Bambu Lab (plastic)' or stype == 'Overture cardboard' %}{{ [0, gross - tare] | max }}{% else %}{{ [0, gross - tare - extras] | max }}{% endif %}"
+        remaining: "{{ states('input_number.ams_slot_6_gross_weight') | float(0) | round(1) }}"
     - choose:
         - conditions:
             - condition: template
