@@ -240,6 +240,23 @@ class TestableReconcile(AmsRfidReconcile):
         pass
 
     def get_state(self, entity_id, attribute=None):
+        # _get_helper_state() uses get_state(entity_id, attribute="all"); support plain key.
+        if attribute == "all":
+            val = self._state_map.get(entity_id)
+            if val is not None:
+                return val if isinstance(val, dict) and "state" in val else {"state": val, "attributes": {}}
+            val = self._state_map.get(f"{entity_id}::all")
+            if val is not None:
+                return val if isinstance(val, dict) and "state" in val else {"state": val, "attributes": {}}
+            if "ams_slot_" in entity_id and "spool_id" in entity_id:
+                return {"state": "0", "attributes": {}}
+            if "ams_slot_" in entity_id and "expected_spool_id" in entity_id:
+                return {"state": "0", "attributes": {}}
+            if "ams_slot_" in entity_id and "status" in entity_id:
+                return {"state": "", "attributes": {}}
+            if "ams_slot_" in entity_id and ("tray_signature" in entity_id or "unbound_reason" in entity_id or "rfid_pending_until" in entity_id or "expected_color_hex" in entity_id):
+                return {"state": "", "attributes": {}}
+            return None
         key = f"{entity_id}" if attribute is None else f"{entity_id}::{attribute}"
         val = self._state_map.get(key)
         if val is not None:

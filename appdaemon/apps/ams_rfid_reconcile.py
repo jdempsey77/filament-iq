@@ -481,6 +481,22 @@ class AmsRfidReconcile(hass.Hass):
             )
             return
         self.log("STARTUP_WAIT_HELPERS_READY", level="INFO")
+        # Validate get_state vs get_state(attribute='all') for debugging
+        for _dbg_slot in range(1, 7):
+            _dbg_eid = f"input_text.ams_slot_{_dbg_slot}_spool_id"
+            _dbg_plain = self.get_state(_dbg_eid)
+            _dbg_full = self.get_state(_dbg_eid, attribute="all")
+            _dbg_safe = _dbg_full.get("state") if isinstance(_dbg_full, dict) else _dbg_full
+            if str(_dbg_plain) != str(_dbg_safe):
+                self.log(
+                    f"STARTUP_STATE_MISMATCH slot={_dbg_slot} plain={_dbg_plain!r} full={_dbg_safe!r}",
+                    level="WARNING",
+                )
+            else:
+                self.log(
+                    f"STARTUP_STATE_OK slot={_dbg_slot} value={_dbg_plain!r}",
+                    level="INFO",
+                )
         self._clear_legacy_signatures()
         self._run_reconcile("startup_delay")
 
@@ -699,10 +715,10 @@ class AmsRfidReconcile(hass.Hass):
 
             # Sticky mapping: tray identity (tray_uuid if present else tag_uid) for same-tray no-flip
             current_tray_sig = self._get_tray_identity(attrs, tag_uid or "", tray_state_str)
-            stored_tray_sig = (self.get_state(f"input_text.ams_slot_{slot}_tray_signature") or "") or ""
-            helper_spool_id = self._safe_int(self.get_state(f"input_text.ams_slot_{slot}_spool_id"), 0)
+            stored_tray_sig = (self._get_helper_state(f"input_text.ams_slot_{slot}_tray_signature") or "") or ""
+            helper_spool_id = self._safe_int(self._get_helper_state(f"input_text.ams_slot_{slot}_spool_id"), 0)
             previous_helper_spool_id = helper_spool_id
-            helper_expected = self._safe_int(self.get_state(f"input_text.ams_slot_{slot}_expected_spool_id"), 0)
+            helper_expected = self._safe_int(self._get_helper_state(f"input_text.ams_slot_{slot}_expected_spool_id"), 0)
 
             # TRUTH GUARD (RFID_VISIBLE): clear stale helper if its UID doesn't match physical tray tag
             norm_tag_tg = _normalize_rfid_tag_uid(tag_uid)
@@ -761,7 +777,7 @@ class AmsRfidReconcile(hass.Hass):
                     previous_helper_spool_id = 0
 
             # ── FORCE_ACCEPTED: user explicitly accepted this binding — do not overwrite ──
-            current_unbound_reason = (self.get_state(f"input_text.ams_slot_{slot}_unbound_reason") or "").strip()
+            current_unbound_reason = (self._get_helper_state(f"input_text.ams_slot_{slot}_unbound_reason") or "").strip()
             if current_unbound_reason == "FORCE_ACCEPTED" and helper_spool_id > 0:
                 self.log(
                     f"FORCE_ACCEPTED_SKIP slot={slot} spool_id={helper_spool_id} — user force-accepted, preserving binding",
@@ -813,8 +829,8 @@ class AmsRfidReconcile(hass.Hass):
             raw_tag_uid_pd = attrs.get("tag_uid") if attrs.get("tag_uid") is not None else ""
             raw_tray_uuid_pd = attrs.get("tray_uuid") if attrs.get("tray_uuid") is not None else ""
             identity_unavailable = not tag_uid and self._is_all_zero_identity(raw_tag_uid_pd, raw_tray_uuid_pd)
-            stored_status = (self.get_state(f"input_text.ams_slot_{slot}_status") or "").strip()
-            pending_until_raw = (self.get_state(f"input_text.ams_slot_{slot}_rfid_pending_until") or "").strip()
+            stored_status = (self._get_helper_state(f"input_text.ams_slot_{slot}_status") or "").strip()
+            pending_until_raw = (self._get_helper_state(f"input_text.ams_slot_{slot}_rfid_pending_until") or "").strip()
             actually_pending = stored_status == STATUS_PENDING_RFID_READ or bool(pending_until_raw)
             stale_expected = helper_expected == 0 or helper_expected != helper_spool_id
             if identity_unavailable and not tray_empty and helper_spool_id > 0 and actually_pending and stale_expected:
@@ -1556,7 +1572,7 @@ class AmsRfidReconcile(hass.Hass):
                 if len(mapped_ids) == 1:
                     resolved_spool_id = mapped_ids[0]
                     uid_matched = resolved_spool_id > 0
-                    expected_spool_id = self._safe_int(self.get_state(f"input_text.ams_slot_{slot}_expected_spool_id"), 0)
+                    expected_spool_id = self._safe_int(self._get_helper_state(f"input_text.ams_slot_{slot}_expected_spool_id"), 0)
                     expected_vs_resolved_mismatch = expected_spool_id not in (0, resolved_spool_id)
                     # Color mismatch only when tray_hex is authoritative (skip "", "000000", "00000000", "none", "unknown").
                     tray_hex = self._normalize_tray_hex(tray_meta.get("color_hex"))
@@ -1614,7 +1630,7 @@ class AmsRfidReconcile(hass.Hass):
                                 "expected_autofix",
                                 {"tag_uid": tag_uid, "resolved_spool_id": resolved_spool_id, "previous_expected": expected_spool_id},
                             )
-                            expected_hex = self._normalize_tray_hex(self.get_state(f"input_text.ams_slot_{slot}_expected_color_hex"))
+                            expected_hex = self._normalize_tray_hex(self._get_helper_state(f"input_text.ams_slot_{slot}_expected_color_hex"))
                             self._maybe_log_color_warning(slot, expected_hex, tray_hex)
                         else:
                             self.log(
@@ -1660,7 +1676,7 @@ class AmsRfidReconcile(hass.Hass):
                             "known_binding",
                             {"tag_uid": tag_uid, "resolved_spool_id": resolved_spool_id, "result": "ok"},
                         )
-                        expected_hex = self._normalize_tray_hex(self.get_state(f"input_text.ams_slot_{slot}_expected_color_hex"))
+                        expected_hex = self._normalize_tray_hex(self._get_helper_state(f"input_text.ams_slot_{slot}_expected_color_hex"))
                         self._maybe_log_color_warning(slot, expected_hex, tray_hex)
                 elif len(mapped_ids) > 1:
                     # PHASE_2_5: tie-break by least remaining grams
@@ -1937,7 +1953,7 @@ class AmsRfidReconcile(hass.Hass):
                 after_slots[str(slot)] = self._snapshot_slot(slot, entity_id)
         mapping = {}
         for slot in TRAY_ENTITY_BY_SLOT:
-            sid = self._safe_int(self.get_state(f"input_text.ams_slot_{slot}_expected_spool_id"), 0)
+            sid = self._safe_int(self._get_helper_state(f"input_text.ams_slot_{slot}_expected_spool_id"), 0)
             mapping[str(slot)] = sid
         self.write_last_mapping_json(reason, mapping)
         summary = {
@@ -2014,7 +2030,7 @@ class AmsRfidReconcile(hass.Hass):
             ot_state = str(ot_tray.get("state", "") if isinstance(ot_tray, dict) else ot_tray or "").strip().lower()
             if ot_state == "empty":
                 continue
-            other_helper = self._safe_int(self.get_state(f"input_text.ams_slot_{other_slot}_spool_id"), 0)
+            other_helper = self._safe_int(self._get_helper_state(f"input_text.ams_slot_{other_slot}_spool_id"), 0)
             if other_helper == spool_id:
                 self.log(
                     f"PREV_OCCUPANT_ACTIVE_IN_OTHER_SLOT spool_id={spool_id} current_slot={current_slot} active_slot={other_slot}",
@@ -2327,7 +2343,7 @@ class AmsRfidReconcile(hass.Hass):
                 ot_state = str(ot_tray.get("state", "") if isinstance(ot_tray, dict) else ot_tray or "").strip().lower()
                 if ot_state != "empty":
                     other_spool_id = self._safe_int(
-                        self.get_state(f"input_text.ams_slot_{other_slot}_spool_id"), 0
+                        self._get_helper_state(f"input_text.ams_slot_{other_slot}_spool_id"), 0
                     )
                     if other_spool_id > 0 and other_spool_id == spool_id:
                         self.log(
@@ -3479,6 +3495,23 @@ class AmsRfidReconcile(hass.Hass):
         except urllib.error.URLError as exc:
             raise RuntimeError(f"URL error for {req.full_url}: {exc}")
 
+    def _get_helper_state(self, entity_id):
+        """Read helper state using attribute='all' to bypass AppDaemon cache bug.
+
+        Plain get_state(entity_id) can return stale/wrong values after HA restart.
+        get_state(entity_id, attribute='all') returns the correct full dict.
+        When attribute='all' is missing (e.g. test mocks), fall back to plain get_state.
+        """
+        try:
+            full = self.get_state(entity_id, attribute="all")
+            if full is None:
+                return self.get_state(entity_id)
+            if isinstance(full, dict):
+                return full.get("state")
+            return full
+        except Exception:
+            return None
+
     def _safe_int(self, value, default=0):
         try:
             return int(str(value).strip())
@@ -3497,9 +3530,9 @@ class AmsRfidReconcile(hass.Hass):
         return {
             "tag_uid": self._normalize_uid(attrs.get("tag_uid")),
             "tray_state": tray.get("state", "") if isinstance(tray, dict) else "",
-            "helper_spool_id": str(self.get_state(f"input_text.ams_slot_{slot}_spool_id") or ""),
-            "helper_expected_spool_id": str(self.get_state(f"input_text.ams_slot_{slot}_expected_spool_id") or ""),
-            "helper_status": str(self.get_state(f"input_text.ams_slot_{slot}_status") or ""),
+            "helper_spool_id": str(self._get_helper_state(f"input_text.ams_slot_{slot}_spool_id") or ""),
+            "helper_expected_spool_id": str(self._get_helper_state(f"input_text.ams_slot_{slot}_expected_spool_id") or ""),
+            "helper_status": str(self._get_helper_state(f"input_text.ams_slot_{slot}_status") or ""),
         }
 
     def _record_write(self, kind, payload):
