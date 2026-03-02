@@ -227,22 +227,6 @@
             message: "Unknown print_status '{{ current_state }}' - no action taken"
 
   mode: single
-- id: p1s_operator_alert
-  alias: P1S Operator Alert
-  description: Notify when printer needs attention (failed or error during print)
-  trigger:
-  - platform: state
-    entity_id: sensor.p1s_operator_status
-    to:
-    - failed_requires_intervention
-    - printing_attention_needed
-  condition: []
-  action:
-  - action: notify.persistent_notification
-    data:
-      title: "Printer needs attention"
-      message: "P1S status: {{ trigger.to_state.state }}"
-  mode: single
 - id: p1s_persist_print_times
   alias: P1S – persist print start/end times
   description: Capture start_time and end_time sensors to persistent helpers so they survive HA restart
