@@ -130,27 +130,21 @@ input_text:
   ams_slot_1_expected_spool_id:
     name: AMS Slot 1 – Expected Spool ID
     max: 50
-    initial: "0"
   ams_slot_2_expected_spool_id:
     name: AMS Slot 2 – Expected Spool ID
     max: 50
-    initial: "0"
   ams_slot_3_expected_spool_id:
     name: AMS Slot 3 – Expected Spool ID
     max: 50
-    initial: "0"
   ams_slot_4_expected_spool_id:
     name: AMS Slot 4 – Expected Spool ID
     max: 50
-    initial: "0"
   ams_slot_5_expected_spool_id:
     name: AMS Slot 5 – Expected Spool ID
     max: 50
-    initial: "0"
   ams_slot_6_expected_spool_id:
     name: AMS Slot 6 – Expected Spool ID
     max: 50
-    initial: "0"
 
   ams_slot_1_status:
     name: AMS Slot 1 – Status
