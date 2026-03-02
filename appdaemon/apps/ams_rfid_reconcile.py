@@ -944,17 +944,30 @@ class AmsRfidReconcile(hass.Hass):
                 if not ht_needs_rematch and helper_spool_id > 0 and not tray_empty:
                     # Detect physical spool swap: tray identity vs bound spool's lot_nr (or material+color if no lot_nr)
                     if not self._nonrfid_tray_matches_bound_spool(tray_meta, helper_spool_id, spool_index):
-                        spool_obj = spool_index.get(helper_spool_id) or {}
-                        existing_lot_nr = str(spool_obj.get("lot_nr") or "").strip()
-                        self.log(
-                            f"NONRFID_SPOOL_SWAP_DETECTED slot={slot} helper={helper_spool_id} tray_sig={nonrfid_sig} spool_lot_nr={existing_lot_nr}",
-                            level="INFO",
+                        fid_raw_swap = (tray_meta.get("filament_id") or "").strip()
+                        unbound_reason_swap = (self._get_helper_state(f"input_text.ams_slot_{slot}_unbound_reason") or "").strip()
+                        # Generic filament with manual bind, or user force-accepted: do not treat as swap
+                        preserve_bind = (
+                            (is_generic_filament_id(fid_raw_swap) and helper_spool_id == helper_expected)
+                            or unbound_reason_swap == "FORCE_ACCEPTED"
                         )
-                        ht_needs_rematch = True
-                        helper_spool_id = 0
-                        if not status_only:
-                            self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
-                            self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
+                        if preserve_bind:
+                            self.log(
+                                f"NONRFID_SPOOL_SWAP_SKIP_GENERIC_BOUND slot={slot} spool_id={helper_spool_id} — preserving manual bind",
+                                level="INFO",
+                            )
+                        else:
+                            spool_obj = spool_index.get(helper_spool_id) or {}
+                            existing_lot_nr = str(spool_obj.get("lot_nr") or "").strip()
+                            self.log(
+                                f"NONRFID_SPOOL_SWAP_DETECTED slot={slot} helper={helper_spool_id} tray_sig={nonrfid_sig} spool_lot_nr={existing_lot_nr}",
+                                level="INFO",
+                            )
+                            ht_needs_rematch = True
+                            helper_spool_id = 0
+                            if not status_only:
+                                self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
+                                self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
 
                 if not ht_needs_rematch and helper_spool_id > 0:
                     # Fingerprint stable, existing binding — validate helper spool (existing logic)
@@ -1217,8 +1230,9 @@ class AmsRfidReconcile(hass.Hass):
                         f"NONRFID_SENTINEL_SKIP slot={slot} filament_id={fid_raw} reason=GENERIC_FILAMENT_NO_AUTO_MATCH",
                         level="INFO",
                     )
-                    # If user already manually bound a spool, respect it
-                    if helper_spool_id > 0:
+                    # Preserve manual bind when bound invariant or user force-accepted
+                    sentinel_unbound = (self._get_helper_state(f"input_text.ams_slot_{slot}_unbound_reason") or "").strip()
+                    if helper_spool_id > 0 and (helper_spool_id == helper_expected or sentinel_unbound == "FORCE_ACCEPTED"):
                         self.log(
                             f"NONRFID_SENTINEL_MANUAL_BIND_PRESERVED slot={slot} spool_id={helper_spool_id} "
                             f"— generic filament but manual bind exists, keeping binding",
@@ -1227,6 +1241,7 @@ class AmsRfidReconcile(hass.Hass):
                         status = STATUS_OK_NONRFID
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                         self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+                        self._set_helper(f"input_text.ams_slot_{slot}_tray_signature", nonrfid_sig)
                         self._log_slot_status_change(slot, status, "", helper_spool_id, tray_meta)
                         ok += 1
                         t["decision"], t["reason"], t["action"] = "NON_RFID", "generic_sentinel_manual_preserved", "nonrfid_registered"
