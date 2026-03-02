@@ -3342,31 +3342,54 @@ views:
                 ha-card ha-icon {
                   color: {% if is_state('switch.miriam_smart_plug', 'on') %} #FFD700 {% else %} white {% endif %} !important;
                 }
-  - title: Spoolman
-    icon: mdi:database
-    path: spoolman
-    type: sections
-    max_columns: 1
-    cards: []
-    sections:
-      - type: grid
+  - title: Filament Library
+    path: filaments
+    icon: mdi:palette-swatch-variant
+    panel: true
+    cards:
+      - type: custom:layout-card
+        layout_type: custom:grid-layout
+        layout:
+          max_width: 1400
+          margin: 0 auto
+          grid-template-columns: 1fr
         cards:
+          - type: markdown
+            content: "## 🧵 Filament Library"
+            card_mod:
+              style: |
+                ha-card { background: none; box-shadow: none; }
+          - type: horizontal-stack
+            cards:
+              - type: entities
+                show_header_toggle: false
+                entities:
+                  - entity: input_select.spoolman_filter_filament_material
+                    name: Material
+                  - entity: input_select.spoolman_filter_filament_vendor
+                    name: Vendor
           - type: custom:flex-table-card
-            title: Filament Library
+            title: ""
             entities:
-              include: sensor.spoolman_filament_list_data
+              include: sensor.spoolman_filament_list_filtered
             strict: true
             sort_by: name
+            css:
+              table+: "width: 100%; table-layout: auto;"
+              th+: "white-space: nowrap; padding: 8px 12px; font-size: 0.85em;"
+              td+: "padding: 8px 12px; white-space: nowrap;"
             columns:
               - name: ID
                 data: items
                 modify: x.id
+                align: center
               - name: Color
                 data: items
                 modify: |-
                   if (x.color_hex) {
-                    '<div style="width:20px;height:20px;border-radius:50%;background:#' + x.color_hex + ';border:1px solid #555;display:inline-block"></div>'
+                    '<div style="width:22px;height:22px;border-radius:50%;background:#' + x.color_hex + ';border:1px solid #555;display:inline-block;vertical-align:middle"></div>'
                   } else { '' }
+                align: center
               - name: Vendor
                 data: items
                 modify: "x.vendor ? x.vendor.name : ''"
@@ -3378,26 +3401,58 @@ views:
                 modify: x.material || ''
               - name: Weight (g)
                 data: items
-                modify: x.weight || ''
-              - name: Diameter
-                data: items
-                modify: x.diameter || ''
+                modify: x.weight != null ? Math.round(x.weight) : ''
+                align: right
+  - title: Spool Inventory
+    path: spools
+    icon: mdi:printer-3d-nozzle
+    panel: true
+    cards:
+      - type: custom:layout-card
+        layout_type: custom:grid-layout
+        layout:
+          max_width: 1400
+          margin: 0 auto
+          grid-template-columns: 1fr
+        cards:
+          - type: markdown
+            content: "## 🧵 Spool Inventory"
+            card_mod:
+              style: |
+                ha-card { background: none; box-shadow: none; }
+          - type: horizontal-stack
+            cards:
+              - type: entities
+                show_header_toggle: false
+                entities:
+                  - entity: input_select.spoolman_filter_spool_material
+                    name: Material
+                  - entity: input_select.spoolman_filter_spool_vendor
+                    name: Vendor
+                  - entity: input_select.spoolman_filter_spool_location
+                    name: Location
           - type: custom:flex-table-card
-            title: Spool Inventory
+            title: ""
             entities:
-              include: sensor.spoolman_spool_list_data
+              include: sensor.spoolman_spool_list_filtered
             strict: true
             sort_by: id
+            css:
+              table+: "width: 100%; table-layout: auto;"
+              th+: "white-space: nowrap; padding: 8px 12px; font-size: 0.85em;"
+              td+: "padding: 8px 12px; white-space: nowrap;"
             columns:
               - name: ID
                 data: items
                 modify: x.id
+                align: center
               - name: Color
                 data: items
                 modify: |-
                   if (x.filament && x.filament.color_hex) {
-                    '<div style="width:20px;height:20px;border-radius:50%;background:#' + x.filament.color_hex + ';border:1px solid #555;display:inline-block"></div>'
+                    '<div style="width:22px;height:22px;border-radius:50%;background:#' + x.filament.color_hex + ';border:1px solid #555;display:inline-block;vertical-align:middle"></div>'
                   } else { '' }
+                align: center
               - name: Filament
                 data: items
                 modify: "x.filament ? x.filament.name : ''"
@@ -3409,11 +3464,13 @@ views:
                 modify: "x.filament ? (x.filament.material || '') : ''"
               - name: Remaining (g)
                 data: items
-                modify: |-
-                  x.remaining_weight != null ? Math.round(x.remaining_weight) : ''
+                modify: x.remaining_weight != null ? Math.round(x.remaining_weight) : ''
+                align: right
               - name: Location
                 data: items
                 modify: x.location || ''
-              - name: Identity (lot_nr)
+              - name: Identity
                 data: items
-                modify: x.lot_nr || ''
+                modify: |-
+                  var lot = x.lot_nr || '';
+                  lot.length > 16 ? (lot.substring(0, 8) + '…' + lot.substring(lot.length - 4)) : lot

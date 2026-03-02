@@ -1381,3 +1381,43 @@
           importance: high
           channel: alarm_stream
   mode: single
+- alias: "Spoolman filter – refresh dropdown options"
+  id: spoolman_filter_refresh_dropdown_options
+  description: "Updates filter input_select options when Spoolman data sensors change"
+  mode: single
+  trigger:
+    - platform: state
+      entity_id:
+        - sensor.spoolman_filament_list_data
+        - sensor.spoolman_spool_list_data
+    - platform: homeassistant
+      event: start
+  condition: []
+  action:
+    - delay:
+        seconds: 5
+    - service: input_select.set_options
+      target:
+        entity_id: input_select.spoolman_filter_filament_material
+      data:
+        options: "{{ state_attr('sensor.spoolman_filter_filament_materials', 'options') or ['All'] }}"
+    - service: input_select.set_options
+      target:
+        entity_id: input_select.spoolman_filter_filament_vendor
+      data:
+        options: "{{ state_attr('sensor.spoolman_filter_filament_vendors', 'options') or ['All'] }}"
+    - service: input_select.set_options
+      target:
+        entity_id: input_select.spoolman_filter_spool_material
+      data:
+        options: "{{ state_attr('sensor.spoolman_filter_spool_materials', 'options') or ['All'] }}"
+    - service: input_select.set_options
+      target:
+        entity_id: input_select.spoolman_filter_spool_vendor
+      data:
+        options: "{{ state_attr('sensor.spoolman_filter_spool_vendors', 'options') or ['All'] }}"
+    - service: input_select.set_options
+      target:
+        entity_id: input_select.spoolman_filter_spool_location
+      data:
+        options: "{{ state_attr('sensor.spoolman_filter_spool_locations', 'options') or ['All'] }}"

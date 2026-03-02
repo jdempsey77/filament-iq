@@ -735,6 +735,32 @@ input_select:
     name: New filament – vendor
     options: ["— No vendor —"]
     initial: "— No vendor —"
+  # --- Spoolman dashboard filters (UI only, not system-critical) ---
+  spoolman_filter_filament_material:
+    name: "Filter – Filament Material"
+    options:
+      - "All"
+    initial: "All"
+  spoolman_filter_filament_vendor:
+    name: "Filter – Filament Vendor"
+    options:
+      - "All"
+    initial: "All"
+  spoolman_filter_spool_material:
+    name: "Filter – Spool Material"
+    options:
+      - "All"
+    initial: "All"
+  spoolman_filter_spool_vendor:
+    name: "Filter – Spool Vendor"
+    options:
+      - "All"
+    initial: "All"
+  spoolman_filter_spool_location:
+    name: "Filter – Spool Location"
+    options:
+      - "All"
+    initial: "All"
 
 # Filament list from Spoolman API for "Add spool" dropdown. Uses fixed resource URL so the entity is always created (resource_template can prevent REST entity creation).
 # Set resource below to your Spoolman API base + /api/v1/filament (e.g. http://192.168.1.100:7912/api/v1/filament). Restart HA after changing.
@@ -1476,6 +1502,206 @@ template:
         state_class: measurement
         state: >
           {{ [0, (state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'remain') | float(0) / 100)] | max | round(1) }}
+
+      # --- Spoolman filter option sensors ---
+      - name: "Spoolman filter – filament materials"
+        unique_id: spoolman_filter_options_filament_materials
+        state: >
+          {% set items = state_attr('sensor.spoolman_filament_list_data', 'items') or [] %}
+          {% set ns = namespace(vals=['All']) %}
+          {% for f in items %}
+            {% set m = (f.material | default('')) | trim %}
+            {% if m and m not in ns.vals %}
+              {% set ns.vals = ns.vals + [m] %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.vals | length }}
+        attributes:
+          options: >
+            {% set items = state_attr('sensor.spoolman_filament_list_data', 'items') or [] %}
+            {% set ns = namespace(vals=['All']) %}
+            {% for f in items %}
+              {% set m = (f.material | default('')) | trim %}
+              {% if m and m not in ns.vals %}
+                {% set ns.vals = ns.vals + [m] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.vals | sort }}
+
+      - name: "Spoolman filter – filament vendors"
+        unique_id: spoolman_filter_options_filament_vendors
+        state: >
+          {% set items = state_attr('sensor.spoolman_filament_list_data', 'items') or [] %}
+          {% set ns = namespace(vals=['All']) %}
+          {% for f in items %}
+            {% set v = ((f.vendor.name | default('')) if f.vendor is mapping else '') | trim %}
+            {% if v and v not in ns.vals %}
+              {% set ns.vals = ns.vals + [v] %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.vals | length }}
+        attributes:
+          options: >
+            {% set items = state_attr('sensor.spoolman_filament_list_data', 'items') or [] %}
+            {% set ns = namespace(vals=['All']) %}
+            {% for f in items %}
+              {% set v = ((f.vendor.name | default('')) if f.vendor is mapping else '') | trim %}
+              {% if v and v not in ns.vals %}
+                {% set ns.vals = ns.vals + [v] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.vals | sort }}
+
+      - name: "Spoolman filter – spool materials"
+        unique_id: spoolman_filter_options_spool_materials
+        state: >
+          {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+          {% set ns = namespace(vals=['All']) %}
+          {% for s in items %}
+            {% set m = ((s.filament.material | default('')) if s.filament is mapping else '') | trim %}
+            {% if m and m not in ns.vals %}
+              {% set ns.vals = ns.vals + [m] %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.vals | length }}
+        attributes:
+          options: >
+            {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+            {% set ns = namespace(vals=['All']) %}
+            {% for s in items %}
+              {% set m = ((s.filament.material | default('')) if s.filament is mapping else '') | trim %}
+              {% if m and m not in ns.vals %}
+                {% set ns.vals = ns.vals + [m] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.vals | sort }}
+
+      - name: "Spoolman filter – spool vendors"
+        unique_id: spoolman_filter_options_spool_vendors
+        state: >
+          {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+          {% set ns = namespace(vals=['All']) %}
+          {% for s in items %}
+            {% set v = ((s.filament.vendor.name | default('')) if s.filament is mapping and s.filament.vendor is mapping else '') | trim %}
+            {% if v and v not in ns.vals %}
+              {% set ns.vals = ns.vals + [v] %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.vals | length }}
+        attributes:
+          options: >
+            {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+            {% set ns = namespace(vals=['All']) %}
+            {% for s in items %}
+              {% set v = ((s.filament.vendor.name | default('')) if s.filament is mapping and s.filament.vendor is mapping else '') | trim %}
+              {% if v and v not in ns.vals %}
+                {% set ns.vals = ns.vals + [v] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.vals | sort }}
+
+      - name: "Spoolman filter – spool locations"
+        unique_id: spoolman_filter_options_spool_locations
+        state: >
+          {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+          {% set ns = namespace(vals=['All']) %}
+          {% for s in items %}
+            {% set loc = (s.location | default('')) | trim %}
+            {% set loc = loc if loc else '(none)' %}
+            {% if loc not in ns.vals %}
+              {% set ns.vals = ns.vals + [loc] %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.vals | length }}
+        attributes:
+          options: >
+            {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+            {% set ns = namespace(vals=['All']) %}
+            {% for s in items %}
+              {% set loc = (s.location | default('')) | trim %}
+              {% set loc = loc if loc else '(none)' %}
+              {% if loc not in ns.vals %}
+                {% set ns.vals = ns.vals + [loc] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.vals | sort }}
+
+      # --- Filtered data sensors ---
+      - name: "Spoolman filament list filtered"
+        unique_id: spoolman_filament_list_filtered
+        state: >
+          {% set items = state_attr('sensor.spoolman_filament_list_data', 'items') or [] %}
+          {% set fm = states('input_select.spoolman_filter_filament_material') | default('All') | trim %}
+          {% set fv = states('input_select.spoolman_filter_filament_vendor') | default('All') | trim %}
+          {% set ns = namespace(filtered=[]) %}
+          {% for f in items %}
+            {% set mat = (f.material | default('')) | trim %}
+            {% set vendor = ((f.vendor.name | default('')) if f.vendor is mapping else '') | trim %}
+            {% set mat_ok = (fm == 'All' or mat == fm) %}
+            {% set vendor_ok = (fv == 'All' or vendor == fv) %}
+            {% if mat_ok and vendor_ok %}
+              {% set ns.filtered = ns.filtered + [f] %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.filtered | length }}
+        attributes:
+          items: >
+            {% set items = state_attr('sensor.spoolman_filament_list_data', 'items') or [] %}
+            {% set fm = states('input_select.spoolman_filter_filament_material') | default('All') | trim %}
+            {% set fv = states('input_select.spoolman_filter_filament_vendor') | default('All') | trim %}
+            {% set ns = namespace(filtered=[]) %}
+            {% for f in items %}
+              {% set mat = (f.material | default('')) | trim %}
+              {% set vendor = ((f.vendor.name | default('')) if f.vendor is mapping else '') | trim %}
+              {% set mat_ok = (fm == 'All' or mat == fm) %}
+              {% set vendor_ok = (fv == 'All' or vendor == fv) %}
+              {% if mat_ok and vendor_ok %}
+                {% set ns.filtered = ns.filtered + [f] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.filtered }}
+
+      - name: "Spoolman spool list filtered"
+        unique_id: spoolman_spool_list_filtered
+        state: >
+          {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+          {% set fm = states('input_select.spoolman_filter_spool_material') | default('All') | trim %}
+          {% set fv = states('input_select.spoolman_filter_spool_vendor') | default('All') | trim %}
+          {% set fl = states('input_select.spoolman_filter_spool_location') | default('All') | trim %}
+          {% set ns = namespace(filtered=[]) %}
+          {% for s in items %}
+            {% set mat = ((s.filament.material | default('')) if s.filament is mapping else '') | trim %}
+            {% set vendor = ((s.filament.vendor.name | default('')) if s.filament is mapping and s.filament.vendor is mapping else '') | trim %}
+            {% set loc = (s.location | default('')) | trim %}
+            {% set loc_display = loc if loc else '(none)' %}
+            {% set mat_ok = (fm == 'All' or mat == fm) %}
+            {% set vendor_ok = (fv == 'All' or vendor == fv) %}
+            {% set loc_ok = (fl == 'All' or loc_display == fl) %}
+            {% if mat_ok and vendor_ok and loc_ok %}
+              {% set ns.filtered = ns.filtered + [s] %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.filtered | length }}
+        attributes:
+          items: >
+            {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+            {% set fm = states('input_select.spoolman_filter_spool_material') | default('All') | trim %}
+            {% set fv = states('input_select.spoolman_filter_spool_vendor') | default('All') | trim %}
+            {% set fl = states('input_select.spoolman_filter_spool_location') | default('All') | trim %}
+            {% set ns = namespace(filtered=[]) %}
+            {% for s in items %}
+              {% set mat = ((s.filament.material | default('')) if s.filament is mapping else '') | trim %}
+              {% set vendor = ((s.filament.vendor.name | default('')) if s.filament is mapping and s.filament.vendor is mapping else '') | trim %}
+              {% set loc = (s.location | default('')) | trim %}
+              {% set loc_display = loc if loc else '(none)' %}
+              {% set mat_ok = (fm == 'All' or mat == fm) %}
+              {% set vendor_ok = (fv == 'All' or vendor == fv) %}
+              {% set loc_ok = (fl == 'All' or loc_display == fl) %}
+              {% if mat_ok and vendor_ok and loc_ok %}
+                {% set ns.filtered = ns.filtered + [s] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.filtered }}
 
 cloud:
 
