@@ -76,12 +76,13 @@ If TEST has not passed, LIGHT_DEPLOY must refuse.
 
 ## Intent
 
-Deploy only reloadable Home Assistant changes without restarting HA.
+Deploy only reloadable or pushable Home Assistant changes without restarting HA.
 
 Eligible changes:
-- automations.yaml
-- scripts.yaml
-- configuration.yaml (customize/customize_glob changes ONLY)
+- automations.yaml (reload)
+- scripts.yaml (reload)
+- configuration.yaml (customize/customize_glob changes ONLY; reload)
+- dashboards/dashboard.stage.yaml (push via SCP only; no restart; refresh browser at /lovelace-stage)
 
 ## Hard Rules (No Exceptions)
 
@@ -90,7 +91,7 @@ If git diff touches:
 - Any `input_*:` helper block
 - Any integration definition
 - Any platform under `sensor:`, `rest:`, `template:`, `mqtt:`, etc.
-- Any file outside `automations.yaml`, `scripts.yaml`, `configuration.yaml`
+- Any file outside `automations.yaml`, `scripts.yaml`, `configuration.yaml`, `dashboards/dashboard.stage.yaml`
 - Any `configuration.yaml` change outside `homeassistant.customize` or `customize_glob`
 
 → REFUSE and instruct: **Use DEPLOY (restart required).**

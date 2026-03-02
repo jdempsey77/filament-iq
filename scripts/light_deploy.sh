@@ -97,6 +97,7 @@ while IFS= read -r f; do
     automations.yaml) push_flags+=("--automations") ;;
     scripts.yaml) push_flags+=("--scripts") ;;
     configuration.yaml) push_flags+=("--config") ;;
+    dashboards/dashboard.stage.yaml) push_flags+=("--stage-no-restart") ;;
     *) fail "Unexpected reloadable file: $f" ;;
   esac
 done <<< "${reloadables}"
@@ -107,8 +108,10 @@ for f in "${push_flags[@]}"; do
 done
 
 [[ -x "${MANAGE_HA}" ]] || fail "manage_ha.sh not executable: ${MANAGE_HA}"
-note "Pushing changes: ${MANAGE_HA} ${dedup_flags[*]}"
-"${MANAGE_HA}" "${dedup_flags[@]}"
+for flag in "${dedup_flags[@]}"; do
+  note "Pushing: ${MANAGE_HA} $flag"
+  "${MANAGE_HA}" "$flag"
+done
 
 ha_post() {
   local domain="$1" service="$2"
@@ -151,6 +154,9 @@ while IFS= read -r f; do
       service_exists homeassistant reload_core_config || fail "Missing service: homeassistant.reload_core_config"
       ha_post homeassistant reload_core_config
       reload_actions+="homeassistant.reload_core_config "
+      ;;
+    dashboards/dashboard.stage.yaml)
+      reload_actions+="(stage SCP only; refresh /lovelace-stage) "
       ;;
   esac
 done <<< "${reloadables}"

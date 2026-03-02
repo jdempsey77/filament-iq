@@ -71,4 +71,4 @@ Scripts:
 ---
 
 ## Dashboard
-The main dashboard is **storage-type** (UI-managed in Home Assistant). It is **not** deployed by script; updates are done by **manual copy/paste** of YAML from repo (e.g. `dashboards/dashboard.test.storage.yaml`) into HA dashboard raw configuration. Stage dashboard (`dashboards/dashboard.stage.yaml`) is deployed to `/lovelace-stage` via `./scripts/manage_ha.sh --stage` when that file changes.
+The main dashboard is **storage-type** (UI-managed in Home Assistant). It is **not** deployed by script; updates are done by **manual copy/paste** of YAML from repo (e.g. `dashboards/dashboard.prod.yaml`) into HA dashboard raw configuration. Stage dashboard (`dashboards/dashboard.stage.yaml`) is deployed to `/lovelace-stage` via `./scripts/manage_ha.sh --stage` (restarts HA) or `./scripts/manage_ha.sh --stage-no-restart` (no restart; refresh browser). LIGHT_DEPLOY supports dashboard-only changes without restart.

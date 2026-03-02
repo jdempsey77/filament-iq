@@ -16,6 +16,9 @@ except Exception:
 # Reloadable targets (and ONLY these) for LIGHT_DEPLOY.
 RELOADABLE_FILES = {"automations.yaml", "scripts.yaml", "configuration.yaml"}
 
+# Pushable without restart: SCP only, no HA reload/restart. User refreshes browser.
+PUSHABLE_FILES = {"dashboards/dashboard.stage.yaml"}
+
 # If configuration.yaml changes outside homeassistant.customize/customize_glob,
 # LIGHT_DEPLOY must refuse (restart required).
 ALLOWED_CUSTOMIZE_KEYS = {"customize", "customize_glob"}
@@ -113,6 +116,11 @@ def main() -> None:
             else:
                 requires_restart.append(f)
                 reasons.append(msg)
+            continue
+
+        if f in PUSHABLE_FILES:
+            reloadables.append(f)  # Reuse reloadables for "deployable without restart"
+            reasons.append(f"{f}: pushable (SCP only, no restart; refresh browser)")
             continue
 
         # Deterministic stance: anything else is NOT reloadable for LIGHT_DEPLOY.

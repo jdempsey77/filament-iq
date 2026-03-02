@@ -46,7 +46,7 @@ The authoritative rules (including the ALL‑CAPS triggers for Cursor: `TEST`, `
 ## Deploy via SSH
 
 1. Copy `scripts/deploy.env.example` to `scripts/deploy.env.local` and fill in your SSH host, user, and config path.
-2. **Dashboard workflow:** Deploy stage (`--stage`), test at `/lovelace-stage`, then when happy copy the repo contents (e.g. `dashboards/dashboard.stage.yaml`) into production from the repo. Production is typically updated by copying from the repo. (There is also an optional `--promote` command in `manage_ha.sh` if you want to copy Stage → `ui-lovelace.yaml` on HA, but manual promotion from the repo is the default.)
+2. **Dashboard workflow:** Deploy stage (`--stage` or `--stage-no-restart`), test at `/lovelace-stage`, then when happy copy `dashboards/dashboard.prod.yaml` into production (or use `--promote`). For dashboard-only changes, use `--stage-no-restart` or LIGHT_DEPLOY to avoid HA restart.
 
 ### Deploying changes to Home Assistant
 
@@ -60,7 +60,8 @@ This deploys `configuration.yaml`, `automations.yaml`, and `go2rtc.yaml`, then r
 
 **Other useful commands:**
    - `./scripts/manage_ha.sh` — show usage
-   - `./scripts/manage_ha.sh --stage` — deploy stage dashboard
+   - `./scripts/manage_ha.sh --stage` — deploy stage dashboard (restarts HA)
+   - `./scripts/manage_ha.sh --stage-no-restart` — deploy stage dashboard without restart (refresh browser)
    - `./scripts/manage_ha.sh --check` — compare local stage vs HA
    - `./scripts/manage_ha.sh --config` — deploy configuration.yaml and included files (scripts.yaml, scenes.yaml)
    - `./scripts/manage_ha.sh --scripts` — deploy scripts.yaml only

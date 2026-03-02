@@ -2163,7 +2163,8 @@ class AmsRfidReconcile(hass.Hass):
             )
 
     def _enroll_lot_nr(self, spool_id, lot_nr_value, spool_index, reason="enroll"):
-        """Write lot_nr to Spoolman on first bind. Refuses to overwrite existing different lot_nr."""
+        """Write lot_nr to Spoolman on first bind. Refuses to overwrite existing different lot_nr
+        unless the existing value has empty pipe-delimited fields and the new value refines them."""
         if not lot_nr_value:
             return
         spool = spool_index.get(spool_id) or self._spoolman_get(f"/api/v1/spool/{spool_id}")
@@ -2172,15 +2173,53 @@ class AmsRfidReconcile(hass.Hass):
             self._record_no_write(spool_id, "lot_nr_already_set", {"spool_id": spool_id, "lot_nr": lot_nr_value})
             return
         if existing and existing != lot_nr_value:
-            self.log(
-                f"LOT_NR_CONFLICT spool_id={spool_id} existing={existing} incoming={lot_nr_value} reason=refuse_overwrite",
-                level="WARNING",
-            )
-            return
+            # Allow overwrite if existing has empty pipe fields and new value refines them
+            if self._lot_nr_is_refinement(existing, lot_nr_value):
+                self.log(
+                    f"LOT_NR_REFINE spool_id={spool_id} existing={existing} incoming={lot_nr_value} reason=refine_empty_fields",
+                    level="INFO",
+                )
+            else:
+                self.log(
+                    f"LOT_NR_CONFLICT spool_id={spool_id} existing={existing} incoming={lot_nr_value} reason=refuse_overwrite",
+                    level="WARNING",
+                )
+                return
         self._patch_spool_fields(spool_id, {"lot_nr": lot_nr_value})
         if isinstance(spool_index, dict) and spool_id in spool_index:
             spool_index[spool_id]["lot_nr"] = lot_nr_value
         self.log(f"LOT_NR_ENROLLED spool_id={spool_id} lot_nr={lot_nr_value} reason={reason}")
+
+    def _lot_nr_is_refinement(self, existing, incoming):
+        """True if incoming lot_nr is a refinement of existing — same type,
+        and any empty fields in existing are populated in incoming.
+
+        Both must be pipe-delimited non-RFID sigs (type|filament_id|color_hex).
+        RFID lot_nr values (32-char hex UUIDs) are never refinable.
+        """
+        # Don't refine RFID UUIDs
+        if _is_lot_nr_uuid(existing) or _is_lot_nr_uuid(incoming):
+            return False
+        ex_parts = existing.split("|")
+        in_parts = incoming.split("|")
+        # Must be same format (3 pipe-delimited fields)
+        if len(ex_parts) != 3 or len(in_parts) != 3:
+            return False
+        # Type (field 0) must match
+        if ex_parts[0] != in_parts[0]:
+            return False
+        # Existing must have at least one empty or all-zero field
+        has_empty = False
+        for i in range(3):
+            ex_val = ex_parts[i].strip()
+            in_val = in_parts[i].strip()
+            if not ex_val or ex_val == "000000":
+                if in_val and in_val != "000000":
+                    has_empty = True
+            elif ex_val != in_val:
+                # Non-empty existing field differs from incoming — not a refinement
+                return False
+        return has_empty
 
     def _bind_uid_to_spool(self, tag_uid, spool_id, spool_index, tray_uuid=""):
         """v4: write tray_uuid to lot_nr instead of extra.rfid_tag_uid.

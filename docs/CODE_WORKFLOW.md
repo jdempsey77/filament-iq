@@ -19,7 +19,7 @@ Lightweight workflow for code management: who edits, how changes flow, and when 
 2. **Diff** — Review the proposed changes; keep diffs minimal and scoped.
 3. **Tests / gates** — Run `./scripts/serious_mode_check.sh` (clean tree + optional pytest). Run any phase gates or validation scripts that apply (e.g. RFID gates, HA API checks).
 4. **Commit** — Commit when the change is logically complete and checks pass. **Each prompt cycle ends with a commit** (or an explicit stash).
-5. **Deploy** — Use `./scripts/manage_ha.sh` with the appropriate flag (e.g. `--config`, `--automations`, `--stage`). Deploy only runs when the working tree is **clean** (see deploy guard below).
+5. **Deploy** — Use `./scripts/manage_ha.sh` with the appropriate flag (e.g. `--config`, `--automations`, `--stage`, `--stage-no-restart`). Deploy only runs when the working tree is **clean** (see deploy guard below). For dashboard-only changes, use `--stage-no-restart` or LIGHT_DEPLOY to avoid HA restart.
 
 ---
 
@@ -27,7 +27,7 @@ Lightweight workflow for code management: who edits, how changes flow, and when 
 
 `scripts/manage_ha.sh` **refuses** deploy-affecting actions if the working tree has staged or unstaged changes:
 
-- **Guarded flags:** `--config`, `--automations`, `--scripts`, `--go2rtc`, `--all`, `--appdaemon`, `--stage`, `--promote`, `--restart`, `--restart-all`, `--appdaemon-restart`
+- **Guarded flags:** `--config`, `--automations`, `--scripts`, `--go2rtc`, `--all`, `--appdaemon`, `--stage`, `--stage-no-restart`, `--promote`, `--restart`, `--restart-all`, `--appdaemon-restart`
 - **Always allowed (even when dirty):** `--help`, `--check`, `--validate`, `--spoolman-export`, `--spoolman-import`, `--spoolman-update`
 
 If you hit the guard, the script prints `git status --porcelain` and tells you to commit or stash, then run again.

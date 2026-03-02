@@ -37,7 +37,7 @@ GO2RTC_FILE="$REPO_ROOT/go2rtc.yaml"
 # Parse args
 TARGET="${1:-}"
 if [[ -z "$TARGET" || "$TARGET" == "--help" || "$TARGET" == "-h" ]]; then
-  echo "Usage: $0 [--stage|--promote|--check|--config|--automations|--scripts|--go2rtc|--all|--spoolman-export|--spoolman-import|--spoolman-update|--restart|--validate|--appdaemon|--appdaemon-restart|--restart-all]"
+  echo "Usage: $0 [--stage|--stage-no-restart|--prod-prep|--promote|--check|--config|--automations|--scripts|--go2rtc|--all|--spoolman-export|--spoolman-import|--spoolman-update|--restart|--validate|--appdaemon|--appdaemon-restart|--restart-all]"
   echo ""
   echo "  --check       Compare local stage vs HA"
   echo "  --config      Deploy configuration.yaml and included files (scripts.yaml, scenes.yaml)"
@@ -50,6 +50,7 @@ if [[ -z "$TARGET" || "$TARGET" == "--help" || "$TARGET" == "-h" ]]; then
   echo "  --spoolman-import  Import spools.csv into Spoolman (new spools only)"
   echo "  --spoolman-update Push remaining_g/empty_spool_g from CSV to Spoolman (run export first to get spool_id)"
   echo "  --stage       Deploy stage dashboard (then test; copy from repo to prod when ready)"
+  echo "  --stage-no-restart  Deploy stage dashboard without restarting HA (refresh browser to see changes)"
   echo "  --prod-prep   Generate dashboard.prod.yaml from stage (for manual copy to HA main dashboard)"
   echo "  --promote     Optional: copy stage to ui-lovelace.yaml in HA"
   echo "  --restart     Restart HA"
@@ -67,7 +68,7 @@ for arg in "$@"; do
 done
 
 # Deploy guard: refuse deploy/restart if working tree is dirty (staged or unstaged)
-DEPLOY_FLAGS="--config --automations --scripts --python_scripts --go2rtc --all --appdaemon --stage --promote --restart --restart-all --appdaemon-restart"
+DEPLOY_FLAGS="--config --automations --scripts --python_scripts --go2rtc --all --appdaemon --stage --stage-no-restart --promote --restart --restart-all --appdaemon-restart"
 if [[ " $DEPLOY_FLAGS " == *" $TARGET "* ]]; then
   status_out=$(cd "$REPO_ROOT" && git status --porcelain 2>/dev/null)
   if [[ -n "$status_out" ]]; then
@@ -754,9 +755,10 @@ if [[ "$TARGET" == "--prod-prep" ]]; then
 fi
 
 # Deploy target
-if [[ "$TARGET" == "--stage" ]]; then
+if [[ "$TARGET" == "--stage" || "$TARGET" == "--stage-no-restart" ]]; then
   SOURCE_FILE="$STAGE_FILE"
   REMOTE_NAME="ui-lovelace-stage.yaml"
+  [[ "$TARGET" == "--stage-no-restart" ]] && export SKIP_RESTART=1
 elif [[ "$TARGET" == "--promote" ]]; then
   PROD_FILE="$REPO_ROOT/dashboards/dashboard.prod.yaml"
   # Ensure prod version exists and is up to date
@@ -792,7 +794,7 @@ REMOTE_PATH="${REMOTE_CONFIG_PATH%/}/$REMOTE_NAME"
 echo "Deploying $(basename "$SOURCE_FILE") to $SSH_USER@$SSH_HOST:$REMOTE_PATH"
 scp $SSH_OPTS "$SOURCE_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_PATH"
 echo "Copy complete."
-if [[ "$TARGET" == "--stage" ]]; then
+if [[ "$TARGET" == "--stage" || "$TARGET" == "--stage-no-restart" ]]; then
   # Regenerate prod version for manual copy to HA main dashboard
   PROD_FILE="$REPO_ROOT/dashboards/dashboard.prod.yaml"
   sed 's|/lovelace-stage/|/lovelace/|g' "$STAGE_FILE" | \
@@ -802,7 +804,10 @@ if [[ "$TARGET" == "--stage" ]]; then
   echo ""
   echo "Prod version updated: dashboards/dashboard.prod.yaml"
   echo "  → Copy to: Settings → Dashboards → [Main] → ⋮ → Edit → ⋮ → Raw configuration"
-  if [[ -n "$HOME_ASSISTANT_URL" && -n "$HOME_ASSISTANT_TOKEN" ]]; then
+  if [[ "${SKIP_RESTART:-0}" == "1" ]]; then
+    echo ""
+    echo "Skipping restart (--stage-no-restart). Refresh browser at /lovelace-stage to see changes."
+  elif [[ -n "$HOME_ASSISTANT_URL" && -n "$HOME_ASSISTANT_TOKEN" ]]; then
     echo ""
     echo "Restarting HA so the Stage dashboard re-reads ui-lovelace-stage.yaml..."
     do_restart
