@@ -2351,7 +2351,7 @@ views:
                   }
                 card:
                   type: grid
-                  columns: 2
+                  columns: 3
                   square: false
                   cards:
                     - type: custom:mushroom-template-card
@@ -2511,6 +2511,42 @@ views:
                       tap_action:
                         action: navigate
                         navigation_path: /lovelace/spools
+                      card_mod:
+                        style: |
+                          ha-card { --ha-card-padding: 4px; }
+                          mushroom-shape-icon { --icon-size: 24px; }
+                    - type: custom:mushroom-template-card
+                      primary: Loc Table
+                      icon: mdi:table
+                      icon_color: amber
+                      layout: horizontal
+                      tap_action:
+                        action: navigate
+                        navigation_path: /lovelace/locations-table
+                      card_mod:
+                        style: |
+                          ha-card { --ha-card-padding: 4px; }
+                          mushroom-shape-icon { --icon-size: 24px; }
+                    - type: custom:mushroom-template-card
+                      primary: Loc Visual
+                      icon: mdi:map-marker-multiple
+                      icon_color: amber
+                      layout: horizontal
+                      tap_action:
+                        action: navigate
+                        navigation_path: /lovelace/locations-visual
+                      card_mod:
+                        style: |
+                          ha-card { --ha-card-padding: 4px; }
+                          mushroom-shape-icon { --icon-size: 24px; }
+                    - type: custom:mushroom-template-card
+                      primary: Loc Hybrid
+                      icon: mdi:view-dashboard-variant
+                      icon_color: amber
+                      layout: horizontal
+                      tap_action:
+                        action: navigate
+                        navigation_path: /lovelace/locations-hybrid
                       card_mod:
                         style: |
                           ha-card { --ha-card-padding: 4px; }
@@ -3530,3 +3566,615 @@ views:
                   lot.substring(lot.length - 4)) : lot
     type: panel
     subview: true
+  - title: Locations – Table
+    path: locations-table
+    icon: mdi:table
+    panel: true
+    subview: true
+    visible:
+      - user: 5ba38a59d2654d9c80f3b5a6ee129256
+    cards:
+      - type: custom:layout-card
+        layout_type: custom:grid-layout
+        layout:
+          max_width: 1400
+          margin: 0 auto
+          grid-template-columns: 1fr
+        cards:
+          - type: custom:mushroom-template-card
+            primary: "← Back to 3D Printer"
+            icon: mdi:arrow-left
+            icon_color: grey
+            layout: horizontal
+            tap_action:
+              action: navigate
+              navigation_path: /lovelace/printer
+            card_mod:
+              style: |
+                ha-card { --ha-card-background: transparent; box-shadow: none; --ha-card-padding: 4px; }
+                mushroom-shape-icon { --icon-size: 20px; }
+          - type: markdown
+            content: "## 📍 Locations – Table View"
+            card_mod:
+              style: |
+                ha-card { background: none; box-shadow: none; }
+          - type: custom:flex-table-card
+            title: ""
+            entities:
+              include: sensor.spoolman_spool_list_data
+            strict: true
+            sort_by:
+              - location+
+              - id+
+            css:
+              table+: "width: 100%; table-layout: auto;"
+              th+: "white-space: nowrap; padding: 8px 12px; font-size: 0.85em;"
+              td+: "padding: 8px 12px; white-space: nowrap;"
+            columns:
+              - name: Location
+                data: items
+                modify: x.location || '(unassigned)'
+              - name: ID
+                data: items
+                modify: x.id
+                align: center
+              - name: Color
+                data: items
+                modify: |-
+                  if (x.filament && x.filament.color_hex) {
+                    '<div style="width:22px;height:22px;border-radius:50%;background:#' + x.filament.color_hex + ';border:1px solid #555;display:inline-block;vertical-align:middle"></div>'
+                  } else { '' }
+                align: center
+              - name: Filament
+                data: items
+                modify: 'x.filament ? x.filament.name : '''''
+              - name: Vendor
+                data: items
+                modify: '(x.filament && x.filament.vendor) ? x.filament.vendor.name : '''''
+              - name: Material
+                data: items
+                modify: 'x.filament ? (x.filament.material || '''') : '''''
+              - name: Remaining (g)
+                data: items
+                modify: 'x.remaining_weight != null ? Math.round(x.remaining_weight) : '''''
+                align: right
+  - title: Locations – Visual
+    path: locations-visual
+    icon: mdi:map-marker-multiple
+    panel: true
+    subview: true
+    visible:
+      - user: 5ba38a59d2654d9c80f3b5a6ee129256
+    cards:
+      - type: custom:layout-card
+        layout_type: custom:grid-layout
+        layout:
+          max_width: 1400
+          margin: 0 auto
+          grid-template-columns: 1fr
+        cards:
+          - type: custom:mushroom-template-card
+            primary: "← Back to 3D Printer"
+            icon: mdi:arrow-left
+            icon_color: grey
+            layout: horizontal
+            tap_action:
+              action: navigate
+              navigation_path: /lovelace/printer
+            card_mod:
+              style: |
+                ha-card { --ha-card-background: transparent; box-shadow: none; --ha-card-padding: 4px; }
+                mushroom-shape-icon { --icon-size: 20px; }
+          - type: markdown
+            content: "## 🗺️ Locations – Visual View"
+            card_mod:
+              style: |
+                ha-card { background: none; box-shadow: none; }
+          - type: markdown
+            content: "### AMS 2 Pro (Slots 1-4)"
+            card_mod:
+              style: |
+                ha-card { background: none; box-shadow: none; padding: 0 0 0 4px; }
+          - type: grid
+            columns: 4
+            square: false
+            cards:
+              - type: custom:mushroom-template-card
+                primary: "Slot 1"
+                secondary: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot1') | list %}
+                  {% if match | length > 0 %}
+                    {% set s = match[0] %}
+                    {% set f = s.filament if s.filament is mapping else {} %}
+                    {{ f.name | default('?') }} – {{ s.remaining_weight | default(0) | round(0) }}g
+                  {% else %}Empty{% endif %}
+                icon: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot1') | list %}
+                  {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                icon_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot1') | list %}
+                  {% if match | length > 0 %}
+                    {% set hex = match[0].filament.color_hex | default('333333') if match[0].filament is mapping else '333333' %}
+                    #{{ hex }}
+                  {% else %}disabled{% endif %}
+                badge_icon: mdi:numeric-1-circle
+                badge_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot1') | list %}
+                  {% if match | length > 0 %}green{% else %}grey{% endif %}
+                tap_action:
+                  action: none
+              - type: custom:mushroom-template-card
+                primary: "Slot 2"
+                secondary: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot2') | list %}
+                  {% if match | length > 0 %}
+                    {% set s = match[0] %}
+                    {% set f = s.filament if s.filament is mapping else {} %}
+                    {{ f.name | default('?') }} – {{ s.remaining_weight | default(0) | round(0) }}g
+                  {% else %}Empty{% endif %}
+                icon: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot2') | list %}
+                  {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                icon_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot2') | list %}
+                  {% if match | length > 0 %}
+                    {% set hex = match[0].filament.color_hex | default('333333') if match[0].filament is mapping else '333333' %}
+                    #{{ hex }}
+                  {% else %}disabled{% endif %}
+                badge_icon: mdi:numeric-2-circle
+                badge_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot2') | list %}
+                  {% if match | length > 0 %}green{% else %}grey{% endif %}
+                tap_action:
+                  action: none
+              - type: custom:mushroom-template-card
+                primary: "Slot 3"
+                secondary: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot3') | list %}
+                  {% if match | length > 0 %}
+                    {% set s = match[0] %}
+                    {% set f = s.filament if s.filament is mapping else {} %}
+                    {{ f.name | default('?') }} – {{ s.remaining_weight | default(0) | round(0) }}g
+                  {% else %}Empty{% endif %}
+                icon: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot3') | list %}
+                  {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                icon_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot3') | list %}
+                  {% if match | length > 0 %}
+                    {% set hex = match[0].filament.color_hex | default('333333') if match[0].filament is mapping else '333333' %}
+                    #{{ hex }}
+                  {% else %}disabled{% endif %}
+                badge_icon: mdi:numeric-3-circle
+                badge_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot3') | list %}
+                  {% if match | length > 0 %}green{% else %}grey{% endif %}
+                tap_action:
+                  action: none
+              - type: custom:mushroom-template-card
+                primary: "Slot 4"
+                secondary: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot4') | list %}
+                  {% if match | length > 0 %}
+                    {% set s = match[0] %}
+                    {% set f = s.filament if s.filament is mapping else {} %}
+                    {{ f.name | default('?') }} – {{ s.remaining_weight | default(0) | round(0) }}g
+                  {% else %}Empty{% endif %}
+                icon: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot4') | list %}
+                  {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                icon_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot4') | list %}
+                  {% if match | length > 0 %}
+                    {% set hex = match[0].filament.color_hex | default('333333') if match[0].filament is mapping else '333333' %}
+                    #{{ hex }}
+                  {% else %}disabled{% endif %}
+                badge_icon: mdi:numeric-4-circle
+                badge_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot4') | list %}
+                  {% if match | length > 0 %}green{% else %}grey{% endif %}
+                tap_action:
+                  action: none
+          - type: markdown
+            content: "### HT Units"
+            card_mod:
+              style: |
+                ha-card { background: none; box-shadow: none; padding: 0 0 0 4px; }
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: custom:mushroom-template-card
+                primary: "HT1"
+                secondary: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS128_Slot1') | list %}
+                  {% if match | length > 0 %}
+                    {% set s = match[0] %}
+                    {% set f = s.filament if s.filament is mapping else {} %}
+                    {{ f.name | default('?') }} – {{ s.remaining_weight | default(0) | round(0) }}g
+                  {% else %}Empty{% endif %}
+                icon: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS128_Slot1') | list %}
+                  {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                icon_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS128_Slot1') | list %}
+                  {% if match | length > 0 %}
+                    {% set hex = match[0].filament.color_hex | default('333333') if match[0].filament is mapping else '333333' %}
+                    #{{ hex }}
+                  {% else %}disabled{% endif %}
+                badge_icon: mdi:numeric-5-circle
+                badge_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS128_Slot1') | list %}
+                  {% if match | length > 0 %}green{% else %}grey{% endif %}
+                tap_action:
+                  action: none
+              - type: custom:mushroom-template-card
+                primary: "HT2"
+                secondary: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS129_Slot1') | list %}
+                  {% if match | length > 0 %}
+                    {% set s = match[0] %}
+                    {% set f = s.filament if s.filament is mapping else {} %}
+                    {{ f.name | default('?') }} – {{ s.remaining_weight | default(0) | round(0) }}g
+                  {% else %}Empty{% endif %}
+                icon: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS129_Slot1') | list %}
+                  {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                icon_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS129_Slot1') | list %}
+                  {% if match | length > 0 %}
+                    {% set hex = match[0].filament.color_hex | default('333333') if match[0].filament is mapping else '333333' %}
+                    #{{ hex }}
+                  {% else %}disabled{% endif %}
+                badge_icon: mdi:numeric-6-circle
+                badge_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS129_Slot1') | list %}
+                  {% if match | length > 0 %}green{% else %}grey{% endif %}
+                tap_action:
+                  action: none
+          - type: markdown
+            content: >
+              ### Shelf & Other
+              {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+              {% set ams_locs = ['AMS1_Slot1', 'AMS1_Slot2', 'AMS1_Slot3', 'AMS1_Slot4', 'AMS128_Slot1', 'AMS129_Slot1'] %}
+              {% set shelf = items | rejectattr('location', 'in', ams_locs) | list %}
+              {{ shelf | length }} spools not in AMS
+            card_mod:
+              style: |
+                ha-card { background: none; box-shadow: none; padding: 0 0 0 4px; }
+          - type: custom:flex-table-card
+            title: ""
+            entities:
+              include: sensor.spoolman_spool_list_data
+            strict: true
+            sort_by: location+
+            css:
+              table+: "width: 100%; table-layout: auto;"
+              th+: "white-space: nowrap; padding: 8px 12px; font-size: 0.85em;"
+              td+: "padding: 8px 12px; white-space: nowrap;"
+            columns:
+              - name: Location
+                data: items
+                modify: |-
+                  var ams = ['AMS1_Slot1','AMS1_Slot2','AMS1_Slot3','AMS1_Slot4','AMS128_Slot1','AMS129_Slot1'];
+                  if (ams.indexOf(x.location) >= 0) { '' }
+                  else { x.location || '(unassigned)' }
+              - name: ID
+                data: items
+                modify: |-
+                  var ams = ['AMS1_Slot1','AMS1_Slot2','AMS1_Slot3','AMS1_Slot4','AMS128_Slot1','AMS129_Slot1'];
+                  if (ams.indexOf(x.location) >= 0) { '' }
+                  else { x.id }
+                align: center
+              - name: Color
+                data: items
+                modify: |-
+                  var ams = ['AMS1_Slot1','AMS1_Slot2','AMS1_Slot3','AMS1_Slot4','AMS128_Slot1','AMS129_Slot1'];
+                  if (ams.indexOf(x.location) >= 0) { '' }
+                  else if (x.filament && x.filament.color_hex) {
+                    '<div style="width:22px;height:22px;border-radius:50%;background:#' + x.filament.color_hex + ';border:1px solid #555;display:inline-block;vertical-align:middle"></div>'
+                  } else { '' }
+                align: center
+              - name: Filament
+                data: items
+                modify: |-
+                  var ams = ['AMS1_Slot1','AMS1_Slot2','AMS1_Slot3','AMS1_Slot4','AMS128_Slot1','AMS129_Slot1'];
+                  if (ams.indexOf(x.location) >= 0) { '' }
+                  else { x.filament ? x.filament.name : '' }
+              - name: Vendor
+                data: items
+                modify: |-
+                  var ams = ['AMS1_Slot1','AMS1_Slot2','AMS1_Slot3','AMS1_Slot4','AMS128_Slot1','AMS129_Slot1'];
+                  if (ams.indexOf(x.location) >= 0) { '' }
+                  else { (x.filament && x.filament.vendor) ? x.filament.vendor.name : '' }
+              - name: Material
+                data: items
+                modify: |-
+                  var ams = ['AMS1_Slot1','AMS1_Slot2','AMS1_Slot3','AMS1_Slot4','AMS128_Slot1','AMS129_Slot1'];
+                  if (ams.indexOf(x.location) >= 0) { '' }
+                  else { x.filament ? (x.filament.material || '') : '' }
+              - name: Remaining (g)
+                data: items
+                modify: |-
+                  var ams = ['AMS1_Slot1','AMS1_Slot2','AMS1_Slot3','AMS1_Slot4','AMS128_Slot1','AMS129_Slot1'];
+                  if (ams.indexOf(x.location) >= 0) { '' }
+                  else { x.remaining_weight != null ? Math.round(x.remaining_weight) : '' }
+                align: right
+  - title: Locations – Hybrid
+    path: locations-hybrid
+    icon: mdi:view-dashboard-variant
+    panel: true
+    subview: true
+    visible:
+      - user: 5ba38a59d2654d9c80f3b5a6ee129256
+    cards:
+      - type: custom:layout-card
+        layout_type: custom:grid-layout
+        layout:
+          max_width: 1400
+          margin: 0 auto
+          grid-template-columns: 1fr
+        cards:
+          - type: custom:mushroom-template-card
+            primary: "← Back to 3D Printer"
+            icon: mdi:arrow-left
+            icon_color: grey
+            layout: horizontal
+            tap_action:
+              action: navigate
+              navigation_path: /lovelace/printer
+            card_mod:
+              style: |
+                ha-card { --ha-card-background: transparent; box-shadow: none; --ha-card-padding: 4px; }
+                mushroom-shape-icon { --icon-size: 20px; }
+          - type: markdown
+            content: "## 📍 Locations – Hybrid View"
+            card_mod:
+              style: |
+                ha-card { background: none; box-shadow: none; }
+          - type: markdown
+            content: "### AMS Slots"
+            card_mod:
+              style: |
+                ha-card { background: none; box-shadow: none; padding: 0 0 0 4px; }
+          - type: grid
+            columns: 3
+            square: false
+            cards:
+              - type: custom:mushroom-template-card
+                primary: "Slot 1"
+                secondary: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot1') | list %}
+                  {% if match | length > 0 %}
+                    {% set s = match[0] %}
+                    {% set f = s.filament if s.filament is mapping else {} %}
+                    {{ f.name | default('?') }} – {{ s.remaining_weight | default(0) | round(0) }}g
+                  {% else %}Empty{% endif %}
+                icon: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot1') | list %}
+                  {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                icon_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot1') | list %}
+                  {% if match | length > 0 %}
+                    {% set hex = match[0].filament.color_hex | default('333333') if match[0].filament is mapping else '333333' %}
+                    #{{ hex }}
+                  {% else %}disabled{% endif %}
+                badge_icon: mdi:numeric-1-circle
+                badge_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot1') | list %}
+                  {% if match | length > 0 %}green{% else %}grey{% endif %}
+                tap_action:
+                  action: none
+              - type: custom:mushroom-template-card
+                primary: "Slot 2"
+                secondary: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot2') | list %}
+                  {% if match | length > 0 %}
+                    {% set s = match[0] %}
+                    {% set f = s.filament if s.filament is mapping else {} %}
+                    {{ f.name | default('?') }} – {{ s.remaining_weight | default(0) | round(0) }}g
+                  {% else %}Empty{% endif %}
+                icon: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot2') | list %}
+                  {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                icon_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot2') | list %}
+                  {% if match | length > 0 %}
+                    {% set hex = match[0].filament.color_hex | default('333333') if match[0].filament is mapping else '333333' %}
+                    #{{ hex }}
+                  {% else %}disabled{% endif %}
+                badge_icon: mdi:numeric-2-circle
+                badge_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot2') | list %}
+                  {% if match | length > 0 %}green{% else %}grey{% endif %}
+                tap_action:
+                  action: none
+              - type: custom:mushroom-template-card
+                primary: "Slot 3"
+                secondary: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot3') | list %}
+                  {% if match | length > 0 %}
+                    {% set s = match[0] %}
+                    {% set f = s.filament if s.filament is mapping else {} %}
+                    {{ f.name | default('?') }} – {{ s.remaining_weight | default(0) | round(0) }}g
+                  {% else %}Empty{% endif %}
+                icon: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot3') | list %}
+                  {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                icon_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot3') | list %}
+                  {% if match | length > 0 %}
+                    {% set hex = match[0].filament.color_hex | default('333333') if match[0].filament is mapping else '333333' %}
+                    #{{ hex }}
+                  {% else %}disabled{% endif %}
+                badge_icon: mdi:numeric-3-circle
+                badge_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot3') | list %}
+                  {% if match | length > 0 %}green{% else %}grey{% endif %}
+                tap_action:
+                  action: none
+              - type: custom:mushroom-template-card
+                primary: "Slot 4"
+                secondary: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot4') | list %}
+                  {% if match | length > 0 %}
+                    {% set s = match[0] %}
+                    {% set f = s.filament if s.filament is mapping else {} %}
+                    {{ f.name | default('?') }} – {{ s.remaining_weight | default(0) | round(0) }}g
+                  {% else %}Empty{% endif %}
+                icon: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot4') | list %}
+                  {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                icon_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot4') | list %}
+                  {% if match | length > 0 %}
+                    {% set hex = match[0].filament.color_hex | default('333333') if match[0].filament is mapping else '333333' %}
+                    #{{ hex }}
+                  {% else %}disabled{% endif %}
+                badge_icon: mdi:numeric-4-circle
+                badge_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS1_Slot4') | list %}
+                  {% if match | length > 0 %}green{% else %}grey{% endif %}
+                tap_action:
+                  action: none
+              - type: custom:mushroom-template-card
+                primary: "HT1"
+                secondary: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS128_Slot1') | list %}
+                  {% if match | length > 0 %}
+                    {% set s = match[0] %}
+                    {% set f = s.filament if s.filament is mapping else {} %}
+                    {{ f.name | default('?') }} – {{ s.remaining_weight | default(0) | round(0) }}g
+                  {% else %}Empty{% endif %}
+                icon: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS128_Slot1') | list %}
+                  {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                icon_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS128_Slot1') | list %}
+                  {% if match | length > 0 %}
+                    {% set hex = match[0].filament.color_hex | default('333333') if match[0].filament is mapping else '333333' %}
+                    #{{ hex }}
+                  {% else %}disabled{% endif %}
+                badge_icon: mdi:numeric-5-circle
+                badge_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS128_Slot1') | list %}
+                  {% if match | length > 0 %}green{% else %}grey{% endif %}
+                tap_action:
+                  action: none
+              - type: custom:mushroom-template-card
+                primary: "HT2"
+                secondary: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS129_Slot1') | list %}
+                  {% if match | length > 0 %}
+                    {% set s = match[0] %}
+                    {% set f = s.filament if s.filament is mapping else {} %}
+                    {{ f.name | default('?') }} – {{ s.remaining_weight | default(0) | round(0) }}g
+                  {% else %}Empty{% endif %}
+                icon: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS129_Slot1') | list %}
+                  {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                icon_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS129_Slot1') | list %}
+                  {% if match | length > 0 %}
+                    {% set hex = match[0].filament.color_hex | default('333333') if match[0].filament is mapping else '333333' %}
+                    #{{ hex }}
+                  {% else %}disabled{% endif %}
+                badge_icon: mdi:numeric-6-circle
+                badge_color: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('location', 'eq', 'AMS129_Slot1') | list %}
+                  {% if match | length > 0 %}green{% else %}grey{% endif %}
+                tap_action:
+                  action: none
+          - type: markdown
+            content: "### All Spools by Location"
+            card_mod:
+              style: |
+                ha-card { background: none; box-shadow: none; padding: 0 0 0 4px; }
+          - type: custom:flex-table-card
+            title: ""
+            entities:
+              include: sensor.spoolman_spool_list_data
+            strict: true
+            sort_by:
+              - location+
+              - id+
+            css:
+              table+: "width: 100%; table-layout: auto;"
+              th+: "white-space: nowrap; padding: 8px 12px; font-size: 0.85em;"
+              td+: "padding: 8px 12px; white-space: nowrap;"
+            columns:
+              - name: Location
+                data: items
+                modify: x.location || '(unassigned)'
+              - name: ID
+                data: items
+                modify: x.id
+                align: center
+              - name: Color
+                data: items
+                modify: |-
+                  if (x.filament && x.filament.color_hex) {
+                    '<div style="width:22px;height:22px;border-radius:50%;background:#' + x.filament.color_hex + ';border:1px solid #555;display:inline-block;vertical-align:middle"></div>'
+                  } else { '' }
+                align: center
+              - name: Filament
+                data: items
+                modify: 'x.filament ? x.filament.name : '''''
+              - name: Vendor
+                data: items
+                modify: '(x.filament && x.filament.vendor) ? x.filament.vendor.name : '''''
+              - name: Material
+                data: items
+                modify: 'x.filament ? (x.filament.material || '''') : '''''
+              - name: Remaining (g)
+                data: items
+                modify: 'x.remaining_weight != null ? Math.round(x.remaining_weight) : '''''
+                align: right
