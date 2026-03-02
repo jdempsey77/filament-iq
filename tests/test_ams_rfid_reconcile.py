@@ -2169,8 +2169,9 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertIsNotNone(slot_t)
         self.assertEqual(slot_t.get("unbound_reason"), UNBOUND_HELPER_RFID_MISMATCH)
 
-    def test_truth_guard_force_location_blocks_location_patch_on_material_mismatch(self):
-        """_force_location_and_helpers: material mismatch (PETG helper vs PLA tray) blocks all location PATCHes."""
+    def test_truth_guard_force_location_allows_patch_when_bound_invariant(self):
+        """_force_location_and_helpers: when expected_spool_id == helper_spool_id (manual bind),
+        material mismatch (PETG vs PLA) warns only; location PATCH is allowed and helpers are NOT cleared."""
         slot = 5
         helper_spool = _spool(7, remaining_weight=500, rfid_tag_uid=None, location="Shelf",
                               material="PETG", color_hex="00ff00", name="Bambu PETG")
@@ -2197,10 +2198,10 @@ class TestAmsRfidReconcile(unittest.TestCase):
             previous_helper_spool_id=0,
             spool_index=spool_index, t=t, tray_empty=False, tray_state_str="valid",
         )
-        self.assertEqual(len(sm.patches), 0, "truth guard must block ALL location PATCHes when material mismatch")
+        self.assertEqual(len(sm.patches), 1, "bound invariant holds: truth guard allows location PATCH")
         spool_id_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_spool_id"]
         cleared = any(w.get("value") == "0" for w in spool_id_writes)
-        self.assertTrue(cleared, "truth guard must clear helper on material mismatch")
+        self.assertFalse(cleared, "bound invariant: truth guard must NOT clear helper")
 
     def test_truth_guard_converge_ha_sig_blocks_comment_patch_on_material_mismatch(self):
         """_converge_ha_sig: material mismatch blocks comment PATCH (no spoolman_patch for comment)."""
@@ -2564,8 +2565,9 @@ class TestAmsRfidReconcile(unittest.TestCase):
 
         self.assertEqual(len(sm.patches), 0, "status_only=True must produce zero Spoolman PATCHes")
 
-    def test_nonrfid_bound_invariant_truth_guard_blocks_patch(self):
-        """Bound invariant: if truth guard detects material mismatch, location PATCH must NOT happen."""
+    def test_nonrfid_bound_invariant_truth_guard_allows_patch(self):
+        """Bound invariant: when expected_spool_id == helper_spool_id (manual bind), material mismatch
+        warns only and location PATCH is allowed."""
         slot = 3
         spool_id = 42
         spools = [_spool(spool_id, remaining_weight=400, rfid_tag_uid=None, location="Shelf",
@@ -2598,8 +2600,8 @@ class TestAmsRfidReconcile(unittest.TestCase):
         loc_patches = [p for p in sm.patches
                        if p.get("path") == f"/api/v1/spool/{spool_id}"
                        and "location" in p.get("payload", {})]
-        self.assertEqual(len(loc_patches), 0,
-                         "truth guard material mismatch must block location PATCH")
+        self.assertEqual(len(loc_patches), 1,
+                         "bound invariant holds (expected==spool_id): truth guard allows location PATCH")
 
     def test_nonrfid_stable_converges_location_from_shelf(self):
         """Non-RFID stable (spool_id > 0, expected == 0, no tag): spool at Shelf
