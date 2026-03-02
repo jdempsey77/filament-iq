@@ -1086,248 +1086,219 @@ views:
     sections:
       - type: grid
         cards:
-          - type: custom:mod-card
-            style: |
-              ha-card {
-                border: 2px solid var(--ha-card-border-color, #444) !important;
-                border-radius: 12px !important;
-                box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
-                padding: 12px !important;
-              }
-            card:
-              type: vertical-stack
-              cards:
-                - type: custom:mushroom-entity-card
-                  entity: switch.officeoutlet01_3dprinter
-                  name: Power
-                  icon: mdi:power
-                  tap_action:
-                    action: toggle
-                    confirmation:
-                      text: Toggle Printer Power?
-                  hold_action:
-                    action: more-info
-                  icon_color: accent
-                - type: horizontal-stack
-                  cards:
-                    - type: custom:mushroom-template-card
-                      primary: Reload Spoolman
-                      secondary: Refresh integration
-                      icon: mdi:refresh
-                      icon_color: green
-                      tap_action:
-                        action: call-service
-                        service: script.reload_spoolman_integration
-                        data: {}
-                    - type: custom:mushroom-template-card
-                      primary: Refresh spool list
-                      secondary: Update dropdowns
-                      icon: mdi:format-list-bulleted
-                      icon_color: blue
-                      tap_action:
-                        action: call-service
-                        service: script.refresh_ams_spool_list
-                        data: {}
-                - type: custom:mushroom-entity-card
-                  entity: sensor.p1s_operator_status
-                  name: Status
-                  icon: mdi:printer-3d
-                  icon_color: accent
-                - type: conditional
-                  conditions:
-                    - entity: sensor.p1s_01p00c5a3101668_mqtt_connection_mode
-                      state: local
-                    - entity: sensor.p1s_operator_status
-                      state:
-                        - printing_normally
-                        - printing_attention_needed
-                    - condition: state
-                      entity: select.p1s_01p00c5a3101668_printing_speed
-                      state_not: unavailable
-                  card:
-                    type: custom:mushroom-entity-card
+          - type: vertical-stack
+            cards:
+              - type: custom:mushroom-entity-card
+                entity: switch.officeoutlet01_3dprinter
+                name: Power
+                icon: mdi:power
+                tap_action:
+                  action: toggle
+                  confirmation:
+                    text: Toggle Printer Power?
+                hold_action:
+                  action: more-info
+                icon_color: accent
+              - type: custom:mushroom-entity-card
+                entity: sensor.p1s_operator_status
+                name: Status
+                icon: mdi:printer-3d
+                icon_color: accent
+              - type: conditional
+                conditions:
+                  - entity: sensor.p1s_01p00c5a3101668_mqtt_connection_mode
+                    state: local
+                  - entity: sensor.p1s_operator_status
+                    state:
+                      - printing_normally
+                      - printing_attention_needed
+                  - condition: state
                     entity: select.p1s_01p00c5a3101668_printing_speed
-                    name: Speed
-                    icon: mdi:speedometer
-                    icon_color: red
-                - type: conditional
-                  conditions:
-                    - entity: sensor.p1s_01p00c5a3101668_mqtt_connection_mode
-                      state: local
-                    - entity: sensor.p1s_operator_status
-                      state:
-                        - printing_normally
-                        - printing_attention_needed
-                        - paused_user
-                        - paused_error
-                  card:
-                    type: horizontal-stack
-                    cards:
-                      - type: conditional
-                        conditions:
-                          - entity: sensor.p1s_operator_status
-                            state:
-                              - printing_normally
-                              - printing_attention_needed
-                        card:
-                          type: custom:mushroom-entity-card
-                          entity: button.p1s_01p00c5a3101668_pause_printing
-                          name: Pause
-                          icon: mdi:pause
-                          tap_action:
-                            action: call-service
-                            service: button.press
-                            service_data:
-                              entity_id: button.p1s_01p00c5a3101668_pause_printing
-                          icon_color: orange
-                      - type: conditional
-                        conditions:
-                          - entity: sensor.p1s_operator_status
-                            state:
-                              - paused_user
-                              - paused_error
-                        card:
-                          type: custom:mushroom-entity-card
-                          entity: button.p1s_01p00c5a3101668_resume_printing
-                          name: Resume
-                          icon: mdi:play
-                          tap_action:
-                            action: call-service
-                            service: button.press
-                            service_data:
-                              entity_id: button.p1s_01p00c5a3101668_resume_printing
-                          icon_color: orange
-                      - type: custom:mushroom-template-card
-                        primary: Cancel
-                        icon: mdi:cancel
-                        icon_color: red
-                        tap_action:
-                          action: call-service
-                          service: button.press
-                          service_data:
-                            entity_id: button.p1s_01p00c5a3101668_stop_printing
-                        confirmation:
-                          text: Cancel Print?
-                - type: conditional
-                  conditions:
-                    - entity: sensor.p1s_operator_status
-                      state:
-                        - printing_normally
-                        - printing_attention_needed
-                  card:
-                    type: custom:mushroom-entity-card
-                    entity: sensor.p1s_01p00c5a3101668_task_name
-                    name: Task
-                    icon: mdi:clipboard-text
-                - type: vertical-stack
+                    state_not: unavailable
+                card:
+                  type: custom:mushroom-entity-card
+                  entity: select.p1s_01p00c5a3101668_printing_speed
+                  name: Speed
+                  icon: mdi:speedometer
+                  icon_color: red
+              - type: conditional
+                conditions:
+                  - entity: sensor.p1s_01p00c5a3101668_mqtt_connection_mode
+                    state: local
+                  - entity: sensor.p1s_operator_status
+                    state:
+                      - printing_normally
+                      - printing_attention_needed
+                      - paused_user
+                      - paused_error
+                card:
+                  type: horizontal-stack
                   cards:
-                    - type: horizontal-stack
-                      cards:
-                        - type: custom:mushroom-entity-card
-                          entity: sensor.p1s_01p00c5a3101668_print_progress
-                          name: Progress
-                          icon: mdi:progress-helper
-                        - type: custom:mushroom-template-card
-                          primary: Layer
-                          icon_color: var(--rgb-state-entity)
-                          secondary: >-
-                            {{states('sensor.p1s_01p00c5a3101668_current_layer')}}
-                            /
-                            {{states('sensor.p1s_01p00c5a3101668_total_layer_count')}}
-                          icon: mdi:layers
                     - type: conditional
                       conditions:
                         - entity: sensor.p1s_operator_status
                           state:
                             - printing_normally
                             - printing_attention_needed
-                        - condition: state
-                          entity: input_datetime.p1s_print_start_time
-                          state_not: unavailable
-                        - condition: state
-                          entity: input_datetime.p1s_print_end_time
-                          state_not: unavailable
                       card:
-                        type: custom:timer-bar-card
-                        entity: sensor.p1s_01p00c5a3101668_print_status
-                        name: Time Remaining
-                        mushroom: true
-                        active_state:
-                          - running
-                          - RUNNING
-                        start_time:
-                          entity: input_datetime.p1s_print_start_time
-                        end_time:
-                          entity: input_datetime.p1s_print_end_time
-                        icon: mdi:timer-sand
-                        active_icon: mdi:printer-3d
-                        invert: false
-                        bar_radius: 6px
-                        bar_height: 6px
-                        bar_foreground: rgb(var(--rgb-accent-color))
-                        bar_background: rgba(var(--rgb-primary-text-color), 0.12)
-                        state_color: true
-                        card_mod:
-                          style: >
-                            ha-card {
-                              border: none !important;
-                              border-radius: 12px !important;
-                              box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
-                              padding: 6px 12px 8px !important;
-                            }
-
-                            timer-bar-card {
-                              --tbc-name-color: var(--primary-text-color);
-                              --tbc-time-color: var(--secondary-text-color);
-                            }
-
-                            timer-bar-mushroom-row {
-                              min-height: 0 !important;
-                            }
-
-                            timer-bar-mushroom-row .info, timer-bar-mushroom-row
-                            .time {
-                              line-height: 1.2 !important;
-                            }
-                    - type: horizontal-stack
-                      cards:
-                        - type: conditional
-                          conditions:
-                            - condition: state
-                              entity: input_datetime.p1s_print_start_time
-                              state_not: unavailable
-                          card:
-                            type: custom:mushroom-entity-card
-                            entity: input_datetime.p1s_print_start_time
-                            name: Start Time
-                            icon: mdi:clock-time-four
-                        - type: conditional
-                          conditions:
-                            - condition: state
-                              entity: input_datetime.p1s_print_end_time
-                              state_not: unavailable
-                          card:
-                            type: custom:mushroom-entity-card
-                            entity: input_datetime.p1s_print_end_time
-                            name: End Time
-                            icon: mdi:clock-time-four-outline
-                    - type: custom:mushroom-entity-card
-                      entity: binary_sensor.p1s_01p00c5a3101668_firmware_update
-                      name: Firmware
-                      icon: mdi:chip
-                    - type: custom:mushroom-entity-card
-                      entity: sensor.p1s_01p00c5a3101668_active_tray
-                      name: Current Filament
-                      icon: mdi:printer-3d-nozzle
+                        type: custom:mushroom-entity-card
+                        entity: button.p1s_01p00c5a3101668_pause_printing
+                        name: Pause
+                        icon: mdi:pause
+                        tap_action:
+                          action: call-service
+                          service: button.press
+                          service_data:
+                            entity_id: button.p1s_01p00c5a3101668_pause_printing
+                        icon_color: orange
+                    - type: conditional
+                      conditions:
+                        - entity: sensor.p1s_operator_status
+                          state:
+                            - paused_user
+                            - paused_error
+                      card:
+                        type: custom:mushroom-entity-card
+                        entity: button.p1s_01p00c5a3101668_resume_printing
+                        name: Resume
+                        icon: mdi:play
+                        tap_action:
+                          action: call-service
+                          service: button.press
+                          service_data:
+                            entity_id: button.p1s_01p00c5a3101668_resume_printing
+                        icon_color: orange
+                    - type: custom:mushroom-template-card
+                      primary: Cancel
+                      icon: mdi:cancel
+                      icon_color: red
+                      tap_action:
+                        action: call-service
+                        service: button.press
+                        service_data:
+                          entity_id: button.p1s_01p00c5a3101668_stop_printing
+                      confirmation:
+                        text: Cancel Print?
+              - type: conditional
+                conditions:
+                  - entity: sensor.p1s_operator_status
+                    state:
+                      - printing_normally
+                      - printing_attention_needed
+                card:
+                  type: custom:mushroom-entity-card
+                  entity: sensor.p1s_01p00c5a3101668_task_name
+                  name: Task
+                  icon: mdi:clipboard-text
+              - type: vertical-stack
+                cards:
+                  - type: horizontal-stack
+                    cards:
+                      - type: custom:mushroom-entity-card
+                        entity: sensor.p1s_01p00c5a3101668_print_progress
+                        name: Progress
+                        icon: mdi:progress-helper
+                      - type: custom:mushroom-template-card
+                        primary: Layer
+                        icon_color: var(--rgb-state-entity)
+                        secondary: >-
+                          {{states('sensor.p1s_01p00c5a3101668_current_layer')}}
+                          /
+                          {{states('sensor.p1s_01p00c5a3101668_total_layer_count')}}
+                        icon: mdi:layers
+                  - type: conditional
+                    conditions:
+                      - entity: sensor.p1s_operator_status
+                        state:
+                          - printing_normally
+                          - printing_attention_needed
+                      - condition: state
+                        entity: input_datetime.p1s_print_start_time
+                        state_not: unavailable
+                      - condition: state
+                        entity: input_datetime.p1s_print_end_time
+                        state_not: unavailable
+                    card:
+                      type: custom:timer-bar-card
+                      entity: sensor.p1s_01p00c5a3101668_print_status
+                      name: Time Remaining
+                      mushroom: true
+                      active_state:
+                        - running
+                        - RUNNING
+                      start_time:
+                        entity: input_datetime.p1s_print_start_time
+                      end_time:
+                        entity: input_datetime.p1s_print_end_time
+                      icon: mdi:timer-sand
+                      active_icon: mdi:printer-3d
+                      invert: false
+                      bar_radius: 6px
+                      bar_height: 6px
+                      bar_foreground: rgb(var(--rgb-accent-color))
+                      bar_background: rgba(var(--rgb-primary-text-color), 0.12)
+                      state_color: true
                       card_mod:
-                        style: |
+                        style: >
                           ha-card {
-                            --card-mod-icon-color: {{ state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'color') | default('rgb(var(--rgb-state-entity))') }};
+                            border: none !important;
+                            border-radius: 12px !important;
+                            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                            padding: 6px 12px 8px !important;
                           }
-                    - type: custom:mushroom-entity-card
-                      entity: sensor.p1s_01p00c5a3101668_total_usage
-                      name: Print Hours
-                      icon: mdi:clock-outline
+
+                          timer-bar-card {
+                            --tbc-name-color: var(--primary-text-color);
+                            --tbc-time-color: var(--secondary-text-color);
+                          }
+
+                          timer-bar-mushroom-row {
+                            min-height: 0 !important;
+                          }
+
+                          timer-bar-mushroom-row .info, timer-bar-mushroom-row
+                          .time {
+                            line-height: 1.2 !important;
+                          }
+                  - type: horizontal-stack
+                    cards:
+                      - type: conditional
+                        conditions:
+                          - condition: state
+                            entity: input_datetime.p1s_print_start_time
+                            state_not: unavailable
+                        card:
+                          type: custom:mushroom-entity-card
+                          entity: input_datetime.p1s_print_start_time
+                          name: Start Time
+                          icon: mdi:clock-time-four
+                      - type: conditional
+                        conditions:
+                          - condition: state
+                            entity: input_datetime.p1s_print_end_time
+                            state_not: unavailable
+                        card:
+                          type: custom:mushroom-entity-card
+                          entity: input_datetime.p1s_print_end_time
+                          name: End Time
+                          icon: mdi:clock-time-four-outline
+                  - type: custom:mushroom-entity-card
+                    entity: binary_sensor.p1s_01p00c5a3101668_firmware_update
+                    name: Firmware
+                    icon: mdi:chip
+                  - type: custom:mushroom-entity-card
+                    entity: sensor.p1s_01p00c5a3101668_active_tray
+                    name: Current Filament
+                    icon: mdi:printer-3d-nozzle
+                    card_mod:
+                      style: |
+                        ha-card {
+                          --card-mod-icon-color: {{ state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'color') | default('rgb(var(--rgb-state-entity))') }};
+                        }
+                  - type: custom:mushroom-entity-card
+                    entity: sensor.p1s_01p00c5a3101668_total_usage
+                    name: Print Hours
+                    icon: mdi:clock-outline
           - type: custom:webrtc-camera
             entity: camera.tapo_c111_live_view
             card_mod:
@@ -1503,767 +1474,6 @@ views:
               unavailable: /local/media/bambuprinter/off_p1s.png
               'on': /local/media/bambuprinter/on_p1s.png
               'off': /local/media/bambuprinter/off_p1s.png
-          - type: custom:mod-card
-            style: |
-              ha-card {
-                border: 2px solid var(--ha-card-border-color, #444) !important;
-                border-radius: 12px !important;
-                box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
-                padding: 12px !important;
-              }
-            card:
-              type: vertical-stack
-              cards:
-                - type: custom:mushroom-entity-card
-                  entity: sensor.p1s_01p00c5a3101668_ams_1_tray_1
-                  name: AMS Pro
-                  icon: mdi:package-variant
-                  icon_color: var(--rgb-state-entity)
-                  tap_action:
-                    action: more-info
-                - type: grid
-                  columns: 2
-                  square: false
-                  cards:
-                    - type: conditional
-                      conditions:
-                        - condition: state
-                          entity: sensor.p1s_01p00c5a3101668_ams_1_tray_1
-                          state: Empty
-                      card:
-                        type: custom:mushroom-template-card
-                        primary: Tray 1
-                        secondary: Empty
-                        icon: mdi:numeric-1-circle-outline
-                        icon_color: grey
-                        tap_action:
-                          action: fire-dom-event
-                          browser_mod:
-                            service: browser_mod.popup
-                            data:
-                              title: Manage AMS Slot 1
-                              content:
-                                type: vertical-stack
-                                cards:
-                                  - type: markdown
-                                    content: >
-                                      **Current Tray:** {{
-                                      states('sensor.p1s_01p00c5a3101668_ams_1_tray_1')
-                                      }}  
-
-                                      **Location:** AMS1_Slot1
-                                  - type: entities
-                                    entities:
-                                      - entity: input_select.ams_slot_1_select_spool
-                                        name: Select Spool
-                                      - entity: input_select.ams_slot_1_spool_type
-                                        name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_1_gross_weight
-                                        name: Scale Weight (g)
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Update
-                                    secondary: Write to Spoolman
-                                    icon: mdi:database-arrow-up
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_1_assign_and_update
-                                      data: {}
-                                  - type: button
-                                    name: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_1_unbound_reason
-                                      data:
-                                        value: "FORCE_ACCEPTED"
-                        card_mod:
-                          style: |
-                            ha-card { opacity: 0.8; }
-                    - type: conditional
-                      conditions:
-                        - condition: state
-                          entity: sensor.p1s_01p00c5a3101668_ams_1_tray_1
-                          state_not: Empty
-                      card:
-                        type: custom:mushroom-template-card
-                        primary: >-
-                          {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_1')
-                          }}
-                        secondary: >-
-                          {{ states('sensor.ams_slot_1_remaining_g') }} g
-                          remaining
-                        icon: mdi:numeric-1-circle
-                        icon_color: var(--rgb-state-entity)
-                        tap_action:
-                          action: fire-dom-event
-                          browser_mod:
-                            service: browser_mod.popup
-                            data:
-                              title: Manage AMS Slot 1
-                              content:
-                                type: vertical-stack
-                                cards:
-                                  - type: markdown
-                                    content: >
-                                      **Current Tray:** {{
-                                      states('sensor.p1s_01p00c5a3101668_ams_1_tray_1')
-                                      }}  
-
-                                      **Location:** AMS1_Slot1
-                                  - type: entities
-                                    entities:
-                                      - entity: input_select.ams_slot_1_select_spool
-                                        name: Select Spool
-                                      - entity: input_select.ams_slot_1_spool_type
-                                        name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_1_gross_weight
-                                        name: Scale Weight (g)
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Update
-                                    secondary: Write to Spoolman
-                                    icon: mdi:database-arrow-up
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_1_assign_and_update
-                                      data: {}
-                                  - type: button
-                                    name: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_1_unbound_reason
-                                      data:
-                                        value: "FORCE_ACCEPTED"
-                        card_mod:
-                          style: >
-                            {% set c =
-                            state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1',
-                            'color') %}
-
-                            ha-card {
-                              --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                              {% if state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'active') %}
-                              font-weight: bold;
-                              border: 2px solid var(--primary-color);
-                              background: rgba(var(--rgb-primary-color), 0.15);
-                              {% endif %}
-                            }
-                    - type: conditional
-                      conditions:
-                        - condition: state
-                          entity: sensor.p1s_01p00c5a3101668_ams_1_tray_2
-                          state: Empty
-                      card:
-                        type: custom:mushroom-template-card
-                        primary: Tray 2
-                        secondary: Empty
-                        icon: mdi:numeric-2-circle-outline
-                        icon_color: grey
-                        tap_action:
-                          action: fire-dom-event
-                          browser_mod:
-                            service: browser_mod.popup
-                            data:
-                              title: Manage AMS Slot 2
-                              content:
-                                type: vertical-stack
-                                cards:
-                                  - type: markdown
-                                    content: >
-                                      **Current Tray:** {{
-                                      states('sensor.p1s_01p00c5a3101668_ams_1_tray_2')
-                                      }}  
-
-                                      **Location:** AMS1_Slot2
-                                  - type: entities
-                                    entities:
-                                      - entity: input_select.ams_slot_2_select_spool
-                                        name: Select Spool
-                                      - entity: input_select.ams_slot_2_spool_type
-                                        name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_2_gross_weight
-                                        name: Scale Weight (g)
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Update
-                                    secondary: Write to Spoolman
-                                    icon: mdi:database-arrow-up
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_2_assign_and_update
-                                      data: {}
-                                  - type: button
-                                    name: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_2_unbound_reason
-                                      data:
-                                        value: "FORCE_ACCEPTED"
-                        card_mod:
-                          style: |
-                            ha-card { opacity: 0.8; }
-                    - type: conditional
-                      conditions:
-                        - condition: state
-                          entity: sensor.p1s_01p00c5a3101668_ams_1_tray_2
-                          state_not: Empty
-                      card:
-                        type: custom:mushroom-template-card
-                        primary: >-
-                          {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_2')
-                          }}
-                        secondary: >-
-                          {{ states('sensor.ams_slot_2_remaining_g') }} g
-                          remaining
-                        icon: mdi:numeric-2-circle
-                        icon_color: var(--rgb-state-entity)
-                        tap_action:
-                          action: fire-dom-event
-                          browser_mod:
-                            service: browser_mod.popup
-                            data:
-                              title: Manage AMS Slot 2
-                              content:
-                                type: vertical-stack
-                                cards:
-                                  - type: markdown
-                                    content: >
-                                      **Current Tray:** {{
-                                      states('sensor.p1s_01p00c5a3101668_ams_1_tray_2')
-                                      }}  
-
-                                      **Location:** AMS1_Slot2
-                                  - type: entities
-                                    entities:
-                                      - entity: input_select.ams_slot_2_select_spool
-                                        name: Select Spool
-                                      - entity: input_select.ams_slot_2_spool_type
-                                        name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_2_gross_weight
-                                        name: Scale Weight (g)
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Update
-                                    secondary: Write to Spoolman
-                                    icon: mdi:database-arrow-up
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_2_assign_and_update
-                                      data: {}
-                                  - type: button
-                                    name: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_2_unbound_reason
-                                      data:
-                                        value: "FORCE_ACCEPTED"
-                        card_mod:
-                          style: >
-                            {% set c =
-                            state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2',
-                            'color') %}
-
-                            ha-card {
-                              --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                              {% if state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'active') %}
-                              font-weight: bold;
-                              border: 2px solid var(--primary-color);
-                              background: rgba(var(--rgb-primary-color), 0.15);
-                              {% endif %}
-                            }
-                    - type: conditional
-                      conditions:
-                        - condition: state
-                          entity: sensor.p1s_01p00c5a3101668_ams_1_tray_3
-                          state: Empty
-                      card:
-                        type: custom:mushroom-template-card
-                        primary: Tray 3
-                        secondary: Empty
-                        icon: mdi:numeric-3-circle-outline
-                        icon_color: grey
-                        tap_action:
-                          action: fire-dom-event
-                          browser_mod:
-                            service: browser_mod.popup
-                            data:
-                              title: Manage AMS Slot 3
-                              content:
-                                type: vertical-stack
-                                cards:
-                                  - type: markdown
-                                    content: >
-                                      **Current Tray:** {{
-                                      states('sensor.p1s_01p00c5a3101668_ams_1_tray_3')
-                                      }}  
-
-                                      **Location:** AMS1_Slot3
-                                  - type: entities
-                                    entities:
-                                      - entity: input_select.ams_slot_3_select_spool
-                                        name: Select Spool
-                                      - entity: input_select.ams_slot_3_spool_type
-                                        name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_3_gross_weight
-                                        name: Scale Weight (g)
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Update
-                                    secondary: Write to Spoolman
-                                    icon: mdi:database-arrow-up
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_3_assign_and_update
-                                      data: {}
-                                  - type: button
-                                    name: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_3_unbound_reason
-                                      data:
-                                        value: "FORCE_ACCEPTED"
-                        card_mod:
-                          style: |
-                            ha-card { opacity: 0.8; }
-                    - type: conditional
-                      conditions:
-                        - condition: state
-                          entity: sensor.p1s_01p00c5a3101668_ams_1_tray_3
-                          state_not: Empty
-                      card:
-                        type: custom:mushroom-template-card
-                        primary: >-
-                          {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_3')
-                          }}
-                        secondary: >-
-                          {{ states('sensor.ams_slot_3_remaining_g') }} g
-                          remaining
-                        icon: mdi:numeric-3-circle
-                        icon_color: var(--rgb-state-entity)
-                        tap_action:
-                          action: fire-dom-event
-                          browser_mod:
-                            service: browser_mod.popup
-                            data:
-                              title: Manage AMS Slot 3
-                              content:
-                                type: vertical-stack
-                                cards:
-                                  - type: markdown
-                                    content: >
-                                      **Current Tray:** {{
-                                      states('sensor.p1s_01p00c5a3101668_ams_1_tray_3')
-                                      }}  
-
-                                      **Location:** AMS1_Slot3
-                                  - type: entities
-                                    entities:
-                                      - entity: input_select.ams_slot_3_select_spool
-                                        name: Select Spool
-                                      - entity: input_select.ams_slot_3_spool_type
-                                        name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_3_gross_weight
-                                        name: Scale Weight (g)
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Update
-                                    secondary: Write to Spoolman
-                                    icon: mdi:database-arrow-up
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_3_assign_and_update
-                                      data: {}
-                                  - type: button
-                                    name: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_3_unbound_reason
-                                      data:
-                                        value: "FORCE_ACCEPTED"
-                        card_mod:
-                          style: >
-                            {% set c =
-                            state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3',
-                            'color') %}
-
-                            ha-card {
-                              --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                              {% if state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'active') %}
-                              font-weight: bold;
-                              border: 2px solid var(--primary-color);
-                              background: rgba(var(--rgb-primary-color), 0.15);
-                              {% endif %}
-                            }
-                    - type: conditional
-                      conditions:
-                        - condition: state
-                          entity: sensor.p1s_01p00c5a3101668_ams_1_tray_4
-                          state: Empty
-                      card:
-                        type: custom:mushroom-template-card
-                        primary: Tray 4
-                        secondary: Empty
-                        icon: mdi:numeric-4-circle-outline
-                        icon_color: grey
-                        tap_action:
-                          action: fire-dom-event
-                          browser_mod:
-                            service: browser_mod.popup
-                            data:
-                              title: Manage AMS Slot 4
-                              content:
-                                type: vertical-stack
-                                cards:
-                                  - type: markdown
-                                    content: >
-                                      **Current Tray:** {{
-                                      states('sensor.p1s_01p00c5a3101668_ams_1_tray_4')
-                                      }}  
-
-                                      **Location:** AMS1_Slot4
-                                  - type: entities
-                                    entities:
-                                      - entity: input_select.ams_slot_4_select_spool
-                                        name: Select Spool
-                                      - entity: input_select.ams_slot_4_spool_type
-                                        name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_4_gross_weight
-                                        name: Scale Weight (g)
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Update
-                                    secondary: Write to Spoolman
-                                    icon: mdi:database-arrow-up
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_4_assign_and_update
-                                      data: {}
-                                  - type: button
-                                    name: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_4_unbound_reason
-                                      data:
-                                        value: "FORCE_ACCEPTED"
-                        card_mod:
-                          style: |
-                            ha-card { opacity: 0.8; }
-                    - type: conditional
-                      conditions:
-                        - condition: state
-                          entity: sensor.p1s_01p00c5a3101668_ams_1_tray_4
-                          state_not: Empty
-                      card:
-                        type: custom:mushroom-template-card
-                        primary: >-
-                          {{ states('sensor.p1s_01p00c5a3101668_ams_1_tray_4')
-                          }}
-                        secondary: >-
-                          {{ states('sensor.ams_slot_4_remaining_g') }} g
-                          remaining
-                        icon: mdi:numeric-4-circle
-                        icon_color: var(--rgb-state-entity)
-                        tap_action:
-                          action: fire-dom-event
-                          browser_mod:
-                            service: browser_mod.popup
-                            data:
-                              title: Manage AMS Slot 4
-                              content:
-                                type: vertical-stack
-                                cards:
-                                  - type: markdown
-                                    content: >
-                                      **Current Tray:** {{
-                                      states('sensor.p1s_01p00c5a3101668_ams_1_tray_4')
-                                      }}  
-
-                                      **Location:** AMS1_Slot4
-                                  - type: entities
-                                    entities:
-                                      - entity: input_select.ams_slot_4_select_spool
-                                        name: Select Spool
-                                      - entity: input_select.ams_slot_4_spool_type
-                                        name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_4_gross_weight
-                                        name: Scale Weight (g)
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Update
-                                    secondary: Write to Spoolman
-                                    icon: mdi:database-arrow-up
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_4_assign_and_update
-                                      data: {}
-                                  - type: button
-                                    name: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_4_unbound_reason
-                                      data:
-                                        value: "FORCE_ACCEPTED"
-                        card_mod:
-                          style: >
-                            {% set c =
-                            state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4',
-                            'color') %}
-
-                            ha-card {
-                              --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                              {% if state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'active') %}
-                              font-weight: bold;
-                              border: 2px solid var(--primary-color);
-                              background: rgba(var(--rgb-primary-color), 0.15);
-                              {% endif %}
-                            }
-                - type: horizontal-stack
-                  cards:
-                    - type: custom:mushroom-entity-card
-                      entity: sensor.p1s_01p00c5a3101668_ams_1_humidity
-                      name: Humidity
-                      icon: mdi:water-percent
-                      icon_color: var(--rgb-state-entity)
-                      tap_action:
-                        action: more-info
-                    - type: custom:mushroom-entity-card
-                      entity: sensor.p1s_01p00c5a3101668_ams_1_temperature
-                      name: Temperature
-                      icon: mdi:thermometer
-                      icon_color: var(--rgb-state-entity)
-                      tap_action:
-                        action: more-info
-                - type: conditional
-                  conditions:
-                    - condition: numeric_state
-                      entity: sensor.p1s_01p00c5a3101668_ams_1_remaining_drying_time
-                      above: 0
-                  card:
-                    type: vertical-stack
-                    cards:
-                      - type: custom:mushroom-template-card
-                        primary: Drying Temperature
-                        secondary: >-
-                          {{
-                          states('sensor.p1s_01p00c5a3101668_ams_1_temperature')
-                          }}
-                        icon: mdi:thermometer
-                        icon_color: var(--rgb-state-entity)
-                        tap_action:
-                          action: none
-                      - type: custom:mushroom-template-card
-                        primary: Drying
-                        secondary: >-
-                          {% set tray1_temp =
-                          state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1',
-                          'drying_temp') %}{% set tray2_temp =
-                          state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2',
-                          'drying_temp') %}{% set tray3_temp =
-                          state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3',
-                          'drying_temp') %}{% set tray4_temp =
-                          state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4',
-                          'drying_temp') %}{% set drying_time_1 =
-                          states('sensor.p1s_01p00c5a3101668_ams_1_remaining_drying_time')
-                          %}{% set drying_active_1 = (tray1_temp is not none and
-                          tray1_temp | int > 0) or (tray2_temp is not none and
-                          tray2_temp | int > 0) or (tray3_temp is not none and
-                          tray3_temp | int > 0) or (tray4_temp is not none and
-                          tray4_temp | int > 0) or (drying_time_1 and
-                          drying_time_1 != 'unavailable' and drying_time_1 !=
-                          'unknown' and drying_time_1 != '0' and drying_time_1
-                          != '0.0' and drying_time_1 != 'None' and drying_time_1
-                          | float > 0) %}{% if drying_active_1 %}Yes{% else
-                          %}No{% endif %}
-                        icon: mdi:air-humidifier
-                        icon_color: var(--rgb-state-entity)
-                        tap_action:
-                          action: none
-                      - type: custom:mushroom-template-card
-                        primary: Remaining Time
-                        secondary: >-
-                          {% set tray1_temp =
-                          state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1',
-                          'drying_temp') %}{% set tray2_temp =
-                          state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2',
-                          'drying_temp') %}{% set tray3_temp =
-                          state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3',
-                          'drying_temp') %}{% set tray4_temp =
-                          state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4',
-                          'drying_temp') %}{% set drying_time_1 =
-                          states('sensor.p1s_01p00c5a3101668_ams_1_remaining_drying_time')
-                          %}{% set drying_active_1 = (tray1_temp is not none and
-                          tray1_temp | int > 0) or (tray2_temp is not none and
-                          tray2_temp | int > 0) or (tray3_temp is not none and
-                          tray3_temp | int > 0) or (tray4_temp is not none and
-                          tray4_temp | int > 0) or (drying_time_1 and
-                          drying_time_1 != 'unavailable' and drying_time_1 !=
-                          'unknown' and drying_time_1 != '0' and drying_time_1
-                          != '0.0' and drying_time_1 != 'None' and drying_time_1
-                          | float > 0) %}{% if drying_active_1 %}{% if
-                          drying_time_1 and drying_time_1 != 'unavailable' and
-                          drying_time_1 != 'unknown' and drying_time_1 != '0'
-                          and drying_time_1 != '0.0' and drying_time_1 != 'None'
-                          %}{{ ((drying_time_1 | float) * 60) | round(0) | int
-                          }} min{% else %}-{% endif %}{% else %}-{% endif %}
-                        icon: mdi:timer-outline
-                        icon_color: var(--rgb-state-entity)
-                        tap_action:
-                          action: none
-          - type: custom:mushroom-template-card
-            primary: Add Spool to Spoolman
-            secondary: Create a new physical spool
-            icon: mdi:plus-circle-outline
-            tap_action:
-              action: fire-dom-event
-              browser_mod:
-                service: browser_mod.popup
-                data:
-                  title: Add Spool to Spoolman
-                  content:
-                    type: vertical-stack
-                    cards:
-                      - type: entities
-                        entities:
-                          - entity: input_select.spoolman_new_spool_filament
-                            name: Filament (required)
-                          - entity: input_text.spoolman_new_spool_location
-                            name: Location (e.g. Shelf)
-                          - entity: input_number.spoolman_new_spool_remaining_weight
-                            name: Remaining Weight (g)
-                      - type: horizontal-stack
-                        cards:
-                          - type: custom:mushroom-template-card
-                            primary: Refresh filament list
-                            secondary: Fetch from Spoolman
-                            icon: mdi:refresh
-                            icon_color: blue
-                            tap_action:
-                              action: call-service
-                              service: script.refresh_filament_dropdown
-                              data: {}
-                          - type: custom:mushroom-template-card
-                            primary: Add spool
-                            secondary: Create in Spoolman
-                            icon: mdi:plus-circle-outline
-                            icon_color: green
-                            tap_action:
-                              action: call-service
-                              service: script.spoolman_add_spool
-                              data: {}
-            color: green
-            features_position: bottom
-            grid_options:
-              columns: 12
-              rows: 1
-          - type: custom:mushroom-template-card
-            primary: Add Filament to Spoolman
-            secondary: Create a new filament type
-            icon: mdi:plus-circle
-            tap_action:
-              action: fire-dom-event
-              browser_mod:
-                service: browser_mod.popup
-                data:
-                  title: Add Filament to Spoolman
-                  content:
-                    type: vertical-stack
-                    cards:
-                      - type: entities
-                        entities:
-                          - entity: input_text.spoolman_new_filament_name
-                            name: Filament Name
-                          - entity: input_text.spoolman_new_filament_material
-                            name: Material (PLA, PETG, etc.)
-                          - entity: input_number.spoolman_new_filament_diameter
-                            name: Diameter (mm)
-                          - entity: input_number.spoolman_new_filament_density
-                            name: Density (g/cm³)
-                          - entity: input_number.spoolman_new_filament_weight
-                            name: Spool Weight (g)
-                          - entity: input_select.spoolman_new_filament_vendor
-                            name: Vendor
-                          - entity: input_text.spoolman_new_filament_color_hex
-                            name: Color Hex (optional)
-                      - type: custom:mushroom-template-card
-                        primary: Add to Spoolman
-                        secondary: Create filament type
-                        icon: mdi:plus-circle
-                        icon_color: green
-                        tap_action:
-                          action: call-service
-                          service: script.spoolman_add_filament
-                          data: {}
-            color: blue
-            features_position: bottom
-            grid_options:
-              columns: 12
-              rows: 1
-      - type: grid
-        cards:
-          - type: custom:mod-card
-            style: |
-              ha-card {
-                border: 2px solid var(--ha-card-border-color, #444) !important;
-                border-radius: 12px !important;
-                box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
-                padding: 12px !important;
-              }
-            card:
-              type: vertical-stack
-              cards:
-                - type: custom:mushroom-fan-card
-                  entity: fan.p1s_01p00c5a3101668_aux_fan
-                  name: Aux Fan
-                  icon_animation: true
-                  show_percentage_control: true
-                  fill_container: false
-                  layout: horizontal
-                - type: custom:mushroom-fan-card
-                  entity: fan.p1s_01p00c5a3101668_chamber_fan
-                  name: Chamber Fan
-                  icon_animation: true
-                  show_percentage_control: true
-                  fill_container: false
-                  layout: horizontal
-                - type: custom:mushroom-fan-card
-                  entity: fan.p1s_01p00c5a3101668_cooling_fan
-                  name: Part Cooling Fan
-                  icon_animation: true
-                  show_percentage_control: true
-                  fill_container: false
-                  layout: horizontal
-                - type: custom:mushroom-fan-card
-                  entity: fan.office_air_purifier
-                  name: Office Air Purifier
-                  icon: mdi:air-filter
-                  icon_animation: true
-                  show_percentage_control: true
-                  fill_container: false
-                  layout: horizontal
           - type: vertical-stack
             cards:
               - type: custom:mod-card
@@ -2277,113 +1487,1012 @@ views:
                 card:
                   type: vertical-stack
                   cards:
-                    - type: conditional
-                      conditions:
-                        - condition: state
-                          entity: sensor.p1s_01p00c5a3101668_mqtt_connection_mode
-                          state: local
-                        - condition: state
-                          entity: number.p1s_01p00c5a3101668_nozzle_target_temperature
-                          state_not: unavailable
-                        - condition: state
-                          entity: number.p1s_01p00c5a3101668_nozzle_target_temperature
-                          state_not: unknown
-                      card:
-                        type: custom:mushroom-number-card
-                        entity: number.p1s_01p00c5a3101668_nozzle_target_temperature
-                        name: Set Nozzle Temp
-                        layout: horizontal
-                        display_mode: buttons
-                    - type: conditional
-                      conditions:
-                        - condition: state
-                          entity: sensor.p1s_01p00c5a3101668_mqtt_connection_mode
-                          state: local
-                        - condition: state
-                          entity: number.p1s_01p00c5a3101668_bed_target_temperature
-                          state_not: unavailable
-                        - condition: state
-                          entity: number.p1s_01p00c5a3101668_bed_target_temperature
-                          state_not: unknown
-                      card:
-                        type: custom:mushroom-number-card
-                        entity: number.p1s_01p00c5a3101668_bed_target_temperature
-                        name: Set Bed Temp
-                        display_mode: buttons
-                        layout: horizontal
                     - type: custom:mushroom-template-card
-                      primary: Nozzle Temperature
-                      secondary: >-
-                        {% set nozzle_f =
-                        states('sensor.p1s_01p00c5a3101668_nozzle_temperature')
-                        | float %}{{ ((nozzle_f - 32) * 5/9) | round(0) | int
-                        }}°C
-                      icon: mdi:thermometer
-                      icon_color: var(--rgb-state-entity)
+                      primary: AMS 2 Pro
+                      icon: mdi:printer-3d
+                      icon_color: green
                       tap_action:
                         action: none
-                    - type: custom:mushroom-template-card
-                      primary: Bed Temperature
-                      secondary: >-
-                        {% set bed_f =
-                        states('sensor.p1s_01p00c5a3101668_bed_temperature') |
-                        float %}{{ ((bed_f - 32) * 5/9) | round(0) | int }}°C
-                      icon: mdi:thermometer
-                      icon_color: var(--rgb-state-entity)
-                      tap_action:
-                        action: none
-              - type: conditional
-                card:
-                  type: custom:mushroom-template-card
-                  primary: Chamber Temperature
-                  secondary: >-
-                    {% set chamber_temp =
-                    states('sensor.p1s_01p00c5a3101668_chamber_temperature')
-                    %}{% if chamber_temp != 'unavailable' and chamber_temp !=
-                    'unknown' and chamber_temp != 'None' %}{% set chamber_f =
-                    chamber_temp | float %}{{ ((chamber_f - 32) * 5/9) |
-                    round(0) | int }}°C{% else %}-{% endif %}
-                  icon: mdi:thermometer
-                  icon_color: var(--rgb-state-entity)
-                  tap_action:
-                    action: none
-                conditions:
-                  - condition: state
-                    entity: sensor.p1s_01p00c5a3101668_chamber_temperature
-                    state_not: unavailable
-                  - condition: state
-                    entity: sensor.p1s_01p00c5a3101668_chamber_temperature
-                    state_not: unknown
-              - type: custom:mod-card
-                style: |
-                  ha-card {
-                    border: 2px solid var(--ha-card-border-color, #444) !important;
-                    border-radius: 12px !important;
-                    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
-                    padding: 12px !important;
-                  }
-                card:
-                  type: horizontal-stack
-                  cards:
-                    - type: custom:mushroom-template-card
-                      primary: Room Temperature
-                      secondary: >-
-                        {{ (states('sensor.bthome_sensor_ff21_temperature') |
-                        float) | round(1) }}°F
-                      icon: mdi:thermometer
-                      icon_color: var(--rgb-state-entity)
-                      tap_action:
-                        action: more-info
-                        entity: sensor.bthome_sensor_ff21_temperature
-                    - type: custom:mushroom-template-card
-                      primary: Room Humidity
-                      secondary: '{{ states(''sensor.bthome_sensor_ff21_humidity'') }}%'
+                      card_mod:
+                        style: >
+                          ha-card { --ha-card-background: transparent;
+                          box-shadow: none; padding: 0; }
+                    - type: grid
+                      columns: 2
+                      square: false
+                      cards:
+                        - type: custom:mushroom-template-card
+                          entity: sensor.ams_slot_1_name
+                          primary: >-
+                            {% set status = states('sensor.ams_slot_1_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_1_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}Slot 1 - Reload Spool
+                            {% elif status == 'empty' %}Slot 1 - Empty {% elif
+                            status == 'needs_bind' %}Slot 1 - Needs Binding {%
+                            else %}{{ states('sensor.ams_slot_1_name') }} {%
+                            endif %}
+                          secondary: >-
+                            {% set status = states('sensor.ams_slot_1_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_1_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}{{
+                            states('sensor.ams_slot_1_name') }} assigned -
+                            unload & reload for RFID {% elif status == 'ok' %}{{
+                            states('sensor.ams_slot_1_vendor') }} - {{
+                            states('sensor.ams_slot_1_material') }} - {{
+                            states('sensor.ams_slot_1_remaining_g') }}g {% elif
+                            status == 'needs_bind' %}
+                              {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
+                              {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
+                              {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                              {% elif 'NOT_FOUND' in r %}Spool missing - tap to reassign
+                              {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                              {% else %}Manual binding required
+                              {% endif %}
+                            {% elif status == 'empty' %}No spool loaded {% else
+                            %}Unknown {% endif %}
+                          icon: >-
+                            {% set status = states('sensor.ams_slot_1_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_1_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
+                            elif status == 'empty' %}mdi:tray-remove {% elif
+                            status == 'needs_bind' %}mdi:alert-circle {% else
+                            %}mdi:circle {% endif %}
+                          icon_color: >-
+                            {% set status = states('sensor.ams_slot_1_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_1_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'empty' %}disabled {% elif status == 'needs_bind'
+                            %}red {% else %}
+                              {% set hex = states('sensor.ams_slot_1_color_hex') %}
+                              {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                                #333333
+                              {% else %}
+                                #{{ hex }}
+                              {% endif %}
+                            {% endif %}
+                          badge_icon: mdi:numeric-1-circle
+                          badge_color: >-
+                            {% set status = states('sensor.ams_slot_1_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_1_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'needs_bind' %}red {% else %}green {% endif %}
+                          tap_action:
+                            action: fire-dom-event
+                            browser_mod:
+                              service: browser_mod.popup
+                              data:
+                                title: Slot 1
+                                content:
+                                  type: vertical-stack
+                                  cards:
+                                    - type: markdown
+                                      content: >-
+                                        {% set r =
+                                        states('input_text.ams_slot_1_unbound_reason')
+                                        %} {% set status =
+                                        states('sensor.ams_slot_1_status') %} {%
+                                        if 'RFID_NOT_REFRESHED' in r %}### RFID
+                                        Refresh Needed
+
+                                        **{{ states('sensor.ams_slot_1_name')
+                                        }}** (spool #{{
+                                        states('input_text.ams_slot_1_spool_id')
+                                        }}) is correctly assigned to this slot,
+                                        but the AMS hasn't read the RFID tag.
+
+                                        **To fix:** Physically unload the spool
+                                        from slot 1, then reload it. After
+                                        reloading, tap **Reconcile** below. {%
+                                        elif status == 'ok' %}### {{
+                                        states('sensor.ams_slot_1_name') }}
+
+                                        {{ states('sensor.ams_slot_1_vendor') }}
+                                        - {{
+                                        states('sensor.ams_slot_1_material') }}
+
+                                        Remaining: {{
+                                        states('sensor.ams_slot_1_remaining_g')
+                                        }}g
+
+                                        Spool #{{
+                                        states('input_text.ams_slot_1_spool_id')
+                                        }} {% elif status == 'needs_bind' %}###
+                                        Binding Required
+
+                                        {% if 'NONRFID_NO_MATCH' in r %}This
+                                        slot has a spool that doesn't match
+                                        anything in Spoolman. {% elif
+                                        'AMBIGUOUS' in r %}Multiple spools match
+                                        this slot's signature. {% elif
+                                        'NOT_FOUND' in r %}The previously
+                                        assigned spool was not found. {% elif
+                                        'UID_NO_MATCH' in r %}The RFID tag isn't
+                                        recognized. {% else %}This slot needs
+                                        manual binding. {% endif %}
+
+                                        Select a spool below and tap **Assign &
+                                        Bind**. {% elif status == 'empty' %}###
+                                        Empty Slot
+
+                                        No spool is loaded in this slot. {%
+                                        endif %}
+                                    - type: entities
+                                      entities:
+                                        - entity: input_select.ams_slot_1_select_spool
+                                    - type: grid
+                                      columns: 3
+                                      square: false
+                                      cards:
+                                        - type: custom:mushroom-template-card
+                                          primary: Assign & Bind
+                                          icon: mdi:link-variant
+                                          icon_color: blue
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.ams_slot_assign_and_update
+                                            data:
+                                              slot: '1'
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Reconcile
+                                          icon: mdi:sync
+                                          icon_color: cyan
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.reconcile_all_ams_slots
+                                            data: {}
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Force Accept
+                                          icon: mdi:check-circle-outline
+                                          icon_color: green
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: input_text.set_value
+                                            target:
+                                              entity_id: input_text.ams_slot_1_unbound_reason
+                                            data:
+                                              value: FORCE_ACCEPTED
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                          card_mod:
+                            style: |
+                              ha-card {
+                                {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
+                                {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
+                                {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
+                                {% set is_active = printing and active == 1 and tray == 0 %}
+                                {% if is_active %}
+                                  border: 2px solid var(--primary-color);
+                                  box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
+                                {% endif %}
+                                {% set status = states('sensor.ams_slot_1_status') %}
+                                {% set hex = states('sensor.ams_slot_1_color_hex') %}
+                                {% set r = states('input_text.ams_slot_1_unbound_reason') %}
+                                {% if 'RFID_NOT_REFRESHED' in r %}
+                                border-left: 3px solid var(--warning-color);
+                                --ha-card-background: #FF980015;
+                                {% elif status == 'ok' and hex not in ['000000', 'Unknown'] %}
+                                border-left: 3px solid #{{ hex }};
+                                {% elif status == 'needs_bind' %}
+                                border-left: 3px solid var(--error-color);
+                                {% elif status == 'empty' %}
+                                opacity: 0.5;
+                                {% endif %}
+                              }
+                        - type: custom:mushroom-template-card
+                          entity: sensor.ams_slot_2_name
+                          primary: >-
+                            {% set status = states('sensor.ams_slot_2_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_2_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}Slot 2 - Reload Spool
+                            {% elif status == 'empty' %}Slot 2 - Empty {% elif
+                            status == 'needs_bind' %}Slot 2 - Needs Binding {%
+                            else %}{{ states('sensor.ams_slot_2_name') }} {%
+                            endif %}
+                          secondary: >-
+                            {% set status = states('sensor.ams_slot_2_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_2_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}{{
+                            states('sensor.ams_slot_2_name') }} assigned -
+                            unload & reload for RFID {% elif status == 'ok' %}{{
+                            states('sensor.ams_slot_2_vendor') }} - {{
+                            states('sensor.ams_slot_2_material') }} - {{
+                            states('sensor.ams_slot_2_remaining_g') }}g {% elif
+                            status == 'needs_bind' %}
+                              {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
+                              {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
+                              {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                              {% elif 'NOT_FOUND' in r %}Spool missing - tap to reassign
+                              {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                              {% else %}Manual binding required
+                              {% endif %}
+                            {% elif status == 'empty' %}No spool loaded {% else
+                            %}Unknown {% endif %}
+                          icon: >-
+                            {% set status = states('sensor.ams_slot_2_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_2_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
+                            elif status == 'empty' %}mdi:tray-remove {% elif
+                            status == 'needs_bind' %}mdi:alert-circle {% else
+                            %}mdi:circle {% endif %}
+                          icon_color: >-
+                            {% set status = states('sensor.ams_slot_2_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_2_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'empty' %}disabled {% elif status == 'needs_bind'
+                            %}red {% else %}
+                              {% set hex = states('sensor.ams_slot_2_color_hex') %}
+                              {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                                #333333
+                              {% else %}
+                                #{{ hex }}
+                              {% endif %}
+                            {% endif %}
+                          badge_icon: mdi:numeric-2-circle
+                          badge_color: >-
+                            {% set status = states('sensor.ams_slot_2_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_2_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'needs_bind' %}red {% else %}green {% endif %}
+                          tap_action:
+                            action: fire-dom-event
+                            browser_mod:
+                              service: browser_mod.popup
+                              data:
+                                title: Slot 2
+                                content:
+                                  type: vertical-stack
+                                  cards:
+                                    - type: markdown
+                                      content: >-
+                                        {% set r =
+                                        states('input_text.ams_slot_2_unbound_reason')
+                                        %} {% set status =
+                                        states('sensor.ams_slot_2_status') %} {%
+                                        if 'RFID_NOT_REFRESHED' in r %}### RFID
+                                        Refresh Needed
+
+                                        **{{ states('sensor.ams_slot_2_name')
+                                        }}** (spool #{{
+                                        states('input_text.ams_slot_2_spool_id')
+                                        }}) is correctly assigned to this slot,
+                                        but the AMS hasn't read the RFID tag.
+
+                                        **To fix:** Physically unload the spool
+                                        from slot 2, then reload it. After
+                                        reloading, tap **Reconcile** below. {%
+                                        elif status == 'ok' %}### {{
+                                        states('sensor.ams_slot_2_name') }}
+
+                                        {{ states('sensor.ams_slot_2_vendor') }}
+                                        - {{
+                                        states('sensor.ams_slot_2_material') }}
+
+                                        Remaining: {{
+                                        states('sensor.ams_slot_2_remaining_g')
+                                        }}g
+
+                                        Spool #{{
+                                        states('input_text.ams_slot_2_spool_id')
+                                        }} {% elif status == 'needs_bind' %}###
+                                        Binding Required
+
+                                        {% if 'NONRFID_NO_MATCH' in r %}This
+                                        slot has a spool that doesn't match
+                                        anything in Spoolman. {% elif
+                                        'AMBIGUOUS' in r %}Multiple spools match
+                                        this slot's signature. {% elif
+                                        'NOT_FOUND' in r %}The previously
+                                        assigned spool was not found. {% elif
+                                        'UID_NO_MATCH' in r %}The RFID tag isn't
+                                        recognized. {% else %}This slot needs
+                                        manual binding. {% endif %}
+
+                                        Select a spool below and tap **Assign &
+                                        Bind**. {% elif status == 'empty' %}###
+                                        Empty Slot
+
+                                        No spool is loaded in this slot. {%
+                                        endif %}
+                                    - type: entities
+                                      entities:
+                                        - entity: input_select.ams_slot_2_select_spool
+                                    - type: grid
+                                      columns: 3
+                                      square: false
+                                      cards:
+                                        - type: custom:mushroom-template-card
+                                          primary: Assign & Bind
+                                          icon: mdi:link-variant
+                                          icon_color: blue
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.ams_slot_assign_and_update
+                                            data:
+                                              slot: '2'
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Reconcile
+                                          icon: mdi:sync
+                                          icon_color: cyan
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.reconcile_all_ams_slots
+                                            data: {}
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Force Accept
+                                          icon: mdi:check-circle-outline
+                                          icon_color: green
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: input_text.set_value
+                                            target:
+                                              entity_id: input_text.ams_slot_2_unbound_reason
+                                            data:
+                                              value: FORCE_ACCEPTED
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                          card_mod:
+                            style: |
+                              ha-card {
+                                {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
+                                {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
+                                {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
+                                {% set is_active = printing and active == 1 and tray == 1 %}
+                                {% if is_active %}
+                                  border: 2px solid var(--primary-color);
+                                  box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
+                                {% endif %}
+                                {% set status = states('sensor.ams_slot_2_status') %}
+                                {% set hex = states('sensor.ams_slot_2_color_hex') %}
+                                {% set r = states('input_text.ams_slot_2_unbound_reason') %}
+                                {% if 'RFID_NOT_REFRESHED' in r %}
+                                border-left: 3px solid var(--warning-color);
+                                --ha-card-background: #FF980015;
+                                {% elif status == 'ok' and hex not in ['000000', 'Unknown'] %}
+                                border-left: 3px solid #{{ hex }};
+                                {% elif status == 'needs_bind' %}
+                                border-left: 3px solid var(--error-color);
+                                {% elif status == 'empty' %}
+                                opacity: 0.5;
+                                {% endif %}
+                              }
+                        - type: custom:mushroom-template-card
+                          entity: sensor.ams_slot_3_name
+                          primary: >-
+                            {% set status = states('sensor.ams_slot_3_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_3_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}Slot 3 - Reload Spool
+                            {% elif status == 'empty' %}Slot 3 - Empty {% elif
+                            status == 'needs_bind' %}Slot 3 - Needs Binding {%
+                            else %}{{ states('sensor.ams_slot_3_name') }} {%
+                            endif %}
+                          secondary: >-
+                            {% set status = states('sensor.ams_slot_3_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_3_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}{{
+                            states('sensor.ams_slot_3_name') }} assigned -
+                            unload & reload for RFID {% elif status == 'ok' %}{{
+                            states('sensor.ams_slot_3_vendor') }} - {{
+                            states('sensor.ams_slot_3_material') }} - {{
+                            states('sensor.ams_slot_3_remaining_g') }}g {% elif
+                            status == 'needs_bind' %}
+                              {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
+                              {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
+                              {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                              {% elif 'NOT_FOUND' in r %}Spool missing - tap to reassign
+                              {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                              {% else %}Manual binding required
+                              {% endif %}
+                            {% elif status == 'empty' %}No spool loaded {% else
+                            %}Unknown {% endif %}
+                          icon: >-
+                            {% set status = states('sensor.ams_slot_3_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_3_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
+                            elif status == 'empty' %}mdi:tray-remove {% elif
+                            status == 'needs_bind' %}mdi:alert-circle {% else
+                            %}mdi:circle {% endif %}
+                          icon_color: >-
+                            {% set status = states('sensor.ams_slot_3_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_3_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'empty' %}disabled {% elif status == 'needs_bind'
+                            %}red {% else %}
+                              {% set hex = states('sensor.ams_slot_3_color_hex') %}
+                              {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                                #333333
+                              {% else %}
+                                #{{ hex }}
+                              {% endif %}
+                            {% endif %}
+                          badge_icon: mdi:numeric-3-circle
+                          badge_color: >-
+                            {% set status = states('sensor.ams_slot_3_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_3_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'needs_bind' %}red {% else %}green {% endif %}
+                          tap_action:
+                            action: fire-dom-event
+                            browser_mod:
+                              service: browser_mod.popup
+                              data:
+                                title: Slot 3
+                                content:
+                                  type: vertical-stack
+                                  cards:
+                                    - type: markdown
+                                      content: >-
+                                        {% set r =
+                                        states('input_text.ams_slot_3_unbound_reason')
+                                        %} {% set status =
+                                        states('sensor.ams_slot_3_status') %} {%
+                                        if 'RFID_NOT_REFRESHED' in r %}### RFID
+                                        Refresh Needed
+
+                                        **{{ states('sensor.ams_slot_3_name')
+                                        }}** (spool #{{
+                                        states('input_text.ams_slot_3_spool_id')
+                                        }}) is correctly assigned to this slot,
+                                        but the AMS hasn't read the RFID tag.
+
+                                        **To fix:** Physically unload the spool
+                                        from slot 3, then reload it. After
+                                        reloading, tap **Reconcile** below. {%
+                                        elif status == 'ok' %}### {{
+                                        states('sensor.ams_slot_3_name') }}
+
+                                        {{ states('sensor.ams_slot_3_vendor') }}
+                                        - {{
+                                        states('sensor.ams_slot_3_material') }}
+
+                                        Remaining: {{
+                                        states('sensor.ams_slot_3_remaining_g')
+                                        }}g
+
+                                        Spool #{{
+                                        states('input_text.ams_slot_3_spool_id')
+                                        }} {% elif status == 'needs_bind' %}###
+                                        Binding Required
+
+                                        {% if 'NONRFID_NO_MATCH' in r %}This
+                                        slot has a spool that doesn't match
+                                        anything in Spoolman. {% elif
+                                        'AMBIGUOUS' in r %}Multiple spools match
+                                        this slot's signature. {% elif
+                                        'NOT_FOUND' in r %}The previously
+                                        assigned spool was not found. {% elif
+                                        'UID_NO_MATCH' in r %}The RFID tag isn't
+                                        recognized. {% else %}This slot needs
+                                        manual binding. {% endif %}
+
+                                        Select a spool below and tap **Assign &
+                                        Bind**. {% elif status == 'empty' %}###
+                                        Empty Slot
+
+                                        No spool is loaded in this slot. {%
+                                        endif %}
+                                    - type: entities
+                                      entities:
+                                        - entity: input_select.ams_slot_3_select_spool
+                                    - type: grid
+                                      columns: 3
+                                      square: false
+                                      cards:
+                                        - type: custom:mushroom-template-card
+                                          primary: Assign & Bind
+                                          icon: mdi:link-variant
+                                          icon_color: blue
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.ams_slot_assign_and_update
+                                            data:
+                                              slot: '3'
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Reconcile
+                                          icon: mdi:sync
+                                          icon_color: cyan
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.reconcile_all_ams_slots
+                                            data: {}
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Force Accept
+                                          icon: mdi:check-circle-outline
+                                          icon_color: green
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: input_text.set_value
+                                            target:
+                                              entity_id: input_text.ams_slot_3_unbound_reason
+                                            data:
+                                              value: FORCE_ACCEPTED
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                          card_mod:
+                            style: |
+                              ha-card {
+                                {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
+                                {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
+                                {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
+                                {% set is_active = printing and active == 1 and tray == 2 %}
+                                {% if is_active %}
+                                  border: 2px solid var(--primary-color);
+                                  box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
+                                {% endif %}
+                                {% set status = states('sensor.ams_slot_3_status') %}
+                                {% set hex = states('sensor.ams_slot_3_color_hex') %}
+                                {% set r = states('input_text.ams_slot_3_unbound_reason') %}
+                                {% if 'RFID_NOT_REFRESHED' in r %}
+                                border-left: 3px solid var(--warning-color);
+                                --ha-card-background: #FF980015;
+                                {% elif status == 'ok' and hex not in ['000000', 'Unknown'] %}
+                                border-left: 3px solid #{{ hex }};
+                                {% elif status == 'needs_bind' %}
+                                border-left: 3px solid var(--error-color);
+                                {% elif status == 'empty' %}
+                                opacity: 0.5;
+                                {% endif %}
+                              }
+                        - type: custom:mushroom-template-card
+                          entity: sensor.ams_slot_4_name
+                          primary: >-
+                            {% set status = states('sensor.ams_slot_4_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_4_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}Slot 4 - Reload Spool
+                            {% elif status == 'empty' %}Slot 4 - Empty {% elif
+                            status == 'needs_bind' %}Slot 4 - Needs Binding {%
+                            else %}{{ states('sensor.ams_slot_4_name') }} {%
+                            endif %}
+                          secondary: >-
+                            {% set status = states('sensor.ams_slot_4_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_4_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}{{
+                            states('sensor.ams_slot_4_name') }} assigned -
+                            unload & reload for RFID {% elif status == 'ok' %}{{
+                            states('sensor.ams_slot_4_vendor') }} - {{
+                            states('sensor.ams_slot_4_material') }} - {{
+                            states('sensor.ams_slot_4_remaining_g') }}g {% elif
+                            status == 'needs_bind' %}
+                              {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
+                              {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
+                              {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                              {% elif 'NOT_FOUND' in r %}Spool missing - tap to reassign
+                              {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                              {% else %}Manual binding required
+                              {% endif %}
+                            {% elif status == 'empty' %}No spool loaded {% else
+                            %}Unknown {% endif %}
+                          icon: >-
+                            {% set status = states('sensor.ams_slot_4_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_4_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
+                            elif status == 'empty' %}mdi:tray-remove {% elif
+                            status == 'needs_bind' %}mdi:alert-circle {% else
+                            %}mdi:circle {% endif %}
+                          icon_color: >-
+                            {% set status = states('sensor.ams_slot_4_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_4_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'empty' %}disabled {% elif status == 'needs_bind'
+                            %}red {% else %}
+                              {% set hex = states('sensor.ams_slot_4_color_hex') %}
+                              {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                                #333333
+                              {% else %}
+                                #{{ hex }}
+                              {% endif %}
+                            {% endif %}
+                          badge_icon: mdi:numeric-4-circle
+                          badge_color: >-
+                            {% set status = states('sensor.ams_slot_4_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_4_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'needs_bind' %}red {% else %}green {% endif %}
+                          tap_action:
+                            action: fire-dom-event
+                            browser_mod:
+                              service: browser_mod.popup
+                              data:
+                                title: Slot 4
+                                content:
+                                  type: vertical-stack
+                                  cards:
+                                    - type: markdown
+                                      content: >-
+                                        {% set r =
+                                        states('input_text.ams_slot_4_unbound_reason')
+                                        %} {% set status =
+                                        states('sensor.ams_slot_4_status') %} {%
+                                        if 'RFID_NOT_REFRESHED' in r %}### RFID
+                                        Refresh Needed
+
+                                        **{{ states('sensor.ams_slot_4_name')
+                                        }}** (spool #{{
+                                        states('input_text.ams_slot_4_spool_id')
+                                        }}) is correctly assigned to this slot,
+                                        but the AMS hasn't read the RFID tag.
+
+                                        **To fix:** Physically unload the spool
+                                        from slot 4, then reload it. After
+                                        reloading, tap **Reconcile** below. {%
+                                        elif status == 'ok' %}### {{
+                                        states('sensor.ams_slot_4_name') }}
+
+                                        {{ states('sensor.ams_slot_4_vendor') }}
+                                        - {{
+                                        states('sensor.ams_slot_4_material') }}
+
+                                        Remaining: {{
+                                        states('sensor.ams_slot_4_remaining_g')
+                                        }}g
+
+                                        Spool #{{
+                                        states('input_text.ams_slot_4_spool_id')
+                                        }} {% elif status == 'needs_bind' %}###
+                                        Binding Required
+
+                                        {% if 'NONRFID_NO_MATCH' in r %}This
+                                        slot has a spool that doesn't match
+                                        anything in Spoolman. {% elif
+                                        'AMBIGUOUS' in r %}Multiple spools match
+                                        this slot's signature. {% elif
+                                        'NOT_FOUND' in r %}The previously
+                                        assigned spool was not found. {% elif
+                                        'UID_NO_MATCH' in r %}The RFID tag isn't
+                                        recognized. {% else %}This slot needs
+                                        manual binding. {% endif %}
+
+                                        Select a spool below and tap **Assign &
+                                        Bind**. {% elif status == 'empty' %}###
+                                        Empty Slot
+
+                                        No spool is loaded in this slot. {%
+                                        endif %}
+                                    - type: entities
+                                      entities:
+                                        - entity: input_select.ams_slot_4_select_spool
+                                    - type: grid
+                                      columns: 3
+                                      square: false
+                                      cards:
+                                        - type: custom:mushroom-template-card
+                                          primary: Assign & Bind
+                                          icon: mdi:link-variant
+                                          icon_color: blue
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.ams_slot_assign_and_update
+                                            data:
+                                              slot: '4'
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Reconcile
+                                          icon: mdi:sync
+                                          icon_color: cyan
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.reconcile_all_ams_slots
+                                            data: {}
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Force Accept
+                                          icon: mdi:check-circle-outline
+                                          icon_color: green
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: input_text.set_value
+                                            target:
+                                              entity_id: input_text.ams_slot_4_unbound_reason
+                                            data:
+                                              value: FORCE_ACCEPTED
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                          card_mod:
+                            style: |
+                              ha-card {
+                                {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
+                                {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
+                                {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
+                                {% set is_active = printing and active == 1 and tray == 3 %}
+                                {% if is_active %}
+                                  border: 2px solid var(--primary-color);
+                                  box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
+                                {% endif %}
+                                {% set status = states('sensor.ams_slot_4_status') %}
+                                {% set hex = states('sensor.ams_slot_4_color_hex') %}
+                                {% set r = states('input_text.ams_slot_4_unbound_reason') %}
+                                {% if 'RFID_NOT_REFRESHED' in r %}
+                                border-left: 3px solid var(--warning-color);
+                                --ha-card-background: #FF980015;
+                                {% elif status == 'ok' and hex not in ['000000', 'Unknown'] %}
+                                border-left: 3px solid #{{ hex }};
+                                {% elif status == 'needs_bind' %}
+                                border-left: 3px solid var(--error-color);
+                                {% elif status == 'empty' %}
+                                opacity: 0.5;
+                                {% endif %}
+                              }
+                    - type: custom:mushroom-entity-card
+                      entity: sensor.p1s_01p00c5a3101668_ams_1_humidity
+                      name: Humidity (AMS 2 Pro)
                       icon: mdi:water-percent
                       icon_color: var(--rgb-state-entity)
                       tap_action:
                         action: more-info
-                        entity: sensor.bthome_sensor_ff21_humidity
-          - type: horizontal-stack
+                    - type: custom:mushroom-entity-card
+                      entity: sensor.p1s_01p00c5a3101668_ams_1_temperature
+                      name: Temperature (AMS 2 Pro)
+                      icon: mdi:thermometer
+                      icon_color: var(--rgb-state-entity)
+                      tap_action:
+                        action: more-info
+          - type: vertical-stack
+            cards:
+              - type: vertical-stack
+                cards:
+                  - type: custom:mushroom-template-card
+                    primary: AMS Filament Slots
+                    secondary: >-
+                      {% set count = states('sensor.ams_unbound_slot_count') |
+                      int(0) %} {% if count > 0 %}{{ count }} slot{{ 's' if
+                      count > 1 }} need{{ '' if count > 1 else 's' }} binding {%
+                      else %}All slots bound {% endif %}
+                    icon: mdi:tray-full
+                    tap_action:
+                      action: none
+                    color: >-
+                      {% if states('sensor.ams_unbound_slot_count') | int(0) > 0
+                      %}red {% else %}green{% endif %}
+                    features_position: bottom
+                    card_mod:
+                      style: >
+                        ha-card { --ha-card-background: transparent; box-shadow:
+                        none; }
+                  - type: custom:mod-card
+                    style: |
+                      ha-card {
+                        border: 2px solid var(--ha-card-border-color, #444) !important;
+                        border-radius: 12px !important;
+                        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                        padding: 12px !important;
+                      }
+                    card:
+                      type: grid
+                      columns: 2
+                      square: false
+                      cards:
+                        - type: custom:mushroom-template-card
+                          primary: Reconcile
+                          icon: mdi:sync
+                          icon_color: blue
+                          layout: horizontal
+                          tap_action:
+                            action: call-service
+                            service: script.reconcile_all_ams_slots
+                            data: {}
+                          card_mod:
+                            style: |
+                              ha-card { --ha-card-padding: 4px; }
+                              mushroom-shape-icon { --icon-size: 24px; }
+                        - type: custom:mushroom-template-card
+                          primary: Reload
+                          icon: mdi:refresh
+                          icon_color: cyan
+                          layout: horizontal
+                          tap_action:
+                            action: call-service
+                            service: script.reload_spoolman_integration
+                            data: {}
+                          card_mod:
+                            style: |
+                              ha-card { --ha-card-padding: 4px; }
+                              mushroom-shape-icon { --icon-size: 24px; }
+                        - type: custom:mushroom-template-card
+                          primary: Add Spool
+                          icon: mdi:plus-circle
+                          icon_color: green
+                          layout: horizontal
+                          tap_action:
+                            action: fire-dom-event
+                            browser_mod:
+                              service: browser_mod.popup
+                              data:
+                                title: Add Spool to Spoolman
+                                content:
+                                  type: vertical-stack
+                                  cards:
+                                    - type: markdown
+                                      content: >
+                                        **Add Spool to Spoolman**
+
+                                        Select filament, location, remaining
+                                        weight and quantity, then tap **Create
+                                        spool(s)**.
+
+                                        If Quantity shows *Entity not found*:
+                                        run `./scripts/manage_ha.sh --config`
+                                        and **restart Home Assistant**, then
+                                        refresh this page.
+
+                                        Success or failure will appear in
+                                        Notifications (bell icon).
+                                    - type: entities
+                                      entities:
+                                        - entity: input_select.spoolman_new_spool_filament
+                                        - entity: input_text.spoolman_new_spool_location
+                                        - entity: >-
+                                            input_number.spoolman_new_spool_remaining_weight
+                                        - entity: input_number.spoolman_new_spool_quantity
+                                    - type: grid
+                                      columns: 2
+                                      square: false
+                                      cards:
+                                        - type: custom:mushroom-template-card
+                                          primary: Refresh filament list
+                                          icon: mdi:refresh
+                                          icon_color: blue
+                                          tap_action:
+                                            action: call-service
+                                            service: script.refresh_filament_dropdown
+                                            data: {}
+                                        - type: custom:mushroom-template-card
+                                          primary: Create spool(s)
+                                          icon: mdi:plus
+                                          icon_color: green
+                                          tap_action:
+                                            action: call-service
+                                            service: script.spoolman_add_spool
+                                            data: {}
+                          card_mod:
+                            style: |
+                              ha-card { --ha-card-padding: 4px; }
+                              mushroom-shape-icon { --icon-size: 24px; }
+                        - type: custom:mushroom-template-card
+                          primary: Add Filament
+                          icon: mdi:plus-circle
+                          icon_color: blue
+                          layout: horizontal
+                          tap_action:
+                            action: fire-dom-event
+                            browser_mod:
+                              service: browser_mod.popup
+                              data:
+                                title: Add Filament to Spoolman
+                                content:
+                                  type: vertical-stack
+                                  cards:
+                                    - type: markdown
+                                      content: >
+                                        **Add Filament to Spoolman**
+
+                                        Enter filament details below, then tap
+                                        **Create filament**.
+
+                                        Success or failure will appear in
+                                        Notifications (bell icon).
+                                    - type: entities
+                                      entities:
+                                        - entity: input_text.spoolman_new_filament_name
+                                        - entity: >-
+                                            input_select.spoolman_new_filament_vendor
+                                        - entity: >-
+                                            input_text.spoolman_new_filament_material
+                                        - entity: >-
+                                            input_text.spoolman_new_filament_color_hex
+                                        - entity: >-
+                                            input_number.spoolman_new_filament_diameter
+                                        - entity: >-
+                                            input_number.spoolman_new_filament_density
+                                        - entity: >-
+                                            input_number.spoolman_new_filament_weight
+                                    - type: custom:mushroom-template-card
+                                      primary: Create filament
+                                      icon: mdi:plus
+                                      icon_color: green
+                                      tap_action:
+                                        action: call-service
+                                        service: script.spoolman_add_filament
+                                        data: {}
+                          card_mod:
+                            style: |
+                              ha-card { --ha-card-padding: 4px; }
+                              mushroom-shape-icon { --icon-size: 24px; }
+      - type: grid
+        cards:
+          - type: vertical-stack
             cards:
               - type: custom:mod-card
                 style: |
@@ -2396,145 +2505,231 @@ views:
                 card:
                   type: vertical-stack
                   cards:
-                    - type: conditional
-                      conditions:
-                        - condition: state
-                          entity: sensor.p1s_01p00c5a3101668_ams_128_tray_1
-                          state: Empty
-                      card:
-                        type: custom:mushroom-template-card
-                        primary: AMS HT 1
-                        secondary: Empty
-                        icon: mdi:package-variant-closed
-                        icon_color: grey
-                        tap_action:
-                          action: fire-dom-event
-                          browser_mod:
-                            service: browser_mod.popup
-                            data:
-                              title: Manage AMS Slot 5 (HT1)
-                              content:
-                                type: vertical-stack
-                                cards:
-                                  - type: markdown
-                                    content: >
-                                      **Current Tray:** {{
-                                      states('sensor.p1s_01p00c5a3101668_ams_128_tray_1')
-                                      }}  
-
-                                      **Location:** AMS2_HT_Slot1
-                                  - type: entities
-                                    entities:
-                                      - entity: input_select.ams_slot_5_select_spool
-                                        name: Select Spool
-                                      - entity: input_select.ams_slot_5_spool_type
-                                        name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_5_gross_weight
-                                        name: Scale Weight (g)
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Update
-                                    secondary: Write to Spoolman
-                                    icon: mdi:database-arrow-up
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_5_assign_and_update
-                                      data: {}
-                                  - type: button
-                                    name: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_5_unbound_reason
-                                      data:
-                                        value: "FORCE_ACCEPTED"
-                        card_mod:
-                          style: |
-                            ha-card { opacity: 0.8; }
-                    - type: conditional
-                      conditions:
-                        - condition: state
-                          entity: sensor.p1s_01p00c5a3101668_ams_128_tray_1
-                          state_not: Empty
-                      card:
-                        type: custom:mushroom-template-card
-                        primary: >-
-                          {{ states('sensor.p1s_01p00c5a3101668_ams_128_tray_1')
-                          }}
-                        secondary: >-
-                          {{ states('sensor.ams_slot_5_remaining_g') }} g
-                          remaining
-                        icon: mdi:package-variant
-                        icon_color: var(--rgb-state-entity)
-                        tap_action:
-                          action: fire-dom-event
-                          browser_mod:
-                            service: browser_mod.popup
-                            data:
-                              title: Manage AMS Slot 5 (HT1)
-                              content:
-                                type: vertical-stack
-                                cards:
-                                  - type: markdown
-                                    content: >
-                                      **Current Tray:** {{
-                                      states('sensor.p1s_01p00c5a3101668_ams_128_tray_1')
-                                      }}  
-
-                                      **Location:** AMS2_HT_Slot1
-                                  - type: entities
-                                    entities:
-                                      - entity: input_select.ams_slot_5_select_spool
-                                        name: Select Spool
-                                      - entity: input_select.ams_slot_5_spool_type
-                                        name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_5_gross_weight
-                                        name: Scale Weight (g)
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Update
-                                    secondary: Write to Spoolman
-                                    icon: mdi:database-arrow-up
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_5_assign_and_update
-                                      data: {}
-                                  - type: button
-                                    name: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_5_unbound_reason
-                                      data:
-                                        value: "FORCE_ACCEPTED"
-                        card_mod:
-                          style: >
-                            {% set c =
-                            state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1',
-                            'color') %}
-
-                            ha-card {
-                              --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                              {% if state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'active') %}
-                              font-weight: bold;
-                              border: 2px solid var(--primary-color);
-                              background: rgba(var(--rgb-primary-color), 0.15);
+                    - type: custom:mushroom-template-card
+                      primary: HT 1
+                      icon: mdi:printer-3d
+                      icon_color: green
+                      tap_action:
+                        action: none
+                      card_mod:
+                        style: >
+                          ha-card { --ha-card-background: transparent;
+                          box-shadow: none; padding: 0; }
+                    - type: grid
+                      columns: 1
+                      square: false
+                      cards:
+                        - type: custom:mushroom-template-card
+                          entity: sensor.ams_slot_5_name
+                          primary: >-
+                            {% set status = states('sensor.ams_slot_5_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_5_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}Slot 5 - Reload Spool
+                            {% elif status == 'empty' %}Slot 5 - Empty {% elif
+                            status == 'needs_bind' %}Slot 5 - Needs Binding {%
+                            else %}{{ states('sensor.ams_slot_5_name') }} {%
+                            endif %}
+                          secondary: >-
+                            {% set status = states('sensor.ams_slot_5_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_5_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}{{
+                            states('sensor.ams_slot_5_name') }} assigned -
+                            unload & reload for RFID {% elif status == 'ok' %}{{
+                            states('sensor.ams_slot_5_vendor') }} - {{
+                            states('sensor.ams_slot_5_material') }} - {{
+                            states('sensor.ams_slot_5_remaining_g') }}g {% elif
+                            status == 'needs_bind' %}
+                              {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
+                              {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
+                              {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                              {% elif 'NOT_FOUND' in r %}Spool missing - tap to reassign
+                              {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                              {% else %}Manual binding required
                               {% endif %}
-                            }
+                            {% elif status == 'empty' %}No spool loaded {% else
+                            %}Unknown {% endif %}
+                          icon: >-
+                            {% set status = states('sensor.ams_slot_5_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_5_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
+                            elif status == 'empty' %}mdi:tray-remove {% elif
+                            status == 'needs_bind' %}mdi:alert-circle {% else
+                            %}mdi:circle {% endif %}
+                          icon_color: >-
+                            {% set status = states('sensor.ams_slot_5_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_5_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'empty' %}disabled {% elif status == 'needs_bind'
+                            %}red {% else %}
+                              {% set hex = states('sensor.ams_slot_5_color_hex') %}
+                              {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                                #333333
+                              {% else %}
+                                #{{ hex }}
+                              {% endif %}
+                            {% endif %}
+                          badge_icon: mdi:numeric-5-circle
+                          badge_color: >-
+                            {% set status = states('sensor.ams_slot_5_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_5_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'needs_bind' %}red {% else %}green {% endif %}
+                          tap_action:
+                            action: fire-dom-event
+                            browser_mod:
+                              service: browser_mod.popup
+                              data:
+                                title: Slot 5 (HT1)
+                                content:
+                                  type: vertical-stack
+                                  cards:
+                                    - type: markdown
+                                      content: >-
+                                        {% set r =
+                                        states('input_text.ams_slot_5_unbound_reason')
+                                        %} {% set status =
+                                        states('sensor.ams_slot_5_status') %} {%
+                                        if 'RFID_NOT_REFRESHED' in r %}### RFID
+                                        Refresh Needed
+
+                                        **{{ states('sensor.ams_slot_5_name')
+                                        }}** (spool #{{
+                                        states('input_text.ams_slot_5_spool_id')
+                                        }}) is correctly assigned to this slot,
+                                        but the AMS hasn't read the RFID tag.
+
+                                        **To fix:** Physically unload the spool
+                                        from slot 5, then reload it. After
+                                        reloading, tap **Reconcile** below. {%
+                                        elif status == 'ok' %}### {{
+                                        states('sensor.ams_slot_5_name') }}
+
+                                        {{ states('sensor.ams_slot_5_vendor') }}
+                                        - {{
+                                        states('sensor.ams_slot_5_material') }}
+
+                                        Remaining: {{
+                                        states('sensor.ams_slot_5_remaining_g')
+                                        }}g
+
+                                        Spool #{{
+                                        states('input_text.ams_slot_5_spool_id')
+                                        }} {% elif status == 'needs_bind' %}###
+                                        Binding Required
+
+                                        {% if 'NONRFID_NO_MATCH' in r %}This
+                                        slot has a spool that doesn't match
+                                        anything in Spoolman. {% elif
+                                        'AMBIGUOUS' in r %}Multiple spools match
+                                        this slot's signature. {% elif
+                                        'NOT_FOUND' in r %}The previously
+                                        assigned spool was not found. {% elif
+                                        'UID_NO_MATCH' in r %}The RFID tag isn't
+                                        recognized. {% else %}This slot needs
+                                        manual binding. {% endif %}
+
+                                        Select a spool below and tap **Assign &
+                                        Bind**. {% elif status == 'empty' %}###
+                                        Empty Slot
+
+                                        No spool is loaded in this slot. {%
+                                        endif %}
+                                    - type: entities
+                                      entities:
+                                        - entity: input_select.ams_slot_5_select_spool
+                                    - type: grid
+                                      columns: 3
+                                      square: false
+                                      cards:
+                                        - type: custom:mushroom-template-card
+                                          primary: Assign & Bind
+                                          icon: mdi:link-variant
+                                          icon_color: blue
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.ams_slot_assign_and_update
+                                            data:
+                                              slot: '5'
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Reconcile
+                                          icon: mdi:sync
+                                          icon_color: cyan
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.reconcile_all_ams_slots
+                                            data: {}
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                    - type: custom:mushroom-template-card
+                                      primary: Force Accept
+                                      icon: mdi:check-circle-outline
+                                      icon_color: green
+                                      layout: horizontal
+                                      tap_action:
+                                        action: call-service
+                                        service: input_text.set_value
+                                        target:
+                                          entity_id: input_text.ams_slot_5_unbound_reason
+                                        data:
+                                          value: FORCE_ACCEPTED
+                                      card_mod:
+                                        style: >
+                                          ha-card { --ha-card-padding: 4px; }
+
+                                          mushroom-shape-icon { --icon-size: 24px;
+                                          }
+                          card_mod:
+                            style: |
+                              ha-card {
+                                {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
+                                {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
+                                {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
+                                {% set is_active = printing and active == 128 and tray == 0 %}
+                                {% if is_active %}
+                                  border: 2px solid var(--primary-color);
+                                  box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
+                                {% endif %}
+                                {% set status = states('sensor.ams_slot_5_status') %}
+                                {% set hex = states('sensor.ams_slot_5_color_hex') %}
+                                {% set r = states('input_text.ams_slot_5_unbound_reason') %}
+                                {% if 'RFID_NOT_REFRESHED' in r %}
+                                border-left: 3px solid var(--warning-color);
+                                --ha-card-background: #FF980015;
+                                {% elif status == 'ok' and hex not in ['000000', 'Unknown'] %}
+                                border-left: 3px solid #{{ hex }};
+                                {% elif status == 'needs_bind' %}
+                                border-left: 3px solid var(--error-color);
+                                {% elif status == 'empty' %}
+                                opacity: 0.5;
+                                {% endif %}
+                              }
                     - type: custom:mushroom-entity-card
                       entity: sensor.p1s_01p00c5a3101668_ams_128_humidity
-                      name: Humidity
+                      name: Humidity (HT 1)
                       icon: mdi:water-percent
                       icon_color: var(--rgb-state-entity)
                       tap_action:
                         action: more-info
                     - type: custom:mushroom-entity-card
                       entity: sensor.p1s_01p00c5a3101668_ams_128_temperature
-                      name: Temperature
+                      name: Temperature (HT 1)
                       icon: mdi:thermometer
                       icon_color: var(--rgb-state-entity)
                       tap_action:
@@ -2549,7 +2744,7 @@ views:
                         type: vertical-stack
                         cards:
                           - type: custom:mushroom-template-card
-                            primary: Drying Temperature
+                            primary: Drying Temperature (HT 1)
                             secondary: >-
                               {{
                               states('sensor.p1s_01p00c5a3101668_ams_128_temperature')
@@ -2559,7 +2754,7 @@ views:
                             tap_action:
                               action: none
                           - type: custom:mushroom-template-card
-                            primary: Drying
+                            primary: Drying (HT 1)
                             secondary: >-
                               {% set tray1_temp_128 =
                               state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1',
@@ -2578,7 +2773,7 @@ views:
                             tap_action:
                               action: none
                           - type: custom:mushroom-template-card
-                            primary: Remaining Time
+                            primary: Remaining Time (HT 1)
                             secondary: >-
                               {% set tray1_temp_128 =
                               state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1',
@@ -2602,6 +2797,8 @@ views:
                             icon_color: var(--rgb-state-entity)
                             tap_action:
                               action: none
+          - type: vertical-stack
+            cards:
               - type: custom:mod-card
                 style: |
                   ha-card {
@@ -2613,145 +2810,231 @@ views:
                 card:
                   type: vertical-stack
                   cards:
-                    - type: conditional
-                      conditions:
-                        - condition: state
-                          entity: sensor.p1s_01p00c5a3101668_ams_129_tray_1
-                          state: Empty
-                      card:
-                        type: custom:mushroom-template-card
-                        primary: AMS HT 2
-                        secondary: Empty
-                        icon: mdi:package-variant-closed
-                        icon_color: grey
-                        tap_action:
-                          action: fire-dom-event
-                          browser_mod:
-                            service: browser_mod.popup
-                            data:
-                              title: Manage AMS Slot 6 (HT2)
-                              content:
-                                type: vertical-stack
-                                cards:
-                                  - type: markdown
-                                    content: >
-                                      **Current Tray:** {{
-                                      states('sensor.p1s_01p00c5a3101668_ams_129_tray_1')
-                                      }}  
-
-                                      **Location:** AMS2_HT_Slot2
-                                  - type: entities
-                                    entities:
-                                      - entity: input_select.ams_slot_6_select_spool
-                                        name: Select Spool
-                                      - entity: input_select.ams_slot_6_spool_type
-                                        name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_6_gross_weight
-                                        name: Scale Weight (g)
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Update
-                                    secondary: Write to Spoolman
-                                    icon: mdi:database-arrow-up
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_6_assign_and_update
-                                      data: {}
-                                  - type: button
-                                    name: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_6_unbound_reason
-                                      data:
-                                        value: "FORCE_ACCEPTED"
-                        card_mod:
-                          style: |
-                            ha-card { opacity: 0.8; }
-                    - type: conditional
-                      conditions:
-                        - condition: state
-                          entity: sensor.p1s_01p00c5a3101668_ams_129_tray_1
-                          state_not: Empty
-                      card:
-                        type: custom:mushroom-template-card
-                        primary: >-
-                          {{ states('sensor.p1s_01p00c5a3101668_ams_129_tray_1')
-                          }}
-                        secondary: >-
-                          {{ states('sensor.ams_slot_6_remaining_g') }} g
-                          remaining
-                        icon: mdi:package-variant
-                        icon_color: var(--rgb-state-entity)
-                        tap_action:
-                          action: fire-dom-event
-                          browser_mod:
-                            service: browser_mod.popup
-                            data:
-                              title: Manage AMS Slot 6 (HT2)
-                              content:
-                                type: vertical-stack
-                                cards:
-                                  - type: markdown
-                                    content: >
-                                      **Current Tray:** {{
-                                      states('sensor.p1s_01p00c5a3101668_ams_129_tray_1')
-                                      }}  
-
-                                      **Location:** AMS2_HT_Slot2
-                                  - type: entities
-                                    entities:
-                                      - entity: input_select.ams_slot_6_select_spool
-                                        name: Select Spool
-                                      - entity: input_select.ams_slot_6_spool_type
-                                        name: Spool Type (Tare)
-                                      - entity: input_number.ams_slot_6_gross_weight
-                                        name: Scale Weight (g)
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Update
-                                    secondary: Write to Spoolman
-                                    icon: mdi:database-arrow-up
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_6_assign_and_update
-                                      data: {}
-                                  - type: button
-                                    name: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_6_unbound_reason
-                                      data:
-                                        value: "FORCE_ACCEPTED"
-                        card_mod:
-                          style: >
-                            {% set c =
-                            state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1',
-                            'color') %}
-
-                            ha-card {
-                              --card-mod-icon-color: {{ c | default('rgb(var(--rgb-state-entity))') }};
-                              {% if state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'active') %}
-                              font-weight: bold;
-                              border: 2px solid var(--primary-color);
-                              background: rgba(var(--rgb-primary-color), 0.15);
+                    - type: custom:mushroom-template-card
+                      primary: HT 2
+                      icon: mdi:printer-3d
+                      icon_color: green
+                      tap_action:
+                        action: none
+                      card_mod:
+                        style: >
+                          ha-card { --ha-card-background: transparent;
+                          box-shadow: none; padding: 0; }
+                    - type: grid
+                      columns: 1
+                      square: false
+                      cards:
+                        - type: custom:mushroom-template-card
+                          entity: sensor.ams_slot_6_name
+                          primary: >-
+                            {% set status = states('sensor.ams_slot_6_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_6_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}Slot 6 - Reload Spool
+                            {% elif status == 'empty' %}Slot 6 - Empty {% elif
+                            status == 'needs_bind' %}Slot 6 - Needs Binding {%
+                            else %}{{ states('sensor.ams_slot_6_name') }} {%
+                            endif %}
+                          secondary: >-
+                            {% set status = states('sensor.ams_slot_6_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_6_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}{{
+                            states('sensor.ams_slot_6_name') }} assigned -
+                            unload & reload for RFID {% elif status == 'ok' %}{{
+                            states('sensor.ams_slot_6_vendor') }} - {{
+                            states('sensor.ams_slot_6_material') }} - {{
+                            states('sensor.ams_slot_6_remaining_g') }}g {% elif
+                            status == 'needs_bind' %}
+                              {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
+                              {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
+                              {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                              {% elif 'NOT_FOUND' in r %}Spool missing - tap to reassign
+                              {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                              {% else %}Manual binding required
                               {% endif %}
-                            }
+                            {% elif status == 'empty' %}No spool loaded {% else
+                            %}Unknown {% endif %}
+                          icon: >-
+                            {% set status = states('sensor.ams_slot_6_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_6_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
+                            elif status == 'empty' %}mdi:tray-remove {% elif
+                            status == 'needs_bind' %}mdi:alert-circle {% else
+                            %}mdi:circle {% endif %}
+                          icon_color: >-
+                            {% set status = states('sensor.ams_slot_6_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_6_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'empty' %}disabled {% elif status == 'needs_bind'
+                            %}red {% else %}
+                              {% set hex = states('sensor.ams_slot_6_color_hex') %}
+                              {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                                #333333
+                              {% else %}
+                                #{{ hex }}
+                              {% endif %}
+                            {% endif %}
+                          badge_icon: mdi:numeric-6-circle
+                          badge_color: >-
+                            {% set status = states('sensor.ams_slot_6_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_6_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'needs_bind' %}red {% else %}green {% endif %}
+                          tap_action:
+                            action: fire-dom-event
+                            browser_mod:
+                              service: browser_mod.popup
+                              data:
+                                title: Slot 6 (HT2)
+                                content:
+                                  type: vertical-stack
+                                  cards:
+                                    - type: markdown
+                                      content: >-
+                                        {% set r =
+                                        states('input_text.ams_slot_6_unbound_reason')
+                                        %} {% set status =
+                                        states('sensor.ams_slot_6_status') %} {%
+                                        if 'RFID_NOT_REFRESHED' in r %}### RFID
+                                        Refresh Needed
+
+                                        **{{ states('sensor.ams_slot_6_name')
+                                        }}** (spool #{{
+                                        states('input_text.ams_slot_6_spool_id')
+                                        }}) is correctly assigned to this slot,
+                                        but the AMS hasn't read the RFID tag.
+
+                                        **To fix:** Physically unload the spool
+                                        from slot 6, then reload it. After
+                                        reloading, tap **Reconcile** below. {%
+                                        elif status == 'ok' %}### {{
+                                        states('sensor.ams_slot_6_name') }}
+
+                                        {{ states('sensor.ams_slot_6_vendor') }}
+                                        - {{
+                                        states('sensor.ams_slot_6_material') }}
+
+                                        Remaining: {{
+                                        states('sensor.ams_slot_6_remaining_g')
+                                        }}g
+
+                                        Spool #{{
+                                        states('input_text.ams_slot_6_spool_id')
+                                        }} {% elif status == 'needs_bind' %}###
+                                        Binding Required
+
+                                        {% if 'NONRFID_NO_MATCH' in r %}This
+                                        slot has a spool that doesn't match
+                                        anything in Spoolman. {% elif
+                                        'AMBIGUOUS' in r %}Multiple spools match
+                                        this slot's signature. {% elif
+                                        'NOT_FOUND' in r %}The previously
+                                        assigned spool was not found. {% elif
+                                        'UID_NO_MATCH' in r %}The RFID tag isn't
+                                        recognized. {% else %}This slot needs
+                                        manual binding. {% endif %}
+
+                                        Select a spool below and tap **Assign &
+                                        Bind**. {% elif status == 'empty' %}###
+                                        Empty Slot
+
+                                        No spool is loaded in this slot. {%
+                                        endif %}
+                                    - type: entities
+                                      entities:
+                                        - entity: input_select.ams_slot_6_select_spool
+                                    - type: grid
+                                      columns: 3
+                                      square: false
+                                      cards:
+                                        - type: custom:mushroom-template-card
+                                          primary: Assign & Bind
+                                          icon: mdi:link-variant
+                                          icon_color: blue
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.ams_slot_assign_and_update
+                                            data:
+                                              slot: '6'
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Reconcile
+                                          icon: mdi:sync
+                                          icon_color: cyan
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.reconcile_all_ams_slots
+                                            data: {}
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Force Accept
+                                          icon: mdi:check-circle-outline
+                                          icon_color: green
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: input_text.set_value
+                                            target:
+                                              entity_id: input_text.ams_slot_6_unbound_reason
+                                            data:
+                                              value: FORCE_ACCEPTED
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                          card_mod:
+                            style: |
+                              ha-card {
+                                {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
+                                {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
+                                {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
+                                {% set is_active = printing and active == 129 and tray == 0 %}
+                                {% if is_active %}
+                                  border: 2px solid var(--primary-color);
+                                  box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
+                                {% endif %}
+                                {% set status = states('sensor.ams_slot_6_status') %}
+                                {% set hex = states('sensor.ams_slot_6_color_hex') %}
+                                {% set r = states('input_text.ams_slot_6_unbound_reason') %}
+                                {% if 'RFID_NOT_REFRESHED' in r %}
+                                border-left: 3px solid var(--warning-color);
+                                --ha-card-background: #FF980015;
+                                {% elif status == 'ok' and hex not in ['000000', 'Unknown'] %}
+                                border-left: 3px solid #{{ hex }};
+                                {% elif status == 'needs_bind' %}
+                                border-left: 3px solid var(--error-color);
+                                {% elif status == 'empty' %}
+                                opacity: 0.5;
+                                {% endif %}
+                              }
                     - type: custom:mushroom-entity-card
                       entity: sensor.p1s_01p00c5a3101668_ams_129_humidity
-                      name: Humidity
+                      name: Humidity (HT 2)
                       icon: mdi:water-percent
                       icon_color: var(--rgb-state-entity)
                       tap_action:
                         action: more-info
                     - type: custom:mushroom-entity-card
                       entity: sensor.p1s_01p00c5a3101668_ams_129_temperature
-                      name: Temperature
+                      name: Temperature (HT 2)
                       icon: mdi:thermometer
                       icon_color: var(--rgb-state-entity)
                       tap_action:
@@ -2766,7 +3049,7 @@ views:
                         type: vertical-stack
                         cards:
                           - type: custom:mushroom-template-card
-                            primary: Drying Temperature
+                            primary: Drying Temperature (HT 2)
                             secondary: >-
                               {{
                               states('sensor.p1s_01p00c5a3101668_ams_129_temperature')
@@ -2776,7 +3059,7 @@ views:
                             tap_action:
                               action: none
                           - type: custom:mushroom-template-card
-                            primary: Drying
+                            primary: Drying (HT 2)
                             secondary: >-
                               {% set tray1_temp_129 =
                               state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1',
@@ -2795,7 +3078,7 @@ views:
                             tap_action:
                               action: none
                           - type: custom:mushroom-template-card
-                            primary: Remaining Time
+                            primary: Remaining Time (HT 2)
                             secondary: >-
                               {% set tray1_temp_129 =
                               state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1',
@@ -2820,9 +3103,11 @@ views:
                             tap_action:
                               action: none
     cards: []
+    visible:
+      - user: 5ba38a59d2654d9c80f3b5a6ee129256
   - type: sections
     max_columns: 1
-    title: 'Sonos '
+    title: Sonos
     path: sonos
     icon: mdi:music
     panel: true
@@ -2836,15 +3121,16 @@ views:
             card_mod:
               style: |
                 ha-card {
-                  border: 4px solid #ffffff !important;
-                  border-radius: 12px !important;
-                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    border: 4px solid #ffffff !important;
+                    border-radius: 12px !important;
+                    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
                 }
   - type: sections
     visible:
       - user: 5ba38a59d2654d9c80f3b5a6ee129256
     max_columns: 4
     title: Outlets
+    path: outlets
     icon: mdi:power-socket-us
     sections:
       - type: grid
