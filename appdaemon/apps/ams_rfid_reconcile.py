@@ -359,7 +359,7 @@ class AmsRfidReconcile(hass.Hass):
             return
 
         self.spoolman_url = str(self.args.get("spoolman_url", "http://192.168.4.124:7912")).rstrip("/")
-        self.startup_delay_seconds = int(self.args.get("startup_delay_seconds", 8))
+        self.startup_delay_seconds = int(self.args.get("startup_delay_seconds", 60))
         self.startup_wait_helpers_seconds = int(self.args.get("startup_wait_helpers_seconds", 420))
         self.startup_wait_retry_initial_seconds = int(self.args.get("startup_wait_retry_initial_seconds", 2))
         self.startup_wait_retry_max_seconds = int(self.args.get("startup_wait_retry_max_seconds", 30))
