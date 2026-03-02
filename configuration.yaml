@@ -53,22 +53,16 @@ input_text:
     max: 64
   ams_slot_1_spool_id:
     name: AMS Slot 1 (AMS1_Slot1) – Spoolman spool ID
-    initial: "0"
   ams_slot_2_spool_id:
     name: AMS Slot 2 (AMS1_Slot2) – Spoolman spool ID
-    initial: "0"
   ams_slot_3_spool_id:
     name: AMS Slot 3 (AMS1_Slot3) – Spoolman spool ID
-    initial: "0"
   ams_slot_4_spool_id:
     name: AMS Slot 4 (AMS1_Slot4) – Spoolman spool ID
-    initial: "0"
   ams_slot_5_spool_id:
     name: AMS Slot 5 (AMS2_HT_Slot1) – Spoolman spool ID
-    initial: "0"
   ams_slot_6_spool_id:
     name: AMS Slot 6 (AMS2_HT_Slot2) – Spoolman spool ID
-    initial: "0"
   ams_slot_1_unbound_reason:
     name: "AMS Slot 1 Unbound Reason"
     max: 100
