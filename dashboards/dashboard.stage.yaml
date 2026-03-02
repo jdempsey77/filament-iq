@@ -3369,7 +3369,7 @@ views:
                   } else { '' }
               - name: Vendor
                 data: $
-                modify: x.vendor ? x.vendor.name : ''
+                modify: "x.vendor ? x.vendor.name : ''"
               - name: Name
                 data: $
                 modify: x.name || ''
