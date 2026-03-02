@@ -1088,6 +1088,26 @@ views:
         cards:
           - type: vertical-stack
             cards:
+              - type: custom:mushroom-template-card
+                primary: AMS Filament Slots
+                secondary: >-
+                  {% set count = states('sensor.ams_unbound_slot_count') |
+                  int(0) %} {% if count > 0 %}{{ count }} slot{{ 's' if count >
+                  1 }} need{{ '' if count > 1 else 's' }} binding {% else %}All
+                  slots bound {% endif %}
+                icon: mdi:tray-full
+                tap_action:
+                  action: none
+                color: >-
+                  {% if states('sensor.ams_unbound_slot_count') | int(0) > 0
+                  %}red {% else %}green{% endif %}
+                features_position: bottom
+                card_mod:
+                  style: >
+                    ha-card { --ha-card-background: transparent; box-shadow:
+                    none; }
+          - type: vertical-stack
+            cards:
               - type: custom:mushroom-entity-card
                 entity: switch.officeoutlet01_3dprinter
                 name: Power
@@ -2321,26 +2341,6 @@ views:
                         action: more-info
           - type: vertical-stack
             cards:
-              - type: custom:mushroom-template-card
-                primary: AMS Filament Slots
-                secondary: >-
-                  {% set count = states('sensor.ams_unbound_slot_count') |
-                  int(0) %} {% if count > 0 %}{{ count }} slot{{ 's' if
-                  count > 1 }} need{{ '' if count > 1 else 's' }} binding {%
-                  else %}All slots bound {% endif %}
-                icon: mdi:tray-full
-                tap_action:
-                  action: none
-                color: >-
-                  {% if states('sensor.ams_unbound_slot_count') | int(0) > 0
-                  %}red {% else %}green{% endif %}
-                features_position: bottom
-                card_mod:
-                  style: >
-                    ha-card { --ha-card-background: transparent; box-shadow:
-                    none; }
-          - type: vertical-stack
-            cards:
               - type: custom:mod-card
                 style: |
                   ha-card {
@@ -2354,142 +2354,167 @@ views:
                   columns: 2
                   square: false
                   cards:
-                        - type: custom:mushroom-template-card
-                          primary: Reconcile
-                          icon: mdi:sync
-                          icon_color: blue
-                          layout: horizontal
-                          tap_action:
-                            action: call-service
-                            service: script.reconcile_all_ams_slots
-                            data: {}
-                          card_mod:
-                            style: |
-                              ha-card { --ha-card-padding: 4px; }
-                              mushroom-shape-icon { --icon-size: 24px; }
-                        - type: custom:mushroom-template-card
-                          primary: Reload
-                          icon: mdi:refresh
-                          icon_color: cyan
-                          layout: horizontal
-                          tap_action:
-                            action: call-service
-                            service: script.reload_spoolman_integration
-                            data: {}
-                          card_mod:
-                            style: |
-                              ha-card { --ha-card-padding: 4px; }
-                              mushroom-shape-icon { --icon-size: 24px; }
-                        - type: custom:mushroom-template-card
-                          primary: Add Spool
-                          icon: mdi:plus-circle
-                          icon_color: green
-                          layout: horizontal
-                          tap_action:
-                            action: fire-dom-event
-                            browser_mod:
-                              service: browser_mod.popup
-                              data:
-                                title: Add Spool to Spoolman
-                                content:
-                                  type: vertical-stack
+                    - type: custom:mushroom-template-card
+                      primary: Reconcile
+                      icon: mdi:sync
+                      icon_color: blue
+                      layout: horizontal
+                      tap_action:
+                        action: call-service
+                        service: script.reconcile_all_ams_slots
+                        data: {}
+                      card_mod:
+                        style: |
+                          ha-card { --ha-card-padding: 4px; }
+                          mushroom-shape-icon { --icon-size: 24px; }
+                    - type: custom:mushroom-template-card
+                      primary: Reload
+                      icon: mdi:refresh
+                      icon_color: cyan
+                      layout: horizontal
+                      tap_action:
+                        action: call-service
+                        service: script.reload_spoolman_integration
+                        data: {}
+                      card_mod:
+                        style: |
+                          ha-card { --ha-card-padding: 4px; }
+                          mushroom-shape-icon { --icon-size: 24px; }
+                    - type: custom:mushroom-template-card
+                      primary: Add Spool
+                      icon: mdi:plus-circle
+                      icon_color: green
+                      layout: horizontal
+                      tap_action:
+                        action: fire-dom-event
+                        browser_mod:
+                          service: browser_mod.popup
+                          data:
+                            title: Add Spool to Spoolman
+                            content:
+                              type: vertical-stack
+                              cards:
+                                - type: markdown
+                                  content: >
+                                    **Add Spool to Spoolman**
+
+                                    Select filament, location, remaining weight
+                                    and quantity, then tap **Create spool(s)**.
+
+                                    If Quantity shows *Entity not found*: run
+                                    `./scripts/manage_ha.sh --config` and
+                                    **restart Home Assistant**, then refresh
+                                    this page.
+
+                                    Success or failure will appear in
+                                    Notifications (bell icon).
+                                - type: entities
+                                  entities:
+                                    - entity: input_select.spoolman_new_spool_filament
+                                    - entity: input_text.spoolman_new_spool_location
+                                    - entity: >-
+                                        input_number.spoolman_new_spool_remaining_weight
+                                    - entity: input_number.spoolman_new_spool_quantity
+                                - type: grid
+                                  columns: 2
+                                  square: false
                                   cards:
-                                    - type: markdown
-                                      content: >
-                                        **Add Spool to Spoolman**
-
-                                        Select filament, location, remaining
-                                        weight and quantity, then tap **Create
-                                        spool(s)**.
-
-                                        If Quantity shows *Entity not found*:
-                                        run `./scripts/manage_ha.sh --config`
-                                        and **restart Home Assistant**, then
-                                        refresh this page.
-
-                                        Success or failure will appear in
-                                        Notifications (bell icon).
-                                    - type: entities
-                                      entities:
-                                        - entity: input_select.spoolman_new_spool_filament
-                                        - entity: input_text.spoolman_new_spool_location
-                                        - entity: >-
-                                            input_number.spoolman_new_spool_remaining_weight
-                                        - entity: input_number.spoolman_new_spool_quantity
-                                    - type: grid
-                                      columns: 2
-                                      square: false
-                                      cards:
-                                        - type: custom:mushroom-template-card
-                                          primary: Refresh filament list
-                                          icon: mdi:refresh
-                                          icon_color: blue
-                                          tap_action:
-                                            action: call-service
-                                            service: script.refresh_filament_dropdown
-                                            data: {}
-                                        - type: custom:mushroom-template-card
-                                          primary: Create spool(s)
-                                          icon: mdi:plus
-                                          icon_color: green
-                                          tap_action:
-                                            action: call-service
-                                            service: script.spoolman_add_spool
-                                            data: {}
-                          card_mod:
-                            style: |
-                              ha-card { --ha-card-padding: 4px; }
-                              mushroom-shape-icon { --icon-size: 24px; }
-                        - type: custom:mushroom-template-card
-                          primary: Add Filament
-                          icon: mdi:plus-circle
-                          icon_color: blue
-                          layout: horizontal
-                          tap_action:
-                            action: fire-dom-event
-                            browser_mod:
-                              service: browser_mod.popup
-                              data:
-                                title: Add Filament to Spoolman
-                                content:
-                                  type: vertical-stack
-                                  cards:
-                                    - type: markdown
-                                      content: >
-                                        **Add Filament to Spoolman**
-
-                                        Enter filament details below, then tap
-                                        **Create filament**.
-
-                                        Success or failure will appear in
-                                        Notifications (bell icon).
-                                    - type: entities
-                                      entities:
-                                        - entity: input_text.spoolman_new_filament_name
-                                        - entity: >-
-                                            input_select.spoolman_new_filament_vendor
-                                        - entity: >-
-                                            input_text.spoolman_new_filament_material
-                                        - entity: >-
-                                            input_text.spoolman_new_filament_color_hex
-                                        - entity: >-
-                                            input_number.spoolman_new_filament_diameter
-                                        - entity: >-
-                                            input_number.spoolman_new_filament_density
-                                        - entity: >-
-                                            input_number.spoolman_new_filament_weight
                                     - type: custom:mushroom-template-card
-                                      primary: Create filament
+                                      primary: Refresh filament list
+                                      icon: mdi:refresh
+                                      icon_color: blue
+                                      tap_action:
+                                        action: call-service
+                                        service: script.refresh_filament_dropdown
+                                        data: {}
+                                    - type: custom:mushroom-template-card
+                                      primary: Create spool(s)
                                       icon: mdi:plus
                                       icon_color: green
                                       tap_action:
                                         action: call-service
-                                        service: script.spoolman_add_filament
+                                        service: script.spoolman_add_spool
                                         data: {}
-                          card_mod:
-                            style: |
-                              ha-card { --ha-card-padding: 4px; }
-                              mushroom-shape-icon { --icon-size: 24px; }
+                      card_mod:
+                        style: |
+                          ha-card { --ha-card-padding: 4px; }
+                          mushroom-shape-icon { --icon-size: 24px; }
+                    - type: custom:mushroom-template-card
+                      primary: Add Filament
+                      icon: mdi:plus-circle
+                      icon_color: blue
+                      layout: horizontal
+                      tap_action:
+                        action: fire-dom-event
+                        browser_mod:
+                          service: browser_mod.popup
+                          data:
+                            title: Add Filament to Spoolman
+                            content:
+                              type: vertical-stack
+                              cards:
+                                - type: markdown
+                                  content: >
+                                    **Add Filament to Spoolman**
+
+                                    Enter filament details below, then tap
+                                    **Create filament**.
+
+                                    Success or failure will appear in
+                                    Notifications (bell icon).
+                                - type: entities
+                                  entities:
+                                    - entity: input_text.spoolman_new_filament_name
+                                    - entity: >-
+                                        input_select.spoolman_new_filament_vendor
+                                    - entity: >-
+                                        input_text.spoolman_new_filament_material
+                                    - entity: >-
+                                        input_text.spoolman_new_filament_color_hex
+                                    - entity: >-
+                                        input_number.spoolman_new_filament_diameter
+                                    - entity: >-
+                                        input_number.spoolman_new_filament_density
+                                    - entity: >-
+                                        input_number.spoolman_new_filament_weight
+                                - type: custom:mushroom-template-card
+                                  primary: Create filament
+                                  icon: mdi:plus
+                                  icon_color: green
+                                  tap_action:
+                                    action: call-service
+                                    service: script.spoolman_add_filament
+                                    data: {}
+                      card_mod:
+                        style: |
+                          ha-card { --ha-card-padding: 4px; }
+                          mushroom-shape-icon { --icon-size: 24px; }
+                    # NOTE: Update navigation_path when promoting to prod dashboard
+                    - type: custom:mushroom-template-card
+                      primary: Filaments
+                      icon: mdi:palette-swatch-variant
+                      icon_color: purple
+                      layout: horizontal
+                      tap_action:
+                        action: navigate
+                        navigation_path: /lovelace-stage/filaments
+                      card_mod:
+                        style: |
+                          ha-card { --ha-card-padding: 4px; }
+                          mushroom-shape-icon { --icon-size: 24px; }
+                    # NOTE: Update navigation_path when promoting to prod dashboard
+                    - type: custom:mushroom-template-card
+                      primary: Spools
+                      icon: mdi:printer-3d-nozzle
+                      icon_color: teal
+                      layout: horizontal
+                      tap_action:
+                        action: navigate
+                        navigation_path: /lovelace-stage/spools
+                      card_mod:
+                        style: |
+                          ha-card { --ha-card-padding: 4px; }
+                          mushroom-shape-icon { --icon-size: 24px; }
       - type: grid
         cards:
           - type: vertical-stack
@@ -3355,7 +3380,7 @@ views:
           grid-template-columns: 1fr
         cards:
           - type: markdown
-            content: "## 🧵 Filament Library"
+            content: '## 🧵 Filament Library'
             card_mod:
               style: |
                 ha-card { background: none; box-shadow: none; }
@@ -3369,15 +3394,15 @@ views:
                   - entity: input_select.spoolman_filter_filament_vendor
                     name: Vendor
           - type: custom:flex-table-card
-            title: ""
+            title: ''
             entities:
               include: sensor.spoolman_filament_list_filtered
             strict: true
             sort_by: name
             css:
-              table+: "width: 100%; table-layout: auto;"
-              th+: "white-space: nowrap; padding: 8px 12px; font-size: 0.85em;"
-              td+: "padding: 8px 12px; white-space: nowrap;"
+              table+: 'width: 100%; table-layout: auto;'
+              th+: 'white-space: nowrap; padding: 8px 12px; font-size: 0.85em;'
+              td+: 'padding: 8px 12px; white-space: nowrap;'
             columns:
               - name: ID
                 data: items
@@ -3392,7 +3417,7 @@ views:
                 align: center
               - name: Vendor
                 data: items
-                modify: "x.vendor ? x.vendor.name : ''"
+                modify: 'x.vendor ? x.vendor.name : '''''
               - name: Name
                 data: items
                 modify: x.name || ''
@@ -3401,8 +3426,10 @@ views:
                 modify: x.material || ''
               - name: Weight (g)
                 data: items
-                modify: "x.weight != null ? Math.round(x.weight) : ''"
+                modify: 'x.weight != null ? Math.round(x.weight) : '''''
                 align: right
+    type: panel
+    subview: true
   - title: Spool Inventory
     path: spools
     icon: mdi:printer-3d-nozzle
@@ -3418,7 +3445,7 @@ views:
           grid-template-columns: 1fr
         cards:
           - type: markdown
-            content: "## 🧵 Spool Inventory"
+            content: '## 🧵 Spool Inventory'
             card_mod:
               style: |
                 ha-card { background: none; box-shadow: none; }
@@ -3434,15 +3461,15 @@ views:
                   - entity: input_select.spoolman_filter_spool_location
                     name: Location
           - type: custom:flex-table-card
-            title: ""
+            title: ''
             entities:
               include: sensor.spoolman_spool_list_filtered
             strict: true
             sort_by: id
             css:
-              table+: "width: 100%; table-layout: auto;"
-              th+: "white-space: nowrap; padding: 8px 12px; font-size: 0.85em;"
-              td+: "padding: 8px 12px; white-space: nowrap;"
+              table+: 'width: 100%; table-layout: auto;'
+              th+: 'white-space: nowrap; padding: 8px 12px; font-size: 0.85em;'
+              td+: 'padding: 8px 12px; white-space: nowrap;'
             columns:
               - name: ID
                 data: items
@@ -3457,22 +3484,30 @@ views:
                 align: center
               - name: Filament
                 data: items
-                modify: "x.filament ? x.filament.name : ''"
+                modify: 'x.filament ? x.filament.name : '''''
               - name: Vendor
                 data: items
-                modify: "(x.filament && x.filament.vendor) ? x.filament.vendor.name : ''"
+                modify: >-
+                  (x.filament && x.filament.vendor) ? x.filament.vendor.name :
+                  ''
               - name: Material
                 data: items
-                modify: "x.filament ? (x.filament.material || '') : ''"
+                modify: 'x.filament ? (x.filament.material || '''') : '''''
               - name: Remaining (g)
                 data: items
-                modify: "x.remaining_weight != null ? Math.round(x.remaining_weight) : ''"
+                modify: >-
+                  x.remaining_weight != null ? Math.round(x.remaining_weight) :
+                  ''
                 align: right
               - name: Location
                 data: items
                 modify: x.location || ''
               - name: Identity
                 data: items
-                modify: |-
+                modify: >-
                   var lot = x.lot_nr || '';
-                  lot.length > 16 ? (lot.substring(0, 8) + '…' + lot.substring(lot.length - 4)) : lot
+
+                  lot.length > 16 ? (lot.substring(0, 8) + '…' +
+                  lot.substring(lot.length - 4)) : lot
+    type: panel
+    subview: true
