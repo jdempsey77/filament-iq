@@ -2321,39 +2321,39 @@ views:
                         action: more-info
           - type: vertical-stack
             cards:
-              - type: vertical-stack
-                cards:
-                  - type: custom:mushroom-template-card
-                    primary: AMS Filament Slots
-                    secondary: >-
-                      {% set count = states('sensor.ams_unbound_slot_count') |
-                      int(0) %} {% if count > 0 %}{{ count }} slot{{ 's' if
-                      count > 1 }} need{{ '' if count > 1 else 's' }} binding {%
-                      else %}All slots bound {% endif %}
-                    icon: mdi:tray-full
-                    tap_action:
-                      action: none
-                    color: >-
-                      {% if states('sensor.ams_unbound_slot_count') | int(0) > 0
-                      %}red {% else %}green{% endif %}
-                    features_position: bottom
-                    card_mod:
-                      style: >
-                        ha-card { --ha-card-background: transparent; box-shadow:
-                        none; }
-                  - type: custom:mod-card
-                    style: |
-                      ha-card {
-                        border: 2px solid var(--ha-card-border-color, #444) !important;
-                        border-radius: 12px !important;
-                        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
-                        padding: 12px !important;
-                      }
-                    card:
-                      type: grid
-                      columns: 2
-                      square: false
-                      cards:
+              - type: custom:mushroom-template-card
+                primary: AMS Filament Slots
+                secondary: >-
+                  {% set count = states('sensor.ams_unbound_slot_count') |
+                  int(0) %} {% if count > 0 %}{{ count }} slot{{ 's' if
+                  count > 1 }} need{{ '' if count > 1 else 's' }} binding {%
+                  else %}All slots bound {% endif %}
+                icon: mdi:tray-full
+                tap_action:
+                  action: none
+                color: >-
+                  {% if states('sensor.ams_unbound_slot_count') | int(0) > 0
+                  %}red {% else %}green{% endif %}
+                features_position: bottom
+                card_mod:
+                  style: >
+                    ha-card { --ha-card-background: transparent; box-shadow:
+                    none; }
+          - type: vertical-stack
+            cards:
+              - type: custom:mod-card
+                style: |
+                  ha-card {
+                    border: 2px solid var(--ha-card-border-color, #444) !important;
+                    border-radius: 12px !important;
+                    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    padding: 12px !important;
+                  }
+                card:
+                  type: grid
+                  columns: 2
+                  square: false
+                  cards:
                         - type: custom:mushroom-template-card
                           primary: Reconcile
                           icon: mdi:sync
