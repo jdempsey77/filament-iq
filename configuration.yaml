@@ -282,6 +282,11 @@ input_boolean:
   appdaemon_startup_suppress_swap:
     name: AppDaemon startup – suppress spool swap detection
     initial: false
+  # Spool edit popup (UI only, not system-critical)
+  spoolman_edit_spool_id:
+    name: "Edit spool – spool ID"
+    max: 10
+    initial: ""
 
 input_button:
   p1s_rfid_reconcile_now:
@@ -452,6 +457,14 @@ input_number:
     step: 1
     mode: box
     initial: 1
+  spoolman_edit_remaining_weight:
+    name: "Edit spool – remaining weight (g)"
+    min: 0
+    max: 5000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+    initial: 0
   ams_slot_1_gross_weight:
     name: AMS Slot 1 – gross scale (g)
     min: 0
@@ -761,6 +774,11 @@ input_select:
     options:
       - "All"
     initial: "All"
+  spoolman_edit_spool_select:
+    name: "Edit spool – select spool"
+    options:
+      - "— Select spool —"
+    initial: "— Select spool —"
 
 # Filament list from Spoolman API for "Add spool" dropdown. Uses fixed resource URL so the entity is always created (resource_template can prevent REST entity creation).
 # Set resource below to your Spoolman API base + /api/v1/filament (e.g. http://192.168.1.100:7912/api/v1/filament). Restart HA after changing.
@@ -1993,6 +2011,12 @@ rest_command:
     content_type: "application/json"
     payload: >-
       {{ {'filament_id': ((states('input_select.spoolman_new_spool_filament') or '').split(' - ')[0] | trim | int(1)) if ' - ' in (states('input_select.spoolman_new_spool_filament') or '') else (states('input_number.spoolman_new_spool_filament_id') | int(1)), 'location': (states('input_text.spoolman_new_spool_location') | default('') | trim) or 'New', 'remaining_weight': states('input_number.spoolman_new_spool_remaining_weight') | float(0), 'archived': false} | tojson }}
+  # PATCH spool remaining_weight in Spoolman (from edit popup)
+  ams_spoolman_patch_spool_remaining:
+    url: "http://192.168.4.124:7912/api/v1/spool/{{ spool_id }}"
+    method: PATCH
+    content_type: "application/json"
+    payload: '{"remaining_weight": {{ remaining_weight | float }}}'
 # Load frontend themes from the themes folder
 frontend:
   themes: !include_dir_merge_named themes

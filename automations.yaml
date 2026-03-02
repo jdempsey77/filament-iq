@@ -1421,3 +1421,23 @@
         entity_id: input_select.spoolman_filter_spool_location
       data:
         options: "{{ state_attr('sensor.spoolman_filter_spool_locations', 'options') or ['All'] }}"
+    # Edit spool dropdown
+    - service: input_select.set_options
+      target:
+        entity_id: input_select.spoolman_edit_spool_select
+      data:
+        options: >
+          {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+          {% set ns = namespace(opts=['— Select spool —']) %}
+          {% for s in items %}
+            {% set f = s.filament if s.filament is mapping else {} %}
+            {% set vendor = (f.vendor.name | default('')) if f.vendor is mapping else '' %}
+            {% set name = f.name | default('') %}
+            {% set mat = f.material | default('') %}
+            {% set loc = s.location | default('') %}
+            {% set remaining = s.remaining_weight | default(0) | round(0) | string %}
+            {% set label = ((vendor ~ ' – ' if vendor else '') ~ (name ~ ' – ' if name else '') ~ mat ~ ' – ' ~ remaining ~ 'g' ~ (' [' ~ loc ~ ']' if loc else '')) | trim %}
+            {% set label = label if label else ('Spool ' ~ s.id | string) %}
+            {% set ns.opts = ns.opts + [s.id | string ~ ' - ' ~ label] %}
+          {% endfor %}
+          {{ ns.opts }}
