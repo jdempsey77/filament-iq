@@ -50,6 +50,7 @@ if [[ -z "$TARGET" || "$TARGET" == "--help" || "$TARGET" == "-h" ]]; then
   echo "  --spoolman-import  Import spools.csv into Spoolman (new spools only)"
   echo "  --spoolman-update Push remaining_g/empty_spool_g from CSV to Spoolman (run export first to get spool_id)"
   echo "  --stage       Deploy stage dashboard (then test; copy from repo to prod when ready)"
+  echo "  --prod-prep   Generate dashboard.prod.yaml from stage (for manual copy to HA main dashboard)"
   echo "  --promote     Optional: copy stage to ui-lovelace.yaml in HA"
   echo "  --restart     Restart HA"
   echo "  --validate    Validate config via HA API"
@@ -740,15 +741,33 @@ if [[ "$TARGET" == "--spoolman-update" ]]; then
   exit 0
 fi
 
+# Prod-prep: generate dashboard.prod.yaml from stage (no deploy, no dirty tree)
+if [[ "$TARGET" == "--prod-prep" ]]; then
+  PROD_FILE="$REPO_ROOT/dashboards/dashboard.prod.yaml"
+  sed 's|/lovelace-stage/|/lovelace/|g' "$STAGE_FILE" | \
+    sed 's|# NOTE: Test dashboard uses dashboard-test; stage uses lovelace-stage|# NOTE: Prod version – uses /lovelace/ paths|g' | \
+    sed 's|# NOTE: Update navigation_path when promoting to prod dashboard|# NOTE: Prod version – uses /lovelace/ paths|g' \
+    > "$PROD_FILE"
+  echo "Generated: $PROD_FILE"
+  echo "Copy to: Settings → Dashboards → [Main] → ⋮ → Edit → ⋮ → Raw configuration → paste → Save"
+  exit 0
+fi
+
 # Deploy target
 if [[ "$TARGET" == "--stage" ]]; then
   SOURCE_FILE="$STAGE_FILE"
   REMOTE_NAME="ui-lovelace-stage.yaml"
 elif [[ "$TARGET" == "--promote" ]]; then
-  SOURCE_FILE="$STAGE_FILE"
+  PROD_FILE="$REPO_ROOT/dashboards/dashboard.prod.yaml"
+  # Ensure prod version exists and is up to date
+  sed 's|/lovelace-stage/|/lovelace/|g' "$STAGE_FILE" | \
+    sed 's|# NOTE: Test dashboard uses dashboard-test; stage uses lovelace-stage|# NOTE: Prod version – uses /lovelace/ paths|g' | \
+    sed 's|# NOTE: Update navigation_path when promoting to prod dashboard|# NOTE: Prod version – uses /lovelace/ paths|g' \
+    > "$PROD_FILE"
+  SOURCE_FILE="$PROD_FILE"
   REMOTE_NAME="ui-lovelace.yaml"
 else
-  echo "Error: use --stage, --promote, --check, --config, --automations, --scripts, --go2rtc, --all, --spoolman-export, --spoolman-import, --spoolman-update, --restart, --validate, --appdaemon, --appdaemon-restart, or --restart-all."
+  echo "Error: use --stage, --prod-prep, --promote, --check, --config, --automations, --scripts, --go2rtc, --all, --spoolman-export, --spoolman-import, --spoolman-update, --restart, --validate, --appdaemon, --appdaemon-restart, or --restart-all."
   exit 1
 fi
 
@@ -774,6 +793,15 @@ echo "Deploying $(basename "$SOURCE_FILE") to $SSH_USER@$SSH_HOST:$REMOTE_PATH"
 scp $SSH_OPTS "$SOURCE_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_PATH"
 echo "Copy complete."
 if [[ "$TARGET" == "--stage" ]]; then
+  # Regenerate prod version for manual copy to HA main dashboard
+  PROD_FILE="$REPO_ROOT/dashboards/dashboard.prod.yaml"
+  sed 's|/lovelace-stage/|/lovelace/|g' "$STAGE_FILE" | \
+    sed 's|# NOTE: Test dashboard uses dashboard-test; stage uses lovelace-stage|# NOTE: Prod version – uses /lovelace/ paths|g' | \
+    sed 's|# NOTE: Update navigation_path when promoting to prod dashboard|# NOTE: Prod version – uses /lovelace/ paths|g' \
+    > "$PROD_FILE"
+  echo ""
+  echo "Prod version updated: dashboards/dashboard.prod.yaml"
+  echo "  → Copy to: Settings → Dashboards → [Main] → ⋮ → Edit → ⋮ → Raw configuration"
   if [[ -n "$HOME_ASSISTANT_URL" && -n "$HOME_ASSISTANT_TOKEN" ]]; then
     echo ""
     echo "Restarting HA so the Stage dashboard re-reads ui-lovelace-stage.yaml..."

@@ -20,5 +20,12 @@ You can now:
 
 ## File roles
 
-- **dashboard.test.storage.yaml** — Copy/paste source for the Test storage dashboard (Spool management view only). Not loaded from the repo; HA does not read this file.
-- **dashboard.stage.yaml** — Stage YAML dashboard (deployed to `/lovelace-stage`). After you fix config in the Test dashboard, copy the working view/cards back into the Spool management view in `dashboard.stage.yaml` and redeploy.
+- **dashboard.test.storage.yaml** — Copy/paste source for the Test storage dashboard (Spool management view only). Uses `/dashboard-test/` nav paths. Not loaded from the repo; HA does not read this file.
+- **dashboard.stage.yaml** — Stage YAML dashboard (deployed to `/lovelace-stage`). Uses `/lovelace-stage/` nav paths. Deploy via `./scripts/manage_ha.sh --stage`.
+- **dashboard.prod.yaml** — Generated from stage with `/lovelace/` nav paths. For manual copy to the main (prod) dashboard. Regenerated automatically when you run `--stage`; or run `./scripts/manage_ha.sh --prod-prep` to regenerate without deploying.
+
+## Push to prod
+
+1. Deploy stage: `./scripts/manage_ha.sh --stage` (also regenerates `dashboard.prod.yaml`).
+2. Test at `/lovelace-stage`.
+3. Copy to prod: **Settings** → **Dashboards** → [Main dashboard] → **⋮** → **Edit dashboard** → **⋮** → **Raw configuration** → paste contents of `dashboards/dashboard.prod.yaml` → **Save**.
