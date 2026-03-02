@@ -3342,3 +3342,77 @@ views:
                 ha-card ha-icon {
                   color: {% if is_state('switch.miriam_smart_plug', 'on') %} #FFD700 {% else %} white {% endif %} !important;
                 }
+  - title: Spoolman
+    icon: mdi:database
+    path: spoolman
+    type: sections
+    max_columns: 1
+    cards: []
+    sections:
+      - type: grid
+        cards:
+          - type: custom:flex-table-card
+            title: Filament Library
+            entities:
+              include: sensor.spoolman_filaments_api
+            strict: true
+            sort_by: name
+            columns:
+              - name: ID
+                data: $
+                modify: x.id
+              - name: Color
+                data: $
+                modify: >
+                  if (x.color_hex) {
+                    '<div style="width:20px;height:20px;border-radius:50%;background-color:#' + x.color_hex + ';border:1px solid #ccc;display:inline-block"></div>'
+                  } else { '' }
+              - name: Vendor
+                data: $
+                modify: x.vendor ? x.vendor.name : ''
+              - name: Name
+                data: $
+                modify: x.name || ''
+              - name: Material
+                data: $
+                modify: x.material || ''
+              - name: Weight (g)
+                data: $
+                modify: x.weight || ''
+              - name: Diameter
+                data: $
+                modify: x.diameter || ''
+          - type: custom:flex-table-card
+            title: Spool Inventory
+            entities:
+              include: sensor.spoolman_spool_list_processed
+            strict: true
+            sort_by: id
+            columns:
+              - name: ID
+                data: items
+                modify: x.id
+              - name: Color
+                data: items
+                modify: >
+                  if (x.color_hex) {
+                    '<div style="width:20px;height:20px;border-radius:50%;background-color:#' + x.color_hex + ';border:1px solid #ccc;display:inline-block"></div>'
+                  } else { '' }
+              - name: Filament
+                data: items
+                modify: x.filament_name || ''
+              - name: Vendor
+                data: items
+                modify: x.vendor || ''
+              - name: Material
+                data: items
+                modify: x.material || ''
+              - name: Remaining (g)
+                data: items
+                modify: x.remaining_weight
+              - name: Location
+                data: items
+                modify: x.location || ''
+              - name: Identity (lot_nr)
+                data: items
+                modify: x.lot_nr || ''

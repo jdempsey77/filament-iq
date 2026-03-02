@@ -789,6 +789,18 @@ sensor:
       {% endif %}
     scan_interval: 3600
     unique_id: spoolman_spools_api
+  - platform: rest
+    resource: "http://192.168.4.124:7912/api/v1/spool"
+    name: Spoolman spool list
+    value_template: >
+      {% if value_json is defined and value_json is iterable and value_json is not string %}
+        {{ value_json | length }}
+      {% else %}
+        {{ this.state if this.state is defined else 'unknown' }}
+      {% endif %}
+    json_attributes_path: "$"
+    scan_interval: 300
+    unique_id: spoolman_spool_list
 
 # Template sensors
 template:
@@ -1330,6 +1342,25 @@ template:
               {{ ns.parts }}
             {% else %}
               {{ state_attr('sensor.spoolman_filaments_processed', 'filament_list') or [] }}
+            {% endif %}
+      # Spool list flattened for flex-table-card (read-only Spoolman list dashboard)
+      - name: "Spoolman spool list (table)"
+        unique_id: spoolman_spool_list_processed
+        state: >
+          {% set api = state_attr('sensor.spoolman_spool_list', '$') %}
+          {% if api is iterable and api is not string %}{{ api | length }}{% else %}0{% endif %}
+        attributes:
+          items: >
+            {% set api = state_attr('sensor.spoolman_spool_list', '$') %}
+            {% if api is iterable and api is not string %}
+              {% set ns = namespace(rows=[]) %}
+              {% for s in api %}
+                {% set f = s.filament if s.filament is defined and s.filament is mapping else {} %}
+                {% set ns.rows = ns.rows + [{ 'id': s.id, 'filament_name': f.name|default(''), 'vendor': (f.vendor.name|default('') if f.vendor is defined and f.vendor is mapping else ''), 'material': f.material|default(''), 'color_hex': f.color_hex|default(s.get('color_hex','')), 'remaining_weight': s.remaining_weight|default(0)|round(0), 'location': s.location|default(''), 'lot_nr': s.lot_nr|default(''), 'archived': s.archived|default(false) }] %}
+              {% endfor %}
+              {{ ns.rows }}
+            {% else %}
+              {{ [] }}
             {% endif %}
       # Filament list for "Add spool" dropdown: from processed list, filtered to show only filaments WITHOUT spools
       - name: "AMS Filament list – options"
