@@ -1023,7 +1023,11 @@ template:
       # AMS Slot Manager: display name and remaining (g) per slot from persisted spool ID.
       - name: "AMS Slot 1 – name"
         unique_id: ams_slot_1_name
-        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_1_spool_id'), 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_1_spool_id'), 'name')) | default('Slot 1') }}"
+        state: >-
+          {% set sid = states('input_text.ams_slot_1_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Empty
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'name')) | default('Slot 1') }}
+          {% endif %}
       - name: "AMS Slot 1 – remaining (g)"
         unique_id: ams_slot_1_remaining_g
         unit_of_measurement: g
@@ -1070,7 +1074,11 @@ template:
           {% endif %}
       - name: "AMS Slot 2 – name"
         unique_id: ams_slot_2_name
-        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_2_spool_id'), 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_2_spool_id'), 'name')) | default('Slot 2') }}"
+        state: >-
+          {% set sid = states('input_text.ams_slot_2_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Empty
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'name')) | default('Slot 2') }}
+          {% endif %}
       - name: "AMS Slot 2 – remaining (g)"
         unique_id: ams_slot_2_remaining_g
         unit_of_measurement: g
@@ -1117,7 +1125,11 @@ template:
           {% endif %}
       - name: "AMS Slot 3 – name"
         unique_id: ams_slot_3_name
-        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_3_spool_id'), 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_3_spool_id'), 'name')) | default('Slot 3') }}"
+        state: >-
+          {% set sid = states('input_text.ams_slot_3_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Empty
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'name')) | default('Slot 3') }}
+          {% endif %}
       - name: "AMS Slot 3 – remaining (g)"
         unique_id: ams_slot_3_remaining_g
         unit_of_measurement: g
@@ -1164,7 +1176,11 @@ template:
           {% endif %}
       - name: "AMS Slot 4 – name"
         unique_id: ams_slot_4_name
-        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_4_spool_id'), 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_4_spool_id'), 'name')) | default('Slot 4') }}"
+        state: >-
+          {% set sid = states('input_text.ams_slot_4_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Empty
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'name')) | default('Slot 4') }}
+          {% endif %}
       - name: "AMS Slot 4 – remaining (g)"
         unique_id: ams_slot_4_remaining_g
         unit_of_measurement: g
@@ -1211,7 +1227,11 @@ template:
           {% endif %}
       - name: "AMS Slot 5 – name"
         unique_id: ams_slot_5_name
-        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_5_spool_id'), 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_5_spool_id'), 'name')) | default('AMS2 HT 1') }}"
+        state: >-
+          {% set sid = states('input_text.ams_slot_5_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Empty
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'name')) | default('HT 1') }}
+          {% endif %}
       - name: "AMS Slot 5 – remaining (g)"
         unique_id: ams_slot_5_remaining_g
         unit_of_measurement: g
@@ -1258,7 +1278,11 @@ template:
           {% endif %}
       - name: "AMS Slot 6 – name"
         unique_id: ams_slot_6_name
-        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_6_spool_id'), 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_6_spool_id'), 'name')) | default('AMS2 HT 2') }}"
+        state: >-
+          {% set sid = states('input_text.ams_slot_6_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Empty
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'name')) | default('HT 2') }}
+          {% endif %}
       - name: "AMS Slot 6 – remaining (g)"
         unique_id: ams_slot_6_remaining_g
         unit_of_measurement: g
