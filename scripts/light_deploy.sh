@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
+
+# Source deploy env (same as DEPLOY): deploy.env, then deploy.env.local overrides
+for f in "$SCRIPT_DIR/deploy.env" "$SCRIPT_DIR/deploy.env.local"; do
+  [[ -f "$f" ]] && { set -a; source "$f"; set +a; }
+done
+
 BASE_BRANCH_DEFAULT="main"
 MANAGE_HA="${MANAGE_HA:-./scripts/manage_ha.sh}"
 BASE_BRANCH="${BASE_BRANCH:-$BASE_BRANCH_DEFAULT}"
@@ -22,7 +31,7 @@ fail() {
 }
 
 note() { echo "LIGHT_DEPLOY: $*"; }
-require_env() { [[ -n "${!1:-}" ]] || fail "Missing env var: $1"; }
+require_env() { [[ -n "${!1:-}" ]] || fail "Missing env var: $1 (set in deploy.env or deploy.env.local)"; }
 
 require_env HOME_ASSISTANT_URL
 require_env HOME_ASSISTANT_TOKEN
