@@ -442,6 +442,7 @@ if [[ "$TARGET" == "--check" ]]; then
       trap "rm -rf $TMP_DIR" EXIT
 
       echo "=== Local stage vs HA stage (ui-lovelace-stage.yaml) ==="
+      echo "Remote path: $SSH_USER@$SSH_HOST:${REMOTE_CONFIG}/ui-lovelace-stage.yaml"
       if scp -q $SSH_OPTS "$SSH_USER@$SSH_HOST:${REMOTE_CONFIG}/ui-lovelace-stage.yaml" "$TMP_DIR/ha-stage.yaml" 2>/dev/null; then
         if diff -q "$STAGE_FILE" "$TMP_DIR/ha-stage.yaml" > /dev/null 2>&1; then
           echo "SAME"
@@ -454,6 +455,7 @@ if [[ "$TARGET" == "--check" ]]; then
       fi
 
       echo ""
+      echo "To view Stage: sidebar → dashboard picker → choose 'Stage'. URL must contain 'lovelace-stage'."
       echo "(Main dashboard loads from storage; not compared)"
     fi
   else
@@ -771,6 +773,17 @@ REMOTE_PATH="${REMOTE_CONFIG_PATH%/}/$REMOTE_NAME"
 echo "Deploying $(basename "$SOURCE_FILE") to $SSH_USER@$SSH_HOST:$REMOTE_PATH"
 scp $SSH_OPTS "$SOURCE_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_PATH"
 echo "Copy complete."
+if [[ "$TARGET" == "--stage" ]]; then
+  if [[ -n "$HOME_ASSISTANT_URL" && -n "$HOME_ASSISTANT_TOKEN" ]]; then
+    echo ""
+    echo "Restarting HA so the Stage dashboard re-reads ui-lovelace-stage.yaml..."
+    do_restart
+  else
+    echo ""
+    echo "To see changes: restart HA, or open Stage dashboard → three-dot menu → Refresh."
+    echo "To verify file sync: ./scripts/manage_ha.sh --check"
+  fi
+fi
 if [[ "$TARGET" == "--promote" ]]; then
   echo "Stage YAML copied to ui-lovelace.yaml. Reload the dashboard or restart HA if needed."
 fi

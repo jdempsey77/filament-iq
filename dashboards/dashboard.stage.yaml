@@ -22,6 +22,8 @@ views:
     sections:
       - type: grid
         cards:
+          - type: markdown
+            content: "**Stage (YAML)** — ui-lovelace-stage.yaml • If you see this, you're on the right dashboard."
           - type: custom:digital-clock
             card_mod:
               style: |

@@ -3130,6 +3130,27 @@ class AmsRfidReconcile(hass.Hass):
             spool_material = self._normalize_material(filament.get("material", ""))
             tray_type = self._normalize_material(tray_meta.get("type", "") if tray_meta else "")
             if spool_material and tray_type and spool_material != tray_type:
+                # Check bound invariant: if user explicitly assigned this spool,
+                # warn but do NOT clear — respect the manual binding.
+                helper_expected = self._safe_int(
+                    self._get_helper_state(f"input_text.ams_slot_{slot}_expected_spool_id"), 0
+                )
+                if helper_expected > 0 and helper_expected == helper_spool_id:
+                    self.log(
+                        f"TRUTH_GUARD_MATERIAL_WARN_ONLY slot={slot} "
+                        f"helper={helper_spool_id} tray_type={tray_type} spool_mat={spool_material} "
+                        f"— bound invariant holds (expected={helper_expected}), preserving manual bind",
+                        level="WARNING",
+                    )
+                    self._notify(
+                        f"Material Truth Guard (warn) – Slot {slot}",
+                        f"Spool {helper_spool_id} material ({spool_material}) differs from tray type ({tray_type}), "
+                        f"but binding preserved because it was manually assigned.",
+                        notification_id=f"truth_guard_material_warn_{slot}",
+                    )
+                    return True  # allow bind to proceed
+
+                # No bound invariant — this is likely an auto-match error. Clear helpers.
                 self.log(
                     f"TRUTH_GUARD_BLOCK slot={slot} mode=IDENTITY_UNAVAILABLE reason={UNBOUND_HELPER_MATERIAL_MISMATCH} "
                     f"helper={helper_spool_id} tray_type={tray_type} spool_mat={spool_material}",
