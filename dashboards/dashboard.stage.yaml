@@ -3354,38 +3354,38 @@ views:
           - type: custom:flex-table-card
             title: Filament Library
             entities:
-              include: sensor.spoolman_filaments_api
+              include: sensor.spoolman_filament_list_data
             strict: true
             sort_by: name
             columns:
               - name: ID
-                data: $
+                data: items
                 modify: x.id
               - name: Color
-                data: $
-                modify: >
+                data: items
+                modify: |-
                   if (x.color_hex) {
-                    '<div style="width:20px;height:20px;border-radius:50%;background-color:#' + x.color_hex + ';border:1px solid #ccc;display:inline-block"></div>'
+                    '<div style="width:20px;height:20px;border-radius:50%;background:#' + x.color_hex + ';border:1px solid #555;display:inline-block"></div>'
                   } else { '' }
               - name: Vendor
-                data: $
+                data: items
                 modify: "x.vendor ? x.vendor.name : ''"
               - name: Name
-                data: $
+                data: items
                 modify: x.name || ''
               - name: Material
-                data: $
+                data: items
                 modify: x.material || ''
               - name: Weight (g)
-                data: $
+                data: items
                 modify: x.weight || ''
               - name: Diameter
-                data: $
+                data: items
                 modify: x.diameter || ''
           - type: custom:flex-table-card
             title: Spool Inventory
             entities:
-              include: sensor.spoolman_spool_list_processed
+              include: sensor.spoolman_spool_list_data
             strict: true
             sort_by: id
             columns:
@@ -3394,22 +3394,23 @@ views:
                 modify: x.id
               - name: Color
                 data: items
-                modify: >
-                  if (x.color_hex) {
-                    '<div style="width:20px;height:20px;border-radius:50%;background-color:#' + x.color_hex + ';border:1px solid #ccc;display:inline-block"></div>'
+                modify: |-
+                  if (x.filament && x.filament.color_hex) {
+                    '<div style="width:20px;height:20px;border-radius:50%;background:#' + x.filament.color_hex + ';border:1px solid #555;display:inline-block"></div>'
                   } else { '' }
               - name: Filament
                 data: items
-                modify: x.filament_name || ''
+                modify: "x.filament ? x.filament.name : ''"
               - name: Vendor
                 data: items
-                modify: x.vendor || ''
+                modify: "(x.filament && x.filament.vendor) ? x.filament.vendor.name : ''"
               - name: Material
                 data: items
-                modify: x.material || ''
+                modify: "x.filament ? (x.filament.material || '') : ''"
               - name: Remaining (g)
                 data: items
-                modify: x.remaining_weight
+                modify: |-
+                  x.remaining_weight != null ? Math.round(x.remaining_weight) : ''
               - name: Location
                 data: items
                 modify: x.location || ''
