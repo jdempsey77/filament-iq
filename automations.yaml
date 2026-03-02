@@ -938,8 +938,8 @@
       data:
         title: "P1S Spool Swap During Print Detected"
         message: "{{ trigger.to_state.entity_id }} changed from {{ trigger.from_state.state }} to {{ trigger.to_state.state }} while print active. Automatic filament tracking disabled for this print. Manual reconciliation required."
-  mode: queued
-  max: 10
+    - delay: "00:05:00"
+  mode: single
 
 # After AppDaemon/reconcile startup, suppress spool-swap detection for 90s to avoid false positives from bulk helper updates.
 - id: appdaemon_startup_suppress_swap_clear

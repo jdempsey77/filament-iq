@@ -797,7 +797,8 @@ class AmsRfidReconcile(hass.Hass):
                 continue
 
             # Bound invariant wins over pending: spool_id == expected_spool_id > 0 -> stay NON_RFID_REGISTERED
-            if not tag_uid and helper_spool_id > 0 and helper_expected > 0 and helper_spool_id == helper_expected:
+            # But NOT when tray is empty — empty tray must clear the binding.
+            if not tag_uid and helper_spool_id > 0 and helper_expected > 0 and helper_spool_id == helper_expected and not tray_empty:
                 status = STATUS_NON_RFID_REGISTERED
                 t["decision"], t["reason"], t["action"] = "NON_RFID", "bound_invariant", "nonrfid_registered"
                 self._set_helper(f"input_text.ams_slot_{slot}_rfid_pending_until", "")
