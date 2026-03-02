@@ -692,10 +692,20 @@ ams_slot_assign_and_update:
                 id: "{{ final_spool_id }}"
                 location: "{{ target_location }}"
             - service: script.reload_spoolman_integration
-            - event: bambu_rfid_manual_enroll_tag_to_spool
-              event_data:
-                slot: "{{ slot | int }}"
-                spool_id: "{{ final_spool_id }}"
+            - choose:
+                - conditions:
+                    - condition: template
+                      value_template: >-
+                        {{ state_attr(
+                          'sensor.p1s_01p00c5a3101668_ams_1_tray_' ~ slot if slot | int <= 4
+                          else ('sensor.p1s_01p00c5a3101668_ams_128_tray_1' if slot | int == 5 else 'sensor.p1s_01p00c5a3101668_ams_129_tray_1'),
+                          'tag_uid'
+                        ) not in ['', '0000000000000000', None] }}
+                  sequence:
+                    - event: bambu_rfid_manual_enroll_tag_to_spool
+                      event_data:
+                        slot: "{{ slot | int }}"
+                        spool_id: "{{ final_spool_id }}"
             - service: input_text.set_value
               target:
                 entity_id: "input_text.ams_slot_{{ slot }}_unbound_reason"
@@ -753,10 +763,17 @@ ams_slot_1_assign_and_update:
                 id: "{{ final_spool_id }}"
                 location: "AMS1_Slot1"
             - service: script.reload_spoolman_integration
-            - event: bambu_rfid_manual_enroll_tag_to_spool
-              event_data:
-                slot: 1
-                spool_id: "{{ final_spool_id }}"
+            - choose:
+                - conditions:
+                    - condition: template
+                      value_template: >-
+                        {{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'tag_uid')
+                           not in ['', '0000000000000000', None] }}
+                  sequence:
+                    - event: bambu_rfid_manual_enroll_tag_to_spool
+                      event_data:
+                        slot: 1
+                        spool_id: "{{ final_spool_id }}"
             - service: input_text.set_value
               target:
                 entity_id: input_text.ams_slot_1_unbound_reason
@@ -813,10 +830,17 @@ ams_slot_2_assign_and_update:
                 id: "{{ final_spool_id }}"
                 location: "AMS1_Slot2"
             - service: script.reload_spoolman_integration
-            - event: bambu_rfid_manual_enroll_tag_to_spool
-              event_data:
-                slot: 2
-                spool_id: "{{ final_spool_id }}"
+            - choose:
+                - conditions:
+                    - condition: template
+                      value_template: >-
+                        {{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'tag_uid')
+                           not in ['', '0000000000000000', None] }}
+                  sequence:
+                    - event: bambu_rfid_manual_enroll_tag_to_spool
+                      event_data:
+                        slot: 2
+                        spool_id: "{{ final_spool_id }}"
             - service: input_text.set_value
               target:
                 entity_id: input_text.ams_slot_2_unbound_reason
@@ -873,10 +897,17 @@ ams_slot_3_assign_and_update:
                 id: "{{ final_spool_id }}"
                 location: "AMS1_Slot3"
             - service: script.reload_spoolman_integration
-            - event: bambu_rfid_manual_enroll_tag_to_spool
-              event_data:
-                slot: 3
-                spool_id: "{{ final_spool_id }}"
+            - choose:
+                - conditions:
+                    - condition: template
+                      value_template: >-
+                        {{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'tag_uid')
+                           not in ['', '0000000000000000', None] }}
+                  sequence:
+                    - event: bambu_rfid_manual_enroll_tag_to_spool
+                      event_data:
+                        slot: 3
+                        spool_id: "{{ final_spool_id }}"
             - service: input_text.set_value
               target:
                 entity_id: input_text.ams_slot_3_unbound_reason
@@ -933,10 +964,17 @@ ams_slot_4_assign_and_update:
                 id: "{{ final_spool_id }}"
                 location: "AMS1_Slot4"
             - service: script.reload_spoolman_integration
-            - event: bambu_rfid_manual_enroll_tag_to_spool
-              event_data:
-                slot: 4
-                spool_id: "{{ final_spool_id }}"
+            - choose:
+                - conditions:
+                    - condition: template
+                      value_template: >-
+                        {{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'tag_uid')
+                           not in ['', '0000000000000000', None] }}
+                  sequence:
+                    - event: bambu_rfid_manual_enroll_tag_to_spool
+                      event_data:
+                        slot: 4
+                        spool_id: "{{ final_spool_id }}"
             - service: input_text.set_value
               target:
                 entity_id: input_text.ams_slot_4_unbound_reason
@@ -993,10 +1031,17 @@ ams_slot_5_assign_and_update:
                 id: "{{ final_spool_id }}"
                 location: "AMS128_Slot1"
             - service: script.reload_spoolman_integration
-            - event: bambu_rfid_manual_enroll_tag_to_spool
-              event_data:
-                slot: 5
-                spool_id: "{{ final_spool_id }}"
+            - choose:
+                - conditions:
+                    - condition: template
+                      value_template: >-
+                        {{ state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'tag_uid')
+                           not in ['', '0000000000000000', None] }}
+                  sequence:
+                    - event: bambu_rfid_manual_enroll_tag_to_spool
+                      event_data:
+                        slot: 5
+                        spool_id: "{{ final_spool_id }}"
             - service: input_text.set_value
               target:
                 entity_id: input_text.ams_slot_5_unbound_reason
@@ -1053,10 +1098,17 @@ ams_slot_6_assign_and_update:
                 id: "{{ final_spool_id }}"
                 location: "AMS129_Slot1"
             - service: script.reload_spoolman_integration
-            - event: bambu_rfid_manual_enroll_tag_to_spool
-              event_data:
-                slot: 6
-                spool_id: "{{ final_spool_id }}"
+            - choose:
+                - conditions:
+                    - condition: template
+                      value_template: >-
+                        {{ state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'tag_uid')
+                           not in ['', '0000000000000000', None] }}
+                  sequence:
+                    - event: bambu_rfid_manual_enroll_tag_to_spool
+                      event_data:
+                        slot: 6
+                        spool_id: "{{ final_spool_id }}"
             - service: input_text.set_value
               target:
                 entity_id: input_text.ams_slot_6_unbound_reason

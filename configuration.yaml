@@ -972,7 +972,7 @@ template:
           {% set ns = namespace(count=0) %}
           {% for i in range(1,7) %}
           {% set r = states('input_text.ams_slot_' ~ i ~ '_unbound_reason') %}
-          {% if r not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}
+          {% if r not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY', 'FORCE_ACCEPTED'] %}
           {% set ns.count = ns.count + 1 %}
           {% endif %}
           {% endfor %}
@@ -981,7 +981,7 @@ template:
           {% set ns = namespace(count=0) %}
           {% for i in range(1,7) %}
           {% set r = states('input_text.ams_slot_' ~ i ~ '_unbound_reason') %}
-          {% if r not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] %}
+          {% if r not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY', 'FORCE_ACCEPTED'] %}
           {% set ns.count = ns.count + 1 %}
           {% endif %}
           {% endfor %}

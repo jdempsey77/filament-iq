@@ -939,6 +939,13 @@
     - condition: state
       entity_id: input_boolean.appdaemon_startup_suppress_swap
       state: 'off'
+    # Only fire when printer is actually printing (avoid false positives when mutex is stale)
+    - condition: or
+      conditions:
+        - condition: template
+          value_template: "{{ states('sensor.p1s_operator_status') in ['printing_normally', 'printing_attention_needed', 'printing'] }}"
+        - condition: template
+          value_template: "{{ states('sensor.p1s_01p00c5a3101668_print_status') in ['running', 'printing'] }}"
   action:
     - service: input_boolean.turn_on
       target:
