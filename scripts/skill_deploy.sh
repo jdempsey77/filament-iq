@@ -95,6 +95,7 @@ NEEDS_GO2RTC=0
 NEEDS_SCRIPTS_ONLY=0
 NEEDS_CONFIG=0
 NEEDS_ALL=0
+NEEDS_STAGE=0
 
 CHANGED_COUNT="$(wc -l <"$CHANGED_FILE_LIST" 2>/dev/null | tr -d ' ' || echo 0)"
 
@@ -113,6 +114,9 @@ while IFS= read -r f; do
 
   # scripts.yaml only (narrow)
   [[ "$f" == "scripts.yaml" ]] && NEEDS_SCRIPTS_ONLY=1
+
+  # Stage dashboard (deploy to ui-lovelace-stage.yaml in HA)
+  [[ "$f" == "dashboards/dashboard.stage.yaml" ]] && NEEDS_STAGE=1
 
   # General HA config bundle
   case "$f" in
@@ -146,6 +150,7 @@ else
   [[ "$NEEDS_AUTOMATIONS" -eq 1 ]] && HA_TARGETS+=("--automations")
   [[ "$NEEDS_GO2RTC" -eq 1 ]] && HA_TARGETS+=("--go2rtc")
 fi
+[[ "$NEEDS_STAGE" -eq 1 ]] && HA_TARGETS+=("--stage")
 
 # Deduplicate HA targets (bash 3.2; set -u safe when empty)
 declare -a DEDUPED=()
@@ -165,6 +170,7 @@ fi
 hr
 log "DECISION:"
 log "  HA targets      : ${HA_TARGETS[*]:-(none)}"
+log "  Stage dashboard : $NEEDS_STAGE"
 log "  AppDaemon deploy: $NEEDS_APPDAEMON"
 
 # ------------------------------------------------------------------------------
