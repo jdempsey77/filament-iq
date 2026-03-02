@@ -2489,7 +2489,7 @@ views:
                         style: |
                           ha-card { --ha-card-padding: 4px; }
                           mushroom-shape-icon { --icon-size: 24px; }
-                    # NOTE: Update navigation_path when promoting to prod dashboard
+                    # NOTE: Test dashboard uses dashboard-test; stage uses lovelace-stage
                     - type: custom:mushroom-template-card
                       primary: Filaments
                       icon: mdi:palette-swatch-variant
@@ -2502,7 +2502,7 @@ views:
                         style: |
                           ha-card { --ha-card-padding: 4px; }
                           mushroom-shape-icon { --icon-size: 24px; }
-                    # NOTE: Update navigation_path when promoting to prod dashboard
+                    # NOTE: Test dashboard uses dashboard-test; stage uses lovelace-stage
                     - type: custom:mushroom-template-card
                       primary: Spools
                       icon: mdi:printer-3d-nozzle
@@ -3460,6 +3460,25 @@ views:
                     name: Vendor
                   - entity: input_select.spoolman_filter_spool_location
                     name: Location
+              - type: entities
+                show_header_toggle: false
+                entities:
+                  - entity: input_select.spoolman_edit_spool_select
+                    name: Edit spool
+                  - entity: input_number.spoolman_edit_remaining_weight
+                    name: New (g)
+              - type: custom:mushroom-template-card
+                primary: Save
+                icon: mdi:content-save
+                icon_color: green
+                layout: horizontal
+                tap_action:
+                  action: call-service
+                  service: script.spoolman_update_spool_remaining
+                card_mod:
+                  style: |
+                    ha-card { --ha-card-padding: 4px; }
+                    mushroom-shape-icon { --icon-size: 24px; }
           - type: custom:flex-table-card
             title: ''
             entities:
@@ -3509,46 +3528,5 @@ views:
 
                   lot.length > 16 ? (lot.substring(0, 8) + '…' +
                   lot.substring(lot.length - 4)) : lot
-          - type: custom:mod-card
-            style: |
-              ha-card {
-                border: 2px solid var(--ha-card-border-color, #444) !important;
-                border-radius: 12px !important;
-                box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
-                padding: 12px !important;
-                max-width: 500px;
-              }
-            card:
-              type: vertical-stack
-              cards:
-                - type: custom:mushroom-template-card
-                  primary: Quick Edit – Remaining Weight
-                  icon: mdi:pencil
-                  icon_color: orange
-                  tap_action:
-                    action: none
-                  card_mod:
-                    style: >
-                      ha-card { --ha-card-background: transparent; box-shadow: none; padding: 0; }
-                - type: entities
-                  show_header_toggle: false
-                  entities:
-                    - entity: input_select.spoolman_edit_spool_select
-                      name: "Select spool"
-                    - entity: input_number.spoolman_edit_remaining_weight
-                      name: "New remaining weight (g)"
-                - type: custom:mushroom-template-card
-                  primary: Save
-                  icon: mdi:content-save
-                  icon_color: green
-                  layout: horizontal
-                  tap_action:
-                    action: call-service
-                    service: script.spoolman_update_spool_remaining
-                    data: {}
-                  card_mod:
-                    style: |
-                      ha-card { --ha-card-padding: 4px; }
-                      mushroom-shape-icon { --icon-size: 24px; }
     type: panel
     subview: true
