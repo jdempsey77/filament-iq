@@ -980,6 +980,38 @@
         entity_id: input_boolean.appdaemon_startup_suppress_swap
   mode: restart
 
+# Sync spool dropdown to bound spool when helper changes (reconciler or assign).
+- id: ams_sync_dropdown_to_bound_spool
+  alias: "AMS: Sync spool dropdown to bound spool ID"
+  description: When input_text.ams_slot_N_spool_id changes to a positive value, select the matching option in the slot's dropdown.
+  trigger:
+    - platform: state
+      entity_id:
+        - input_text.ams_slot_1_spool_id
+        - input_text.ams_slot_2_spool_id
+        - input_text.ams_slot_3_spool_id
+        - input_text.ams_slot_4_spool_id
+        - input_text.ams_slot_5_spool_id
+        - input_text.ams_slot_6_spool_id
+  condition:
+    - condition: template
+      value_template: "{{ trigger.to_state.state | int(0) > 0 }}"
+  action:
+    - variables:
+        slot: "{{ trigger.entity_id.split('_slot_')[1].split('_')[0] }}"
+        spool_id: "{{ trigger.to_state.state }}"
+        match: "{% set ns = namespace(match='') %}{% for opt in state_attr('input_select.ams_slot_' ~ slot ~ '_select_spool', 'options') or [] %}{% if ('(' ~ spool_id ~ ')') in opt %}{% set ns.match = opt %}{% endif %}{% endfor %}{{ ns.match }}"
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ match | trim | length > 0 }}"
+          sequence:
+            - service: input_select.select_option
+              target:
+                entity_id: "input_select.ams_slot_{{ slot }}_select_spool"
+              data:
+                option: "{{ match | trim }}"
+
 # Reload automations when Spoolman fires a threshold event (info/warning/critical).
 # The Spoolman integration does not fire an event when spools are added/updated;
 # after swapping a spool and updating automations.yaml, deploy then either run

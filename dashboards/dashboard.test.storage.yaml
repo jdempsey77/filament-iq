@@ -1540,7 +1540,7 @@ views:
                           if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
                           elif status == 'empty' %}mdi:tray-remove {% elif
                           status == 'needs_bind' %}mdi:alert-circle {% else
-                          %}mdi:printer-3d-nozzle {% endif %}
+                          %}mdi:circle {% endif %}
                         icon_color: >-
                           {% set status = states('sensor.ams_slot_1_status') %}
                           {% set r =
@@ -1549,7 +1549,11 @@ views:
                           == 'empty' %}disabled {% elif status == 'needs_bind'
                           %}red {% else %}
                             {% set hex = states('sensor.ams_slot_1_color_hex') %}
-                            {{ '#' ~ hex if hex not in ['000000', 'Unknown'] else 'green' }}
+                            {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                              #333333
+                            {% else %}
+                              #{{ hex }}
+                            {% endif %}
                           {% endif %}
                         badge_icon: mdi:numeric-1-circle
                         badge_color: >-
@@ -1620,44 +1624,51 @@ views:
                                   - type: entities
                                     entities:
                                       - entity: input_select.ams_slot_1_select_spool
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Bind
-                                    icon: mdi:link-variant
-                                    icon_color: blue
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_assign_and_update
-                                      data:
-                                        slot: '1'
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
-                                  - type: custom:mushroom-template-card
-                                    primary: Reconcile Now
-                                    icon: mdi:sync
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.turn_on
-                                      target:
-                                        entity_id: script.reconcile_all_ams_slots
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
-                                  - type: custom:mushroom-template-card
-                                    primary: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    icon_color: grey
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_1_unbound_reason
-                                      data:
-                                        value: FORCE_ACCEPTED
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
+                                  - type: grid
+                                    columns: 3
+                                    square: false
+                                    cards:
+                                      - type: custom:mushroom-template-card
+                                        primary: Assign & Bind
+                                        icon: mdi:link-variant
+                                        icon_color: blue
+                                        tap_action:
+                                          action: call-service
+                                          service: script.ams_slot_assign_and_update
+                                          data:
+                                            slot: '1'
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
+                                      - type: custom:mushroom-template-card
+                                        primary: Reconcile
+                                        icon: mdi:sync
+                                        icon_color: cyan
+                                        tap_action:
+                                          action: call-service
+                                          service: script.turn_on
+                                          target:
+                                            entity_id: script.reconcile_all_ams_slots
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
+                                      - type: custom:mushroom-template-card
+                                        primary: Force Accept
+                                        icon: mdi:check-circle-outline
+                                        icon_color: green
+                                        tap_action:
+                                          action: call-service
+                                          service: input_text.set_value
+                                          target:
+                                            entity_id: input_text.ams_slot_1_unbound_reason
+                                          data:
+                                            value: FORCE_ACCEPTED
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
                         card_mod:
                           style: |
                             ha-card {
@@ -1714,7 +1725,7 @@ views:
                           if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
                           elif status == 'empty' %}mdi:tray-remove {% elif
                           status == 'needs_bind' %}mdi:alert-circle {% else
-                          %}mdi:printer-3d-nozzle {% endif %}
+                          %}mdi:circle {% endif %}
                         icon_color: >-
                           {% set status = states('sensor.ams_slot_2_status') %}
                           {% set r =
@@ -1723,7 +1734,11 @@ views:
                           == 'empty' %}disabled {% elif status == 'needs_bind'
                           %}red {% else %}
                             {% set hex = states('sensor.ams_slot_2_color_hex') %}
-                            {{ '#' ~ hex if hex not in ['000000', 'Unknown'] else 'green' }}
+                            {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                              #333333
+                            {% else %}
+                              #{{ hex }}
+                            {% endif %}
                           {% endif %}
                         badge_icon: mdi:numeric-2-circle
                         badge_color: >-
@@ -1794,44 +1809,51 @@ views:
                                   - type: entities
                                     entities:
                                       - entity: input_select.ams_slot_2_select_spool
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Bind
-                                    icon: mdi:link-variant
-                                    icon_color: blue
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_assign_and_update
-                                      data:
-                                        slot: '2'
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
-                                  - type: custom:mushroom-template-card
-                                    primary: Reconcile Now
-                                    icon: mdi:sync
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.turn_on
-                                      target:
-                                        entity_id: script.reconcile_all_ams_slots
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
-                                  - type: custom:mushroom-template-card
-                                    primary: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    icon_color: grey
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_2_unbound_reason
-                                      data:
-                                        value: FORCE_ACCEPTED
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
+                                  - type: grid
+                                    columns: 3
+                                    square: false
+                                    cards:
+                                      - type: custom:mushroom-template-card
+                                        primary: Assign & Bind
+                                        icon: mdi:link-variant
+                                        icon_color: blue
+                                        tap_action:
+                                          action: call-service
+                                          service: script.ams_slot_assign_and_update
+                                          data:
+                                            slot: '2'
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
+                                      - type: custom:mushroom-template-card
+                                        primary: Reconcile
+                                        icon: mdi:sync
+                                        icon_color: cyan
+                                        tap_action:
+                                          action: call-service
+                                          service: script.turn_on
+                                          target:
+                                            entity_id: script.reconcile_all_ams_slots
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
+                                      - type: custom:mushroom-template-card
+                                        primary: Force Accept
+                                        icon: mdi:check-circle-outline
+                                        icon_color: green
+                                        tap_action:
+                                          action: call-service
+                                          service: input_text.set_value
+                                          target:
+                                            entity_id: input_text.ams_slot_2_unbound_reason
+                                          data:
+                                            value: FORCE_ACCEPTED
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
                         card_mod:
                           style: |
                             ha-card {
@@ -1888,7 +1910,7 @@ views:
                           if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
                           elif status == 'empty' %}mdi:tray-remove {% elif
                           status == 'needs_bind' %}mdi:alert-circle {% else
-                          %}mdi:printer-3d-nozzle {% endif %}
+                          %}mdi:circle {% endif %}
                         icon_color: >-
                           {% set status = states('sensor.ams_slot_3_status') %}
                           {% set r =
@@ -1897,7 +1919,11 @@ views:
                           == 'empty' %}disabled {% elif status == 'needs_bind'
                           %}red {% else %}
                             {% set hex = states('sensor.ams_slot_3_color_hex') %}
-                            {{ '#' ~ hex if hex not in ['000000', 'Unknown'] else 'green' }}
+                            {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                              #333333
+                            {% else %}
+                              #{{ hex }}
+                            {% endif %}
                           {% endif %}
                         badge_icon: mdi:numeric-3-circle
                         badge_color: >-
@@ -1968,44 +1994,51 @@ views:
                                   - type: entities
                                     entities:
                                       - entity: input_select.ams_slot_3_select_spool
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Bind
-                                    icon: mdi:link-variant
-                                    icon_color: blue
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_assign_and_update
-                                      data:
-                                        slot: '3'
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
-                                  - type: custom:mushroom-template-card
-                                    primary: Reconcile Now
-                                    icon: mdi:sync
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.turn_on
-                                      target:
-                                        entity_id: script.reconcile_all_ams_slots
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
-                                  - type: custom:mushroom-template-card
-                                    primary: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    icon_color: grey
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_3_unbound_reason
-                                      data:
-                                        value: FORCE_ACCEPTED
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
+                                  - type: grid
+                                    columns: 3
+                                    square: false
+                                    cards:
+                                      - type: custom:mushroom-template-card
+                                        primary: Assign & Bind
+                                        icon: mdi:link-variant
+                                        icon_color: blue
+                                        tap_action:
+                                          action: call-service
+                                          service: script.ams_slot_assign_and_update
+                                          data:
+                                            slot: '3'
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
+                                      - type: custom:mushroom-template-card
+                                        primary: Reconcile
+                                        icon: mdi:sync
+                                        icon_color: cyan
+                                        tap_action:
+                                          action: call-service
+                                          service: script.turn_on
+                                          target:
+                                            entity_id: script.reconcile_all_ams_slots
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
+                                      - type: custom:mushroom-template-card
+                                        primary: Force Accept
+                                        icon: mdi:check-circle-outline
+                                        icon_color: green
+                                        tap_action:
+                                          action: call-service
+                                          service: input_text.set_value
+                                          target:
+                                            entity_id: input_text.ams_slot_3_unbound_reason
+                                          data:
+                                            value: FORCE_ACCEPTED
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
                         card_mod:
                           style: |
                             ha-card {
@@ -2062,7 +2095,7 @@ views:
                           if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
                           elif status == 'empty' %}mdi:tray-remove {% elif
                           status == 'needs_bind' %}mdi:alert-circle {% else
-                          %}mdi:printer-3d-nozzle {% endif %}
+                          %}mdi:circle {% endif %}
                         icon_color: >-
                           {% set status = states('sensor.ams_slot_4_status') %}
                           {% set r =
@@ -2071,7 +2104,11 @@ views:
                           == 'empty' %}disabled {% elif status == 'needs_bind'
                           %}red {% else %}
                             {% set hex = states('sensor.ams_slot_4_color_hex') %}
-                            {{ '#' ~ hex if hex not in ['000000', 'Unknown'] else 'green' }}
+                            {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                              #333333
+                            {% else %}
+                              #{{ hex }}
+                            {% endif %}
                           {% endif %}
                         badge_icon: mdi:numeric-4-circle
                         badge_color: >-
@@ -2142,44 +2179,51 @@ views:
                                   - type: entities
                                     entities:
                                       - entity: input_select.ams_slot_4_select_spool
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Bind
-                                    icon: mdi:link-variant
-                                    icon_color: blue
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_assign_and_update
-                                      data:
-                                        slot: '4'
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
-                                  - type: custom:mushroom-template-card
-                                    primary: Reconcile Now
-                                    icon: mdi:sync
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.turn_on
-                                      target:
-                                        entity_id: script.reconcile_all_ams_slots
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
-                                  - type: custom:mushroom-template-card
-                                    primary: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    icon_color: grey
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_4_unbound_reason
-                                      data:
-                                        value: FORCE_ACCEPTED
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
+                                  - type: grid
+                                    columns: 3
+                                    square: false
+                                    cards:
+                                      - type: custom:mushroom-template-card
+                                        primary: Assign & Bind
+                                        icon: mdi:link-variant
+                                        icon_color: blue
+                                        tap_action:
+                                          action: call-service
+                                          service: script.ams_slot_assign_and_update
+                                          data:
+                                            slot: '4'
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
+                                      - type: custom:mushroom-template-card
+                                        primary: Reconcile
+                                        icon: mdi:sync
+                                        icon_color: cyan
+                                        tap_action:
+                                          action: call-service
+                                          service: script.turn_on
+                                          target:
+                                            entity_id: script.reconcile_all_ams_slots
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
+                                      - type: custom:mushroom-template-card
+                                        primary: Force Accept
+                                        icon: mdi:check-circle-outline
+                                        icon_color: green
+                                        tap_action:
+                                          action: call-service
+                                          service: input_text.set_value
+                                          target:
+                                            entity_id: input_text.ams_slot_4_unbound_reason
+                                          data:
+                                            value: FORCE_ACCEPTED
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
                         card_mod:
                           style: |
                             ha-card {
@@ -2238,7 +2282,7 @@ views:
                           if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
                           elif status == 'empty' %}mdi:tray-remove {% elif
                           status == 'needs_bind' %}mdi:alert-circle {% else
-                          %}mdi:printer-3d-nozzle {% endif %}
+                          %}mdi:circle {% endif %}
                         icon_color: >-
                           {% set status = states('sensor.ams_slot_5_status') %}
                           {% set r =
@@ -2247,7 +2291,11 @@ views:
                           == 'empty' %}disabled {% elif status == 'needs_bind'
                           %}red {% else %}
                             {% set hex = states('sensor.ams_slot_5_color_hex') %}
-                            {{ '#' ~ hex if hex not in ['000000', 'Unknown'] else 'green' }}
+                            {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                              #333333
+                            {% else %}
+                              #{{ hex }}
+                            {% endif %}
                           {% endif %}
                         badge_icon: mdi:numeric-5-circle
                         badge_color: >-
@@ -2318,44 +2366,51 @@ views:
                                   - type: entities
                                     entities:
                                       - entity: input_select.ams_slot_5_select_spool
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Bind
-                                    icon: mdi:link-variant
-                                    icon_color: blue
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_assign_and_update
-                                      data:
-                                        slot: '5'
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
-                                  - type: custom:mushroom-template-card
-                                    primary: Reconcile Now
-                                    icon: mdi:sync
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.turn_on
-                                      target:
-                                        entity_id: script.reconcile_all_ams_slots
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
-                                  - type: custom:mushroom-template-card
-                                    primary: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    icon_color: grey
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_5_unbound_reason
-                                      data:
-                                        value: FORCE_ACCEPTED
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
+                                  - type: grid
+                                    columns: 3
+                                    square: false
+                                    cards:
+                                      - type: custom:mushroom-template-card
+                                        primary: Assign & Bind
+                                        icon: mdi:link-variant
+                                        icon_color: blue
+                                        tap_action:
+                                          action: call-service
+                                          service: script.ams_slot_assign_and_update
+                                          data:
+                                            slot: '5'
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
+                                      - type: custom:mushroom-template-card
+                                        primary: Reconcile
+                                        icon: mdi:sync
+                                        icon_color: cyan
+                                        tap_action:
+                                          action: call-service
+                                          service: script.turn_on
+                                          target:
+                                            entity_id: script.reconcile_all_ams_slots
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
+                                      - type: custom:mushroom-template-card
+                                        primary: Force Accept
+                                        icon: mdi:check-circle-outline
+                                        icon_color: green
+                                        tap_action:
+                                          action: call-service
+                                          service: input_text.set_value
+                                          target:
+                                            entity_id: input_text.ams_slot_5_unbound_reason
+                                          data:
+                                            value: FORCE_ACCEPTED
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
                         card_mod:
                           style: |
                             ha-card {
@@ -2412,7 +2467,7 @@ views:
                           if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
                           elif status == 'empty' %}mdi:tray-remove {% elif
                           status == 'needs_bind' %}mdi:alert-circle {% else
-                          %}mdi:printer-3d-nozzle {% endif %}
+                          %}mdi:circle {% endif %}
                         icon_color: >-
                           {% set status = states('sensor.ams_slot_6_status') %}
                           {% set r =
@@ -2421,7 +2476,11 @@ views:
                           == 'empty' %}disabled {% elif status == 'needs_bind'
                           %}red {% else %}
                             {% set hex = states('sensor.ams_slot_6_color_hex') %}
-                            {{ '#' ~ hex if hex not in ['000000', 'Unknown'] else 'green' }}
+                            {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                              #333333
+                            {% else %}
+                              #{{ hex }}
+                            {% endif %}
                           {% endif %}
                         badge_icon: mdi:numeric-6-circle
                         badge_color: >-
@@ -2492,44 +2551,51 @@ views:
                                   - type: entities
                                     entities:
                                       - entity: input_select.ams_slot_6_select_spool
-                                  - type: custom:mushroom-template-card
-                                    primary: Assign & Bind
-                                    icon: mdi:link-variant
-                                    icon_color: blue
-                                    tap_action:
-                                      action: call-service
-                                      service: script.ams_slot_assign_and_update
-                                      data:
-                                        slot: '6'
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
-                                  - type: custom:mushroom-template-card
-                                    primary: Reconcile Now
-                                    icon: mdi:sync
-                                    icon_color: green
-                                    tap_action:
-                                      action: call-service
-                                      service: script.turn_on
-                                      target:
-                                        entity_id: script.reconcile_all_ams_slots
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
-                                  - type: custom:mushroom-template-card
-                                    primary: Force Accept
-                                    icon: mdi:check-circle-outline
-                                    icon_color: grey
-                                    tap_action:
-                                      action: call-service
-                                      service: input_text.set_value
-                                      target:
-                                        entity_id: input_text.ams_slot_6_unbound_reason
-                                      data:
-                                        value: FORCE_ACCEPTED
-                                    card_mod:
-                                      style: |
-                                        ha-card { --ha-card-padding: 8px; }
+                                  - type: grid
+                                    columns: 3
+                                    square: false
+                                    cards:
+                                      - type: custom:mushroom-template-card
+                                        primary: Assign & Bind
+                                        icon: mdi:link-variant
+                                        icon_color: blue
+                                        tap_action:
+                                          action: call-service
+                                          service: script.ams_slot_assign_and_update
+                                          data:
+                                            slot: '6'
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
+                                      - type: custom:mushroom-template-card
+                                        primary: Reconcile
+                                        icon: mdi:sync
+                                        icon_color: cyan
+                                        tap_action:
+                                          action: call-service
+                                          service: script.turn_on
+                                          target:
+                                            entity_id: script.reconcile_all_ams_slots
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
+                                      - type: custom:mushroom-template-card
+                                        primary: Force Accept
+                                        icon: mdi:check-circle-outline
+                                        icon_color: green
+                                        tap_action:
+                                          action: call-service
+                                          service: input_text.set_value
+                                          target:
+                                            entity_id: input_text.ams_slot_6_unbound_reason
+                                          data:
+                                            value: FORCE_ACCEPTED
+                                        card_mod:
+                                          style: |
+                                            ha-card { --ha-card-padding: 4px; }
+                                            mushroom-shape-icon { --icon-size: 24px; }
                         card_mod:
                           style: |
                             ha-card {
@@ -2548,11 +2614,12 @@ views:
                               opacity: 0.5;
                               {% endif %}
                             }
-                  - type: horizontal-stack
+                  - type: grid
+                    columns: 5
+                    square: false
                     cards:
                       - type: custom:mushroom-template-card
                         primary: Reconcile
-                        secondary: Run AMS slot reconciliation
                         icon: mdi:sync
                         icon_color: blue
                         tap_action:
@@ -2560,50 +2627,76 @@ views:
                           service: script.turn_on
                           target:
                             entity_id: script.reconcile_all_ams_slots
+                        card_mod:
+                          style: |
+                            ha-card {
+                              --ha-card-padding: 4px;
+                            }
+                            mushroom-shape-icon { --icon-size: 28px; }
                       - type: custom:mushroom-template-card
                         primary: Add Spool
-                        secondary: Open Spoolman add spool
                         icon: mdi:plus-circle
                         icon_color: green
                         tap_action:
                           action: url
-                          url_path: http://192.168.4.124:7912/spool/add
+                          url_path: "http://192.168.4.124:7912/spool/add"
+                        card_mod:
+                          style: |
+                            ha-card {
+                              --ha-card-padding: 4px;
+                            }
+                            mushroom-shape-icon { --icon-size: 28px; }
                       - type: custom:mushroom-template-card
                         primary: Spoolman
-                        secondary: Open Spoolman UI
                         icon: mdi:database
                         icon_color: orange
                         tap_action:
                           action: url
-                          url_path: http://192.168.4.124:7912
+                          url_path: "http://192.168.4.124:7912"
+                        card_mod:
+                          style: |
+                            ha-card {
+                              --ha-card-padding: 4px;
+                            }
+                            mushroom-shape-icon { --icon-size: 28px; }
                       - type: custom:mushroom-template-card
                         primary: Reload
-                        secondary: Spoolman integration
                         icon: mdi:refresh
-                        icon_color: green
+                        icon_color: cyan
                         tap_action:
                           action: call-service
                           service: script.reload_spoolman_integration
                           data: {}
+                        card_mod:
+                          style: |
+                            ha-card {
+                              --ha-card-padding: 4px;
+                            }
+                            mushroom-shape-icon { --icon-size: 28px; }
                       - type: custom:mushroom-template-card
                         primary: Refresh
-                        secondary: Spool dropdowns
                         icon: mdi:format-list-bulleted
-                        icon_color: blue
+                        icon_color: teal
                         tap_action:
                           action: call-service
                           service: script.refresh_ams_spool_list
                           data: {}
+                        card_mod:
+                          style: |
+                            ha-card {
+                              --ha-card-padding: 4px;
+                            }
+                            mushroom-shape-icon { --icon-size: 28px; }
                   - type: custom:mushroom-entity-card
                     entity: sensor.p1s_01p00c5a3101668_ams_129_humidity
-                    name: Humidity
+                    name: Humidity (HT 2)
                     icon: mdi:water-percent
                     icon_color: var(--rgb-state-entity)
                     tap_action:
                       action: more-info
                   - type: custom:mushroom-entity-card
                     entity: sensor.p1s_01p00c5a3101668_ams_129_temperature
-                    name: Temperature
+                    name: Temperature (HT 2)
                     icon: mdi:thermometer
                     icon_color: var(--rgb-state-entity)
                     tap_action:
@@ -2618,7 +2711,7 @@ views:
                       type: vertical-stack
                       cards:
                         - type: custom:mushroom-template-card
-                          primary: Drying Temperature
+                          primary: Drying Temperature (HT 2)
                           secondary: >-
                             {{
                             states('sensor.p1s_01p00c5a3101668_ams_129_temperature')
@@ -2628,7 +2721,7 @@ views:
                           tap_action:
                             action: none
                         - type: custom:mushroom-template-card
-                          primary: Drying
+                          primary: Drying (HT 2)
                           secondary: >-
                             {% set tray1_temp_129 =
                             state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1',
@@ -2647,7 +2740,7 @@ views:
                           tap_action:
                             action: none
                         - type: custom:mushroom-template-card
-                          primary: Remaining Time
+                          primary: Remaining Time (HT 2)
                           secondary: >-
                             {% set tray1_temp_129 =
                             state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1',
