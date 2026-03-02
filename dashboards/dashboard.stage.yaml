@@ -3401,7 +3401,7 @@ views:
                 modify: x.material || ''
               - name: Weight (g)
                 data: items
-                modify: x.weight != null ? Math.round(x.weight) : ''
+                modify: "x.weight != null ? Math.round(x.weight) : ''"
                 align: right
   - title: Spool Inventory
     path: spools
@@ -3464,7 +3464,7 @@ views:
                 modify: "x.filament ? (x.filament.material || '') : ''"
               - name: Remaining (g)
                 data: items
-                modify: x.remaining_weight != null ? Math.round(x.remaining_weight) : ''
+                modify: "x.remaining_weight != null ? Math.round(x.remaining_weight) : ''"
                 align: right
               - name: Location
                 data: items
