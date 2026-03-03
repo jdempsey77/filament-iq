@@ -1312,22 +1312,24 @@ views:
                       {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
                       {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
                       {% set name = states('sensor.p1s_01p00c5a3101668_active_tray') %}
-                      Active Slot: {% if active == 1 and tray == 0 %}AMS Pro 1 · {{ name }}
-                      {% elif active == 1 and tray == 1 %}AMS Pro 2 · {{ name }}
-                      {% elif active == 1 and tray == 2 %}AMS Pro 3 · {{ name }}
-                      {% elif active == 1 and tray == 3 %}AMS Pro 4 · {{ name }}
-                      {% elif active == 128 and tray == 0 %}HT 1 · {{ name }}
-                      {% elif active == 129 and tray == 0 %}HT 2 · {{ name }}
+                      Active Slot: {% if active == 1 and tray == 1 %}AMS Pro 1 · {{ name }}
+                      {% elif active == 1 and tray == 2 %}AMS Pro 2 · {{ name }}
+                      {% elif active == 1 and tray == 3 %}AMS Pro 3 · {{ name }}
+                      {% elif active == 1 and tray == 4 %}AMS Pro 4 · {{ name }}
+                      {% elif active == 128 and tray == 1 %}HT 1 · {{ name }}
+                      {% elif active == 129 and tray == 1 %}HT 2 · {{ name }}
                       {% else %}{{ name }}{% endif %}
                     secondary: >-
                       {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
                       {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
-                      {% if active == 1 and tray == 0 %}{{ states('sensor.ams_slot_1_vendor') }} · {{ states('sensor.ams_slot_1_material') }} · {{ states('sensor.ams_slot_1_remaining_g') }}g
-                      {% elif active == 1 and tray == 1 %}{{ states('sensor.ams_slot_2_vendor') }} · {{ states('sensor.ams_slot_2_material') }} · {{ states('sensor.ams_slot_2_remaining_g') }}g
-                      {% elif active == 1 and tray == 2 %}{{ states('sensor.ams_slot_3_vendor') }} · {{ states('sensor.ams_slot_3_material') }} · {{ states('sensor.ams_slot_3_remaining_g') }}g
-                      {% elif active == 1 and tray == 3 %}{{ states('sensor.ams_slot_4_vendor') }} · {{ states('sensor.ams_slot_4_material') }} · {{ states('sensor.ams_slot_4_remaining_g') }}g
-                      {% elif active == 128 and tray == 0 %}{{ states('sensor.ams_slot_5_vendor') }} · {{ states('sensor.ams_slot_5_material') }} · {{ states('sensor.ams_slot_5_remaining_g') }}g
-                      {% elif active == 129 and tray == 0 %}{{ states('sensor.ams_slot_6_vendor') }} · {{ states('sensor.ams_slot_6_material') }} · {{ states('sensor.ams_slot_6_remaining_g') }}g
+                      {% set remain = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'remain') %}
+                      {% if active == 1 and tray == 1 %}{{ states('sensor.ams_slot_1_vendor') }} · {{ states('sensor.ams_slot_1_material') }} · {{ states('sensor.ams_slot_1_remaining_g') }}g
+                      {% elif active == 1 and tray == 2 %}{{ states('sensor.ams_slot_2_vendor') }} · {{ states('sensor.ams_slot_2_material') }} · {{ states('sensor.ams_slot_2_remaining_g') }}g
+                      {% elif active == 1 and tray == 3 %}{{ states('sensor.ams_slot_3_vendor') }} · {{ states('sensor.ams_slot_3_material') }} · {{ states('sensor.ams_slot_3_remaining_g') }}g
+                      {% elif active == 1 and tray == 4 %}{{ states('sensor.ams_slot_4_vendor') }} · {{ states('sensor.ams_slot_4_material') }} · {{ states('sensor.ams_slot_4_remaining_g') }}g
+                      {% elif active == 128 and tray == 1 %}{{ states('sensor.ams_slot_5_vendor') }} · {{ states('sensor.ams_slot_5_material') }} · {{ states('sensor.ams_slot_5_remaining_g') }}g
+                      {% elif active == 129 and tray == 1 %}{{ states('sensor.ams_slot_6_vendor') }} · {{ states('sensor.ams_slot_6_material') }} · {{ states('sensor.ams_slot_6_remaining_g') }}g
+                      {% elif remain is not none and remain != '' %}{{ name }} · {{ remain }}g
                       {% else %}{{ name }}{% endif %}
                     icon: mdi:printer-3d-nozzle
                     card_mod:
@@ -1723,7 +1725,7 @@ views:
                                 {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
                                 {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
                                 {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
-                                {% set is_active = printing and active == 1 and tray == 0 %}
+                                {% set is_active = printing and active == 1 and tray == 1 %}
                                 {% if is_active %}
                                   border: 2px solid var(--primary-color);
                                   box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
@@ -1924,7 +1926,7 @@ views:
                                 {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
                                 {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
                                 {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
-                                {% set is_active = printing and active == 1 and tray == 1 %}
+                                {% set is_active = printing and active == 1 and tray == 2 %}
                                 {% if is_active %}
                                   border: 2px solid var(--primary-color);
                                   box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
@@ -2125,7 +2127,7 @@ views:
                                 {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
                                 {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
                                 {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
-                                {% set is_active = printing and active == 1 and tray == 2 %}
+                                {% set is_active = printing and active == 1 and tray == 3 %}
                                 {% if is_active %}
                                   border: 2px solid var(--primary-color);
                                   box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
@@ -2326,7 +2328,7 @@ views:
                                 {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
                                 {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
                                 {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
-                                {% set is_active = printing and active == 1 and tray == 3 %}
+                                {% set is_active = printing and active == 1 and tray == 4 %}
                                 {% if is_active %}
                                   border: 2px solid var(--primary-color);
                                   box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
@@ -2637,7 +2639,7 @@ views:
                                 {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
                                 {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
                                 {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
-                                {% set is_active = printing and active == 128 and tray == 0 %}
+                                {% set is_active = printing and active == 128 and tray == 1 %}
                                 {% if is_active %}
                                   border: 2px solid var(--primary-color);
                                   box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
@@ -2942,7 +2944,7 @@ views:
                                 {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
                                 {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
                                 {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
-                                {% set is_active = printing and active == 129 and tray == 0 %}
+                                {% set is_active = printing and active == 129 and tray == 1 %}
                                 {% if is_active %}
                                   border: 2px solid var(--primary-color);
                                   box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
