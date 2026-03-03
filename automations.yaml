@@ -834,7 +834,7 @@
             value: "skipped: no_start_snapshot"
         - stop: "No start snapshot"
 
-    # 4. Build end_json from fuel gauge sensors
+    # 4. Build end_json from fuel gauge sensors (only slots with valid fuel gauge AND in start snapshot)
     - variables:
         end_json_built: >-
           {% set fuel_gauge_sensors = [
@@ -845,10 +845,15 @@
             'sensor.p1s_tray_5_fuel_gauge_remaining',
             'sensor.p1s_tray_6_fuel_gauge_remaining'
           ] %}
+          {% set start_raw = states('input_text.p1s_tray_remaining_start_json') %}
+          {% set start = start_raw | from_json if start_raw not in ['', '{}', 'unavailable', 'unknown'] else {} %}
           {% set ns = namespace(pairs=[]) %}
           {% for i in range(6) %}
-            {% set remaining = states(fuel_gauge_sensors[i]) | float(0) %}
-            {% set ns.pairs = ns.pairs + ['"' ~ (i+1)|string ~ '": ' ~ remaining] %}
+            {% set slot_str = (i+1) | string %}
+            {% set remaining = states(fuel_gauge_sensors[i]) | float(-1) %}
+            {% if remaining > 0 and slot_str in start %}
+              {% set ns.pairs = ns.pairs + ['"' ~ slot_str ~ '": ' ~ remaining] %}
+            {% endif %}
           {% endfor %}
           {{ '{' ~ ns.pairs | join(', ') ~ '}' }}
 

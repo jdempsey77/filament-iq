@@ -54,6 +54,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         ).rstrip("/")
         self.dry_run = bool(a.get("dry_run", False))
         self.min_consumption_g = float(a.get("min_consumption_g", 2))
+        self.max_consumption_g = float(a.get("max_consumption_g", 300))
         self._seen_job_keys = OrderedDict()
 
     def initialize(self):
@@ -114,40 +115,40 @@ def _default_state_map(spool_bindings=None):
 # ── tests ─────────────────────────────────────────────────────────────
 
 def test_rfid_single_slot_consumption():
-    """start=420g end=110g → use_weight=310g, USAGE_PATCHED logged."""
+    """start=420g end=370g → use_weight=50g, USAGE_PATCHED logged (under max_consumption_g)."""
     app = _TestableUsageSync(
         state_map=_default_state_map({4: 10}),
     )
     _fire(app,
           trays_used="4",
           start_json='{"4": 420.0}',
-          end_json='{"4": 110.0}',
-          print_weight_g="200")
+          end_json='{"4": 370.0}',
+          print_weight_g="50")
 
     assert len(app._use_calls) == 1
     assert app._use_calls[0]["spool_id"] == 10
-    assert abs(app._use_calls[0]["use_weight"] - 310.0) < 0.01
-    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10 use_weight=310.0")
+    assert abs(app._use_calls[0]["use_weight"] - 50.0) < 0.01
+    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10 use_weight=50.0")
     assert _has_log(app, "USAGE_SUMMARY")
 
 
 def test_rfid_multiple_slots_consumption():
-    """Two RFID slots, each gets correct delta."""
+    """Two RFID slots, each gets correct delta (both under max_consumption_g)."""
     app = _TestableUsageSync(
         state_map=_default_state_map({2: 5, 4: 10}),
     )
     _fire(app,
           trays_used="2,4",
           start_json='{"2": 800.0, "4": 420.0}',
-          end_json='{"2": 750.0, "4": 110.0}',
-          print_weight_g="360")
+          end_json='{"2": 750.0, "4": 370.0}',
+          print_weight_g="100")
 
     assert len(app._use_calls) == 2
     by_spool = {c["spool_id"]: c["use_weight"] for c in app._use_calls}
     assert abs(by_spool[5] - 50.0) < 0.01
-    assert abs(by_spool[10] - 310.0) < 0.01
+    assert abs(by_spool[10] - 50.0) < 0.01
     assert _has_log(app, "USAGE_PATCHED slot=2 spool_id=5 use_weight=50.0")
-    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10 use_weight=310.0")
+    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10 use_weight=50.0")
 
 
 @pytest.mark.skip(reason="non-RFID pool logic or slot start/end snapshot expectations need review; unrelated to lot_nr migration")
@@ -208,7 +209,11 @@ def test_dedup_second_event_skipped():
     app = _TestableUsageSync(
         state_map=_default_state_map({4: 10}),
     )
-    _fire(app, job_key="dup_key_123")
+    _fire(app,
+          job_key="dup_key_123",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 370.0}',
+          print_weight_g="50")
     assert len(app._use_calls) == 1
 
     app._log_calls.clear()
@@ -253,10 +258,13 @@ def test_dry_run_no_patch():
         state_map=_default_state_map({4: 10}),
         args={"dry_run": True},
     )
-    _fire(app)
+    _fire(app,
+          start_json='{"4": 420.0}',
+          end_json='{"4": 370.0}',
+          print_weight_g="50")
 
     assert len(app._use_calls) == 0
-    assert _has_log(app, "WOULD_PATCH slot=4 spool_id=10 use_weight=310.0")
+    assert _has_log(app, "WOULD_PATCH slot=4 spool_id=10 use_weight=50.0")
     assert not _has_log(app, "USAGE_PATCHED")
 
 
@@ -268,14 +276,32 @@ def test_native_dict_event_data():
     _fire(app,
           trays_used="4",
           start_json={"4": 420.0},
-          end_json={"4": 110.0},
-          print_weight_g="200",
+          end_json={"4": 370.0},
+          print_weight_g="50",
           job_key="native_dict_test")
 
     assert len(app._use_calls) == 1
     assert app._use_calls[0]["spool_id"] == 10
-    assert abs(app._use_calls[0]["use_weight"] - 310.0) < 0.01
-    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10 use_weight=310.0")
+    assert abs(app._use_calls[0]["use_weight"] - 50.0) < 0.01
+    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10 use_weight=50.0")
+
+
+def test_sanity_cap_refuses_large_consumption():
+    """consumption > max_consumption_g → USAGE_SANITY_CAP, no write."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+        args={"max_consumption_g": 300},
+    )
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 110.0}',
+          print_weight_g="310")
+
+    assert len(app._use_calls) == 0
+    assert _has_log(app, "USAGE_SANITY_CAP")
+    assert _has_log(app, "consumption_g=310.0")
+    assert _has_log(app, "REFUSING TO WRITE")
 
 
 def test_spoolman_failure_continues():
@@ -288,8 +314,8 @@ def test_spoolman_failure_continues():
     _fire(app,
           trays_used="2,4",
           start_json='{"2": 800.0, "4": 420.0}',
-          end_json='{"2": 750.0, "4": 110.0}',
-          print_weight_g="360")
+          end_json='{"2": 750.0, "4": 370.0}',
+          print_weight_g="100")
 
     assert len(app._use_calls) == 1
     assert app._use_calls[0]["spool_id"] == 10

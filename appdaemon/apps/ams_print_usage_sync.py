@@ -46,6 +46,7 @@ class AmsPrintUsageSync(hass.Hass):
         ).rstrip("/")
         self.dry_run = bool(self.args.get("dry_run", False))
         self.min_consumption_g = float(self.args.get("min_consumption_g", 2))
+        self.max_consumption_g = float(self.args.get("max_consumption_g", 300))
         self._seen_job_keys = self._load_seen_job_keys()
         self._ensure_data_dir()
 
@@ -114,7 +115,13 @@ class AmsPrintUsageSync(hass.Hass):
             start_g = float(start_map.get(str(slot), 0))
             end_g = float(end_map.get(str(slot), 0))
 
-            if start_g > 0:
+            # A slot is RFID-trackable only if BOTH start and end have
+            # positive readings (fuel gauge was available for both snapshots).
+            # If end_g is 0 or missing, the slot has no fuel gauge — treat
+            # as non-RFID for estimation.
+            has_fuel_gauge = start_g > 0 and end_g > 0
+
+            if has_fuel_gauge:
                 consumption_g = max(0.0, start_g - end_g)
                 rfid_results.append((slot, spool_id, consumption_g))
             else:
@@ -148,6 +155,18 @@ class AmsPrintUsageSync(hass.Hass):
                 if any(s == slot for s, _, _ in rfid_results)
                 else "nonrfid_estimate"
             )
+
+            # Sanity cap: refuse to log unreasonably large consumption
+            if consumption_g > self.max_consumption_g:
+                self.log(
+                    f"USAGE_SANITY_CAP slot={slot} spool_id={spool_id} "
+                    f"consumption_g={consumption_g:.1f} "
+                    f"max={self.max_consumption_g} method={method} "
+                    f"— REFUSING TO WRITE",
+                    level="ERROR",
+                )
+                skipped += 1
+                continue
 
             if consumption_g < self.min_consumption_g:
                 self.log(
