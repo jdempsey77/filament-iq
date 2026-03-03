@@ -488,7 +488,8 @@
 # While print is running, append any tray that becomes active to the "trays used" list (for multi-color subtract).
 - id: p1s_record_trays_used_during_print
   alias: P1S – record trays used during print
-  description: When a tray reports active=true during a print, add it to p1s_trays_used_this_print so we can split weight on finish.
+  enabled: false
+  description: When a tray reports active=true during a print, add it to p1s_trays_used_this_print so we can split weight on finish. Replaced by AppDaemon tray tracking in ams_print_usage_sync.
   trigger:
     - platform: state
       entity_id:

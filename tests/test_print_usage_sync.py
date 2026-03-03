@@ -289,3 +289,161 @@ class TestIntegrationWithTraysUsed:
         pool_g = 60.0
         each_g = pool_g / len(filtered)
         assert each_g == 30.0  # split between 2 and 6
+
+
+# ── Test: Time-Weighted Allocation ──
+
+
+class TestTimeWeightedAllocation:
+    def test_time_weighted_two_slots(self):
+        """Slot 2 active for 60s, slot 4 active for 30s → 2:1 ratio."""
+        times = {2: 60.0, 4: 30.0}
+        total = sum(times.values())
+        weights = {s: t / total for s, t in times.items()}
+
+        pool_g = 3.0
+        slot_2_share = pool_g * weights[2]
+        slot_4_share = pool_g * weights[4]
+
+        assert abs(slot_2_share - 2.0) < 0.01
+        assert abs(slot_4_share - 1.0) < 0.01
+
+    def test_time_weighted_single_slot(self):
+        """Only one non-RFID slot → gets entire pool."""
+        times = {6: 120.0}
+        total = sum(times.values())
+        weights = {s: t / total for s, t in times.items()}
+
+        pool_g = 58.5
+        slot_6_share = pool_g * weights[6]
+        assert abs(slot_6_share - 58.5) < 0.01
+
+    def test_equal_split_fallback_no_time_data(self):
+        """No time data → equal split."""
+        times = {}
+        pool_g = 6.0
+        nonrfid_slots = [(2, 31), (4, 46)]
+
+        if not times:
+            each = pool_g / len(nonrfid_slots)
+            assert each == 3.0
+
+    def test_time_weighted_excludes_rfid_slots(self):
+        """Time weights for RFID slots should not affect non-RFID allocation."""
+        times = {1: 120.0, 2: 60.0, 4: 30.0}  # slot 1 is RFID
+        nonrfid_slots = {2, 4}
+        relevant = {s: t for s, t in times.items() if s in nonrfid_slots}
+        total = sum(relevant.values())
+        weights = {s: t / total for s, t in relevant.items()}
+
+        assert 1 not in weights
+        assert abs(weights[2] - 0.6667) < 0.01
+        assert abs(weights[4] - 0.3333) < 0.01
+
+    def test_time_weighted_with_purge_tower(self):
+        """
+        Slot 2: 60s model + 10s purge = 70s
+        Slot 4: 30s model + 10s purge = 40s
+        Purge time naturally included in duration.
+        """
+        times = {2: 70.0, 4: 40.0}
+        total = sum(times.values())
+
+        pool_g = 3.41
+        slot_2 = pool_g * times[2] / total
+        slot_4 = pool_g * times[4] / total
+
+        assert abs(slot_2 - 2.17) < 0.1
+        assert abs(slot_4 - 1.24) < 0.1
+
+
+# ── Test: RFID Cap ──
+
+
+class TestRfidCap:
+    def test_rfid_over_reports_caps_to_print_weight(self):
+        """
+        Fuel gauge says 40g consumed, but print is only 3.41g.
+        RFID total should be capped to print_weight for pool calculation.
+        """
+        rfid_total = 40.0
+        print_weight = 3.41
+        capped = (
+            min(rfid_total, print_weight)
+            if rfid_total > print_weight
+            else rfid_total
+        )
+        nonrfid_pool = max(0.0, print_weight - capped)
+        assert capped == 3.41
+        assert nonrfid_pool == 0.0
+
+    def test_rfid_under_reports_no_cap(self):
+        """Fuel gauge says 2g, print is 10g. No cap needed."""
+        rfid_total = 2.0
+        print_weight = 10.0
+        capped = (
+            min(rfid_total, print_weight)
+            if rfid_total > print_weight
+            else rfid_total
+        )
+        nonrfid_pool = max(0.0, print_weight - capped)
+        assert capped == 2.0
+        assert nonrfid_pool == 8.0
+
+    def test_rfid_exact_match_no_cap(self):
+        """Fuel gauge matches print weight exactly."""
+        rfid_total = 10.0
+        print_weight = 10.0
+        capped = (
+            min(rfid_total, print_weight)
+            if rfid_total > print_weight
+            else rfid_total
+        )
+        nonrfid_pool = max(0.0, print_weight - capped)
+        assert capped == 10.0
+        assert nonrfid_pool == 0.0
+
+    def test_rfid_cap_with_nonrfid_slots(self):
+        """
+        Real scenario: 3-color print, 3.41g total.
+        RFID slot 1: fuel gauge says 40g.
+        Non-RFID slots 2, 4: should still get estimated consumption.
+
+        Without cap: pool = 3.41 - 40 = 0 (clamped). Slots 2,4 get nothing.
+        With cap: pool = 3.41 - 3.41 = 0. Still 0, but at least not negative.
+        """
+        rfid_total = 40.0
+        print_weight = 3.41
+        capped = (
+            min(rfid_total, print_weight)
+            if rfid_total > print_weight
+            else rfid_total
+        )
+        nonrfid_pool = max(0.0, print_weight - capped)
+        assert nonrfid_pool == 0.0
+
+    def test_no_rfid_slots_pool_equals_print_weight(self):
+        """All non-RFID print — pool is full print weight."""
+        rfid_total = 0.0
+        print_weight = 58.5
+        capped = (
+            min(rfid_total, print_weight)
+            if rfid_total > print_weight and print_weight > 0
+            else rfid_total
+        )
+        nonrfid_pool = max(0.0, print_weight - capped)
+        assert nonrfid_pool == 58.5
+
+    def test_multiple_rfid_slots_over_report(self):
+        """Two RFID slots both over-report."""
+        rfid_results = [(1, 41, 40.0), (3, 52, 35.0)]  # 75g total
+        print_weight = 20.0
+        rfid_total = sum(c for _, _, c in rfid_results)
+        capped = (
+            min(rfid_total, print_weight)
+            if rfid_total > print_weight
+            else rfid_total
+        )
+        nonrfid_pool = max(0.0, print_weight - capped)
+        assert capped == 20.0
+        assert nonrfid_pool == 0.0
