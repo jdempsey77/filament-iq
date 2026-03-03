@@ -1395,7 +1395,7 @@ template:
       - name: "Spoolman filaments processed"
         unique_id: spoolman_filaments_processed
         state: >
-          {% set api_data = state_attr('sensor.spoolman_filaments_api', '$') %}
+          {% set api_data = state_attr('sensor.spoolman_filament_list_data', 'items') %}
           {% if api_data is iterable and api_data is not string %}
             {{ api_data | length }}
           {% else %}
@@ -1403,7 +1403,7 @@ template:
           {% endif %}
         attributes:
           filament_list: >
-            {% set api_data = state_attr('sensor.spoolman_filaments_api', '$') %}
+            {% set api_data = state_attr('sensor.spoolman_filament_list_data', 'items') %}
             {% if api_data is iterable and api_data is not string %}
               {% set ns = namespace(parts=[]) %}
               {% for f in api_data %}

@@ -3751,19 +3751,7 @@ views:
                           type: vertical-stack
                           cards:
                             - type: markdown
-                              content: >
-                                **Add Spool to Spoolman**
-
-                                Select filament, location, remaining weight
-                                and quantity, then tap **Create spool(s)**.
-
-                                If Quantity shows *Entity not found*: run
-                                `./scripts/manage_ha.sh --config` and
-                                **restart Home Assistant**, then refresh
-                                this page.
-
-                                Success or failure will appear in
-                                Notifications (bell icon).
+                              content: "**Add Spool to Spoolman**"
                             - type: entities
                               entities:
                                 - entity: input_select.spoolman_new_spool_filament
