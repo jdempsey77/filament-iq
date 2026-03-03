@@ -1441,3 +1441,6 @@
             {% set ns.opts = ns.opts + [s.id | string ~ ' - ' ~ label] %}
           {% endfor %}
           {{ ns.opts }}
+    # Auto-populate Add Spool filament dropdown
+    - service: script.refresh_filament_dropdown
+      data: {}
