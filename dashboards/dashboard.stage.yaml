@@ -3655,9 +3655,11 @@ views:
                 show_header_toggle: false
                 entities:
                   - entity: input_select.spoolman_edit_spool_select
-                    name: Edit spool
+                    name: Select spool
                   - entity: input_number.spoolman_edit_remaining_weight
-                    name: New (g)
+                    name: Remaining weight (g)
+                  - entity: input_text.spoolman_edit_spool_location
+                    name: Location
               - type: custom:mushroom-template-card
                 primary: Save
                 icon: mdi:content-save

@@ -1123,41 +1123,59 @@ ams_slot_6_assign_and_update:
             message: "Select a spool from the dropdown first."
 
 spoolman_update_spool_remaining:
-  alias: "Spoolman – Update spool remaining weight"
-  description: "PATCHes remaining_weight for a spool in Spoolman, then triggers reconcile and refreshes sensor data"
+  alias: "Spoolman – Update spool"
+  description: "PATCHes remaining_weight and/or location for a spool in Spoolman, then triggers reconcile"
   mode: single
   sequence:
     - variables:
         edit_selection: "{{ states('input_select.spoolman_edit_spool_select') | default('') }}"
-        edit_spool_id: "{{ edit_selection.split(' - ')[0] | trim if ' - ' in edit_selection else states('input_text.spoolman_edit_spool_id') | trim }}"
-        edit_weight: "{{ states('input_number.spoolman_edit_remaining_weight') | float(0) }}"
+        edit_spool_id: >
+          {% if '—' in edit_selection or edit_selection == '' %}
+            {{ states('input_text.spoolman_edit_spool_id') | trim }}
+          {% else %}
+            {{ edit_selection.split(' - ')[0] | trim }}
+          {% endif %}
+        edit_weight: "{{ states('input_number.spoolman_edit_remaining_weight') | float(-1) }}"
+        edit_location: "{{ states('input_text.spoolman_edit_spool_location') | default('') | trim }}"
     - condition: template
       value_template: >
-        {{ edit_spool_id not in ['', '0', 'unknown', 'unavailable'] and edit_weight >= 0 }}
+        {{ edit_spool_id | trim not in ['', '0', 'unknown', 'unavailable'] }}
+    - condition: template
+      value_template: >
+        {{ edit_weight >= 0 or edit_location | length > 0 }}
     - service: rest_command.ams_spoolman_patch_spool_remaining
       data:
         spool_id: "{{ edit_spool_id }}"
-        remaining_weight: "{{ edit_weight }}"
+        remaining_weight: "{{ edit_weight if edit_weight >= 0 else '' }}"
+        location: "{{ edit_location }}"
     - service: persistent_notification.create
       data:
         title: "Spool Updated"
-        message: "Spool #{{ edit_spool_id }} remaining weight set to {{ edit_weight }}g"
+        message: >
+          Spool #{{ edit_spool_id }} updated:
+          {% if edit_weight >= 0 %} remaining={{ edit_weight }}g{% endif %}
+          {% if edit_location %} location={{ edit_location }}{% endif %}
         notification_id: "spoolman_edit_result"
     - service: input_select.select_option
       target:
         entity_id: input_select.spoolman_edit_spool_select
       data:
         option: "— Select spool —"
-    - service: input_text.set_value
-      target:
-        entity_id: input_text.spoolman_edit_spool_id
-      data:
-        value: ""
     - service: input_number.set_value
       target:
         entity_id: input_number.spoolman_edit_remaining_weight
       data:
         value: 0
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.spoolman_edit_spool_location
+      data:
+        value: ""
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.spoolman_edit_spool_id
+      data:
+        value: ""
     - service: homeassistant.update_entity
       target:
         entity_id: sensor.spoolman_spool_list_data

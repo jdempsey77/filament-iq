@@ -17,12 +17,27 @@ Dedup:                  job_key set persisted to disk (capped at 50 entries).
 import datetime
 import json
 import os
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections import OrderedDict
 
 import hassapi as hass
+
+try:
+    from threemf_parser import (
+        ftps_download_3mf,
+        ftps_list_cache,
+        find_best_3mf,
+        match_filaments_to_slots,
+        normalize_color,
+        normalize_material,
+        parse_3mf_filaments,
+    )
+    THREEMF_AVAILABLE = True
+except ImportError:
+    THREEMF_AVAILABLE = False
 
 # Path next to this app so it works under /config/appdaemon/apps or /addon_configs/.../apps
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -59,6 +74,28 @@ class AmsPrintUsageSync(hass.Hass):
         self._tray_active_times = {}  # {slot: [{'start': timestamp, 'end': timestamp}, ...]}
         self._current_active_slot = None
         self._print_active = False
+
+        # 3MF parsing config
+        self.printer_ip = str(self.args.get("printer_ip", "192.168.4.114"))
+        self.printer_ftps_port = int(self.args.get("printer_ftps_port", 990))
+        self.access_code_entity = str(
+            self.args.get(
+                "access_code_entity", "input_text.bambu_printer_access_code"
+            )
+        )
+        self.threemf_enabled = (
+            bool(self.args.get("threemf_enabled", True)) and THREEMF_AVAILABLE
+        )
+        self._threemf_data = None
+        self._threemf_filename = None
+
+        if self.threemf_enabled:
+            self.log("3MF parsing enabled", level="INFO")
+        elif not THREEMF_AVAILABLE:
+            self.log(
+                "3MF parsing disabled — threemf_parser module not found",
+                level="WARNING",
+            )
 
         if not self.enabled:
             self.log("AmsPrintUsageSync disabled via config", level="WARNING")
@@ -180,6 +217,52 @@ class AmsPrintUsageSync(hass.Hass):
                     continue
                 nonrfid_slots.append((slot, spool_id))
 
+        # ── 3MF-based allocation (highest accuracy) ─────────────────
+        threemf_matches = {}
+        threemf_used = False
+
+        if self._threemf_data and self.threemf_enabled:
+            slot_data = self._build_slot_data()
+            matches, unmatched_fils = match_filaments_to_slots(
+                self._threemf_data, slot_data, trays_used_set
+            )
+            if matches:
+                threemf_used = True
+                for m in matches:
+                    threemf_matches[m["slot"]] = m["used_g"]
+                    self.log(
+                        f"3MF_MATCH slot={m['slot']} spool_id={m['spool_id']} "
+                        f"used_g={m['used_g']:.2f} filament_idx={m['filament_index']} "
+                        f"method={m['method']}",
+                        level="INFO",
+                    )
+                if unmatched_fils:
+                    self.log(
+                        f"3MF_UNMATCHED filaments={[(f['index'], f['used_g'], f['color_hex']) for f in unmatched_fils]}",
+                        level="WARNING",
+                    )
+            else:
+                self.log(
+                    "3MF_MATCH: No matches found — falling back to estimation",
+                    level="WARNING",
+                )
+
+        # Override RFID results with 3MF data where available
+        if threemf_used:
+            new_rfid_results = []
+            for slot, spool_id, consumption_g in rfid_results:
+                if slot in threemf_matches:
+                    threemf_g = threemf_matches.pop(slot)
+                    self.log(
+                        f"3MF_OVERRIDE_RFID slot={slot} fuel_gauge_g={consumption_g:.1f} "
+                        f"threemf_g={threemf_g:.2f} — using 3MF",
+                        level="INFO",
+                    )
+                    new_rfid_results.append((slot, spool_id, threemf_g))
+                else:
+                    new_rfid_results.append((slot, spool_id, consumption_g))
+            rfid_results = new_rfid_results
+
         # ── non-RFID allocation ──────────────────────────────────────
         rfid_total_g = sum(c for _, _, c in rfid_results)
         # Cap RFID total to print weight — fuel gauge has coarse resolution
@@ -193,37 +276,63 @@ class AmsPrintUsageSync(hass.Hass):
             rfid_total_g = print_weight_g
         nonrfid_pool_g = max(0.0, print_weight_g - rfid_total_g)
 
-        # Try time-weighted allocation, fall back to equal split
-        time_weights = self._get_time_weights()
-        nonrfid_slot_ids = set(slot for slot, _ in nonrfid_slots)
-        relevant_weights = {
-            s: w for s, w in time_weights.items() if s in nonrfid_slot_ids
-        }
-
-        if relevant_weights and sum(relevant_weights.values()) > 0:
-            weight_total = sum(relevant_weights.values())
-            allocation_method = "time_weighted"
-        else:
-            relevant_weights = {s: 1.0 for s, _ in nonrfid_slots}
-            weight_total = len(nonrfid_slots) if nonrfid_slots else 1.0
-            allocation_method = "equal_split"
-
+        # Build non-RFID results: 3MF matches first, then time-weighted for remainder
         nonrfid_results = []
-        for slot, spool_id in nonrfid_slots:
-            slot_weight = relevant_weights.get(slot, 0)
-            slot_share_g = (
-                (nonrfid_pool_g * slot_weight / weight_total)
-                if weight_total > 0
-                else 0.0
-            )
-            self.log(
-                f"USAGE_NONRFID_ESTIMATE slot={slot} spool_id={spool_id} "
-                f"estimated_g={slot_share_g:.1f} pool_g={nonrfid_pool_g:.1f} "
-                f"method={allocation_method} weight={slot_weight:.4f} "
-                f"slots={len(nonrfid_slots)}",
-                level="INFO",
-            )
-            nonrfid_results.append((slot, spool_id, slot_share_g))
+        nonrfid_remaining = []
+
+        if threemf_used:
+            for slot, spool_id in nonrfid_slots:
+                if slot in threemf_matches:
+                    exact_g = threemf_matches.pop(slot)
+                    self.log(
+                        f"USAGE_3MF_EXACT slot={slot} spool_id={spool_id} "
+                        f"used_g={exact_g:.2f}",
+                        level="INFO",
+                    )
+                    nonrfid_results.append((slot, spool_id, exact_g))
+                else:
+                    nonrfid_remaining.append((slot, spool_id))
+        else:
+            nonrfid_remaining = list(nonrfid_slots)
+
+        # Time-weighted estimation for remaining non-RFID slots without 3MF match
+        threemf_nonrfid_total = sum(c for _, _, c in nonrfid_results)
+        remaining_pool_g = max(
+            0.0, nonrfid_pool_g - threemf_nonrfid_total
+        )
+
+        if nonrfid_remaining:
+            time_weights = self._get_time_weights()
+            nonrfid_slot_ids = set(slot for slot, _ in nonrfid_remaining)
+            relevant_weights = {
+                s: w for s, w in time_weights.items() if s in nonrfid_slot_ids
+            }
+
+            if relevant_weights and sum(relevant_weights.values()) > 0:
+                weight_total = sum(relevant_weights.values())
+                allocation_method = "time_weighted"
+            else:
+                relevant_weights = {s: 1.0 for s, _ in nonrfid_remaining}
+                weight_total = len(nonrfid_remaining)
+                allocation_method = "equal_split"
+
+            for slot, spool_id in nonrfid_remaining:
+                slot_weight = relevant_weights.get(slot, 0)
+                slot_share_g = (
+                    (remaining_pool_g * slot_weight / weight_total)
+                    if weight_total > 0
+                    else 0.0
+                )
+                self.log(
+                    f"USAGE_NONRFID_ESTIMATE slot={slot} spool_id={spool_id} "
+                    f"estimated_g={slot_share_g:.1f} pool_g={remaining_pool_g:.1f} "
+                    f"method={allocation_method} weight={slot_weight:.4f} "
+                    f"slots={len(nonrfid_remaining)}",
+                    level="INFO",
+                )
+                nonrfid_results.append((slot, spool_id, slot_share_g))
+        else:
+            allocation_method = "equal_split"
 
         # ── write to Spoolman ────────────────────────────────────────
         patched = 0
@@ -289,6 +398,7 @@ class AmsPrintUsageSync(hass.Hass):
 
         # ── summary ──────────────────────────────────────────────────
         total_consumed = sum(c for _, _, c in all_results)
+        allocation_source = "3mf" if threemf_used else allocation_method
         self.log(
             f"USAGE_SUMMARY job_key={job_key} task={task_name} "
             f"status={print_status} "
@@ -296,11 +406,16 @@ class AmsPrintUsageSync(hass.Hass):
             f"nonrfid_slots={len(nonrfid_results)} "
             f"trays_used={trays_used_set or 'all'} "
             f"tray_times={self._summarize_tray_times()} "
-            f"allocation={allocation_method} "
+            f"allocation={allocation_source} "
+            f"threemf_file={self._threemf_filename or 'none'} "
             f"total_consumed_g={total_consumed:.1f} "
             f"patched={patched} skipped={skipped}",
             level="INFO",
         )
+
+        # Clear 3MF data for next print
+        self._threemf_data = None
+        self._threemf_filename = None
 
     # ── tray activity tracking ────────────────────────────────────────
 
@@ -317,6 +432,8 @@ class AmsPrintUsageSync(hass.Hass):
                 f"TRAY_TRACKING_START trays_used={self._trays_used}",
                 level="INFO",
             )
+            if self.threemf_enabled:
+                self.run_in(self._fetch_3mf_background, 5)
         elif old in ("running", "printing") and new not in ("running", "printing"):
             # Print ended — close any open time segment
             self._print_active = False
@@ -418,6 +535,117 @@ class AmsPrintUsageSync(hass.Hass):
         if total <= 0:
             return {}
         return {slot: round(t / total, 4) for slot, t in times.items()}
+
+    def _get_access_code(self):
+        """Read printer access code from HA entity or config."""
+        code = str(self.args.get("printer_access_code", "")).strip()
+        if code:
+            return code
+        try:
+            code = str(self.get_state(self.access_code_entity) or "").strip()
+        except Exception:
+            code = ""
+        return code if code else None
+
+    def _fetch_3mf_background(self, kwargs):
+        """Fetch and parse the 3MF file from the printer (runs in background)."""
+        self._threemf_data = None
+        self._threemf_filename = None
+
+        access_code = self._get_access_code()
+        if not access_code:
+            self.log("3MF_FETCH: No access code available", level="ERROR")
+            return
+
+        task_name = str(
+            self.get_state("sensor.p1s_01p00c5a3101668_task_name") or ""
+        )
+
+        file_list = ftps_list_cache(
+            self.printer_ip, access_code, self.printer_ftps_port
+        )
+        if not file_list:
+            self.log(
+                "3MF_FETCH: No 3MF files found in /cache/", level="WARNING"
+            )
+            return
+
+        best_file = find_best_3mf(file_list, task_name)
+        if not best_file:
+            self.log(
+                f"3MF_FETCH: No match for task={task_name} in {file_list}",
+                level="WARNING",
+            )
+            return
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            local_path = ftps_download_3mf(
+                self.printer_ip,
+                access_code,
+                best_file,
+                tmp_dir,
+                self.printer_ftps_port,
+            )
+            if not local_path:
+                self.log(
+                    f"3MF_FETCH: Download failed for {best_file}",
+                    level="ERROR",
+                )
+                return
+
+            filaments = parse_3mf_filaments(local_path)
+            if not filaments:
+                self.log(
+                    f"3MF_FETCH: No filament data in {best_file}",
+                    level="WARNING",
+                )
+                return
+
+        self._threemf_data = filaments
+        self._threemf_filename = best_file
+        total_g = sum(f["used_g"] for f in filaments)
+        self.log(
+            f"3MF_PARSED file={best_file} filaments={len(filaments)} "
+            f"total_g={total_g:.2f} "
+            f"breakdown={[(f['index'], f['used_g'], f['color_hex'], f['material']) for f in filaments]}",
+            level="INFO",
+        )
+
+    def _build_slot_data(self):
+        """Build slot color/material/spool data from HA sensors for 3MF matching."""
+        tray_entities = {
+            1: "sensor.p1s_01p00c5a3101668_ams_1_tray_1",
+            2: "sensor.p1s_01p00c5a3101668_ams_1_tray_2",
+            3: "sensor.p1s_01p00c5a3101668_ams_1_tray_3",
+            4: "sensor.p1s_01p00c5a3101668_ams_1_tray_4",
+            5: "sensor.p1s_01p00c5a3101668_ams_128_tray_1",
+            6: "sensor.p1s_01p00c5a3101668_ams_129_tray_1",
+        }
+        slot_data = {}
+        for slot, entity in tray_entities.items():
+            try:
+                attrs = self.get_state(entity, attribute="all")
+                if not isinstance(attrs, dict):
+                    continue
+                a = attrs.get("attributes", {})
+                spool_id = self._read_spool_id(slot)
+                color = normalize_color(
+                    a.get("color", "") or a.get("color_hex", "")
+                )
+                material = normalize_material(
+                    a.get("type", "") or a.get("material", "")
+                )
+                slot_data[slot] = {
+                    "color_hex": color,
+                    "material": material,
+                    "spool_id": spool_id,
+                }
+            except Exception as e:
+                self.log(
+                    f"3MF_SLOT_DATA: Error reading slot {slot}: {e}",
+                    level="WARNING",
+                )
+        return slot_data
 
     # ── dedup persistence ─────────────────────────────────────────────
 

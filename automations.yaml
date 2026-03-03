@@ -1387,6 +1387,44 @@
           importance: high
           channel: alarm_stream
   mode: single
+- id: spoolman_edit_prefill_location
+  alias: "Spoolman edit – prefill location on spool select"
+  trigger:
+    - platform: state
+      entity_id: input_select.spoolman_edit_spool_select
+  condition:
+    - condition: template
+      value_template: >
+        {{ trigger.to_state.state not in ['— Select spool —', '', 'unknown', 'unavailable'] }}
+  action:
+    - variables:
+        spool_id: "{{ trigger.to_state.state.split(' - ')[0] | trim }}"
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.spoolman_edit_spool_location
+      data:
+        value: >
+          {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+          {% set match = items | selectattr('id', 'eq', spool_id | int(0)) | list %}
+          {% if match | length > 0 %}
+            {{ match[0].location | default('') }}
+          {% else %}
+            {{ '' }}
+          {% endif %}
+    - service: input_number.set_value
+      target:
+        entity_id: input_number.spoolman_edit_remaining_weight
+      data:
+        value: >
+          {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+          {% set match = items | selectattr('id', 'eq', spool_id | int(0)) | list %}
+          {% if match | length > 0 %}
+            {{ match[0].remaining_weight | default(0) | round(0) }}
+          {% else %}
+            0
+          {% endif %}
+  mode: single
+
 - alias: "Spoolman filter – refresh dropdown options"
   id: spoolman_filter_refresh_dropdown_options
   description: "Updates filter input_select options when Spoolman data sensors change"
