@@ -3270,18 +3270,6 @@ views:
           margin: 0 auto
           grid-template-columns: 1fr
         cards:
-          - type: custom:mushroom-template-card
-            primary: "← Back to 3D Printer"
-            icon: mdi:arrow-left
-            icon_color: grey
-            layout: horizontal
-            tap_action:
-              action: navigate
-              navigation_path: /lovelace-stage/printer
-            card_mod:
-              style: |
-                ha-card { --ha-card-background: transparent; box-shadow: none; --ha-card-padding: 4px; }
-                mushroom-shape-icon { --icon-size: 20px; }
           - type: markdown
             content: '## 🧵 Filament Library'
             card_mod:
@@ -3426,18 +3414,6 @@ views:
           margin: 0 auto
           grid-template-columns: 1fr
         cards:
-          - type: custom:mushroom-template-card
-            primary: "← Back to 3D Printer"
-            icon: mdi:arrow-left
-            icon_color: grey
-            layout: horizontal
-            tap_action:
-              action: navigate
-              navigation_path: /lovelace-stage/printer
-            card_mod:
-              style: |
-                ha-card { --ha-card-background: transparent; box-shadow: none; --ha-card-padding: 4px; }
-                mushroom-shape-icon { --icon-size: 20px; }
           - type: markdown
             content: '## 🧵 Spool Inventory'
             card_mod:
