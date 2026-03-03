@@ -76,6 +76,17 @@ class AmsPrintUsageSync(hass.Hass):
 
         trays_used_raw = str(data.get("trays_used", "")).strip()
 
+        # Parse trays_used into set of slot ints (comma-separated, e.g. "1,3,6")
+        trays_used_set = set()
+        if trays_used_raw:
+            for part in trays_used_raw.replace(" ", "").split(","):
+                try:
+                    slot_int = int(part)
+                    if 1 <= slot_int <= 6:
+                        trays_used_set.add(slot_int)
+                except (TypeError, ValueError):
+                    pass
+
         # ── dedup ────────────────────────────────────────────────────
         if job_key and job_key in self._seen_job_keys:
             self.log(f"DEDUP_SKIP job_key={job_key}", level="INFO")
@@ -125,6 +136,15 @@ class AmsPrintUsageSync(hass.Hass):
                 consumption_g = max(0.0, start_g - end_g)
                 rfid_results.append((slot, spool_id, consumption_g))
             else:
+                # Only charge non-RFID slots that were actually used during this print
+                if trays_used_set and slot not in trays_used_set:
+                    self.log(
+                        f"USAGE_NONRFID_SKIP_NOT_USED slot={slot} spool_id={spool_id} "
+                        f"trays_used={trays_used_set}",
+                        level="INFO",
+                    )
+                    skipped += 1
+                    continue
                 nonrfid_slots.append((slot, spool_id))
 
         # ── non-RFID allocation ──────────────────────────────────────
@@ -214,6 +234,7 @@ class AmsPrintUsageSync(hass.Hass):
             f"status={print_status} "
             f"rfid_slots={len(rfid_results)} "
             f"nonrfid_slots={len(nonrfid_results)} "
+            f"trays_used={trays_used_set or 'all'} "
             f"total_consumed_g={total_consumed:.1f} "
             f"patched={patched} skipped={skipped}",
             level="INFO",

@@ -193,3 +193,99 @@ class TestIntegrationScenarios:
         assert kind == "rfid"
         assert cons == 999.0
         assert sanity_check(cons) is False  # cap catches it
+
+
+# ── Test: Trays Used Filtering ──
+
+def parse_trays_used(raw):
+    """Simulate trays_used parsing."""
+    result = set()
+    if raw:
+        for part in raw.replace(" ", "").split(","):
+            try:
+                slot_int = int(part)
+                if 1 <= slot_int <= 6:
+                    result.add(slot_int)
+            except (TypeError, ValueError):
+                pass
+    return result
+
+
+def filter_nonrfid_slots(nonrfid_candidates, trays_used_set):
+    """Simulate non-RFID slot filtering."""
+    if not trays_used_set:
+        return nonrfid_candidates  # fallback: all slots
+    return [(slot, sid) for slot, sid in nonrfid_candidates if slot in trays_used_set]
+
+
+class TestTraysUsedParsing:
+    def test_single_slot(self):
+        assert parse_trays_used("6") == {6}
+
+    def test_multiple_slots(self):
+        assert parse_trays_used("1,3,6") == {1, 3, 6}
+
+    def test_with_spaces(self):
+        assert parse_trays_used("1, 3, 6") == {1, 3, 6}
+
+    def test_empty_string(self):
+        assert parse_trays_used("") == set()
+
+    def test_invalid_values_ignored(self):
+        assert parse_trays_used("1,abc,3") == {1, 3}
+
+    def test_out_of_range_ignored(self):
+        assert parse_trays_used("0,1,7,3") == {1, 3}
+
+
+class TestNonRfidFiltering:
+    def test_filters_to_used_slots_only(self):
+        """Only slot 6 used — only slot 6 should get charged."""
+        candidates = [(2, 31), (3, 52), (4, 46), (5, 27), (6, 28)]
+        result = filter_nonrfid_slots(candidates, {6})
+        assert result == [(6, 28)]
+
+    def test_multiple_used_slots(self):
+        """Slots 2 and 6 used."""
+        candidates = [(2, 31), (3, 52), (4, 46), (5, 27), (6, 28)]
+        result = filter_nonrfid_slots(candidates, {2, 6})
+        assert result == [(2, 31), (6, 28)]
+
+    def test_empty_trays_used_falls_back_to_all(self):
+        """No trays_used data — charge all non-RFID slots (legacy fallback)."""
+        candidates = [(2, 31), (3, 52), (6, 28)]
+        result = filter_nonrfid_slots(candidates, set())
+        assert result == [(2, 31), (3, 52), (6, 28)]
+
+    def test_no_nonrfid_candidates(self):
+        """All slots are RFID — no non-RFID to filter."""
+        result = filter_nonrfid_slots([], {6})
+        assert result == []
+
+
+class TestIntegrationWithTraysUsed:
+    def test_single_spool_print_only_charges_used_slot(self):
+        """
+        Real scenario: Print from slot 6 only, 58.5g total.
+        Before fix: 58.5 / 5 = 11.7g per non-RFID slot (WRONG)
+        After fix: 58.5 / 1 = 58.5g to slot 6 only (CORRECT)
+        """
+        all_nonrfid = [(2, 31), (3, 52), (4, 46), (5, 27), (6, 28)]
+        trays_used = parse_trays_used("6")
+        filtered = filter_nonrfid_slots(all_nonrfid, trays_used)
+        assert filtered == [(6, 28)]
+
+        pool_g = 58.5
+        each_g = pool_g / len(filtered)
+        assert each_g == 58.5  # all goes to slot 6
+
+    def test_two_spool_print_splits_between_used(self):
+        """Multi-material print using slots 2 and 6."""
+        all_nonrfid = [(2, 31), (3, 52), (4, 46), (5, 27), (6, 28)]
+        trays_used = parse_trays_used("2,6")
+        filtered = filter_nonrfid_slots(all_nonrfid, trays_used)
+        assert filtered == [(2, 31), (6, 28)]
+
+        pool_g = 60.0
+        each_g = pool_g / len(filtered)
+        assert each_g == 30.0  # split between 2 and 6
