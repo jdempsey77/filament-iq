@@ -1124,7 +1124,7 @@ ams_slot_6_assign_and_update:
 
 spoolman_update_spool_remaining:
   alias: "Spoolman – Update spool"
-  description: "PATCHes remaining_weight and/or location for a spool in Spoolman, then triggers reconcile"
+  description: "PATCHes selected fields for a spool in Spoolman (only toggled-on fields)"
   mode: single
   sequence:
     - variables:
@@ -1135,27 +1135,42 @@ spoolman_update_spool_remaining:
           {% else %}
             {{ edit_selection.split(' - ')[0] | trim }}
           {% endif %}
-        edit_weight: "{{ states('input_number.spoolman_edit_remaining_weight') | float(-1) }}"
+        update_weight: "{{ is_state('input_boolean.spoolman_edit_update_weight', 'on') }}"
+        update_location: "{{ is_state('input_boolean.spoolman_edit_update_location', 'on') }}"
+        edit_weight: "{{ states('input_number.spoolman_edit_remaining_weight') | float(0) }}"
         edit_location: "{{ states('input_text.spoolman_edit_spool_location') | default('') | trim }}"
+        payload_json: >
+          {% set pd = {} %}
+          {% if update_weight %}
+            {% set pd = dict(pd, **{'remaining_weight': edit_weight}) %}
+          {% endif %}
+          {% if update_location %}
+            {% set pd = dict(pd, **{'location': edit_location}) %}
+          {% endif %}
+          {{ pd | tojson }}
     - condition: template
       value_template: >
         {{ edit_spool_id | trim not in ['', '0', 'unknown', 'unavailable'] }}
     - condition: template
       value_template: >
-        {{ edit_weight >= 0 or edit_location | length > 0 }}
-    - service: rest_command.ams_spoolman_patch_spool_remaining
+        {{ update_weight or update_location }}
+    - service: rest_command.ams_spoolman_patch_spool
       data:
         spool_id: "{{ edit_spool_id }}"
-        remaining_weight: "{{ edit_weight if edit_weight >= 0 else '' }}"
-        location: "{{ edit_location }}"
+        payload: "{{ payload_json }}"
     - service: persistent_notification.create
       data:
         title: "Spool Updated"
         message: >
           Spool #{{ edit_spool_id }} updated:
-          {% if edit_weight >= 0 %} remaining={{ edit_weight }}g{% endif %}
-          {% if edit_location %} location={{ edit_location }}{% endif %}
+          {% if update_weight %} weight={{ edit_weight }}g{% endif %}
+          {% if update_location %} location={{ edit_location }}{% endif %}
         notification_id: "spoolman_edit_result"
+    - service: input_boolean.turn_off
+      target:
+        entity_id:
+          - input_boolean.spoolman_edit_update_weight
+          - input_boolean.spoolman_edit_update_location
     - service: input_select.select_option
       target:
         entity_id: input_select.spoolman_edit_spool_select

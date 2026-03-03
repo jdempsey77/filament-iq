@@ -1388,41 +1388,69 @@
           channel: alarm_stream
   mode: single
 - id: spoolman_edit_prefill_location
-  alias: "Spoolman edit – prefill location on spool select"
+  alias: "Spoolman edit – prefill on spool select, reset on clear"
   trigger:
     - platform: state
       entity_id: input_select.spoolman_edit_spool_select
-  condition:
-    - condition: template
-      value_template: >
-        {{ trigger.to_state.state not in ['— Select spool —', '', 'unknown', 'unavailable'] }}
+  condition: []
   action:
-    - variables:
-        spool_id: "{{ trigger.to_state.state.split(' - ')[0] | trim }}"
-    - service: input_text.set_value
-      target:
-        entity_id: input_text.spoolman_edit_spool_location
-      data:
-        value: >
-          {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-          {% set match = items | selectattr('id', 'eq', spool_id | int(0)) | list %}
-          {% if match | length > 0 %}
-            {{ match[0].location | default('') }}
-          {% else %}
-            {{ '' }}
-          {% endif %}
-    - service: input_number.set_value
-      target:
-        entity_id: input_number.spoolman_edit_remaining_weight
-      data:
-        value: >
-          {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-          {% set match = items | selectattr('id', 'eq', spool_id | int(0)) | list %}
-          {% if match | length > 0 %}
-            {{ match[0].remaining_weight | default(0) | round(0) }}
-          {% else %}
-            0
-          {% endif %}
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: >
+                {{ trigger.to_state.state in ['— Select spool —', '', 'unknown', 'unavailable'] }}
+          sequence:
+            - service: input_boolean.turn_off
+              target:
+                entity_id:
+                  - input_boolean.spoolman_edit_update_weight
+                  - input_boolean.spoolman_edit_update_location
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.spoolman_edit_remaining_weight
+              data:
+                value: 0
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.spoolman_edit_spool_location
+              data:
+                value: ""
+        - conditions:
+            - condition: template
+              value_template: >
+                {{ trigger.to_state.state not in ['— Select spool —', '', 'unknown', 'unavailable'] }}
+          sequence:
+            - variables:
+                spool_id: "{{ trigger.to_state.state.split(' - ')[0] | trim }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.spoolman_edit_spool_location
+              data:
+                value: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('id', 'eq', spool_id | int(0)) | list %}
+                  {% if match | length > 0 %}
+                    {{ match[0].location | default('') }}
+                  {% else %}
+                    {{ '' }}
+                  {% endif %}
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.spoolman_edit_remaining_weight
+              data:
+                value: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('id', 'eq', spool_id | int(0)) | list %}
+                  {% if match | length > 0 %}
+                    {{ match[0].remaining_weight | default(0) | round(0) }}
+                  {% else %}
+                    0
+                  {% endif %}
+            - service: input_boolean.turn_off
+              target:
+                entity_id:
+                  - input_boolean.spoolman_edit_update_weight
+                  - input_boolean.spoolman_edit_update_location
   mode: single
 
 - alias: "Spoolman filter – refresh dropdown options"

@@ -296,6 +296,14 @@ input_boolean:
   appdaemon_startup_suppress_swap:
     name: AppDaemon startup – suppress spool swap detection
     initial: false
+  spoolman_edit_update_weight:
+    name: "Edit spool – update weight"
+    initial: false
+    icon: mdi:weight-gram
+  spoolman_edit_update_location:
+    name: "Edit spool – update location"
+    initial: false
+    icon: mdi:map-marker
 
 input_button:
   p1s_rfid_reconcile_now:
@@ -2037,6 +2045,12 @@ rest_command:
         {% set patch = dict(patch, **{'location': location | string}) %}
       {% endif %}
       {{ patch | tojson }}
+  # Generic PATCH for Quick Edit (selective field updates via payload)
+  ams_spoolman_patch_spool:
+    url: "http://192.168.4.124:7912/api/v1/spool/{{ spool_id }}"
+    method: PATCH
+    content_type: "application/json"
+    payload: "{{ payload }}"
 # Load frontend themes from the themes folder
 frontend:
   themes: !include_dir_merge_named themes
