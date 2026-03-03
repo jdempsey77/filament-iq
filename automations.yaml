@@ -488,7 +488,8 @@
 # While print is running, append any tray that becomes active to the "trays used" list (for multi-color subtract).
 - id: p1s_record_trays_used_during_print
   alias: P1S – record trays used during print
-  description: When a tray reports active=true during a print, add it to p1s_trays_used_this_print so we can split weight on finish.
+  enabled: false
+  description: When a tray reports active=true during a print, add it to p1s_trays_used_this_print so we can split weight on finish. Replaced by AppDaemon tray tracking in ams_print_usage_sync.
   trigger:
     - platform: state
       entity_id:
@@ -1386,6 +1387,72 @@
           importance: high
           channel: alarm_stream
   mode: single
+- id: spoolman_edit_prefill_location
+  alias: "Spoolman edit – prefill on spool select, reset on clear"
+  trigger:
+    - platform: state
+      entity_id: input_select.spoolman_edit_spool_select
+  condition: []
+  action:
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: >
+                {{ trigger.to_state.state in ['— Select spool —', '', 'unknown', 'unavailable'] }}
+          sequence:
+            - service: input_boolean.turn_off
+              target:
+                entity_id:
+                  - input_boolean.spoolman_edit_update_weight
+                  - input_boolean.spoolman_edit_update_location
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.spoolman_edit_remaining_weight
+              data:
+                value: 0
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.spoolman_edit_spool_location
+              data:
+                value: ""
+        - conditions:
+            - condition: template
+              value_template: >
+                {{ trigger.to_state.state not in ['— Select spool —', '', 'unknown', 'unavailable'] }}
+          sequence:
+            - variables:
+                spool_id: "{{ trigger.to_state.state.split(' - ')[0] | trim }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.spoolman_edit_spool_location
+              data:
+                value: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('id', 'eq', spool_id | int(0)) | list %}
+                  {% if match | length > 0 %}
+                    {{ match[0].location | default('') }}
+                  {% else %}
+                    {{ '' }}
+                  {% endif %}
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.spoolman_edit_remaining_weight
+              data:
+                value: >
+                  {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                  {% set match = items | selectattr('id', 'eq', spool_id | int(0)) | list %}
+                  {% if match | length > 0 %}
+                    {{ match[0].remaining_weight | default(0) | round(0) }}
+                  {% else %}
+                    0
+                  {% endif %}
+            - service: input_boolean.turn_off
+              target:
+                entity_id:
+                  - input_boolean.spoolman_edit_update_weight
+                  - input_boolean.spoolman_edit_update_location
+  mode: single
+
 - alias: "Spoolman filter – refresh dropdown options"
   id: spoolman_filter_refresh_dropdown_options
   description: "Updates filter input_select options when Spoolman data sensors change"

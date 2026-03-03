@@ -56,6 +56,15 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self.min_consumption_g = float(a.get("min_consumption_g", 2))
         self.max_consumption_g = float(a.get("max_consumption_g", 300))
         self._seen_job_keys = OrderedDict()
+        # Tray tracking (bypasses initialize)
+        self._trays_used = set()
+        self._tray_active_times = {}
+        self._current_active_slot = None
+        self._print_active = False
+        # 3MF (bypasses initialize)
+        self._threemf_data = None
+        self._threemf_filename = None
+        self.threemf_enabled = False
 
     def initialize(self):
         pass

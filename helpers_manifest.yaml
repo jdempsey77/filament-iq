@@ -59,7 +59,9 @@ required_helpers:
   - input_text.spoolman_new_filament_color_hex
   - input_text.spoolman_new_spool_location
   - input_text.spoolman_edit_spool_id
+  - input_text.spoolman_edit_spool_location
   - input_text.spoolman_new_spool_uuid
+  - input_text.bambu_printer_access_code
   # P1S print tracking state
   - input_text.p1s_last_active_tray
   - input_text.p1s_last_tray_entity

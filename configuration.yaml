@@ -33,6 +33,11 @@ input_datetime:
 
 # Slot → Spoolman spool ID (1–6 or ID from placeholder). Updated by ams_ensure_slot_spools.
 input_text:
+  bambu_printer_access_code:
+    name: Bambu Printer Access Code
+    min: 0
+    max: 32
+    mode: password
   spoolman_base_url:
     name: Spoolman API base URL
     initial: "http://192.168.4.124:7912"
@@ -54,6 +59,11 @@ input_text:
   spoolman_edit_spool_id:
     name: "Edit spool – spool ID"
     max: 10
+    initial: ""
+  # Spool edit popup – location (UI only, not system-critical)
+  spoolman_edit_spool_location:
+    name: "Edit spool – location"
+    max: 64
     initial: ""
   ams_slot_1_spool_id:
     name: AMS Slot 1 (AMS1_Slot1) – Spoolman spool ID
@@ -286,6 +296,14 @@ input_boolean:
   appdaemon_startup_suppress_swap:
     name: AppDaemon startup – suppress spool swap detection
     initial: false
+  spoolman_edit_update_weight:
+    name: "Edit spool – update weight"
+    initial: false
+    icon: mdi:weight-gram
+  spoolman_edit_update_location:
+    name: "Edit spool – update location"
+    initial: false
+    icon: mdi:map-marker
 
 input_button:
   p1s_rfid_reconcile_now:
@@ -2013,12 +2031,26 @@ rest_command:
     content_type: "application/json"
     payload: >-
       {{ {'filament_id': ((states('input_select.spoolman_new_spool_filament') or '').split(' - ')[0] | trim | int(1)) if ' - ' in (states('input_select.spoolman_new_spool_filament') or '') else (states('input_number.spoolman_new_spool_filament_id') | int(1)), 'location': (states('input_text.spoolman_new_spool_location') | default('') | trim) or 'New', 'remaining_weight': states('input_number.spoolman_new_spool_remaining_weight') | float(0), 'archived': false} | tojson }}
-  # PATCH spool remaining_weight in Spoolman (from edit popup)
+  # PATCH spool remaining_weight and/or location in Spoolman (from edit popup)
   ams_spoolman_patch_spool_remaining:
     url: "http://192.168.4.124:7912/api/v1/spool/{{ spool_id }}"
     method: PATCH
     content_type: "application/json"
-    payload: '{"remaining_weight": {{ remaining_weight | float }}}'
+    payload: >-
+      {% set patch = {} %}
+      {% if remaining_weight is defined and remaining_weight | string != '' %}
+        {% set patch = dict(patch, **{'remaining_weight': remaining_weight | float}) %}
+      {% endif %}
+      {% if location is defined and location | string != '' %}
+        {% set patch = dict(patch, **{'location': location | string}) %}
+      {% endif %}
+      {{ patch | tojson }}
+  # Generic PATCH for Quick Edit (selective field updates via payload)
+  ams_spoolman_patch_spool:
+    url: "http://192.168.4.124:7912/api/v1/spool/{{ spool_id }}"
+    method: PATCH
+    content_type: "application/json"
+    payload: "{{ payload }}"
 # Load frontend themes from the themes folder
 frontend:
   themes: !include_dir_merge_named themes
