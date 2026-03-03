@@ -50,3 +50,9 @@ ams_print_usage_sync:
   dry_run: false
   # dry_run: false  # Flip to false after verifying logs on a real print finish
   min_consumption_g: 2
+
+filament_weight_tracker:
+  module: filament_weight_tracker
+  class: FilamentWeightTracker
+  spoolman_url: "http://192.168.4.124:7912"
+  report_path: "/config/filament_weight_reports.log"

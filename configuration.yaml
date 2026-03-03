@@ -291,6 +291,9 @@ input_button:
   p1s_rfid_reconcile_now:
     name: P1S RFID Reconcile Now
     icon: mdi:refresh
+  p1s_weight_snapshot_now:
+    name: P1S Weight Snapshot Now
+    icon: mdi:scale
 
 input_number:
   tare_bambu_lab_plastic:
