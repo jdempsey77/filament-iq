@@ -1306,9 +1306,29 @@ views:
                     entity: binary_sensor.p1s_01p00c5a3101668_firmware_update
                     name: Firmware
                     icon: mdi:chip
-                  - type: custom:mushroom-entity-card
+                  - type: custom:mushroom-template-card
                     entity: sensor.p1s_01p00c5a3101668_active_tray
-                    name: Current Filament
+                    primary: >-
+                      {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
+                      {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
+                      {% set name = states('sensor.p1s_01p00c5a3101668_active_tray') %}
+                      Active Slot: {% if active == 1 and tray == 0 %}AMS Pro 1 · {{ name }}
+                      {% elif active == 1 and tray == 1 %}AMS Pro 2 · {{ name }}
+                      {% elif active == 1 and tray == 2 %}AMS Pro 3 · {{ name }}
+                      {% elif active == 1 and tray == 3 %}AMS Pro 4 · {{ name }}
+                      {% elif active == 128 and tray == 0 %}HT 1 · {{ name }}
+                      {% elif active == 129 and tray == 0 %}HT 2 · {{ name }}
+                      {% else %}{{ name }}{% endif %}
+                    secondary: >-
+                      {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
+                      {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
+                      {% if active == 1 and tray == 0 %}{{ states('sensor.ams_slot_1_vendor') }} · {{ states('sensor.ams_slot_1_material') }} · {{ states('sensor.ams_slot_1_remaining_g') }}g
+                      {% elif active == 1 and tray == 1 %}{{ states('sensor.ams_slot_2_vendor') }} · {{ states('sensor.ams_slot_2_material') }} · {{ states('sensor.ams_slot_2_remaining_g') }}g
+                      {% elif active == 1 and tray == 2 %}{{ states('sensor.ams_slot_3_vendor') }} · {{ states('sensor.ams_slot_3_material') }} · {{ states('sensor.ams_slot_3_remaining_g') }}g
+                      {% elif active == 1 and tray == 3 %}{{ states('sensor.ams_slot_4_vendor') }} · {{ states('sensor.ams_slot_4_material') }} · {{ states('sensor.ams_slot_4_remaining_g') }}g
+                      {% elif active == 128 and tray == 0 %}{{ states('sensor.ams_slot_5_vendor') }} · {{ states('sensor.ams_slot_5_material') }} · {{ states('sensor.ams_slot_5_remaining_g') }}g
+                      {% elif active == 129 and tray == 0 %}{{ states('sensor.ams_slot_6_vendor') }} · {{ states('sensor.ams_slot_6_material') }} · {{ states('sensor.ams_slot_6_remaining_g') }}g
+                      {% else %}{{ name }}{% endif %}
                     icon: mdi:printer-3d-nozzle
                     card_mod:
                       style: |
