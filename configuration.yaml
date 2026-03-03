@@ -51,6 +51,10 @@ input_text:
     name: New spool – location (e.g. New, Shelf, AMS1_Slot1)
     initial: "New"
     max: 64
+  spoolman_edit_spool_id:
+    name: "Edit spool – spool ID"
+    max: 10
+    initial: ""
   ams_slot_1_spool_id:
     name: AMS Slot 1 (AMS1_Slot1) – Spoolman spool ID
   ams_slot_2_spool_id:
@@ -282,11 +286,6 @@ input_boolean:
   appdaemon_startup_suppress_swap:
     name: AppDaemon startup – suppress spool swap detection
     initial: false
-  # Spool edit popup (UI only, not system-critical)
-  spoolman_edit_spool_id:
-    name: "Edit spool – spool ID"
-    max: 10
-    initial: ""
 
 input_button:
   p1s_rfid_reconcile_now:
