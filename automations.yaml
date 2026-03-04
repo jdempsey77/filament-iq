@@ -891,9 +891,13 @@
           {% set job_label = (states('sensor.p1s_01p00c5a3101668_task_name') | replace('.gcode.3mf', '') | replace('.3mf', '') | trim) %}
           {% set ns = namespace(lines=['Job: ' ~ job_label, 'Status: ' ~ trigger_state, '']) %}
           {% for slot, start_g in start.items() %}
-            {% set end_g = end.get(slot, 0) | float %}
-            {% set used = [0, start_g | float - end_g] | max %}
-            {% set ns.lines = ns.lines + ['Slot ' ~ slot ~ ': ' ~ (start_g | float | round(1)) ~ 'g → ' ~ (end_g | round(1)) ~ 'g (used ~' ~ (used | round(1)) ~ 'g)'] %}
+            {% if slot in end %}
+              {% set end_g = end.get(slot) | float %}
+              {% set used = [0, start_g | float - end_g] | max %}
+              {% set ns.lines = ns.lines + ['Slot ' ~ slot ~ ': ' ~ (start_g | float | round(1)) ~ 'g → ' ~ (end_g | round(1)) ~ 'g (used ~' ~ (used | round(1)) ~ 'g)'] %}
+            {% else %}
+              {% set ns.lines = ns.lines + ['Slot ' ~ slot ~ ': ' ~ (start_g | float | round(1)) ~ 'g → (no fuel gauge)'] %}
+            {% endif %}
           {% endfor %}
           {{ ns.lines | join('\n') }}
     - service: notify.persistent_notification
@@ -1064,7 +1068,7 @@
 # Populate "New spool – filament" dropdown from Spoolman (API or entities). Trigger when list sensor or API sensor updates, or on start.
 - id: ams_filament_list_populate_dropdown
   alias: AMS – populate Add spool filament dropdown
-  description: When filament list sensor or Spoolman API sensors update or on start, set input_select.spoolman_new_spool_filament options (filtered to show only filaments without spools).
+  description: When filament list sensor or Spoolman API sensors update or on start, set input_select.spoolman_new_spool_filament options from all Spoolman filaments.
   trigger:
     - platform: homeassistant
       event: start

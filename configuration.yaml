@@ -1438,7 +1438,7 @@ template:
             {% else %}
               {{ state_attr('sensor.spoolman_filaments_processed', 'filament_list') or [] }}
             {% endif %}
-      # Filament list for "Add spool" dropdown: from processed list, filtered to show only filaments WITHOUT spools
+      # Filament list for "Add spool" dropdown: all filaments from Spoolman (unfiltered)
       - name: "AMS Filament list – options"
         unique_id: ams_filament_list_options
         state: >
@@ -1447,26 +1447,7 @@ template:
         attributes:
           options: >
             {% set all_parts = state_attr('sensor.spoolman_filaments_processed', 'filament_list') or [] %}
-            {% if all_parts | length > 0 %}
-              {% set used_fids_raw = states('sensor.spoolman_spools_api') | default('') %}
-              {% if used_fids_raw not in ['unknown', 'unavailable', ''] and used_fids_raw != '' %}
-                {% set used_list = used_fids_raw.split(',') | map('trim') | list if ',' in used_fids_raw else [used_fids_raw | trim] %}
-                {% set ns = namespace(filtered=[]) %}
-                {% for part in all_parts %}
-                  {% if ' - ' in part %}
-                    {% set fid = part.split(' - ')[0] | trim %}
-                    {% if fid not in used_list %}
-                      {% set ns.filtered = ns.filtered + [part] %}
-                    {% endif %}
-                  {% endif %}
-                {% endfor %}
-                {{ ns.filtered | sort }}
-              {% else %}
-                {{ all_parts | sort }}
-              {% endif %}
-            {% else %}
-              {{ [] }}
-            {% endif %}
+            {{ all_parts | sort if all_parts | length > 0 else [] }}
       # Vendor list for "Add filament" dropdown: from Spoolman API
       - name: "AMS Vendor list – options"
         unique_id: ams_vendor_list_options
