@@ -176,8 +176,11 @@ class AmsPrintUsageSync(hass.Hass):
             )
             return
 
-        # ── build slot list ──────────────────────────────────────────
-        active_slots = sorted(int(k) for k in start_map if k.isdigit() and 1 <= int(k) <= 6)
+        # ── build slot list (only slots present in BOTH snapshots) ──
+        active_slots = sorted(
+            int(k) for k in start_map
+            if k.isdigit() and 1 <= int(k) <= 6 and k in end_map
+        )
 
         # ── compute per-slot consumption ─────────────────────────────
         rfid_results = []
@@ -196,6 +199,18 @@ class AmsPrintUsageSync(hass.Hass):
             start_g = float(start_map.get(str(slot), 0))
             end_g = float(end_map.get(str(slot), 0))
 
+            # Guard: a spool can't physically lose all weight without being
+            # used.  end_g <= 0 with a positive start means the fuel gauge
+            # was unavailable at print finish — not real consumption.
+            if start_g > 0 and end_g <= 0:
+                self.log(
+                    f"USAGE_SKIP slot={slot} reason=END_WEIGHT_MISSING "
+                    f"start_g={start_g} end_g={end_g}",
+                    level="WARNING",
+                )
+                skipped += 1
+                continue
+
             # A slot is RFID-trackable only if BOTH start and end have
             # positive readings (fuel gauge was available for both snapshots).
             # If end_g is 0 or missing, the slot has no fuel gauge — treat
@@ -206,8 +221,10 @@ class AmsPrintUsageSync(hass.Hass):
                 consumption_g = max(0.0, start_g - end_g)
                 rfid_results.append((slot, spool_id, consumption_g))
             else:
-                # Only charge non-RFID slots that were actually used during this print
-                if trays_used_set and slot not in trays_used_set:
+                # Only charge non-RFID slots that were actually used during
+                # this print.  Fail-closed: if tray tracking is empty, skip
+                # all non-RFID slots rather than charging all of them.
+                if slot not in trays_used_set:
                     self.log(
                         f"USAGE_NONRFID_SKIP_NOT_USED slot={slot} spool_id={spool_id} "
                         f"trays_used={trays_used_set}",

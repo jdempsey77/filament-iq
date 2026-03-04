@@ -212,9 +212,7 @@ def parse_trays_used(raw):
 
 
 def filter_nonrfid_slots(nonrfid_candidates, trays_used_set):
-    """Simulate non-RFID slot filtering."""
-    if not trays_used_set:
-        return nonrfid_candidates  # fallback: all slots
+    """Simulate non-RFID slot filtering (fail-closed: empty set = skip all)."""
     return [(slot, sid) for slot, sid in nonrfid_candidates if slot in trays_used_set]
 
 
@@ -251,11 +249,11 @@ class TestNonRfidFiltering:
         result = filter_nonrfid_slots(candidates, {2, 6})
         assert result == [(2, 31), (6, 28)]
 
-    def test_empty_trays_used_falls_back_to_all(self):
-        """No trays_used data — charge all non-RFID slots (legacy fallback)."""
+    def test_empty_trays_used_skips_all(self):
+        """No trays_used data — fail-closed: skip all non-RFID slots."""
         candidates = [(2, 31), (3, 52), (6, 28)]
         result = filter_nonrfid_slots(candidates, set())
-        assert result == [(2, 31), (3, 52), (6, 28)]
+        assert result == []
 
     def test_no_nonrfid_candidates(self):
         """All slots are RFID — no non-RFID to filter."""
