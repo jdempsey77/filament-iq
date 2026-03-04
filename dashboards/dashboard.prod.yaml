@@ -3656,8 +3656,12 @@ views:
                 entities:
                   - entity: input_select.spoolman_edit_spool_select
                     name: Select spool
+                  - entity: input_boolean.spoolman_edit_update_weight
+                    name: Update weight
                   - entity: input_number.spoolman_edit_remaining_weight
                     name: Remaining weight (g)
+                  - entity: input_boolean.spoolman_edit_update_location
+                    name: Update location
                   - entity: input_text.spoolman_edit_spool_location
                     name: Location
               - type: custom:mushroom-template-card
