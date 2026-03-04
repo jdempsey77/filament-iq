@@ -1600,16 +1600,10 @@ views:
                           badge_icon: mdi:numeric-1-circle
                           badge_color: >-
                             {% set status = states('sensor.ams_slot_1_status') %}
-                            {% set r = states('input_text.ams_slot_1_unbound_reason') %}
-                            {% if 'RFID_NOT_REFRESHED' in r %}orange
-                            {% elif status == 'needs_bind' %}red
-                            {% elif status == 'empty' %}grey
-                            {% elif status == 'ok' %}
-                              {% set remaining = states('sensor.ams_slot_1_remaining_g') | float(0) %}
-                              {% set initial = states('sensor.ams_slot_1_initial_weight_g') | float(0) %}
-                              {% set pct = ((remaining / initial * 100) | round(0)) if initial > 0 else 0 %}
-                              {% if pct > 50 %}green{% elif pct >= 20 %}amber{% else %}red{% endif %}
-                            {% else %}green{% endif %}
+                            {% set spool_id = states('input_text.ams_slot_1_spool_id') | int(0) %}
+                            {% if status == 'needs_bind' %}red
+                            {% elif spool_id > 0 %}green
+                            {% else %}orange{% endif %}
                           tap_action:
                             action: fire-dom-event
                             browser_mod:
@@ -1737,8 +1731,7 @@ views:
                                 {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
                                 {% set is_active = printing and active == 0 and tray == 0 %}
                                 {% if is_active %}
-                                  border: 2px solid var(--primary-color);
-                                  box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
+                                  box-shadow: 0 0 0 2px cyan;
                                 {% endif %}
                                 {% set status = states('sensor.ams_slot_1_status') %}
                                 {% set hex = states('sensor.ams_slot_1_color_hex') %}
@@ -1757,24 +1750,27 @@ views:
                               ha-card::after {
                                 content: '';
                                 position: absolute;
-                                bottom: 0;
+                                top: 0;
                                 left: 0;
                                 right: 0;
-                                height: 6px;
+                                height: 5px;
                                 {% set status = states('sensor.ams_slot_1_status') %}
+                                {% set spool_id = states('input_text.ams_slot_1_spool_id') | int(0) %}
+                                {% set tray_color = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'color') | default('') %}
+                                {% set spoolman_color = state_attr('sensor.spoolman_spool_' ~ spool_id, 'color_hex') | default('') if spool_id > 0 else '' %}
+                                {% set color_hex = tray_color[1:7] if tray_color and tray_color | length >= 7 else (spoolman_color if spoolman_color else '444444') %}
+                                {% set tray_remain = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'remain') %}
+                                {% set tray_remain = tray_remain | int(-1) if tray_remain is not none else -1 %}
+                                {% set spoolman_remaining = states('sensor.spoolman_spool_' ~ spool_id) | float(-1) if spool_id > 0 else -1 %}
+                                {% set pct = tray_remain if tray_remain >= 0 else ((spoolman_remaining / 1000 * 100) | round(0) | int if spoolman_remaining >= 0 else 0) %}
+                                {% set pct = [0, [100, pct] | min] | max %}
                                 {% if status != 'empty' %}
-                                {% set remaining = states('sensor.ams_slot_1_remaining_g') | float(0) %}
-                                {% set initial = states('sensor.ams_slot_1_initial_weight_g') | float(0) %}
-                                {% set pct = [((remaining / initial * 100) | round(0)) if initial > 0 else 0, 100] | min %}
-                                {% set hex = states('sensor.ams_slot_1_color_hex') %}
-                                {% set color = '#' ~ hex if hex not in ['000000', 'unknown', 'unavailable', ''] else '#333333' %}
-                                background: linear-gradient(90deg, {{ color }} {{ pct }}%, rgba(255,255,255,0.08) {{ pct }}%);
-                                transition: background 1s ease;
+                                background: linear-gradient(90deg, #{{ color_hex }} {{ pct }}%, rgba(100,100,100,0.3) {{ pct }}%);
                                 {% else %}
-                                background: rgba(255,255,255,0.08);
+                                background: rgba(100,100,100,0.3);
                                 {% endif %}
                                 z-index: 1;
-                                border-radius: 0 0 14px 14px;
+                                border-radius: 14px 14px 0 0;
                               }
                         - type: custom:mushroom-template-card
                           entity: sensor.ams_slot_2_name
@@ -1833,16 +1829,10 @@ views:
                           badge_icon: mdi:numeric-2-circle
                           badge_color: >-
                             {% set status = states('sensor.ams_slot_2_status') %}
-                            {% set r = states('input_text.ams_slot_2_unbound_reason') %}
-                            {% if 'RFID_NOT_REFRESHED' in r %}orange
-                            {% elif status == 'needs_bind' %}red
-                            {% elif status == 'empty' %}grey
-                            {% elif status == 'ok' %}
-                              {% set remaining = states('sensor.ams_slot_2_remaining_g') | float(0) %}
-                              {% set initial = states('sensor.ams_slot_2_initial_weight_g') | float(0) %}
-                              {% set pct = ((remaining / initial * 100) | round(0)) if initial > 0 else 0 %}
-                              {% if pct > 50 %}green{% elif pct >= 20 %}amber{% else %}red{% endif %}
-                            {% else %}green{% endif %}
+                            {% set spool_id = states('input_text.ams_slot_2_spool_id') | int(0) %}
+                            {% if status == 'needs_bind' %}red
+                            {% elif spool_id > 0 %}green
+                            {% else %}orange{% endif %}
                           tap_action:
                             action: fire-dom-event
                             browser_mod:
@@ -1970,8 +1960,7 @@ views:
                                 {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
                                 {% set is_active = printing and active == 0 and tray == 1 %}
                                 {% if is_active %}
-                                  border: 2px solid var(--primary-color);
-                                  box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
+                                  box-shadow: 0 0 0 2px cyan;
                                 {% endif %}
                                 {% set status = states('sensor.ams_slot_2_status') %}
                                 {% set hex = states('sensor.ams_slot_2_color_hex') %}
@@ -1990,24 +1979,27 @@ views:
                               ha-card::after {
                                 content: '';
                                 position: absolute;
-                                bottom: 0;
+                                top: 0;
                                 left: 0;
                                 right: 0;
-                                height: 6px;
+                                height: 5px;
                                 {% set status = states('sensor.ams_slot_2_status') %}
+                                {% set spool_id = states('input_text.ams_slot_2_spool_id') | int(0) %}
+                                {% set tray_color = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'color') | default('') %}
+                                {% set spoolman_color = state_attr('sensor.spoolman_spool_' ~ spool_id, 'color_hex') | default('') if spool_id > 0 else '' %}
+                                {% set color_hex = tray_color[1:7] if tray_color and tray_color | length >= 7 else (spoolman_color if spoolman_color else '444444') %}
+                                {% set tray_remain = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'remain') %}
+                                {% set tray_remain = tray_remain | int(-1) if tray_remain is not none else -1 %}
+                                {% set spoolman_remaining = states('sensor.spoolman_spool_' ~ spool_id) | float(-1) if spool_id > 0 else -1 %}
+                                {% set pct = tray_remain if tray_remain >= 0 else ((spoolman_remaining / 1000 * 100) | round(0) | int if spoolman_remaining >= 0 else 0) %}
+                                {% set pct = [0, [100, pct] | min] | max %}
                                 {% if status != 'empty' %}
-                                {% set remaining = states('sensor.ams_slot_2_remaining_g') | float(0) %}
-                                {% set initial = states('sensor.ams_slot_2_initial_weight_g') | float(0) %}
-                                {% set pct = [((remaining / initial * 100) | round(0)) if initial > 0 else 0, 100] | min %}
-                                {% set hex = states('sensor.ams_slot_2_color_hex') %}
-                                {% set color = '#' ~ hex if hex not in ['000000', 'unknown', 'unavailable', ''] else '#333333' %}
-                                background: linear-gradient(90deg, {{ color }} {{ pct }}%, rgba(255,255,255,0.08) {{ pct }}%);
-                                transition: background 1s ease;
+                                background: linear-gradient(90deg, #{{ color_hex }} {{ pct }}%, rgba(100,100,100,0.3) {{ pct }}%);
                                 {% else %}
-                                background: rgba(255,255,255,0.08);
+                                background: rgba(100,100,100,0.3);
                                 {% endif %}
                                 z-index: 1;
-                                border-radius: 0 0 14px 14px;
+                                border-radius: 14px 14px 0 0;
                               }
                         - type: custom:mushroom-template-card
                           entity: sensor.ams_slot_3_name
@@ -2066,16 +2058,10 @@ views:
                           badge_icon: mdi:numeric-3-circle
                           badge_color: >-
                             {% set status = states('sensor.ams_slot_3_status') %}
-                            {% set r = states('input_text.ams_slot_3_unbound_reason') %}
-                            {% if 'RFID_NOT_REFRESHED' in r %}orange
-                            {% elif status == 'needs_bind' %}red
-                            {% elif status == 'empty' %}grey
-                            {% elif status == 'ok' %}
-                              {% set remaining = states('sensor.ams_slot_3_remaining_g') | float(0) %}
-                              {% set initial = states('sensor.ams_slot_3_initial_weight_g') | float(0) %}
-                              {% set pct = ((remaining / initial * 100) | round(0)) if initial > 0 else 0 %}
-                              {% if pct > 50 %}green{% elif pct >= 20 %}amber{% else %}red{% endif %}
-                            {% else %}green{% endif %}
+                            {% set spool_id = states('input_text.ams_slot_3_spool_id') | int(0) %}
+                            {% if status == 'needs_bind' %}red
+                            {% elif spool_id > 0 %}green
+                            {% else %}orange{% endif %}
                           tap_action:
                             action: fire-dom-event
                             browser_mod:
@@ -2203,8 +2189,7 @@ views:
                                 {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
                                 {% set is_active = printing and active == 0 and tray == 2 %}
                                 {% if is_active %}
-                                  border: 2px solid var(--primary-color);
-                                  box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
+                                  box-shadow: 0 0 0 2px cyan;
                                 {% endif %}
                                 {% set status = states('sensor.ams_slot_3_status') %}
                                 {% set hex = states('sensor.ams_slot_3_color_hex') %}
@@ -2223,24 +2208,27 @@ views:
                               ha-card::after {
                                 content: '';
                                 position: absolute;
-                                bottom: 0;
+                                top: 0;
                                 left: 0;
                                 right: 0;
-                                height: 6px;
+                                height: 5px;
                                 {% set status = states('sensor.ams_slot_3_status') %}
+                                {% set spool_id = states('input_text.ams_slot_3_spool_id') | int(0) %}
+                                {% set tray_color = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'color') | default('') %}
+                                {% set spoolman_color = state_attr('sensor.spoolman_spool_' ~ spool_id, 'color_hex') | default('') if spool_id > 0 else '' %}
+                                {% set color_hex = tray_color[1:7] if tray_color and tray_color | length >= 7 else (spoolman_color if spoolman_color else '444444') %}
+                                {% set tray_remain = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'remain') %}
+                                {% set tray_remain = tray_remain | int(-1) if tray_remain is not none else -1 %}
+                                {% set spoolman_remaining = states('sensor.spoolman_spool_' ~ spool_id) | float(-1) if spool_id > 0 else -1 %}
+                                {% set pct = tray_remain if tray_remain >= 0 else ((spoolman_remaining / 1000 * 100) | round(0) | int if spoolman_remaining >= 0 else 0) %}
+                                {% set pct = [0, [100, pct] | min] | max %}
                                 {% if status != 'empty' %}
-                                {% set remaining = states('sensor.ams_slot_3_remaining_g') | float(0) %}
-                                {% set initial = states('sensor.ams_slot_3_initial_weight_g') | float(0) %}
-                                {% set pct = [((remaining / initial * 100) | round(0)) if initial > 0 else 0, 100] | min %}
-                                {% set hex = states('sensor.ams_slot_3_color_hex') %}
-                                {% set color = '#' ~ hex if hex not in ['000000', 'unknown', 'unavailable', ''] else '#333333' %}
-                                background: linear-gradient(90deg, {{ color }} {{ pct }}%, rgba(255,255,255,0.08) {{ pct }}%);
-                                transition: background 1s ease;
+                                background: linear-gradient(90deg, #{{ color_hex }} {{ pct }}%, rgba(100,100,100,0.3) {{ pct }}%);
                                 {% else %}
-                                background: rgba(255,255,255,0.08);
+                                background: rgba(100,100,100,0.3);
                                 {% endif %}
                                 z-index: 1;
-                                border-radius: 0 0 14px 14px;
+                                border-radius: 14px 14px 0 0;
                               }
                         - type: custom:mushroom-template-card
                           entity: sensor.ams_slot_4_name
@@ -2299,16 +2287,10 @@ views:
                           badge_icon: mdi:numeric-4-circle
                           badge_color: >-
                             {% set status = states('sensor.ams_slot_4_status') %}
-                            {% set r = states('input_text.ams_slot_4_unbound_reason') %}
-                            {% if 'RFID_NOT_REFRESHED' in r %}orange
-                            {% elif status == 'needs_bind' %}red
-                            {% elif status == 'empty' %}grey
-                            {% elif status == 'ok' %}
-                              {% set remaining = states('sensor.ams_slot_4_remaining_g') | float(0) %}
-                              {% set initial = states('sensor.ams_slot_4_initial_weight_g') | float(0) %}
-                              {% set pct = ((remaining / initial * 100) | round(0)) if initial > 0 else 0 %}
-                              {% if pct > 50 %}green{% elif pct >= 20 %}amber{% else %}red{% endif %}
-                            {% else %}green{% endif %}
+                            {% set spool_id = states('input_text.ams_slot_4_spool_id') | int(0) %}
+                            {% if status == 'needs_bind' %}red
+                            {% elif spool_id > 0 %}green
+                            {% else %}orange{% endif %}
                           tap_action:
                             action: fire-dom-event
                             browser_mod:
@@ -2436,8 +2418,7 @@ views:
                                 {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
                                 {% set is_active = printing and active == 0 and tray == 3 %}
                                 {% if is_active %}
-                                  border: 2px solid var(--primary-color);
-                                  box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
+                                  box-shadow: 0 0 0 2px cyan;
                                 {% endif %}
                                 {% set status = states('sensor.ams_slot_4_status') %}
                                 {% set hex = states('sensor.ams_slot_4_color_hex') %}
@@ -2456,24 +2437,27 @@ views:
                               ha-card::after {
                                 content: '';
                                 position: absolute;
-                                bottom: 0;
+                                top: 0;
                                 left: 0;
                                 right: 0;
-                                height: 6px;
+                                height: 5px;
                                 {% set status = states('sensor.ams_slot_4_status') %}
+                                {% set spool_id = states('input_text.ams_slot_4_spool_id') | int(0) %}
+                                {% set tray_color = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'color') | default('') %}
+                                {% set spoolman_color = state_attr('sensor.spoolman_spool_' ~ spool_id, 'color_hex') | default('') if spool_id > 0 else '' %}
+                                {% set color_hex = tray_color[1:7] if tray_color and tray_color | length >= 7 else (spoolman_color if spoolman_color else '444444') %}
+                                {% set tray_remain = state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'remain') %}
+                                {% set tray_remain = tray_remain | int(-1) if tray_remain is not none else -1 %}
+                                {% set spoolman_remaining = states('sensor.spoolman_spool_' ~ spool_id) | float(-1) if spool_id > 0 else -1 %}
+                                {% set pct = tray_remain if tray_remain >= 0 else ((spoolman_remaining / 1000 * 100) | round(0) | int if spoolman_remaining >= 0 else 0) %}
+                                {% set pct = [0, [100, pct] | min] | max %}
                                 {% if status != 'empty' %}
-                                {% set remaining = states('sensor.ams_slot_4_remaining_g') | float(0) %}
-                                {% set initial = states('sensor.ams_slot_4_initial_weight_g') | float(0) %}
-                                {% set pct = [((remaining / initial * 100) | round(0)) if initial > 0 else 0, 100] | min %}
-                                {% set hex = states('sensor.ams_slot_4_color_hex') %}
-                                {% set color = '#' ~ hex if hex not in ['000000', 'unknown', 'unavailable', ''] else '#333333' %}
-                                background: linear-gradient(90deg, {{ color }} {{ pct }}%, rgba(255,255,255,0.08) {{ pct }}%);
-                                transition: background 1s ease;
+                                background: linear-gradient(90deg, #{{ color_hex }} {{ pct }}%, rgba(100,100,100,0.3) {{ pct }}%);
                                 {% else %}
-                                background: rgba(255,255,255,0.08);
+                                background: rgba(100,100,100,0.3);
                                 {% endif %}
                                 z-index: 1;
-                                border-radius: 0 0 14px 14px;
+                                border-radius: 14px 14px 0 0;
                               }
                     - type: custom:mushroom-entity-card
                       entity: sensor.p1s_01p00c5a3101668_ams_1_humidity
@@ -2642,16 +2626,10 @@ views:
                           badge_icon: mdi:numeric-5-circle
                           badge_color: >-
                             {% set status = states('sensor.ams_slot_5_status') %}
-                            {% set r = states('input_text.ams_slot_5_unbound_reason') %}
-                            {% if 'RFID_NOT_REFRESHED' in r %}orange
-                            {% elif status == 'needs_bind' %}red
-                            {% elif status == 'empty' %}grey
-                            {% elif status == 'ok' %}
-                              {% set remaining = states('sensor.ams_slot_5_remaining_g') | float(0) %}
-                              {% set initial = states('sensor.ams_slot_5_initial_weight_g') | float(0) %}
-                              {% set pct = ((remaining / initial * 100) | round(0)) if initial > 0 else 0 %}
-                              {% if pct > 50 %}green{% elif pct >= 20 %}amber{% else %}red{% endif %}
-                            {% else %}green{% endif %}
+                            {% set spool_id = states('input_text.ams_slot_5_spool_id') | int(0) %}
+                            {% if status == 'needs_bind' %}red
+                            {% elif spool_id > 0 %}green
+                            {% else %}orange{% endif %}
                           tap_action:
                             action: fire-dom-event
                             browser_mod:
@@ -2779,8 +2757,7 @@ views:
                                 {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
                                 {% set is_active = printing and active == 128 and tray == 0 %}
                                 {% if is_active %}
-                                  border: 2px solid var(--primary-color);
-                                  box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
+                                  box-shadow: 0 0 0 2px cyan;
                                 {% endif %}
                                 {% set status = states('sensor.ams_slot_5_status') %}
                                 {% set hex = states('sensor.ams_slot_5_color_hex') %}
@@ -2799,24 +2776,27 @@ views:
                               ha-card::after {
                                 content: '';
                                 position: absolute;
-                                bottom: 0;
+                                top: 0;
                                 left: 0;
                                 right: 0;
-                                height: 6px;
+                                height: 5px;
                                 {% set status = states('sensor.ams_slot_5_status') %}
+                                {% set spool_id = states('input_text.ams_slot_5_spool_id') | int(0) %}
+                                {% set tray_color = state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'color') | default('') %}
+                                {% set spoolman_color = state_attr('sensor.spoolman_spool_' ~ spool_id, 'color_hex') | default('') if spool_id > 0 else '' %}
+                                {% set color_hex = tray_color[1:7] if tray_color and tray_color | length >= 7 else (spoolman_color if spoolman_color else '444444') %}
+                                {% set tray_remain = state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'remain') %}
+                                {% set tray_remain = tray_remain | int(-1) if tray_remain is not none else -1 %}
+                                {% set spoolman_remaining = states('sensor.spoolman_spool_' ~ spool_id) | float(-1) if spool_id > 0 else -1 %}
+                                {% set pct = tray_remain if tray_remain >= 0 else ((spoolman_remaining / 1000 * 100) | round(0) | int if spoolman_remaining >= 0 else 0) %}
+                                {% set pct = [0, [100, pct] | min] | max %}
                                 {% if status != 'empty' %}
-                                {% set remaining = states('sensor.ams_slot_5_remaining_g') | float(0) %}
-                                {% set initial = states('sensor.ams_slot_5_initial_weight_g') | float(0) %}
-                                {% set pct = [((remaining / initial * 100) | round(0)) if initial > 0 else 0, 100] | min %}
-                                {% set hex = states('sensor.ams_slot_5_color_hex') %}
-                                {% set color = '#' ~ hex if hex not in ['000000', 'unknown', 'unavailable', ''] else '#333333' %}
-                                background: linear-gradient(90deg, {{ color }} {{ pct }}%, rgba(255,255,255,0.08) {{ pct }}%);
-                                transition: background 1s ease;
+                                background: linear-gradient(90deg, #{{ color_hex }} {{ pct }}%, rgba(100,100,100,0.3) {{ pct }}%);
                                 {% else %}
-                                background: rgba(255,255,255,0.08);
+                                background: rgba(100,100,100,0.3);
                                 {% endif %}
                                 z-index: 1;
-                                border-radius: 0 0 14px 14px;
+                                border-radius: 14px 14px 0 0;
                               }
                     - type: custom:mushroom-entity-card
                       entity: sensor.p1s_01p00c5a3101668_ams_128_humidity
@@ -2979,16 +2959,10 @@ views:
                           badge_icon: mdi:numeric-6-circle
                           badge_color: >-
                             {% set status = states('sensor.ams_slot_6_status') %}
-                            {% set r = states('input_text.ams_slot_6_unbound_reason') %}
-                            {% if 'RFID_NOT_REFRESHED' in r %}orange
-                            {% elif status == 'needs_bind' %}red
-                            {% elif status == 'empty' %}grey
-                            {% elif status == 'ok' %}
-                              {% set remaining = states('sensor.ams_slot_6_remaining_g') | float(0) %}
-                              {% set initial = states('sensor.ams_slot_6_initial_weight_g') | float(0) %}
-                              {% set pct = ((remaining / initial * 100) | round(0)) if initial > 0 else 0 %}
-                              {% if pct > 50 %}green{% elif pct >= 20 %}amber{% else %}red{% endif %}
-                            {% else %}green{% endif %}
+                            {% set spool_id = states('input_text.ams_slot_6_spool_id') | int(0) %}
+                            {% if status == 'needs_bind' %}red
+                            {% elif spool_id > 0 %}green
+                            {% else %}orange{% endif %}
                           tap_action:
                             action: fire-dom-event
                             browser_mod:
@@ -3116,8 +3090,7 @@ views:
                                 {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') in ['printing'] %}
                                 {% set is_active = printing and active == 129 and tray == 0 %}
                                 {% if is_active %}
-                                  border: 2px solid var(--primary-color);
-                                  box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
+                                  box-shadow: 0 0 0 2px cyan;
                                 {% endif %}
                                 {% set status = states('sensor.ams_slot_6_status') %}
                                 {% set hex = states('sensor.ams_slot_6_color_hex') %}
@@ -3136,24 +3109,27 @@ views:
                               ha-card::after {
                                 content: '';
                                 position: absolute;
-                                bottom: 0;
+                                top: 0;
                                 left: 0;
                                 right: 0;
-                                height: 6px;
+                                height: 5px;
                                 {% set status = states('sensor.ams_slot_6_status') %}
+                                {% set spool_id = states('input_text.ams_slot_6_spool_id') | int(0) %}
+                                {% set tray_color = state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'color') | default('') %}
+                                {% set spoolman_color = state_attr('sensor.spoolman_spool_' ~ spool_id, 'color_hex') | default('') if spool_id > 0 else '' %}
+                                {% set color_hex = tray_color[1:7] if tray_color and tray_color | length >= 7 else (spoolman_color if spoolman_color else '444444') %}
+                                {% set tray_remain = state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'remain') %}
+                                {% set tray_remain = tray_remain | int(-1) if tray_remain is not none else -1 %}
+                                {% set spoolman_remaining = states('sensor.spoolman_spool_' ~ spool_id) | float(-1) if spool_id > 0 else -1 %}
+                                {% set pct = tray_remain if tray_remain >= 0 else ((spoolman_remaining / 1000 * 100) | round(0) | int if spoolman_remaining >= 0 else 0) %}
+                                {% set pct = [0, [100, pct] | min] | max %}
                                 {% if status != 'empty' %}
-                                {% set remaining = states('sensor.ams_slot_6_remaining_g') | float(0) %}
-                                {% set initial = states('sensor.ams_slot_6_initial_weight_g') | float(0) %}
-                                {% set pct = [((remaining / initial * 100) | round(0)) if initial > 0 else 0, 100] | min %}
-                                {% set hex = states('sensor.ams_slot_6_color_hex') %}
-                                {% set color = '#' ~ hex if hex not in ['000000', 'unknown', 'unavailable', ''] else '#333333' %}
-                                background: linear-gradient(90deg, {{ color }} {{ pct }}%, rgba(255,255,255,0.08) {{ pct }}%);
-                                transition: background 1s ease;
+                                background: linear-gradient(90deg, #{{ color_hex }} {{ pct }}%, rgba(100,100,100,0.3) {{ pct }}%);
                                 {% else %}
-                                background: rgba(255,255,255,0.08);
+                                background: rgba(100,100,100,0.3);
                                 {% endif %}
                                 z-index: 1;
-                                border-radius: 0 0 14px 14px;
+                                border-radius: 14px 14px 0 0;
                               }
                     - type: custom:mushroom-entity-card
                       entity: sensor.p1s_01p00c5a3101668_ams_129_humidity
