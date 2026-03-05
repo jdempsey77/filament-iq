@@ -893,27 +893,7 @@
       data:
         value: "event_fired"
 
-    # 8. Notification
-    - variables:
-        message_lines: >
-          {% set start = states('input_text.p1s_tray_remaining_start_json') | from_json %}
-          {% set end = end_json_built if end_json_built is mapping else (end_json_built | from_json) %}
-          {% set job_label = (states('sensor.p1s_01p00c5a3101668_task_name') | replace('.gcode.3mf', '') | replace('.3mf', '') | trim) %}
-          {% set ns = namespace(lines=['Job: ' ~ job_label, 'Status: ' ~ trigger_state, '']) %}
-          {% for slot, start_g in start.items() %}
-            {% if slot in end %}
-              {% set end_g = end.get(slot) | float %}
-              {% set used = [0, start_g | float - end_g] | max %}
-              {% set ns.lines = ns.lines + ['Slot ' ~ slot ~ ': ' ~ (start_g | float | round(1)) ~ 'g → ' ~ (end_g | round(1)) ~ 'g (used ~' ~ (used | round(1)) ~ 'g)'] %}
-            {% else %}
-              {% set ns.lines = ns.lines + ['Slot ' ~ slot ~ ': ' ~ (start_g | float | round(1)) ~ 'g → (no fuel gauge)'] %}
-            {% endif %}
-          {% endfor %}
-          {{ ns.lines | join('\n') }}
-    - service: notify.persistent_notification
-      data:
-        title: "P1S Filament Usage ({{ trigger_state }})"
-        message: "{{ message_lines }}"
+    # 8. Notification — handled by AppDaemon ams_print_usage_sync
 
     # 9. Final checkpoint
     - service: input_text.set_value

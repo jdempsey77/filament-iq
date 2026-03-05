@@ -2151,6 +2151,7 @@ class AmsRfidReconcile(hass.Hass):
             )
         self._set_helper(f"input_text.ams_slot_{slot}_spool_id", str(spool_id))
         self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", str(spool_id))
+        self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
         if tray_identity is not None:
             self._set_helper(f"input_text.ams_slot_{slot}_tray_signature", tray_identity)
         elif tray_meta is not None:

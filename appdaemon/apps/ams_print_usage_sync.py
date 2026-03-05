@@ -411,6 +411,50 @@ class AmsPrintUsageSync(hass.Hass):
             level="INFO",
         )
 
+        # ── Notification (actual Spoolman results) ─────────────────────
+        job_label = task_name.replace(".gcode.3mf", "").replace(".3mf", "").strip()
+        lines = [f"Job: {job_label}", f"Status: {print_status}", ""]
+        for slot, spool_id, consumption_g, method in all_results:
+            spool_name = ""
+            try:
+                resp = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+                if resp:
+                    filament = resp.get("filament", {})
+                    vendor = (filament.get("vendor") or {}).get("name", "")
+                    fname = filament.get("name", "")
+                    material = filament.get("material", "")
+                    remaining = resp.get("remaining_weight", 0)
+                    spool_name = f"{vendor} {fname} {material}".strip()
+                    lines.append(
+                        f"Slot {slot}: {spool_name} — used {consumption_g:.1f}g "
+                        f"({remaining:.0f}g left) [{method}]"
+                    )
+                else:
+                    lines.append(
+                        f"Slot {slot}: spool {spool_id} — used {consumption_g:.1f}g [{method}]"
+                    )
+            except Exception:
+                lines.append(
+                    f"Slot {slot}: spool {spool_id} — used {consumption_g:.1f}g [{method}]"
+                )
+        if not all_results:
+            lines.append("No filament consumption recorded.")
+            if not trays_used_set:
+                lines.append("(No tray activity detected)")
+            if not self._threemf_data:
+                lines.append("(3MF data unavailable)")
+        lines.append("")
+        lines.append(f"Total: {total_consumed:.1f}g | Slicer estimate: {print_weight_g:.1f}g")
+        notification_msg = "\n".join(lines)
+        try:
+            self.call_service(
+                "notify/persistent_notification",
+                title=f"P1S Filament Usage ({print_status})",
+                message=notification_msg,
+            )
+        except Exception as e:
+            self.log(f"USAGE_NOTIFY_FAILED: {e}", level="WARNING")
+
         # Clear 3MF data for next print
         self._threemf_data = None
         self._threemf_filename = None
@@ -623,29 +667,48 @@ class AmsPrintUsageSync(hass.Hass):
         )
 
     def _build_slot_data(self):
-        """Build slot color/material/spool data from HA sensors for 3MF matching."""
-        tray_entities = {
-            1: "sensor.p1s_01p00c5a3101668_ams_1_tray_1",
-            2: "sensor.p1s_01p00c5a3101668_ams_1_tray_2",
-            3: "sensor.p1s_01p00c5a3101668_ams_1_tray_3",
-            4: "sensor.p1s_01p00c5a3101668_ams_1_tray_4",
-            5: "sensor.p1s_01p00c5a3101668_ams_128_tray_1",
-            6: "sensor.p1s_01p00c5a3101668_ams_129_tray_1",
-        }
+        """Build slot color/material data for 3MF matching.
+
+        Priority: tray entity attributes (matches what printer/slicer sees).
+        Fallback: Spoolman spool data.
+        """
         slot_data = {}
-        for slot, entity in tray_entities.items():
+        for slot, entity in TRAY_ENTITY_BY_SLOT.items():
             try:
-                attrs = self.get_state(entity, attribute="all")
-                if not isinstance(attrs, dict):
-                    continue
-                a = attrs.get("attributes", {})
                 spool_id = self._read_spool_id(slot)
-                color = normalize_color(
-                    a.get("color", "") or a.get("color_hex", "")
-                )
-                material = normalize_material(
-                    a.get("type", "") or a.get("material", "")
-                )
+
+                # Read from tray entity (matches 3MF/slicer colors)
+                tray_color = self.get_state(entity, attribute="color") or ""
+                tray_type = self.get_state(entity, attribute="type") or ""
+                color = normalize_color(tray_color)
+                material = normalize_material(tray_type)
+
+                # Fallback to Spoolman if tray has no data
+                if not color and spool_id > 0:
+                    try:
+                        spoolman_color = (
+                            self.get_state(
+                                f"sensor.spoolman_spool_{spool_id}",
+                                attribute="color_hex",
+                            )
+                            or ""
+                        )
+                        color = normalize_color(spoolman_color)
+                    except Exception:
+                        pass
+                if not material and spool_id > 0:
+                    try:
+                        spoolman_mat = (
+                            self.get_state(
+                                f"sensor.spoolman_spool_{spool_id}",
+                                attribute="material",
+                            )
+                            or ""
+                        )
+                        material = normalize_material(spoolman_mat)
+                    except Exception:
+                        pass
+
                 slot_data[slot] = {
                     "color_hex": color,
                     "material": material,
@@ -756,6 +819,16 @@ class AmsPrintUsageSync(hass.Hass):
             return val not in _INVALID_TAG_UIDS
         except Exception:
             return False
+
+    def _spoolman_get(self, path):
+        """GET from Spoolman API. Returns parsed JSON or None."""
+        url = f"{self.spoolman_base_url}{path}"
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read().decode())
+        except Exception:
+            return None
 
     def _spoolman_use(self, spool_id, use_weight_g):
         """PUT /api/v1/spool/{id}/use  {"use_weight": grams}"""

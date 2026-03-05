@@ -54,6 +54,18 @@ def normalize_task_name(name):
     return name
 
 
+def _materials_match(mat1, mat2):
+    """Fuzzy material matching. PLA+ matches PLA, PETG-CF matches PETG, etc."""
+    if not mat1 or not mat2:
+        return mat1 == mat2
+    if mat1 == mat2:
+        return True
+    # Strip suffixes: PLA+ → PLA, PETG-CF → PETG
+    base1 = mat1.rstrip("+").split("-")[0].strip()
+    base2 = mat2.rstrip("+").split("-")[0].strip()
+    return base1 == base2
+
+
 def color_distance(hex1, hex2):
     """Euclidean distance between two 6-char hex colors in RGB space.
     Returns 0.0 for exact match, up to ~441.7 for black vs white.
@@ -295,7 +307,7 @@ def match_filaments_to_slots(filaments, slot_data, trays_used=None):
         for slot, data in available_slots.items():
             if slot in used_slots:
                 continue
-            if data["material"] == fil_material and data["color_hex"] == fil_color:
+            if _materials_match(data["material"], fil_material) and data["color_hex"] == fil_color:
                 best_slot = slot
                 best_method = "exact_color_material"
                 best_distance = 0.0
@@ -305,7 +317,7 @@ def match_filaments_to_slots(filaments, slot_data, trays_used=None):
             for slot, data in available_slots.items():
                 if slot in used_slots:
                     continue
-                if data["material"] != fil_material:
+                if not _materials_match(data["material"], fil_material):
                     continue
                 dist = color_distance(fil_color, data["color_hex"])
                 if dist < 30 and dist < best_distance:
@@ -317,13 +329,13 @@ def match_filaments_to_slots(filaments, slot_data, trays_used=None):
             material_candidates = [
                 s
                 for s, d in available_slots.items()
-                if s not in used_slots and d["material"] == fil_material
+                if s not in used_slots and _materials_match(d["material"], fil_material)
             ]
             # Only use material_only when exactly one slot of this material exists
             # in the full slot_data — e.g. one PETG slot in system. If multiple
             # slots have this material (even if one excluded), require color match.
             n_material_total = sum(
-                1 for d in slot_data.values() if d["material"] == fil_material
+                1 for d in slot_data.values() if _materials_match(d["material"], fil_material)
             )
             if len(material_candidates) == 1 and n_material_total == 1:
                 best_slot = material_candidates[0]
