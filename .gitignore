@@ -46,3 +46,4 @@ appdaemon/apps/data/
 
 # Local editor settings
 .vscode/
+.claude/
