@@ -805,6 +805,16 @@
     is_failed: "{{ trigger_state in ['failed', 'error', 'canceled'] }}"
     should_decrement: "{{ not is_failed or states('input_boolean.p1s_decrement_on_failed') == 'on' }}"
   action:
+    # 0. Guard: skip if we already processed this job (duplicate finish+offline trigger)
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: >
+                {{ states('input_text.p1s_finish_automation_checkpoint') == 'complete'
+                   and (as_timestamp(now()) - as_timestamp(states.input_text.p1s_finish_automation_checkpoint.last_changed | default(now()))) < 120 }}
+          sequence:
+            - stop: "Already processed this print (duplicate trigger)"
+
     # 1. Checkpoint
     - service: input_text.set_value
       target:

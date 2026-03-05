@@ -68,6 +68,9 @@ _AMS_TRAY_TO_SLOT = {
 
 MAX_SEEN_JOBS = 50
 
+# tag_uid values that indicate non-RFID (no chip or empty)
+_INVALID_TAG_UIDS = frozenset({"", "0000000000000000", "unknown", "unavailable"})
+
 
 class AmsPrintUsageSync(hass.Hass):
 
@@ -188,16 +191,56 @@ class AmsPrintUsageSync(hass.Hass):
             )
             return
 
-        # ── build slot list (only slots present in BOTH snapshots) ──
-        active_slots = sorted(
-            int(k) for k in start_map
-            if k.isdigit() and 1 <= int(k) <= 6 and k in end_map
-        )
+        # ── build slot list: trays_used primary, fallback to start_map ──
+        if trays_used_set:
+            active_slots = sorted(trays_used_set)
+        else:
+            active_slots = sorted(
+                int(k) for k in start_map
+                if k.isdigit() and 1 <= int(k) <= 6
+            )
+            if active_slots:
+                self.log(
+                    f"USAGE_NO_TRAY_TRACKING: using start_map keys as "
+                    f"active_slots={active_slots}",
+                    level="WARNING",
+                )
 
-        # ── compute per-slot consumption ─────────────────────────────
-        rfid_results = []
-        nonrfid_slots = []
+        # ── Tier 1: 3MF allocation ────────────────────────────────────
+        threemf_matched_slots = {}
+        threemf_used = False
+        all_results = []
         skipped = 0
+
+        if self._threemf_data and self.threemf_enabled:
+            slot_data = self._build_slot_data()
+            matches, unmatched_fils = match_filaments_to_slots(
+                self._threemf_data, slot_data, trays_used_set or None
+            )
+            if matches:
+                threemf_used = True
+                for m in matches:
+                    threemf_matched_slots[m["slot"]] = m["used_g"]
+                    self.log(
+                        f"3MF_MATCH slot={m['slot']} spool_id={m['spool_id']} "
+                        f"used_g={m['used_g']:.2f} method={m['method']}",
+                        level="INFO",
+                    )
+                if unmatched_fils:
+                    self.log(
+                        f"3MF_UNMATCHED filaments="
+                        f"{[(f['index'], f['used_g'], f['color_hex']) for f in unmatched_fils]}",
+                        level="WARNING",
+                    )
+            else:
+                self.log(
+                    "3MF_MATCH: No matches found — falling back to estimation",
+                    level="WARNING",
+                )
+
+        # ── Assign consumption per slot (Tier 2: RFID, Tier 3: time-weighted) ─
+        rfid_total_g = 0.0
+        remaining_nonrfid_slots = []
 
         for slot in active_slots:
             spool_id = self._read_spool_id(slot)
@@ -208,94 +251,42 @@ class AmsPrintUsageSync(hass.Hass):
                 skipped += 1
                 continue
 
+            # Tier 1: 3MF match for this slot
+            if slot in threemf_matched_slots:
+                consumption_g = threemf_matched_slots[slot]
+                all_results.append((slot, spool_id, consumption_g, "3mf"))
+                self.log(
+                    f"USAGE_3MF slot={slot} spool_id={spool_id} "
+                    f"consumption_g={consumption_g:.2f}",
+                    level="INFO",
+                )
+                continue
+
+            # Tier 2: RFID fuel gauge delta
+            is_rfid = self._is_rfid_slot(slot)
             start_g = float(start_map.get(str(slot), 0))
             end_g = float(end_map.get(str(slot), 0))
 
-            # Guard: a spool can't physically lose all weight without being
-            # used.  end_g <= 0 with a positive start means the fuel gauge
-            # was unavailable at print finish — not real consumption.
-            if start_g > 0 and end_g <= 0:
+            if is_rfid and start_g > 0 and end_g > 0:
+                consumption_g = max(0.0, start_g - end_g)
+                rfid_total_g += consumption_g
+                all_results.append((slot, spool_id, consumption_g, "rfid_delta"))
                 self.log(
-                    f"USAGE_SKIP slot={slot} reason=END_WEIGHT_MISSING "
-                    f"start_g={start_g} end_g={end_g}",
-                    level="WARNING",
+                    f"USAGE_RFID slot={slot} spool_id={spool_id} "
+                    f"consumption_g={consumption_g:.1f}",
+                    level="INFO",
                 )
-                skipped += 1
                 continue
 
-            # A slot is RFID-trackable only if BOTH start and end have
-            # positive readings (fuel gauge was available for both snapshots).
-            # If end_g is 0 or missing, the slot has no fuel gauge — treat
-            # as non-RFID for estimation.
-            has_fuel_gauge = start_g > 0 and end_g > 0
-
-            if has_fuel_gauge:
-                consumption_g = max(0.0, start_g - end_g)
-                rfid_results.append((slot, spool_id, consumption_g))
-            else:
-                # Only charge non-RFID slots that were actually used during
-                # this print.  Fail-closed: if tray tracking is empty, skip
-                # all non-RFID slots rather than charging all of them.
-                if slot not in trays_used_set:
-                    self.log(
-                        f"USAGE_NONRFID_SKIP_NOT_USED slot={slot} spool_id={spool_id} "
-                        f"trays_used={trays_used_set}",
-                        level="INFO",
-                    )
-                    skipped += 1
-                    continue
-                nonrfid_slots.append((slot, spool_id))
-
-        # ── 3MF-based allocation (highest accuracy) ─────────────────
-        threemf_matches = {}
-        threemf_used = False
-
-        if self._threemf_data and self.threemf_enabled:
-            slot_data = self._build_slot_data()
-            matches, unmatched_fils = match_filaments_to_slots(
-                self._threemf_data, slot_data, trays_used_set
+            # Tier 3: needs time-weighted estimation
+            remaining_nonrfid_slots.append((slot, spool_id))
+            self.log(
+                f"USAGE_NONRFID_SLOT slot={slot} spool_id={spool_id} "
+                f"is_rfid={is_rfid} start_g={start_g:.1f} end_g={end_g:.1f}",
+                level="INFO",
             )
-            if matches:
-                threemf_used = True
-                for m in matches:
-                    threemf_matches[m["slot"]] = m["used_g"]
-                    self.log(
-                        f"3MF_MATCH slot={m['slot']} spool_id={m['spool_id']} "
-                        f"used_g={m['used_g']:.2f} filament_idx={m['filament_index']} "
-                        f"method={m['method']}",
-                        level="INFO",
-                    )
-                if unmatched_fils:
-                    self.log(
-                        f"3MF_UNMATCHED filaments={[(f['index'], f['used_g'], f['color_hex']) for f in unmatched_fils]}",
-                        level="WARNING",
-                    )
-            else:
-                self.log(
-                    "3MF_MATCH: No matches found — falling back to estimation",
-                    level="WARNING",
-                )
 
-        # Override RFID results with 3MF data where available
-        if threemf_used:
-            new_rfid_results = []
-            for slot, spool_id, consumption_g in rfid_results:
-                if slot in threemf_matches:
-                    threemf_g = threemf_matches.pop(slot)
-                    self.log(
-                        f"3MF_OVERRIDE_RFID slot={slot} fuel_gauge_g={consumption_g:.1f} "
-                        f"threemf_g={threemf_g:.2f} — using 3MF",
-                        level="INFO",
-                    )
-                    new_rfid_results.append((slot, spool_id, threemf_g))
-                else:
-                    new_rfid_results.append((slot, spool_id, consumption_g))
-            rfid_results = new_rfid_results
-
-        # ── non-RFID allocation ──────────────────────────────────────
-        rfid_total_g = sum(c for _, _, c in rfid_results)
-        # Cap RFID total to print weight — fuel gauge has coarse resolution
-        # and can over-report consumption for small prints
+        # Cap RFID total to print weight (fuel gauge coarse resolution)
         if rfid_total_g > print_weight_g and print_weight_g > 0:
             self.log(
                 f"USAGE_RFID_CAP rfid_total={rfid_total_g:.1f} > "
@@ -303,84 +294,59 @@ class AmsPrintUsageSync(hass.Hass):
                 level="WARNING",
             )
             rfid_total_g = print_weight_g
-        nonrfid_pool_g = max(0.0, print_weight_g - rfid_total_g)
 
-        # Build non-RFID results: 3MF matches first, then time-weighted for remainder
-        nonrfid_results = []
-        nonrfid_remaining = []
+        # ── Tier 3: Time-weighted non-RFID allocation ──────────────────
+        if remaining_nonrfid_slots:
+            threemf_total = sum(
+                c for s, _, c, m in all_results if m == "3mf"
+            )
+            pool_g = max(
+                0.0, print_weight_g - threemf_total - rfid_total_g
+            )
 
-        if threemf_used:
-            for slot, spool_id in nonrfid_slots:
-                if slot in threemf_matches:
-                    exact_g = threemf_matches.pop(slot)
-                    self.log(
-                        f"USAGE_3MF_EXACT slot={slot} spool_id={spool_id} "
-                        f"used_g={exact_g:.2f}",
-                        level="INFO",
-                    )
-                    nonrfid_results.append((slot, spool_id, exact_g))
-                else:
-                    nonrfid_remaining.append((slot, spool_id))
-        else:
-            nonrfid_remaining = list(nonrfid_slots)
+            if pool_g <= 0 and (threemf_total + rfid_total_g) > print_weight_g:
+                self.log(
+                    f"USAGE_POOL_EXHAUSTED 3mf+rfid={threemf_total + rfid_total_g:.1f} "
+                    f"> print_weight={print_weight_g:.1f} — non-RFID pool is 0",
+                    level="WARNING",
+                )
 
-        # Time-weighted estimation for remaining non-RFID slots without 3MF match
-        threemf_nonrfid_total = sum(c for _, _, c in nonrfid_results)
-        remaining_pool_g = max(
-            0.0, nonrfid_pool_g - threemf_nonrfid_total
-        )
-
-        if nonrfid_remaining:
             time_weights = self._get_time_weights()
-            nonrfid_slot_ids = set(slot for slot, _ in nonrfid_remaining)
+            nonrfid_slot_ids = {s for s, _ in remaining_nonrfid_slots}
             relevant_weights = {
                 s: w for s, w in time_weights.items() if s in nonrfid_slot_ids
             }
 
             if relevant_weights and sum(relevant_weights.values()) > 0:
                 weight_total = sum(relevant_weights.values())
-                allocation_method = "time_weighted"
+                method = "time_weighted"
             else:
-                relevant_weights = {s: 1.0 for s, _ in nonrfid_remaining}
-                weight_total = len(nonrfid_remaining)
-                allocation_method = "equal_split"
+                relevant_weights = {s: 1.0 for s, _ in remaining_nonrfid_slots}
+                weight_total = len(remaining_nonrfid_slots)
+                method = "equal_split"
 
-            for slot, spool_id in nonrfid_remaining:
-                slot_weight = relevant_weights.get(slot, 0)
-                slot_share_g = (
-                    (remaining_pool_g * slot_weight / weight_total)
-                    if weight_total > 0
-                    else 0.0
+            for slot, spool_id in remaining_nonrfid_slots:
+                w = relevant_weights.get(slot, 0)
+                consumption_g = (
+                    (pool_g * w / weight_total) if weight_total > 0 else 0.0
                 )
+                all_results.append((slot, spool_id, consumption_g, method))
                 self.log(
-                    f"USAGE_NONRFID_ESTIMATE slot={slot} spool_id={spool_id} "
-                    f"estimated_g={slot_share_g:.1f} pool_g={remaining_pool_g:.1f} "
-                    f"method={allocation_method} weight={slot_weight:.4f} "
-                    f"slots={len(nonrfid_remaining)}",
+                    f"USAGE_NONRFID slot={slot} spool_id={spool_id} "
+                    f"consumption_g={consumption_g:.2f} pool_g={pool_g:.1f} "
+                    f"method={method} weight={w:.4f}",
                     level="INFO",
                 )
-                nonrfid_results.append((slot, spool_id, slot_share_g))
-        else:
-            allocation_method = "equal_split"
 
         # ── write to Spoolman ────────────────────────────────────────
         patched = 0
-        all_results = rfid_results + nonrfid_results
 
-        for slot, spool_id, consumption_g in all_results:
-            method = (
-                "rfid_delta"
-                if any(s == slot for s, _, _ in rfid_results)
-                else "nonrfid_estimate"
-            )
-
+        for slot, spool_id, consumption_g, method in all_results:
             # Sanity cap: refuse to log unreasonably large consumption
             if consumption_g > self.max_consumption_g:
                 self.log(
-                    f"USAGE_SANITY_CAP slot={slot} spool_id={spool_id} "
-                    f"consumption_g={consumption_g:.1f} "
-                    f"max={self.max_consumption_g} method={method} "
-                    f"— REFUSING TO WRITE",
+                    f"USAGE_SANITY_CAP slot={slot} consumption_g={consumption_g:.1f} "
+                    f"> max={self.max_consumption_g} — SKIPPING",
                     level="ERROR",
                 )
                 skipped += 1
@@ -388,10 +354,9 @@ class AmsPrintUsageSync(hass.Hass):
 
             if consumption_g < self.min_consumption_g:
                 self.log(
-                    f"USAGE_BELOW_MIN slot={slot} spool_id={spool_id} "
-                    f"consumption_g={consumption_g:.1f} "
-                    f"min={self.min_consumption_g}",
-                    level="DEBUG",
+                    f"USAGE_BELOW_MIN slot={slot} consumption_g={consumption_g:.2f} "
+                    f"< min={self.min_consumption_g} — skipping",
+                    level="INFO",
                 )
                 skipped += 1
                 continue
@@ -410,7 +375,7 @@ class AmsPrintUsageSync(hass.Hass):
             if ok:
                 self.log(
                     f"USAGE_PATCHED slot={slot} spool_id={spool_id} "
-                    f"use_weight={consumption_g:.1f} method={method} "
+                    f"consumption_g={consumption_g:.2f} method={method} "
                     f"job_key={job_key}",
                     level="INFO",
                 )
@@ -426,16 +391,20 @@ class AmsPrintUsageSync(hass.Hass):
             self._persist_seen_job_keys()
 
         # ── summary ──────────────────────────────────────────────────
-        total_consumed = sum(c for _, _, c in all_results)
-        allocation_source = "3mf" if threemf_used else allocation_method
+        total_consumed = sum(c for _, _, c, _ in all_results)
+        threemf_count = sum(1 for _, _, _, m in all_results if m == "3mf")
+        rfid_count = sum(1 for _, _, _, m in all_results if m == "rfid_delta")
+        nonrfid_count = sum(
+            1 for _, _, _, m in all_results
+            if m in ("time_weighted", "equal_split")
+        )
         self.log(
             f"USAGE_SUMMARY job_key={job_key} task={task_name} "
             f"status={print_status} "
-            f"rfid_slots={len(rfid_results)} "
-            f"nonrfid_slots={len(nonrfid_results)} "
+            f"3mf_slots={threemf_count} rfid_slots={rfid_count} "
+            f"nonrfid_slots={nonrfid_count} "
             f"trays_used={trays_used_set or 'all'} "
             f"tray_times={self._summarize_tray_times()} "
-            f"allocation={allocation_source} "
             f"threemf_file={self._threemf_filename or 'none'} "
             f"total_consumed_g={total_consumed:.1f} "
             f"patched={patched} skipped={skipped}",
@@ -775,6 +744,18 @@ class AmsPrintUsageSync(hass.Hass):
             return int(raw or 0)
         except (TypeError, ValueError):
             return 0
+
+    def _is_rfid_slot(self, slot):
+        """Check if a slot has a valid RFID tag (tag_uid present and not empty/zero)."""
+        entity = TRAY_ENTITY_BY_SLOT.get(slot)
+        if not entity:
+            return False
+        try:
+            tag_uid = self.get_state(entity, attribute="tag_uid")
+            val = str(tag_uid or "").strip()
+            return val not in _INVALID_TAG_UIDS
+        except Exception:
+            return False
 
     def _spoolman_use(self, spool_id, use_weight_g):
         """PUT /api/v1/spool/{id}/use  {"use_weight": grams}"""

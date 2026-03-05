@@ -108,41 +108,50 @@ def ftps_download_3mf(
 ):
     """Download a 3MF file from the printer's /cache/ directory.
     Returns local file path on success, None on failure.
+
+    Tries URL-encoded path first, then raw path (for unicode/emoji filenames
+    that may fail with standard encoding).
     """
     remote_path = f"/cache/{remote_filename}"
-    encoded_path = urllib.parse.quote(remote_path, safe="/")
-    url = f"ftps://{printer_ip}:{port}{encoded_path}"
     local_path = os.path.join(dest_dir, remote_filename)
 
-    cmd = [
-        "curl",
-        "--ssl-reqd",
-        "--insecure",
-        "--user",
-        f"bblp:{access_code}",
-        "--output",
-        local_path,
-        "--max-time",
-        str(timeout),
-        url,
-    ]
-    try:
-        result = subprocess.run(cmd, capture_output=True, timeout=timeout + 5)
-        if result.returncode != 0:
-            logger.error(
-                f"FTPS download failed: {result.stderr.decode('utf-8', errors='replace')}"
+    for attempt_path in [
+        urllib.parse.quote(remote_path, safe="/"),
+        remote_path,
+    ]:
+        url = f"ftps://{printer_ip}:{port}{attempt_path}"
+        cmd = [
+            "curl",
+            "--ssl-reqd",
+            "--insecure",
+            "--user",
+            f"bblp:{access_code}",
+            "--output",
+            local_path,
+            "--max-time",
+            str(timeout),
+            url,
+        ]
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, timeout=timeout + 5
             )
+            if result.returncode == 0 and os.path.exists(local_path):
+                if os.path.getsize(local_path) > 0:
+                    return local_path
+            if result.returncode != 0:
+                logger.warning(
+                    f"FTPS download attempt failed: "
+                    f"{result.stderr.decode('utf-8', errors='replace')}"
+                )
+        except subprocess.TimeoutExpired:
+            logger.warning("FTPS download timed out")
+        except FileNotFoundError:
+            logger.error("curl not found")
             return None
-        if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
-            return local_path
-        logger.error(f"Downloaded file missing or empty: {local_path}")
-        return None
-    except subprocess.TimeoutExpired:
-        logger.error("FTPS download timed out")
-        return None
-    except FileNotFoundError:
-        logger.error("curl not found")
-        return None
+
+    logger.error(f"FTPS download failed for {remote_filename} (all attempts)")
+    return None
 
 
 def find_best_3mf(file_list, task_name):

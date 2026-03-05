@@ -113,6 +113,11 @@ class TestNormalizeTaskName:
         )
         assert "overture v2" in result
 
+    def test_normalize_task_name_with_emoji(self):
+        """Unicode/emoji in filename is normalized for matching."""
+        result = normalize_task_name("● 5x6 Drawer Set.3mf")
+        assert "5x6 drawer set" in result
+
 
 # ── Color Distance ───────────────────────────────────────────────────
 
@@ -184,6 +189,12 @@ class TestFindBest3mf:
     def test_extension_normalization(self):
         files = ["My Print.gcode.3mf"]
         assert find_best_3mf(files, "My Print.3mf") == "My Print.gcode.3mf"
+
+    def test_find_best_3mf_with_emoji(self):
+        """find_best_3mf matches filenames with emoji/unicode."""
+        files = ["● 5x6 Drawer Set.3mf", "other.3mf"]
+        result = find_best_3mf(files, "● 5x6 Drawer Set")
+        assert result == "● 5x6 Drawer Set.3mf"
 
 
 # ── Filament-to-Slot Matching ────────────────────────────────────────

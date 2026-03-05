@@ -130,7 +130,10 @@ def _default_state_map(spool_bindings=None):
 def test_rfid_single_slot_consumption():
     """start=420g end=370g → use_weight=50g, USAGE_PATCHED logged (under max_consumption_g)."""
     app = _TestableUsageSync(
-        state_map=_default_state_map({4: 10}),
+        state_map={
+            **_default_state_map({4: 10}),
+            **_rfid_tag_uid_for_slots([4]),
+        },
     )
     _fire(app,
           trays_used="4",
@@ -141,14 +144,18 @@ def test_rfid_single_slot_consumption():
     assert len(app._use_calls) == 1
     assert app._use_calls[0]["spool_id"] == 10
     assert abs(app._use_calls[0]["use_weight"] - 50.0) < 0.01
-    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10 use_weight=50.0")
+    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10")
+    assert _has_log(app, "consumption_g=50.00")
     assert _has_log(app, "USAGE_SUMMARY")
 
 
 def test_rfid_multiple_slots_consumption():
     """Two RFID slots, each gets correct delta (both under max_consumption_g)."""
     app = _TestableUsageSync(
-        state_map=_default_state_map({2: 5, 4: 10}),
+        state_map={
+            **_default_state_map({2: 5, 4: 10}),
+            **_rfid_tag_uid_for_slots([2, 4]),
+        },
     )
     _fire(app,
           trays_used="2,4",
@@ -160,8 +167,8 @@ def test_rfid_multiple_slots_consumption():
     by_spool = {c["spool_id"]: c["use_weight"] for c in app._use_calls}
     assert abs(by_spool[5] - 50.0) < 0.01
     assert abs(by_spool[10] - 50.0) < 0.01
-    assert _has_log(app, "USAGE_PATCHED slot=2 spool_id=5 use_weight=50.0")
-    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10 use_weight=50.0")
+    assert _has_log(app, "USAGE_PATCHED slot=2 spool_id=5")
+    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10")
 
 
 @pytest.mark.skip(reason="non-RFID pool logic or slot start/end snapshot expectations need review; unrelated to lot_nr migration")
@@ -201,6 +208,28 @@ def test_nonrfid_multiple_slots_equal_split():
     assert abs(by_spool[5] - 50.0) < 0.01
     assert abs(by_spool[20] - 75.0) < 0.01
     assert abs(by_spool[21] - 75.0) < 0.01
+
+
+def test_nonrfid_slot_in_trays_used_included_in_active_slots():
+    """Non-RFID slot in trays_used + start but NOT in end → still gets tracked via time-weighted."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({1: 41, 2: 47}),
+        # Slot 1 RFID (tag_uid), slot 2 non-RFID (no tag_uid)
+    )
+    # Inject RFID for slot 1 only
+    app._state_map.update(_rfid_tag_uid_for_slots([1]))
+    _fire(app,
+          trays_used="1,2",
+          start_json='{"1": 960, "2": 830}',
+          end_json='{"1": 920}',  # slot 2 missing (non-RFID, no fuel gauge)
+          print_weight_g="100")
+
+    # Slot 1: RFID delta 40g; Slot 2: 60g from pool (time-weighted or equal split)
+    assert len(app._use_calls) == 2
+    by_spool = {c["spool_id"]: c["use_weight"] for c in app._use_calls}
+    assert abs(by_spool[41] - 40.0) < 0.01
+    assert abs(by_spool[47] - 60.0) < 0.01
+    assert _has_log(app, "USAGE_NONRFID_SLOT slot=2")
 
 
 def test_cancelled_before_start_no_write():
@@ -284,7 +313,10 @@ def test_dry_run_no_patch():
 def test_native_dict_event_data():
     """HA native types pass dicts instead of JSON strings — app handles both."""
     app = _TestableUsageSync(
-        state_map=_default_state_map({4: 10}),
+        state_map={
+            **_default_state_map({4: 10}),
+            **_rfid_tag_uid_for_slots([4]),
+        },
     )
     _fire(app,
           trays_used="4",
@@ -296,13 +328,16 @@ def test_native_dict_event_data():
     assert len(app._use_calls) == 1
     assert app._use_calls[0]["spool_id"] == 10
     assert abs(app._use_calls[0]["use_weight"] - 50.0) < 0.01
-    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10 use_weight=50.0")
+    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10")
 
 
 def test_sanity_cap_refuses_large_consumption():
     """consumption > max_consumption_g → USAGE_SANITY_CAP, no write."""
     app = _TestableUsageSync(
-        state_map=_default_state_map({4: 10}),
+        state_map={
+            **_default_state_map({4: 10}),
+            **_rfid_tag_uid_for_slots([4]),
+        },
         args={"max_consumption_g": 300},
     )
     _fire(app,
@@ -314,13 +349,16 @@ def test_sanity_cap_refuses_large_consumption():
     assert len(app._use_calls) == 0
     assert _has_log(app, "USAGE_SANITY_CAP")
     assert _has_log(app, "consumption_g=310.0")
-    assert _has_log(app, "REFUSING TO WRITE")
+    assert _has_log(app, "SKIPPING")
 
 
 def test_spoolman_failure_continues():
     """First slot PUT fails → second slot still written."""
     app = _TestableUsageSync(
-        state_map=_default_state_map({2: 5, 4: 10}),
+        state_map={
+            **_default_state_map({2: 5, 4: 10}),
+            **_rfid_tag_uid_for_slots([2, 4]),
+        },
     )
     app._use_fail_spool_ids.add(5)
 
@@ -338,7 +376,21 @@ def test_spoolman_failure_continues():
 
 # ── active tray tracking tests ────────────────────────────────────────
 
-from ams_print_usage_sync import ACTIVE_TRAY_ENTITY, _AMS_TRAY_TO_SLOT
+from ams_print_usage_sync import (
+    ACTIVE_TRAY_ENTITY,
+    TRAY_ENTITY_BY_SLOT,
+    _AMS_TRAY_TO_SLOT,
+)
+
+
+def _rfid_tag_uid_for_slots(slots):
+    """Add tag_uid to state_map for given slots so _is_rfid_slot returns True."""
+    result = {}
+    for slot in slots:
+        entity = TRAY_ENTITY_BY_SLOT.get(slot)
+        if entity:
+            result[f"{entity}::tag_uid"] = "C7D26F7B00000100"
+    return result
 
 
 def _active_tray_state(ams_index, tray_index, name="Generic PLA"):
