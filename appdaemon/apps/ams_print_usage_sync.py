@@ -53,6 +53,19 @@ TRAY_ENTITY_BY_SLOT = {
 }
 SLOT_BY_TRAY_ENTITY = {v: k for k, v in TRAY_ENTITY_BY_SLOT.items()}
 
+ACTIVE_TRAY_ENTITY = "sensor.p1s_01p00c5a3101668_active_tray"
+
+# Map (ams_index, tray_index) from active_tray sensor → slot number.
+# ams_index 0 = AMS Pro (4 trays), 128 = HT slot 1, 129 = HT slot 2.
+_AMS_TRAY_TO_SLOT = {
+    (0, 0): 1,
+    (0, 1): 2,
+    (0, 2): 3,
+    (0, 3): 4,
+    (128, 0): 5,
+    (129, 0): 6,
+}
+
 MAX_SEEN_JOBS = 50
 
 
@@ -103,13 +116,12 @@ class AmsPrintUsageSync(hass.Hass):
 
         self.listen_event(self._handle_usage_event, "P1S_PRINT_USAGE_READY")
 
-        # Listen for tray active attribute changes
-        for tray_entity in SLOT_BY_TRAY_ENTITY:
-            self.listen_state(
-                self._on_tray_active_change,
-                tray_entity,
-                attribute="active",
-            )
+        # Listen for active tray changes (single sensor covers all slots
+        # including HT slots 5-6 which don't reliably fire per-tray active)
+        self.listen_state(
+            self._on_active_tray_change,
+            ACTIVE_TRAY_ENTITY,
+        )
 
         # Listen for print status to know when to start/stop tracking
         self.listen_state(
@@ -475,44 +487,57 @@ class AmsPrintUsageSync(hass.Hass):
                     level="WARNING",
                 )
 
+    def _resolve_active_tray_slot(self):
+        """Read active_tray sensor attributes and return the slot number, or None."""
+        try:
+            ams_idx = self.get_state(ACTIVE_TRAY_ENTITY, attribute="ams_index")
+            tray_idx = self.get_state(ACTIVE_TRAY_ENTITY, attribute="tray_index")
+            if ams_idx is None or tray_idx is None:
+                return None
+            return _AMS_TRAY_TO_SLOT.get((int(ams_idx), int(tray_idx)))
+        except (TypeError, ValueError):
+            return None
+
     def _seed_active_trays(self):
-        """Check all tray entities for currently active trays and seed tracking."""
-        for tray_entity, slot in SLOT_BY_TRAY_ENTITY.items():
-            try:
-                active = self.get_state(tray_entity, attribute="active")
-                if active is True or active == "true" or active == "True":
-                    self._trays_used.add(slot)
-                    self._open_active_segment(slot)
-                    self._current_active_slot = slot
-                    self.log(
-                        f"TRAY_TRACKING_SEED slot={slot} entity={tray_entity}",
-                        level="INFO",
-                    )
-            except Exception:
-                pass
-
-    def _on_tray_active_change(self, entity, attribute, old, new, kwargs):
-        """Record when a tray becomes active during a print."""
-        if not self._print_active:
+        """Check active_tray sensor for currently active tray and seed tracking."""
+        state = self.get_state(ACTIVE_TRAY_ENTITY)
+        if not state or state in ("none", "unknown", "unavailable"):
             return
-
-        slot = SLOT_BY_TRAY_ENTITY.get(entity)
-        if slot is None:
-            return
-
-        is_active = new is True or new == "true" or new == "True"
-
-        if is_active:
-            if self._current_active_slot is not None and self._current_active_slot != slot:
-                self._close_active_segment(self._current_active_slot)
-
+        slot = self._resolve_active_tray_slot()
+        if slot is not None:
             self._trays_used.add(slot)
             self._open_active_segment(slot)
             self._current_active_slot = slot
             self.log(
-                f"TRAY_TRACKING_ACTIVE slot={slot} trays_used={self._trays_used}",
-                level="DEBUG",
+                f"TRAY_TRACKING_SEED slot={slot} state={state}",
+                level="INFO",
             )
+
+    def _on_active_tray_change(self, entity, attribute, old, new, kwargs):
+        """Record when the active tray changes during a print."""
+        if not self._print_active:
+            return
+
+        slot = self._resolve_active_tray_slot()
+
+        # Tray went inactive (state=none) or unknown slot
+        if new in ("none", "unknown", "unavailable") or slot is None:
+            if self._current_active_slot is not None:
+                self._close_active_segment(self._current_active_slot)
+                self._current_active_slot = None
+            return
+
+        # New tray became active
+        if self._current_active_slot is not None and self._current_active_slot != slot:
+            self._close_active_segment(self._current_active_slot)
+
+        self._trays_used.add(slot)
+        self._open_active_segment(slot)
+        self._current_active_slot = slot
+        self.log(
+            f"TRAY_TRACKING_ACTIVE slot={slot} trays_used={self._trays_used}",
+            level="DEBUG",
+        )
 
     def _open_active_segment(self, slot):
         """Start a new time segment for a slot."""

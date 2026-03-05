@@ -76,6 +76,10 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self._log_calls.append((msg, level))
 
     def get_state(self, entity_id, attribute=None):
+        if attribute:
+            key = f"{entity_id}::{attribute}"
+            if key in self._state_map:
+                return self._state_map[key]
         return self._state_map.get(entity_id, "")
 
     def _spoolman_use(self, spool_id, use_weight_g):
@@ -330,3 +334,127 @@ def test_spoolman_failure_continues():
     assert app._use_calls[0]["spool_id"] == 10
     assert _has_log(app, "USAGE_PATCH_FAILED spool_id=5")
     assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10")
+
+
+# ── active tray tracking tests ────────────────────────────────────────
+
+from ams_print_usage_sync import ACTIVE_TRAY_ENTITY, _AMS_TRAY_TO_SLOT
+
+
+def _active_tray_state(ams_index, tray_index, name="Generic PLA"):
+    """Build state_map entries for the active_tray sensor."""
+    return {
+        ACTIVE_TRAY_ENTITY: name,
+        f"{ACTIVE_TRAY_ENTITY}::ams_index": ams_index,
+        f"{ACTIVE_TRAY_ENTITY}::tray_index": tray_index,
+    }
+
+
+def test_resolve_active_tray_slot_ams_pro():
+    """ams_index=0, tray_index=2 → slot 3."""
+    sm = {**_default_state_map(), **_active_tray_state(0, 2)}
+    app = _TestableUsageSync(state_map=sm)
+    assert app._resolve_active_tray_slot() == 3
+
+
+def test_resolve_active_tray_slot_ht1():
+    """ams_index=128, tray_index=0 → slot 5 (HT 1)."""
+    sm = {**_default_state_map(), **_active_tray_state(128, 0)}
+    app = _TestableUsageSync(state_map=sm)
+    assert app._resolve_active_tray_slot() == 5
+
+
+def test_resolve_active_tray_slot_ht2():
+    """ams_index=129, tray_index=0 → slot 6 (HT 2)."""
+    sm = {**_default_state_map(), **_active_tray_state(129, 0)}
+    app = _TestableUsageSync(state_map=sm)
+    assert app._resolve_active_tray_slot() == 6
+
+
+def test_resolve_active_tray_slot_none_attrs():
+    """Missing attributes → None."""
+    app = _TestableUsageSync(state_map={ACTIVE_TRAY_ENTITY: "none"})
+    assert app._resolve_active_tray_slot() is None
+
+
+def test_seed_active_trays_ht_slot():
+    """_seed_active_trays picks up HT slot 5 from active_tray sensor."""
+    sm = {**_default_state_map({5: 30}), **_active_tray_state(128, 0, "Generic PETG")}
+    app = _TestableUsageSync(state_map=sm)
+    app._print_active = True
+    app._seed_active_trays()
+    assert 5 in app._trays_used
+    assert app._current_active_slot == 5
+    assert _has_log(app, "TRAY_TRACKING_SEED slot=5")
+
+
+def test_on_active_tray_change_records_slot():
+    """Simulating active_tray state change records the slot."""
+    sm = {**_default_state_map({2: 5}), **_active_tray_state(0, 1)}
+    app = _TestableUsageSync(state_map=sm)
+    app._print_active = True
+
+    app._on_active_tray_change(
+        ACTIVE_TRAY_ENTITY, "state", "none", "Generic PLA", {}
+    )
+    assert 2 in app._trays_used
+    assert app._current_active_slot == 2
+
+
+def test_on_active_tray_change_closes_previous():
+    """Switching trays closes the previous segment and opens a new one."""
+    sm = {**_default_state_map({2: 5, 4: 10}), **_active_tray_state(0, 1)}
+    app = _TestableUsageSync(state_map=sm)
+    app._print_active = True
+
+    # First tray activates
+    app._on_active_tray_change(
+        ACTIVE_TRAY_ENTITY, "state", "none", "Generic PLA", {}
+    )
+    assert app._current_active_slot == 2
+
+    # Switch to slot 4 (ams_index=0, tray_index=3)
+    sm.update(_active_tray_state(0, 3, "Overture Matte PLA"))
+    app._on_active_tray_change(
+        ACTIVE_TRAY_ENTITY, "state", "Generic PLA", "Overture Matte PLA", {}
+    )
+    assert app._current_active_slot == 4
+    assert app._trays_used == {2, 4}
+    # Slot 2 segment should be closed
+    assert app._tray_active_times[2][0]["end"] is not None
+
+
+def test_on_active_tray_change_none_closes_segment():
+    """Tray going to 'none' closes current segment."""
+    sm = {**_default_state_map({2: 5}), **_active_tray_state(0, 1)}
+    app = _TestableUsageSync(state_map=sm)
+    app._print_active = True
+
+    app._on_active_tray_change(
+        ACTIVE_TRAY_ENTITY, "state", "none", "Generic PLA", {}
+    )
+    assert app._current_active_slot == 2
+
+    # State goes to none — update state_map to reflect no attributes
+    app._state_map[ACTIVE_TRAY_ENTITY] = "none"
+    app._state_map.pop(f"{ACTIVE_TRAY_ENTITY}::ams_index", None)
+    app._state_map.pop(f"{ACTIVE_TRAY_ENTITY}::tray_index", None)
+
+    app._on_active_tray_change(
+        ACTIVE_TRAY_ENTITY, "state", "Generic PLA", "none", {}
+    )
+    assert app._current_active_slot is None
+    assert app._tray_active_times[2][0]["end"] is not None
+
+
+def test_on_active_tray_change_ignored_when_not_printing():
+    """Active tray changes are ignored when _print_active is False."""
+    sm = {**_default_state_map(), **_active_tray_state(0, 1)}
+    app = _TestableUsageSync(state_map=sm)
+    app._print_active = False
+
+    app._on_active_tray_change(
+        ACTIVE_TRAY_ENTITY, "state", "none", "Generic PLA", {}
+    )
+    assert len(app._trays_used) == 0
+    assert app._current_active_slot is None
