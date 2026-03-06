@@ -41,6 +41,7 @@ input_text:
   spoolman_base_url:
     name: Spoolman API base URL
     initial: "http://192.168.4.124:7912"
+    max: 255
   # Add filament form (test dashboard): name, material, color_hex. Submit via rest_command.
   spoolman_new_filament_name:
     name: New filament – name
@@ -97,7 +98,7 @@ input_text:
     max: 100
   filament_iq_last_active_tray:
     name: P1S Last Active Tray
-    max: 100
+    max: 255
   filament_iq_last_tray_entity:
     name: Filament IQ Last Tray Entity
     max: 100
@@ -132,9 +133,8 @@ input_text:
     max: 255
   filament_iq_active_job_key:
     name: Filament IQ Print Job Key (mutex)
-    max: 100
-
-    # AMS UI / mapping helpers (managed)
+    max: 255
+  # AMS UI / mapping helpers (managed)
   ams_slot_1_expected_spool_id:
     name: AMS Slot 1 – Expected Spool ID
     max: 50

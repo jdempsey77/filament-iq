@@ -1,0 +1,16 @@
+# FilamentIQ package — helpers with max: 255 for regression_test.sh
+# Include via: homeassistant.packages: !include_dir_named packages
+# Deploy: ./scripts/manage_filament_iq.sh --ha-config
+# Note: If these are also in configuration.yaml, the package overrides when loaded.
+
+input_text:
+  filament_iq_active_job_key:
+    name: Filament IQ Print Job Key (mutex)
+    max: 255
+  filament_iq_last_active_tray:
+    name: P1S Last Active Tray
+    max: 255
+  spoolman_base_url:
+    name: Spoolman API base URL
+    max: 255
+    initial: "http://192.168.4.124:7912"

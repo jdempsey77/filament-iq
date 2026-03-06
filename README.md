@@ -1,119 +1,60 @@
-# Home Assistant Config
+# FilamentIQ
 
-This repo holds Home Assistant configuration: dashboards, automations, and related YAML.
+**Filament lifecycle tracking and Spoolman integration for Bambu Lab printers with AMS.**
 
-**If this folder is not yet a git repo**, you can turn it into one with: `git init` (from this directory). Ensure local env/secrets files are ignored (e.g. `scripts/deploy.env.local`, `.env*`) so secrets are not committed.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
+[![Last commit](https://img.shields.io/github/last-commit/jdempsey/filament-iq.svg)](https://github.com/jdempsey/filament-iq)
 
-## 🚦 Development workflow (authoritative)
+## What it does
 
-Use the repo’s deterministic workflows for validation and deployment:
+FilamentIQ is an AppDaemon-based integration that connects your Bambu Lab printer's AMS (Automatic Material System) to [Spoolman](https://github.com/Donkie/Spoolman), an open-source filament inventory manager. It tracks filament consumption, reconciles RFID tags and non-RFID trays to Spoolman spools, and writes usage data after each print.
 
-### Validate (required before deploy)
+The integration provides AMS slot management: each physical slot (1–6 for AMS Pro + HT) is mapped to a Spoolman spool via RFID tag matching or metadata fingerprinting for non-RFID filaments. A reconciliation engine keeps slot bindings in sync, and an RFID guard auditor enforces policy. Filament consumption is recorded to Spoolman after each print, with optional 3MF parsing for per-slot usage.
 
-```bash
-./scripts/skill_test.sh
-```
+## Requirements
 
-- Runs preflights
-- Runs unit tests (if present)
-- Runs all Phase Gates (deterministic)
-- Writes artifacts/logs under `.artifacts/skill/`
+- **Home Assistant** (2024.1 or later)
+- **AppDaemon** add-on
+- **Spoolman** (running and reachable)
+- **Bambu Lab printer** with AMS (e.g. P1S, X1)
+- **ha-bambulab** integration for printer sensors
 
-### Deploy (safe, auditable)
+## Installation
 
-```bash
-./scripts/skill_deploy.sh
-```
+### Manual install
 
-- Runs `skill_test.sh` first (must PASS)
-- Deploys via `./scripts/manage_ha.sh` only (targets selected based on changes)
-- Runs post-deploy verification and produces a deployment record
+1. Clone or download this repository.
+2. Copy the `appdaemon/apps/filament_iq/` directory to your AppDaemon apps folder:
+   - Standard: `config/appdaemon/apps/filament_iq/`
+   - Add-on: `/addon_configs/a0d7b954_appdaemon/apps/filament_iq/`
+3. Copy `appdaemon/apps/filament_iq/apps.yaml.example` to your AppDaemon `apps.yaml` (or merge its contents).
+4. Edit `apps.yaml` and replace placeholders (`YOUR_SPOOLMAN_IP`, `YOUR_PRINTER_IP`, printer serial, etc.).
+5. Restart the AppDaemon add-on.
+6. Create the required Home Assistant helpers (input_boolean, input_text, input_button, etc.) — see `ha-config/packages/filament_iq.yaml` or your configuration for the full list.
 
-### Rules of the road
+## Configuration
 
-The authoritative rules (including the ALL‑CAPS triggers for Cursor: `TEST`, `DEPLOY`, `CHECKIN`, `GUARDRAILS`, `ROLLBACK`, `PHASE`) live in:
+Reference `appdaemon/apps/filament_iq/apps.yaml.example` for the complete configuration. Required keys per app:
 
-- `docs/cursor_skill.md`
+| App | Required keys |
+|-----|---------------|
+| `ams_rfid_reconcile` | `spoolman_url`, `printer_serial` |
+| `ams_rfid_guard` | `spoolman_url` |
+| `spoolman_dropdown_sync` | `spoolman_url` |
+| `ams_print_usage_sync` | `spoolman_url`, `printer_serial` |
+| `filament_weight_tracker` | `spoolman_url`, `printer_serial` |
 
-## Contents
+Optional keys include `printer_model`, `ams_units`, `access_code_entity`, `dropdown_entity`, and entity overrides for buttons, booleans, and sensors.
 
-- **configuration.yaml** – Main HA config (template sensors, Google Assistant, etc.)
-- **automations.yaml** – Automations (lights, dishwasher, printer, dryer, washer, etc.)
-- **dashboards/** – Lovelace dashboards
-  - `dashboard.stage.yaml` – Stage dashboard; edit and deploy to `/lovelace-stage`
-- **dashboard.yaml** – Symlink to `dashboards/dashboard.stage.yaml` (for deployment compatibility)
+## Dashboard
 
-## Deploy via SSH
+A Lovelace dashboard is included in `dashboards/` for AMS slot status, Spoolman integration, and print tracking. Deploy via `manage_ha.sh --stage` or copy the YAML to your dashboard configuration.
 
-1. Copy `scripts/deploy.env.example` to `scripts/deploy.env.local` and fill in your SSH host, user, and config path.
-2. **Dashboard workflow:** Deploy stage (`--stage` or `--stage-no-restart`), test at `/lovelace-stage`, then when happy copy `dashboards/dashboard.prod.yaml` into production (or use `--promote`). For dashboard-only changes, use `--stage-no-restart` or LIGHT_DEPLOY to avoid HA restart.
+## Contributing
 
-### Deploying changes to Home Assistant
+Contributions are welcome. Please open an issue first to discuss changes, then submit a pull request.
 
-From the **repo root**, the most common deploy command is:
+## License
 
-```bash
-./scripts/manage_ha.sh --all
-```
-
-This deploys `configuration.yaml`, `automations.yaml`, and `go2rtc.yaml`, then restarts Home Assistant.
-
-**Other useful commands:**
-   - `./scripts/manage_ha.sh` — show usage
-   - `./scripts/manage_ha.sh --stage` — deploy stage dashboard (restarts HA)
-   - `./scripts/manage_ha.sh --stage-no-restart` — deploy stage dashboard without restart (refresh browser)
-   - `./scripts/manage_ha.sh --check` — compare local stage vs HA
-   - `./scripts/manage_ha.sh --config` — deploy configuration.yaml and included files (scripts.yaml, scenes.yaml)
-   - `./scripts/manage_ha.sh --scripts` — deploy scripts.yaml only
-   - `./scripts/manage_ha.sh --all` — deploy all config (config + automations + go2rtc) and restart HA
-   - `./scripts/manage_ha.sh --config --restart` — deploy config and restart HA
-   - `./scripts/manage_ha.sh --config --validate` — deploy config, validate via HA API
-   - `./scripts/manage_ha.sh --validate` — validate config currently on HA
-   - `./scripts/manage_ha.sh --restart` — restart HA only
-
-The script copies the YAML to HA. Refresh the browser at `/lovelace-stage` to see changes (HA detects updates and prompts to refresh).
-
-### Stage changes not showing after `--stage`?
-
-1. **View the Stage dashboard**  
-   Open `https://YOUR_HA_URL/lovelace-stage` (or use the "Stage" entry in the HA sidebar). The default Lovelace dashboard is storage-based and does **not** use this YAML file.
-
-2. **Hard refresh**  
-   Use **Ctrl+Shift+R** (Windows/Linux) or **Cmd+Shift+R** (Mac), or open `/lovelace-stage` in a private/incognito window so the browser doesn’t use a cached dashboard.
-
-3. **Confirm deploy**  
-   From the repo root run:
-   - `./scripts/manage_ha.sh --stage`
-   - `./scripts/manage_ha.sh --check`
-   If you see **DIFFERENT**, the file on HA doesn’t match your local file (deploy path, SSH, or unsaved edits). If you see **SAME**, the deploy worked; the issue is cache or which dashboard you’re viewing.
-
-4. **Save before deploy**  
-   Ensure `dashboards/dashboard.stage.yaml` is saved in your editor before running `--stage`.
-
-### Using the visual editor, then pushing to Stage
-
-The **Stage** dashboard is YAML-based, so HA does not show the visual editor on `/lovelace-stage`. You can design on a **storage-mode** dashboard (e.g. Test or Production) and then push that config into Stage.
-
-1. **Play in a dashboard that has the visual editor**  
-   Use **Test** or **Production** (or create a dashboard in **Settings → Dashboards → Add dashboard** and name it e.g. "Stage Play"). Edit it with the **visual editor** (pencil icon → add/edit cards and views).
-
-2. **Copy the config from that dashboard**  
-   When you’re happy with the layout:
-   - Open that dashboard (Test, Stage Play, etc.).
-   - Click **Edit** (pencil icon).
-   - Open the **⋮** menu (top right) → **Raw configuration** (or **Edit in YAML** / **Code editor**, depending on your HA version).
-   - **Select all** and **copy** the YAML (or JSON; see note below).
-
-3. **Put it into the repo and deploy Stage**  
-   - Open `dashboards/dashboard.stage.yaml` in your repo.
-   - Replace the entire file content with what you copied. The file must be **YAML** and start with `views:` at the top level (if you pasted JSON, convert it to YAML or keep only the `views` part as YAML).
-   - Save the file.
-   - From the repo root run:  
-     `./scripts/manage_ha.sh --stage`
-   - Open **`/lovelace-stage`** and hard-refresh to see the update.
-
-**Note:** If the raw config is JSON, use a converter (e.g. paste into an online YAML/JSON converter) so `dashboard.stage.yaml` is valid YAML starting with `views:`.
-
----
-
-Copy or symlink these into your Home Assistant `config/` (or use your usual deployment) and reload the relevant integrations.
+MIT License — see [LICENSE](LICENSE) for details.
