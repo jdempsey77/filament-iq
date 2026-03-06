@@ -14,6 +14,10 @@ set -a; source "$DEPLOY_ENV"; set +a
 APPDAEMON_ADDON_SLUG="${APPDAEMON_ADDON_SLUG:-a0d7b954_appdaemon}"
 REMOTE_CONFIG_PATH="${REMOTE_CONFIG_PATH:-/config}"
 SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
+SSH_PORT="${HA_SSH_PORT:-22}"
+SSH_KEY="${HA_SSH_KEY:-}"
+_SSH_ARGS() { echo "$SSH_OPTS ${SSH_KEY:+-i $SSH_KEY} -p $SSH_PORT"; }
+_SCP_ARGS() { echo "$SSH_OPTS ${SSH_KEY:+-i $SSH_KEY} -P $SSH_PORT"; }
 
 _resolve_ssh_target() {
   if [[ -n "$HA_SSH_HOST" ]]; then echo "root@$HA_SSH_HOST"
@@ -53,11 +57,11 @@ cmd_appdaemon() {
   local remote_path="/addon_configs/${APPDAEMON_ADDON_SLUG}/apps/filament_iq"
   echo "=== Deploying FilamentIQ AppDaemon apps ==="
   echo "Target: $target:$remote_path"
-  ssh $SSH_OPTS "$target" "mkdir -p $remote_path"
-  scp $SSH_OPTS -r "$REPO_ROOT/appdaemon/apps/filament_iq/." "$target:$remote_path/"
+  ssh $(_SSH_ARGS) "$target" "mkdir -p $remote_path"
+  scp $(_SCP_ARGS) -r "$REPO_ROOT/appdaemon/apps/filament_iq/." "$target:$remote_path/"
   echo "Files deployed."
   echo "Restarting AppDaemon ($APPDAEMON_ADDON_SLUG)..."
-  ssh $SSH_OPTS "$target" "ha apps restart '$APPDAEMON_ADDON_SLUG'"
+  ssh $(_SSH_ARGS) "$target" "ha apps restart '$APPDAEMON_ADDON_SLUG'"
   echo "AppDaemon restarted."
   echo "=== Deploy complete ==="
 }
@@ -65,7 +69,7 @@ cmd_appdaemon() {
 cmd_appdaemon_restart() {
   local target; target=$(_resolve_ssh_target)
   echo "Restarting AppDaemon ($APPDAEMON_ADDON_SLUG)..."
-  ssh $SSH_OPTS "$target" "ha apps restart '$APPDAEMON_ADDON_SLUG'"
+  ssh $(_SSH_ARGS) "$target" "ha apps restart '$APPDAEMON_ADDON_SLUG'"
   echo "Done."
 }
 
@@ -74,8 +78,8 @@ cmd_ha_config() {
   local target; target=$(_resolve_ssh_target)
   local remote_pkg="$REMOTE_CONFIG_PATH/packages/filament_iq.yaml"
   echo "=== Deploying FilamentIQ HA package ==="
-  ssh $SSH_OPTS "$target" "mkdir -p $REMOTE_CONFIG_PATH/packages"
-  scp $SSH_OPTS "$REPO_ROOT/ha-config/packages/filament_iq.yaml" "$target:$remote_pkg"
+  ssh $(_SSH_ARGS) "$target" "mkdir -p $REMOTE_CONFIG_PATH/packages"
+  scp $(_SCP_ARGS) "$REPO_ROOT/ha-config/packages/filament_iq.yaml" "$target:$remote_pkg"
   echo "Package deployed to $remote_pkg"
   local code; code=$(_ha_post "services/homeassistant/reload_core_config")
   [[ "$code" == "200" || "$code" == "204" ]] && echo "Core config reloaded." || echo "Warning: HTTP $code"
@@ -104,7 +108,7 @@ cmd_check() {
   for local_file in $(find "$REPO_ROOT/appdaemon/apps/filament_iq" -name "*.py" | sort); do
     local filename; filename=$(basename "$local_file")
     local local_md5; local_md5=$(md5 -q "$local_file" 2>/dev/null || md5sum "$local_file" | awk '{print $1}')
-    local remote_md5; remote_md5=$(ssh $SSH_OPTS "$target" "md5sum $remote_path/$filename 2>/dev/null | awk '{print \$1}'" 2>/dev/null || echo "missing")
+    local remote_md5; remote_md5=$(ssh $(_SSH_ARGS) "$target" "md5sum $remote_path/$filename 2>/dev/null | awk '{print \$1}'" 2>/dev/null || echo "missing")
     if [[ "$local_md5" == "$remote_md5" ]]; then echo "  SAME       $filename"
     elif [[ "$remote_md5" == "missing" ]]; then echo "  MISSING    $filename"
     else echo "  DIFFERENT  $filename"; fi
