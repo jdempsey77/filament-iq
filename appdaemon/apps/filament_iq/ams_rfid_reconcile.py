@@ -403,7 +403,7 @@ class AmsRfidReconcile(hass.Hass):
 
         self.listen_event(self._on_reconcile_event, "bambu_rfid_reconcile_now")
         self.listen_event(self._on_reconcile_all_event, "AMS_RECONCILE_ALL")
-        self.listen_state(self._on_manual_reconcile_button, "input_button.p1s_rfid_reconcile_now")
+        self.listen_state(self._on_manual_reconcile_button, "input_button.filament_iq_reconcile_now")
         self.listen_event(self._on_manual_enroll_event, "bambu_rfid_manual_enroll_tag_to_spool")
         self.listen_event(self._on_validate_event, "AMS_RFID_VALIDATE")
         self.listen_event(self._on_homeassistant_start, "homeassistant_started")
@@ -424,7 +424,7 @@ class AmsRfidReconcile(hass.Hass):
         try:
             self.call_service(
                 "input_boolean/turn_on",
-                entity_id="input_boolean.appdaemon_startup_suppress_swap",
+                entity_id="input_boolean.filament_iq_startup_suppress_swap",
             )
         except Exception as e:
             self.log("Failed to set appdaemon_startup_suppress_swap on: %s" % (e,), level="WARNING")
@@ -511,7 +511,7 @@ class AmsRfidReconcile(hass.Hass):
         self._schedule_reconcile(reason)
 
     def _on_manual_reconcile_button(self, entity, attribute, old, new, kwargs):
-        """Trigger full reconcile when input_button.p1s_rfid_reconcile_now state (ISO timestamp) changes. Same path as periodic/tray-trigger."""
+        """Trigger full reconcile when input_button.filament_iq_reconcile_now state (ISO timestamp) changes. Same path as periodic/tray-trigger."""
         if not new or new == old:
             return
         if self._active_run is not None:
@@ -888,7 +888,7 @@ class AmsRfidReconcile(hass.Hass):
             # Non-RFID override: run before tag_uid-based branching so normalized "" or literal 000...0 all hit this path
             raw_tag_uid_ht = attrs.get("tag_uid") if attrs.get("tag_uid") is not None else ""
             raw_tray_uuid_ht = attrs.get("tray_uuid") if attrs.get("tray_uuid") is not None else ""
-            nonrfid_enabled = (self.get_state("input_boolean.p1s_nonrfid_enabled") or "").strip().lower() == "on"
+            nonrfid_enabled = (self.get_state("input_boolean.filament_iq_nonrfid_enabled") or "").strip().lower() == "on"
             if nonrfid_enabled and self._is_all_zero_identity(raw_tag_uid_ht, raw_tray_uuid_ht):
                 helper_entity = f"input_text.ams_slot_{slot}_spool_id"
                 raw = self.get_state(helper_entity)
@@ -1453,7 +1453,7 @@ class AmsRfidReconcile(hass.Hass):
                 status = STATUS_UNBOUND_NO_TAG
                 t["decision"], t["reason"], t["action"] = "UNBOUND", "no_tag", "unbound_no_tag"
                 self._record_no_write(slot, "no_tag_uid")
-                nonrfid_enabled = (self.get_state("input_boolean.p1s_nonrfid_enabled") or "").strip().lower() == "on"
+                nonrfid_enabled = (self.get_state("input_boolean.filament_iq_nonrfid_enabled") or "").strip().lower() == "on"
                 if nonrfid_enabled and not tray_empty:
                     # PHASE_2_6: Non-RFID deterministic matching (Shelf-first, controlled New fallback). HT all-zero case handled earlier.
                     shelf_ids, _ = self._find_deterministic_candidates(spools, tray_meta, slot)
@@ -1999,7 +1999,7 @@ class AmsRfidReconcile(hass.Hass):
         )
         if status_only and reason == "safety_poll" and (unbound > 0 or conflict > 0 or mismatch > 0):
             self.log(
-                "SAFETY_POLL_DRIFT detected: one or more slots not OK. Trigger manual reconcile (input_button.p1s_rfid_reconcile_now) to correct.",
+                "SAFETY_POLL_DRIFT detected: one or more slots not OK. Trigger manual reconcile (input_button.filament_iq_reconcile_now) to correct.",
                 level="WARNING",
             )
         if status_only:
@@ -2707,7 +2707,7 @@ class AmsRfidReconcile(hass.Hass):
             f"name={tray_meta.get('name','')}\n\n"
             "No spool at eligible location (Shelf or AMS slot) with this RFID UID. ACTION REQUIRED:\n"
             "1) Run script.p1s_rfid_manual_enroll_tag_to_spool with slot + spool_id (spool at Shelf or AMS), OR\n"
-            "2) Create spool in Spoolman and enroll, then press input_button.p1s_rfid_reconcile_now."
+            "2) Create spool in Spoolman and enroll, then press input_button.filament_iq_reconcile_now."
         )
         self._notify(
             f"RFID NEEDS_ACTION Slot {slot} (no eligible match)",
@@ -2756,7 +2756,7 @@ class AmsRfidReconcile(hass.Hass):
             f"deterministic_candidates={','.join(str(x) for x in candidate_ids) if candidate_ids else 'none'}\n\n"
             "No deterministic match. ACTION REQUIRED:\n"
             "1) Run script.p1s_rfid_manual_enroll_tag_to_spool with slot + spool_id, OR\n"
-            "2) Press input_button.p1s_rfid_reconcile_now."
+            "2) Press input_button.filament_iq_reconcile_now."
         )
         self._notify(
             f"RFID UNBOUND Slot {slot}",
@@ -3454,21 +3454,21 @@ class AmsRfidReconcile(hass.Hass):
     _LAST_MAPPING_JSON_MAX = 255
 
     def write_last_mapping_json(self, reason, mapping):
-        """Write compact JSON to input_text.p1s_last_mapping_json. Always <= 255 chars."""
+        """Write compact JSON to input_text.filament_iq_last_mapping_json. Always <= 255 chars."""
         ts = datetime.datetime.now().isoformat()[:19]
         out = json.dumps({"ts": ts, "reason": reason, "mapping": mapping}, separators=(",", ":"))
         if len(out) <= self._LAST_MAPPING_JSON_MAX:
-            self._set_helper("input_text.p1s_last_mapping_json", out)
+            self._set_helper("input_text.filament_iq_last_mapping_json", out)
             return
         out = json.dumps({"reason": reason[:32], "mapping": mapping}, separators=(",", ":"))
         if len(out) <= self._LAST_MAPPING_JSON_MAX:
-            self._set_helper("input_text.p1s_last_mapping_json", out)
+            self._set_helper("input_text.filament_iq_last_mapping_json", out)
             return
         out = json.dumps({"mapping": mapping}, separators=(",", ":"))
         if len(out) <= self._LAST_MAPPING_JSON_MAX:
-            self._set_helper("input_text.p1s_last_mapping_json", out)
+            self._set_helper("input_text.filament_iq_last_mapping_json", out)
             return
-        self._set_helper("input_text.p1s_last_mapping_json", out[:self._LAST_MAPPING_JSON_MAX])
+        self._set_helper("input_text.filament_iq_last_mapping_json", out[:self._LAST_MAPPING_JSON_MAX])
 
     def _apply_unbound_reason(self, slot, t, tray_meta, tag_uid, tray_empty, tray_state_str):
         """Set t[\"unbound_reason\"] and t[\"unbound_detail\"], log one INFO line, and write reason to helper."""

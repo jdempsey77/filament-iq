@@ -525,7 +525,7 @@ class AmsPrintUsageSync(hass.Hass):
                 trays_str = ",".join(str(s) for s in sorted(self._trays_used))
                 self.call_service(
                     "input_text/set_value",
-                    entity_id="input_text.p1s_trays_used_this_print",
+                    entity_id="input_text.filament_iq_trays_used_this_print",
                     value=trays_str,
                 )
             except Exception as e:
