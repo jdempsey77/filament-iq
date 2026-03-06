@@ -9,17 +9,13 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11"]
-
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.11"
 
       - name: Install dependencies
         run: pip install appdaemon pytest
@@ -27,6 +23,6 @@ jobs:
       - name: Run tests
         run: python3 -m pytest tests/ -q
 
-      - name: Config-driven audit (allowed to fail)
+      - name: Run audit
         run: ./scripts/audit_config_driven.sh
         continue-on-error: true
