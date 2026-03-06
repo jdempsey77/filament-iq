@@ -2,7 +2,7 @@
 #
 # Copy this file to your AppDaemon apps.yaml and replace:
 #   YOUR_PRINTER_IP      → Bambu printer LAN IP (e.g. 192.168.4.50)
-#   YOUR_SPOOLMAN_IP     → Spoolman server IP (e.g. 192.168.4.124)
+#   YOUR_SPOOLMAN_IP     → Spoolman server IP (e.g. 192.168.1.250)
 #
 # Also replace YOUR_PRINTER_SERIAL in the Python source files
 # (ams_print_usage_sync.py, ams_rfid_reconcile.py) with your

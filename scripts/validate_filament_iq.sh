@@ -70,7 +70,7 @@ else
   TEMPLATE_SENSORS=(sensor.filament_iq_operator_status)
 fi
 
-PRINTER_PREFIX="${PRINTER_PREFIX:-p1s_01p00c5a3101668}"
+PRINTER_PREFIX="${PRINTER_PREFIX:-p1s_01p00a1b2c3d4e5f}"
 PRINTER_SENSORS=("sensor.${PRINTER_PREFIX}_print_status" "sensor.${PRINTER_PREFIX}_active_tray" "sensor.${PRINTER_PREFIX}_task_name")
 
 echo ""

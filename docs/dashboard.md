@@ -9,7 +9,7 @@ HA dashboards in storage mode cannot be deployed via file copy. Use one of:
 1. **Import via UI:** Settings → Dashboards → Add Dashboard → set to YAML mode → paste contents
 2. **Raw editor:** Settings → Dashboards → (existing dashboard) → three-dot menu → Raw configuration editor → paste as a view
 
-After importing, replace all occurrences of `YOUR_PRINTER_SERIAL` with your Bambu printer's device serial (e.g. `01p00c5a3101668`).
+After importing, replace all occurrences of `YOUR_PRINTER_SERIAL` with your Bambu printer's device serial (e.g. `01p00a1b2c3d4e5f`).
 
 ## Required Custom Cards
 

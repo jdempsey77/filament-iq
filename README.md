@@ -108,8 +108,8 @@ homeassistant:
 Copy `ha-config/packages/filament_iq.yaml` to your HA config `packages/` directory.
 
 Replace placeholders in the package file:
-- `YOUR_SPOOLMAN_IP` → your Spoolman server IP (e.g. `192.168.4.124`)
-- `YOUR_PRINTER_SERIAL` → your Bambu P1S device serial (e.g. `01p00c5a3101668`)
+- `YOUR_SPOOLMAN_IP` → your Spoolman server IP (e.g. `192.168.1.250`)
+- `YOUR_PRINTER_SERIAL` → your Bambu P1S device serial (e.g. `01p00a1b2c3d4e5f`)
 
 Restart Home Assistant.
 
@@ -196,7 +196,7 @@ Replace `YOUR_PRINTER_SERIAL` in the dashboard YAML with your Bambu device seria
 | Key | App | Required | Default | Description |
 |-----|-----|----------|---------|-------------|
 | `enabled` | ams_print_usage_sync, ams_rfid_reconcile, ams_rfid_guard, spoolman_dropdown_sync | No | `true` | Master enable/disable |
-| `spoolman_base_url` | ams_print_usage_sync, ams_rfid_guard, spoolman_dropdown_sync | Yes | — | Spoolman API base URL (e.g. `http://192.168.4.124:7912`) |
+| `spoolman_base_url` | ams_print_usage_sync, ams_rfid_guard, spoolman_dropdown_sync | Yes | — | Spoolman API base URL (e.g. `http://192.168.1.250:7912`) |
 | `spoolman_url` | ams_rfid_reconcile, filament_weight_tracker | Yes | — | Same as above; some apps use this key |
 | `dry_run` | ams_print_usage_sync, ams_rfid_guard | No | `false` | Log writes without calling Spoolman |
 | `min_consumption_g` | ams_print_usage_sync | No | `2` | Skip writes below this (g) |

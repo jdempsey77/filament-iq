@@ -14,7 +14,7 @@ VERBOSE = "--verbose" in sys.argv
 URL = env.get("HOME_ASSISTANT_URL", "")
 TOKEN = env.get("HOME_ASSISTANT_TOKEN", "")
 SPOOLMAN = env.get("SPOOLMAN_URL", "")
-PRINTER = env.get("PRINTER_PREFIX", "p1s_01p00c5a3101668")
+PRINTER = env.get("PRINTER_PREFIX", "p1s_01p00a1b2c3d4e5f")
 AUTH = "Authorization: Bearer " + TOKEN
 
 PASS = WARN = FAIL = 0

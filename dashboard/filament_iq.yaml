@@ -1,7 +1,7 @@
 # 3D Printer dashboard view – extracted from home_assistant/dashboards/dashboard.stage.yaml
-# TODO: Replace YOUR_PRINTER_SERIAL with your Bambu P1S serial (e.g. 01p00c5a3101668)
+# TODO: Replace YOUR_PRINTER_SERIAL with your Bambu P1S serial (e.g. 01p00a1b2c3d4e5f)
 # 3D Printer dashboard view – extracted from home_assistant/dashboards/dashboard.stage.yaml
-# TODO: Replace YOUR_PRINTER_SERIAL with your Bambu P1S serial (e.g. 01p00c5a3101668)
+# TODO: Replace YOUR_PRINTER_SERIAL with your Bambu P1S serial (e.g. 01p00a1b2c3d4e5f)
   - title: 3D Printer
     icon: mdi:printer-3d
     path: printer

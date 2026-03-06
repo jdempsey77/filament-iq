@@ -1,6 +1,6 @@
 # Filament IQ package – consolidated from home_assistant
-# TODO: Replace YOUR_SPOOLMAN_IP with your Spoolman server IP (e.g. 192.168.4.124)
-# TODO: Replace YOUR_PRINTER_SERIAL with your Bambu P1S serial (e.g. 01p00c5a3101668)
+# TODO: Replace YOUR_SPOOLMAN_IP with your Spoolman server IP (e.g. 192.168.1.250)
+# TODO: Replace YOUR_PRINTER_SERIAL with your Bambu P1S serial (e.g. 01p00a1b2c3d4e5f)
 # TODO: Replace Spoolman config entry_id in reload_spoolman_integration script
 
 input_datetime:

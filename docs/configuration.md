@@ -27,8 +27,8 @@ homeassistant:
 Copy `ha-config/packages/filament_iq.yaml` to your HA config `packages/` directory.
 
 Replace placeholders:
-- `YOUR_SPOOLMAN_IP` → your Spoolman server IP (e.g. `192.168.4.124`)
-- `YOUR_PRINTER_SERIAL` → your Bambu printer device serial (e.g. `01p00c5a3101668`)
+- `YOUR_SPOOLMAN_IP` → your Spoolman server IP (e.g. `192.168.1.250`)
+- `YOUR_PRINTER_SERIAL` → your Bambu printer device serial (e.g. `01p00a1b2c3d4e5f`)
 
 Restart Home Assistant.
 
@@ -53,7 +53,7 @@ Entity ID pattern:
 | Key | Required | Default | Description |
 |-----|----------|---------|-------------|
 | `enabled` | No | `true` | Master enable/disable |
-| `spoolman_base_url` | Yes | — | Spoolman API base URL (e.g. `http://192.168.4.124:7912`) |
+| `spoolman_base_url` | Yes | — | Spoolman API base URL (e.g. `http://192.168.1.250:7912`) |
 | `dry_run` | No | `false` | Log writes without calling Spoolman |
 | `min_consumption_g` | No | `2` | Skip Spoolman writes below this threshold (grams) |
 | `max_consumption_g` | No | `300` | Reject writes above this threshold (grams) |
