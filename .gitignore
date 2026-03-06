@@ -8,5 +8,5 @@ scripts/deploy.env
 .pytest_cache/
 htmlcov/
 .coverage
-appdaemon/apps/filament_iq/data/
+apps/filament_iq/data/
 deploy.env
