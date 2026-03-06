@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
-[![Last commit](https://img.shields.io/github/last-commit/jdempsey/filament-iq.svg)](https://github.com/jdempsey/filament-iq)
+[![Last commit](https://img.shields.io/github/last-commit/jdempsey77/home-assistant-config.svg)](https://github.com/jdempsey77/home-assistant-config)
 
 ## What it does
 
@@ -31,25 +31,22 @@ The integration provides AMS slot management: each physical slot (1–6 for AMS 
 3. Copy `appdaemon/apps/filament_iq/apps.yaml.example` to your AppDaemon `apps.yaml` (or merge its contents).
 4. Edit `apps.yaml` and replace placeholders (`YOUR_SPOOLMAN_IP`, `YOUR_PRINTER_IP`, printer serial, etc.).
 5. Restart the AppDaemon add-on.
-6. Create the required Home Assistant helpers (input_boolean, input_text, input_button, etc.) — see `ha-config/packages/filament_iq.yaml` or your configuration for the full list.
+6. Create the required Home Assistant helpers — see `ha-config/packages/filament_iq.yaml` and the [Configuration guide](docs/configuration.md).
 
-## Configuration
+## Documentation
 
-Reference `appdaemon/apps/filament_iq/apps.yaml.example` for the complete configuration. Required keys per app:
+| Document | Description |
+|----------|-------------|
+| [Architecture](docs/architecture.md) | How FilamentIQ works: reconciliation loop, Spoolman integration, AMS slot management, RFID vs non-RFID, operator status |
+| [Configuration](docs/configuration.md) | Complete reference for every key in `apps.yaml.example` |
+| [Dashboard](docs/dashboard.md) | How to install and use the Lovelace dashboard |
+| [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |
 
-| App | Required keys |
-|-----|---------------|
-| `ams_rfid_reconcile` | `spoolman_url`, `printer_serial` |
-| `ams_rfid_guard` | `spoolman_url` |
-| `spoolman_dropdown_sync` | `spoolman_url` |
-| `ams_print_usage_sync` | `spoolman_url`, `printer_serial` |
-| `filament_weight_tracker` | `spoolman_url`, `printer_serial` |
+## Quick links
 
-Optional keys include `printer_model`, `ams_units`, `access_code_entity`, `dropdown_entity`, and entity overrides for buttons, booleans, and sensors.
-
-## Dashboard
-
-A Lovelace dashboard is included in `dashboards/` for AMS slot status, Spoolman integration, and print tracking. Deploy via `manage_ha.sh --stage` or copy the YAML to your dashboard configuration.
+- **Configuration reference:** [docs/configuration.md](docs/configuration.md)
+- **Dashboard setup:** [docs/dashboard.md](docs/dashboard.md)
+- **Troubleshooting:** [docs/troubleshooting.md](docs/troubleshooting.md)
 
 ## Contributing
 
