@@ -49,3 +49,4 @@ appdaemon/apps/data/
 .claude/
 appdaemon/apps/filament_iq/
 scripts/validate_filament_iq.sh
+scripts/manage_filament_iq.sh
