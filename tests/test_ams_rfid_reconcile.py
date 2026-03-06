@@ -33,16 +33,24 @@ _APPS = os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps")
 if _APPS not in sys.path:
     sys.path.insert(0, _APPS)
 
-import ams_rfid_reconcile
-from ams_rfid_reconcile import (
+from filament_iq.base import build_slot_mappings
+
+# Build default slot mappings for test fixtures (no hardcoded IPs/serials)
+_TEST_PREFIX = "p1s_01p00c5a3101668"
+_TRAY_ENTITY_BY_SLOT, _, _, _CANONICAL_LOCATION_BY_SLOT = build_slot_mappings(
+    _TEST_PREFIX
+)
+TRAY_ENTITY_BY_SLOT = _TRAY_ENTITY_BY_SLOT
+CANONICAL_LOCATION_BY_SLOT = _CANONICAL_LOCATION_BY_SLOT
+
+import filament_iq.ams_rfid_reconcile as ams_rfid_reconcile
+from filament_iq.ams_rfid_reconcile import (
     _normalize_rfid_tag_uid,
     AmsRfidReconcile,
-    CANONICAL_LOCATION_BY_SLOT,
     COLOR_DISTANCE_THRESHOLD,
     DEPRECATED_LOCATION_TO_CANONICAL,
     LOCATION_EMPTY,
     LOCATION_NOT_IN_AMS,
-    TRAY_ENTITY_BY_SLOT,
     FULL_SPOOL_G,
     NEXT_MAN_MIN_MARGIN_G,
     STATUS_NON_RFID_REGISTERED,
@@ -203,10 +211,21 @@ class TestableReconcile(AmsRfidReconcile):
     """Reconcile with injected FakeSpoolman and state map."""
 
     def __init__(self, spoolman, state_map, ad=None, args=None, *rest, **k):
-        a = args or k.get("args", {})
+        a = dict({"printer_serial": "01p00c5a3101668", "spoolman_url": "http://192.0.2.1:7912"})
+        a.update(args or k.get("args", {}))
         super().__init__(ad, "test", None, a, None, None, None)
         self._spoolman = spoolman
         self._state_map = dict(state_map)
+        # Build slot mappings from config (bypass initialize)
+        self._prefix = self._build_entity_prefix()
+        prefix = self._prefix
+        tray, _, _, canon = build_slot_mappings(prefix, a.get("ams_units"))
+        self._tray_entity_by_slot = tray
+        self._canonical_location_by_slot = canon
+        self._physical_ams_slots = tuple(sorted(tray.keys()))
+        self._last_mapping_json_entity = f"input_text.{prefix}_last_mapping_json"
+        self._reconcile_button_entity = f"input_button.{prefix}_rfid_reconcile_now"
+        self._startup_suppress_entity = "input_boolean.filament_iq_startup_suppress_swap"
         self._helper_writes = []
         self._active_run = None
         self._last_summary = None
@@ -323,9 +342,15 @@ class StartupWaiterHarness(AmsRfidReconcile):
     """Minimal harness to test _run_reconcile_startup; does not override _run_reconcile_startup."""
 
     def __init__(self, state_map, args=None):
-        a = args or {}
+        a = dict({"printer_serial": "01p00c5a3101668", "spoolman_url": "http://192.0.2.1:7912"})
+        a.update(args or {})
         super().__init__(None, "test", None, a, None, None, None)
         self._state_map = dict(state_map)
+        self._prefix = self._build_entity_prefix()
+        tray, _, _, canon = build_slot_mappings(self._prefix, a.get("ams_units"))
+        self._tray_entity_by_slot = tray
+        self._canonical_location_by_slot = canon
+        self._physical_ams_slots = tuple(sorted(tray.keys()))
         self._log_calls = []
         self._run_in_calls = []
         self._run_reconcile_calls = []
@@ -361,9 +386,12 @@ def _tray_entity(slot):
 class TestAmsRfidReconcile(unittest.TestCase):
     def setUp(self):
         self.args = {
-            "spoolman_url": "http://fake:7912",
+            "printer_serial": "01p00c5a3101668",
+            "spoolman_url": "http://192.0.2.1:7912",
             "enabled": True,
             "debug_logs": False,
+            # Tests use input_boolean.filament_iq_nonrfid_enabled in state_map
+            "nonrfid_enabled_entity": "input_boolean.filament_iq_nonrfid_enabled",
         }
 
     def _run_reconcile_core(self, spoolman, state_map, slot=1):
@@ -632,7 +660,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
 
         r._run_reconcile = capture_run
         r._on_manual_reconcile_button(
-            "input_button.p1s_rfid_reconcile_now",
+            "input_button.filament_iq_reconcile_now",
             "state",
             "2026-01-01T12:00:00",
             "2026-01-01T12:00:01",
@@ -648,7 +676,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
         run_calls = []
         r._run_reconcile = lambda reason, **kw: run_calls.append(reason)
         r._on_manual_reconcile_button(
-            "input_button.p1s_rfid_reconcile_now", "state", "2026-01-01T12:00:00", "2026-01-01T12:00:00", {}
+            "input_button.filament_iq_reconcile_now", "state", "2026-01-01T12:00:00", "2026-01-01T12:00:00", {}
         )
         self.assertEqual(run_calls, [], "should not run when old == new")
 
@@ -661,7 +689,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
         r._run_reconcile = lambda reason, **kw: run_calls.append(reason)
         r._active_run = {"reason": "other"}
         r._on_manual_reconcile_button(
-            "input_button.p1s_rfid_reconcile_now", "state", "2026-01-01T12:00:00", "2026-01-01T12:00:01", {}
+            "input_button.filament_iq_reconcile_now", "state", "2026-01-01T12:00:00", "2026-01-01T12:00:01", {}
         )
         self.assertEqual(run_calls, [], "should not call _run_reconcile when reconcile already active")
 
@@ -874,7 +902,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
             tray_ent: _tray_state("", tray_type="PLA", color="ff0000", name="Bambu PLA Basic", filament_id="bambu"),
             f"{tray_ent}::all": {"attributes": _tray_state("")["attributes"], "state": "valid"},
         }
-        state_map["input_boolean.p1s_nonrfid_enabled"] = "on"
+        state_map["input_boolean.filament_iq_nonrfid_enabled"] = "on"
         for slot in range(1, 7):
             state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
             state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
@@ -910,7 +938,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
             tray_ent: _tray_state("", tray_type="PLA", color="00ff00", name="Bambu PLA", filament_id="bambu"),
             f"{tray_ent}::all": {"attributes": _tray_state("")["attributes"], "state": "valid"},
         }
-        state_map["input_boolean.p1s_nonrfid_enabled"] = "on"
+        state_map["input_boolean.filament_iq_nonrfid_enabled"] = "on"
         for slot in range(1, 7):
             state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
             state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
@@ -936,7 +964,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
             tray_ent: {"attributes": attrs, "state": "valid"},
             f"{tray_ent}::all": {"attributes": attrs, "state": "valid"},
         }
-        state_map["input_boolean.p1s_nonrfid_enabled"] = "on"
+        state_map["input_boolean.filament_iq_nonrfid_enabled"] = "on"
         for slot in range(1, 7):
             state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
             state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
@@ -964,7 +992,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
             tray_ent: _tray_state(tag, tray_type="PLA", color="ff0000", name="Bambu PLA", filament_id="bambu"),
             f"{tray_ent}::all": {"attributes": _tray_state(tag)["attributes"], "state": "valid"},
         }
-        state_map["input_boolean.p1s_nonrfid_enabled"] = "on"
+        state_map["input_boolean.filament_iq_nonrfid_enabled"] = "on"
         for slot in range(1, 7):
             state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
             state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
@@ -1746,7 +1774,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
                 state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_attrs, "state": "empty"}
         future_ts = (datetime.datetime.utcnow() + datetime.timedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
         state_map[f"input_text.ams_slot_{slot}_rfid_pending_until"] = future_ts
-        state_map["input_boolean.p1s_nonrfid_enabled"] = "on"
+        state_map["input_boolean.filament_iq_nonrfid_enabled"] = "on"
         sm = FakeSpoolman([], [])
         r = TestableReconcile(sm, state_map, args=self.args)
         r._run_reconcile("test")
@@ -1776,7 +1804,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
         # Pending window in past (input_text, ISO8601 UTC)
         past_ts = (datetime.datetime.utcnow() - datetime.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         state_map[f"input_text.ams_slot_{slot}_rfid_pending_until"] = past_ts
-        state_map["input_boolean.p1s_nonrfid_enabled"] = "on"
+        state_map["input_boolean.filament_iq_nonrfid_enabled"] = "on"
         sm = FakeSpoolman([], [])
         r = TestableReconcile(sm, state_map, args=self.args)
         r._run_reconcile("test")
@@ -2312,7 +2340,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
         filaments = [_bambu_filament(material="PETG", color_hex="00ff00", name="Bambu PETG")]
         sm = FakeSpoolman([helper_spool], filaments)
         tray_ent = _tray_entity(slot)
-        state_map = {"input_boolean.p1s_nonrfid_enabled": "on"}
+        state_map = {"input_boolean.filament_iq_nonrfid_enabled": "on"}
         for s in range(1, 7):
             state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
             state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
@@ -2386,7 +2414,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
             tray_ent: tray,
             f"{tray_ent}::all": {"attributes": tray["attributes"], "state": "valid"},
         }
-        state_map["input_boolean.p1s_nonrfid_enabled"] = "on"
+        state_map["input_boolean.filament_iq_nonrfid_enabled"] = "on"
         for slot in range(1, 7):
             state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
             state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
@@ -2426,7 +2454,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
             tray_ent: _tray_state(tag, tray_type="PLA", color="ff0000", name="Bambu PLA Basic", filament_id="bambu"),
             f"{tray_ent}::all": {"attributes": _tray_state(tag)["attributes"], "state": "valid"},
         }
-        state_map["input_boolean.p1s_nonrfid_enabled"] = "on"
+        state_map["input_boolean.filament_iq_nonrfid_enabled"] = "on"
         for slot in range(1, 7):
             state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
             state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
@@ -2938,7 +2966,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
         state_map = {
             tray_ent: {"attributes": ht_attrs, "state": ht_attrs.get("_state", "valid")},
             f"{tray_ent}::all": {"attributes": ht_attrs, "state": ht_attrs.get("_state", "valid")},
-            "input_boolean.p1s_nonrfid_enabled": "on",
+            "input_boolean.filament_iq_nonrfid_enabled": "on",
             f"input_text.ams_slot_{slot}_spool_id": str(helper_spool_id),
             f"input_text.ams_slot_{slot}_expected_spool_id": str(expected_spool_id),
             f"input_text.ams_slot_{slot}_status": status,
@@ -3239,7 +3267,13 @@ class TestStartupWaiter(unittest.TestCase):
 
 # ── Parameterized non-RFID tests across all 6 slots ──
 
-_DEFAULT_ARGS = {"spoolman_url": "http://fake:7912", "enabled": True, "debug_logs": False}
+_DEFAULT_ARGS = {
+    "printer_serial": "01p00c5a3101668",
+    "spoolman_url": "http://192.0.2.1:7912",
+    "enabled": True,
+    "debug_logs": False,
+    "nonrfid_enabled_entity": "input_boolean.filament_iq_nonrfid_enabled",
+}
 _ALL_SLOTS = [1, 2, 3, 4, 5, 6]
 
 def _nonrfid_attrs_standalone(tray_type="PLA", color="ff0000", name="Overture PLA", state="valid", tag_uid="0000000000000000", filament_id=""):
@@ -3261,7 +3295,7 @@ def _nonrfid_state_map_standalone(slot, attrs, helper_spool_id=0, expected_spool
     state_map = {
         tray_ent: {"attributes": attrs, "state": attrs.get("_state", "valid")},
         f"{tray_ent}::all": {"attributes": attrs, "state": attrs.get("_state", "valid")},
-        "input_boolean.p1s_nonrfid_enabled": "on",
+        "input_boolean.filament_iq_nonrfid_enabled": "on",
         f"input_text.ams_slot_{slot}_spool_id": str(helper_spool_id),
         f"input_text.ams_slot_{slot}_expected_spool_id": str(expected_spool_id),
         f"input_text.ams_slot_{slot}_status": status,
@@ -3525,7 +3559,7 @@ def test_nonrfid_truth_guard_404_clears_and_blocks(slot):
     filaments = [_bambu_filament()]
     sm = FakeSpoolman(spools, filaments)
     tray_ent = _tray_entity(slot)
-    state_map = {"input_boolean.p1s_nonrfid_enabled": "on"}
+    state_map = {"input_boolean.filament_iq_nonrfid_enabled": "on"}
     for s in range(1, 7):
         state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
         state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
@@ -3566,7 +3600,7 @@ def test_nonrfid_truth_guard_material_mismatch_clears(slot):
     filaments = [_bambu_filament(material="PETG", color_hex="00ff00", name="Bambu PETG")]
     sm = FakeSpoolman([helper_spool], filaments)
     tray_ent = _tray_entity(slot)
-    state_map = {"input_boolean.p1s_nonrfid_enabled": "on"}
+    state_map = {"input_boolean.filament_iq_nonrfid_enabled": "on"}
     for s in range(1, 7):
         state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
         state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"

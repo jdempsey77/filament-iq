@@ -16,11 +16,11 @@ input_datetime:
     has_date: true
     has_time: true
   # P1S print times – persisted so they survive HA restart
-  p1s_print_start_time:
+  filament_iq_print_start_time:
     name: P1S Print Start Time
     has_date: true
     has_time: true
-  p1s_print_end_time:
+  filament_iq_print_end_time:
     name: P1S Print End Time
     has_date: true
     has_time: true
@@ -33,8 +33,8 @@ input_datetime:
 
 # Slot → Spoolman spool ID (1–6 or ID from placeholder). Updated by ams_ensure_slot_spools.
 input_text:
-  bambu_printer_access_code:
-    name: Bambu Printer Access Code
+  filament_iq_printer_access_code:
+    name: Filament IQ Printer Access Code
     min: 0
     max: 32
     mode: password
@@ -95,43 +95,43 @@ input_text:
   ams_slot_6_unbound_reason:
     name: "AMS Slot 6 Unbound Reason"
     max: 100
-  p1s_last_active_tray:
+  filament_iq_last_active_tray:
     name: P1S Last Active Tray
     max: 100
-  p1s_last_tray_entity:
-    name: P1S Last Tray Entity
+  filament_iq_last_tray_entity:
+    name: Filament IQ Last Tray Entity
     max: 100
-  p1s_trays_used_this_print:
-    name: P1S Trays used this print (comma-separated slot numbers)
+  filament_iq_trays_used_this_print:
+    name: Filament IQ Trays used this print (comma-separated slot numbers)
     max: 255
-  p1s_init_seed_debug:
-    name: P1S init seed debug
+  filament_iq_init_seed_debug:
+    name: Filament IQ init seed debug
     max: 255
-  p1s_last_print_status_transition:
+  filament_iq_last_print_status_transition:
     name: P1S last print_status transition (debug)
     max: 255
-  p1s_finish_automation_checkpoint:
+  filament_iq_finish_automation_checkpoint:
     name: P1S finish automation checkpoint (debug)
     max: 255
   filament_test_last_result:
     name: Filament Test Last Result (PASS/FAIL + details)
     max: 255
-  p1s_slot_to_spool_binding_json:
+  filament_iq_slot_to_spool_binding_json:
     name: P1S Slot to Spool Binding (JSON)
     max: 255
     initial: "{}"
-  p1s_last_mapping_json:
-    name: P1S Last Mapping Result
+  filament_iq_last_mapping_json:
+    name: Filament IQ Last Mapping Result
     max: 255
     initial: ""
-  p1s_tray_remaining_start_json:
-    name: P1S tray remaining start JSON
+  filament_iq_start_json:
+    name: Filament IQ tray remaining start JSON
     max: 255
-  p1s_tray_remaining_end_json:
-    name: P1S tray remaining end JSON
+  filament_iq_end_json:
+    name: Filament IQ tray remaining end JSON
     max: 255
-  p1s_print_job_key:
-    name: P1S Print Job Key (mutex)
+  filament_iq_active_job_key:
+    name: Filament IQ Print Job Key (mutex)
     max: 100
 
     # AMS UI / mapping helpers (managed)
@@ -263,31 +263,31 @@ input_text:
 
 # Filament tracking safety flags
 input_boolean:
-  p1s_print_active:
+  filament_iq_print_active:
     name: P1S Print Active (mutex lock)
     initial: false
-  p1s_needs_reconcile:
+  filament_iq_needs_reconcile:
     name: P1S Needs Reconcile
     initial: false
-  p1s_decrement_on_failed:
+  filament_iq_decrement_on_failed:
     name: P1S Decrement on Failed Print
     initial: false
-  filament_debug_mode:
+  filament_iq_debug_mode:
     name: Filament Debug Mode (instrumentation)
     initial: false
-  p1s_debug_finish_trigger:
+  filament_iq_debug_finish_trigger:
     name: P1S Debug Finish Trigger (script fires this)
     initial: false
   filament_test_mode:
     name: Filament Test Mode (disables real Spoolman calls)
     initial: false
-  p1s_auto_mode_opinionated:
+  filament_iq_auto_mode_opinionated:
     name: P1S Opinionated Auto Mode
     initial: true
-  p1s_nonrfid_enabled:
+  filament_iq_nonrfid_enabled:
     name: P1S Non-RFID Spool Support Enabled
     icon: mdi:toggle-switch
-  appdaemon_startup_suppress_swap:
+  filament_iq_startup_suppress_swap:
     name: AppDaemon startup – suppress spool swap detection
     initial: false
   spoolman_edit_update_weight:
@@ -300,10 +300,10 @@ input_boolean:
     icon: mdi:map-marker
 
 input_button:
-  p1s_rfid_reconcile_now:
+  filament_iq_reconcile_now:
     name: P1S RFID Reconcile Now
     icon: mdi:refresh
-  p1s_weight_snapshot_now:
+  filament_iq_weight_snapshot_now:
     name: P1S Weight Snapshot Now
     icon: mdi:scale
 
@@ -349,84 +349,84 @@ input_number:
     mode: box
     initial: 1.24
   # P1S Start/End snapshot (grams per slot) - eliminates JSON parsing
-  p1s_start_slot_1_g:
+  filament_iq_start_slot_1_g:
     name: P1S Start Slot 1 (g)
     min: 0
     max: 2000
     step: 1
     unit_of_measurement: g
     initial: 0
-  p1s_start_slot_2_g:
+  filament_iq_start_slot_2_g:
     name: P1S Start Slot 2 (g)
     min: 0
     max: 2000
     step: 1
     unit_of_measurement: g
     initial: 0
-  p1s_start_slot_3_g:
+  filament_iq_start_slot_3_g:
     name: P1S Start Slot 3 (g)
     min: 0
     max: 2000
     step: 1
     unit_of_measurement: g
     initial: 0
-  p1s_start_slot_4_g:
+  filament_iq_start_slot_4_g:
     name: P1S Start Slot 4 (g)
     min: 0
     max: 2000
     step: 1
     unit_of_measurement: g
     initial: 0
-  p1s_start_slot_5_g:
+  filament_iq_start_slot_5_g:
     name: P1S Start Slot 5 (g)
     min: 0
     max: 2000
     step: 1
     unit_of_measurement: g
     initial: 0
-  p1s_start_slot_6_g:
+  filament_iq_start_slot_6_g:
     name: P1S Start Slot 6 (g)
     min: 0
     max: 2000
     step: 1
     unit_of_measurement: g
     initial: 0
-  p1s_end_slot_1_g:
+  filament_iq_end_slot_1_g:
     name: P1S End Slot 1 (g)
     min: 0
     max: 2000
     step: 1
     unit_of_measurement: g
     initial: 0
-  p1s_end_slot_2_g:
+  filament_iq_end_slot_2_g:
     name: P1S End Slot 2 (g)
     min: 0
     max: 2000
     step: 1
     unit_of_measurement: g
     initial: 0
-  p1s_end_slot_3_g:
+  filament_iq_end_slot_3_g:
     name: P1S End Slot 3 (g)
     min: 0
     max: 2000
     step: 1
     unit_of_measurement: g
     initial: 0
-  p1s_end_slot_4_g:
+  filament_iq_end_slot_4_g:
     name: P1S End Slot 4 (g)
     min: 0
     max: 2000
     step: 1
     unit_of_measurement: g
     initial: 0
-  p1s_end_slot_5_g:
+  filament_iq_end_slot_5_g:
     name: P1S End Slot 5 (g)
     min: 0
     max: 2000
     step: 1
     unit_of_measurement: g
     initial: 0
-  p1s_end_slot_6_g:
+  filament_iq_end_slot_6_g:
     name: P1S End Slot 6 (g)
     min: 0
     max: 2000
@@ -990,8 +990,8 @@ template:
             Never
           {% endif %}
         icon: mdi:clock-check
-      - name: "P1S Operator Status"
-        unique_id: p1s_operator_status_01p00c5a3101668
+      - name: "Filament IQ Operator Status"
+        unique_id: filament_iq_operator_status
         availability: >
           {{ states('sensor.p1s_01p00c5a3101668_print_status') not in ['unknown', 'unavailable'] or states('binary_sensor.p1s_01p00c5a3101668_online') not in ['unknown', 'unavailable'] }}
         state: >

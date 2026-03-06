@@ -54,7 +54,7 @@ ams_print_usage_sync:
   threemf_enabled: true
   printer_ip: "192.168.4.114"
   printer_ftps_port: 990
-  access_code_entity: "input_text.bambu_printer_access_code"
+  access_code_entity: "input_text.filament_iq_printer_access_code"
 
 filament_weight_tracker:
   module: filament_weight_tracker

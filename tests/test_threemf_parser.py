@@ -13,7 +13,7 @@ sys.path.insert(
     0, os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps")
 )
 
-from threemf_parser import (
+from filament_iq.threemf_parser import (
     color_distance,
     find_best_3mf,
     match_filaments_to_slots,
@@ -562,17 +562,17 @@ class TestParse3mfFilaments:
 
 class TestFtpErrorHandling:
     def test_ftps_list_bad_ip(self):
-        from threemf_parser import ftps_list_cache
+        from filament_iq.threemf_parser import ftps_list_cache
 
-        result = ftps_list_cache("192.168.99.99", "badcode", timeout=3)
+        result = ftps_list_cache("192.0.2.1", "badcode", timeout=3)
         assert result == []
 
     def test_ftps_download_bad_ip(self):
-        from threemf_parser import ftps_download_3mf
+        from filament_iq.threemf_parser import ftps_download_3mf
 
         with tempfile.TemporaryDirectory() as tmp:
             result = ftps_download_3mf(
-                "192.168.99.99", "badcode", "test.3mf", tmp, timeout=3
+                "192.0.2.1", "badcode", "test.3mf", tmp, timeout=3
             )
             assert result is None
 
@@ -580,17 +580,17 @@ class TestFtpErrorHandling:
         assert find_best_3mf([], "test") is None
 
     def test_ftps_list_empty_code(self):
-        from threemf_parser import ftps_list_cache
+        from filament_iq.threemf_parser import ftps_list_cache
 
-        result = ftps_list_cache("192.168.4.114", "", timeout=3)
+        result = ftps_list_cache("192.0.2.254", "", timeout=3)
         assert isinstance(result, list)
 
     def test_ftps_download_nonexistent_file(self):
-        from threemf_parser import ftps_download_3mf
+        from filament_iq.threemf_parser import ftps_download_3mf
 
         with tempfile.TemporaryDirectory() as tmp:
             result = ftps_download_3mf(
-                "192.168.4.114", "badcode", "nonexistent.3mf", tmp, timeout=3
+                "192.0.2.254", "badcode", "nonexistent.3mf", tmp, timeout=3
             )
             assert result is None
 

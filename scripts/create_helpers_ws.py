@@ -60,7 +60,7 @@ def create_helpers():
         msg_id = 1
         
         # Step 3: Create helper 1
-        print(f"\n3. Creating helper: p1s_slot_to_spool_binding_json")
+        print(f"\n3. Creating helper: filament_iq_slot_to_spool_binding_json")
         ws.send(json.dumps({
             "id": msg_id,
             "type": "input_text/create",

@@ -32,36 +32,60 @@ if _APPS not in sys.path:
 
 from collections import OrderedDict
 
-from ams_print_usage_sync import AmsPrintUsageSync
+from filament_iq.ams_print_usage_sync import AmsPrintUsageSync
+from filament_iq.base import build_slot_mappings
 
 
 # ── test harness ──────────────────────────────────────────────────────
+
+# Default test config: no hardcoded IPs/serials; use placeholder values
+_DEFAULT_TEST_ARGS = {
+    "printer_serial": "01p00c5a3101668",
+    "printer_model": "p1s",
+    "spoolman_url": "http://192.0.2.1:7912",
+}
+
 
 class _TestableUsageSync(AmsPrintUsageSync):
     """AmsPrintUsageSync with injected state map and captured side effects."""
 
     def __init__(self, state_map=None, args=None):
-        a = args or {}
+        a = dict(_DEFAULT_TEST_ARGS)
+        a.update(args or {})
         super().__init__(None, "test_usage", None, a, None, None, None)
         self._state_map = state_map or {}
         self._log_calls = []
         self._use_calls = []
         self._use_fail_spool_ids = set()
 
+        # Build slot mappings from config (no hardcoded entities)
+        prefix = self._build_entity_prefix()
+        ams_units = a.get("ams_units")
+        (
+            self._tray_entity_by_slot,
+            self._slot_by_tray_entity,
+            self._ams_tray_to_slot,
+            _,
+        ) = build_slot_mappings(prefix, ams_units)
+        self._active_tray_entity = f"sensor.{prefix}_active_tray"
+        self._print_status_entity = f"sensor.{prefix}_print_status"
+        self._task_name_entity = f"sensor.{prefix}_task_name"
+        self._trays_used_entity = str(
+            a.get("trays_used_entity", "input_text.filament_iq_trays_used_this_print")
+        ).strip()
+
         self.enabled = bool(a.get("enabled", True))
         self.spoolman_base_url = str(
-            a.get("spoolman_base_url", "http://fake:7912")
+            a.get("spoolman_url", a.get("spoolman_base_url", "http://192.0.2.1:7912"))
         ).rstrip("/")
         self.dry_run = bool(a.get("dry_run", False))
         self.min_consumption_g = float(a.get("min_consumption_g", 2))
         self.max_consumption_g = float(a.get("max_consumption_g", 300))
         self._seen_job_keys = OrderedDict()
-        # Tray tracking (bypasses initialize)
         self._trays_used = set()
         self._tray_active_times = {}
         self._current_active_slot = None
         self._print_active = False
-        # 3MF (bypasses initialize)
         self._threemf_data = None
         self._threemf_filename = None
         self.threemf_enabled = False
@@ -96,6 +120,10 @@ class _TestableUsageSync(AmsPrintUsageSync):
         })
         return True
 
+    def _spoolman_get(self, path):
+        """Mock: avoid real HTTP in tests. Return non-depleted spool."""
+        return {"remaining_weight": 100}
+
 
 def _fire(app, **overrides):
     """Fire a P1S_PRINT_USAGE_READY event with sane defaults."""
@@ -129,12 +157,8 @@ def _default_state_map(spool_bindings=None):
 
 def test_rfid_single_slot_consumption():
     """start=420g end=370g → use_weight=50g, USAGE_PATCHED logged (under max_consumption_g)."""
-    app = _TestableUsageSync(
-        state_map={
-            **_default_state_map({4: 10}),
-            **_rfid_tag_uid_for_slots([4]),
-        },
-    )
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
     _fire(app,
           trays_used="4",
           start_json='{"4": 420.0}',
@@ -151,12 +175,8 @@ def test_rfid_single_slot_consumption():
 
 def test_rfid_multiple_slots_consumption():
     """Two RFID slots, each gets correct delta (both under max_consumption_g)."""
-    app = _TestableUsageSync(
-        state_map={
-            **_default_state_map({2: 5, 4: 10}),
-            **_rfid_tag_uid_for_slots([2, 4]),
-        },
-    )
+    app = _TestableUsageSync(state_map=_default_state_map({2: 5, 4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [2, 4]))
     _fire(app,
           trays_used="2,4",
           start_json='{"2": 800.0, "4": 420.0}',
@@ -212,12 +232,8 @@ def test_nonrfid_multiple_slots_equal_split():
 
 def test_nonrfid_slot_in_trays_used_included_in_active_slots():
     """Non-RFID slot in trays_used + start but NOT in end → still gets tracked via time-weighted."""
-    app = _TestableUsageSync(
-        state_map=_default_state_map({1: 41, 2: 47}),
-        # Slot 1 RFID (tag_uid), slot 2 non-RFID (no tag_uid)
-    )
-    # Inject RFID for slot 1 only
-    app._state_map.update(_rfid_tag_uid_for_slots([1]))
+    app = _TestableUsageSync(state_map=_default_state_map({1: 41, 2: 47}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [1]))
     _fire(app,
           trays_used="1,2",
           start_json='{"1": 960, "2": 830}',
@@ -312,12 +328,8 @@ def test_dry_run_no_patch():
 
 def test_native_dict_event_data():
     """HA native types pass dicts instead of JSON strings — app handles both."""
-    app = _TestableUsageSync(
-        state_map={
-            **_default_state_map({4: 10}),
-            **_rfid_tag_uid_for_slots([4]),
-        },
-    )
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
     _fire(app,
           trays_used="4",
           start_json={"4": 420.0},
@@ -334,12 +346,10 @@ def test_native_dict_event_data():
 def test_sanity_cap_refuses_large_consumption():
     """consumption > max_consumption_g → USAGE_SANITY_CAP, no write."""
     app = _TestableUsageSync(
-        state_map={
-            **_default_state_map({4: 10}),
-            **_rfid_tag_uid_for_slots([4]),
-        },
+        state_map=_default_state_map({4: 10}),
         args={"max_consumption_g": 300},
     )
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
     _fire(app,
           trays_used="4",
           start_json='{"4": 420.0}',
@@ -354,12 +364,8 @@ def test_sanity_cap_refuses_large_consumption():
 
 def test_spoolman_failure_continues():
     """First slot PUT fails → second slot still written."""
-    app = _TestableUsageSync(
-        state_map={
-            **_default_state_map({2: 5, 4: 10}),
-            **_rfid_tag_uid_for_slots([2, 4]),
-        },
-    )
+    app = _TestableUsageSync(state_map=_default_state_map({2: 5, 4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [2, 4]))
     app._use_fail_spool_ids.add(5)
 
     _fire(app,
@@ -376,63 +382,59 @@ def test_spoolman_failure_continues():
 
 # ── active tray tracking tests ────────────────────────────────────────
 
-from ams_print_usage_sync import (
-    ACTIVE_TRAY_ENTITY,
-    TRAY_ENTITY_BY_SLOT,
-    _AMS_TRAY_TO_SLOT,
-)
 
-
-def _rfid_tag_uid_for_slots(slots):
+def _rfid_tag_uid_for_slots(app, slots):
     """Add tag_uid to state_map for given slots so _is_rfid_slot returns True."""
     result = {}
     for slot in slots:
-        entity = TRAY_ENTITY_BY_SLOT.get(slot)
+        entity = app._tray_entity_by_slot.get(slot)
         if entity:
             result[f"{entity}::tag_uid"] = "C7D26F7B00000100"
     return result
 
 
-def _active_tray_state(ams_index, tray_index, name="Generic PLA"):
+def _active_tray_state(app, ams_index, tray_index, name="Generic PLA"):
     """Build state_map entries for the active_tray sensor."""
+    e = app._active_tray_entity
     return {
-        ACTIVE_TRAY_ENTITY: name,
-        f"{ACTIVE_TRAY_ENTITY}::ams_index": ams_index,
-        f"{ACTIVE_TRAY_ENTITY}::tray_index": tray_index,
+        e: name,
+        f"{e}::ams_index": ams_index,
+        f"{e}::tray_index": tray_index,
     }
 
 
 def test_resolve_active_tray_slot_ams_pro():
     """ams_index=0, tray_index=2 → slot 3."""
-    sm = {**_default_state_map(), **_active_tray_state(0, 2)}
-    app = _TestableUsageSync(state_map=sm)
+    app = _TestableUsageSync(state_map=_default_state_map())
+    app._state_map.update(_active_tray_state(app, 0, 2))
     assert app._resolve_active_tray_slot() == 3
 
 
 def test_resolve_active_tray_slot_ht1():
     """ams_index=128, tray_index=0 → slot 5 (HT 1)."""
-    sm = {**_default_state_map(), **_active_tray_state(128, 0)}
-    app = _TestableUsageSync(state_map=sm)
+    app = _TestableUsageSync(state_map=_default_state_map())
+    app._state_map.update(_active_tray_state(app, 128, 0))
     assert app._resolve_active_tray_slot() == 5
 
 
 def test_resolve_active_tray_slot_ht2():
     """ams_index=129, tray_index=0 → slot 6 (HT 2)."""
-    sm = {**_default_state_map(), **_active_tray_state(129, 0)}
-    app = _TestableUsageSync(state_map=sm)
+    app = _TestableUsageSync(state_map=_default_state_map())
+    app._state_map.update(_active_tray_state(app, 129, 0))
     assert app._resolve_active_tray_slot() == 6
 
 
 def test_resolve_active_tray_slot_none_attrs():
     """Missing attributes → None."""
-    app = _TestableUsageSync(state_map={ACTIVE_TRAY_ENTITY: "none"})
+    app = _TestableUsageSync(state_map={})
+    app._state_map[app._active_tray_entity] = "none"
     assert app._resolve_active_tray_slot() is None
 
 
 def test_seed_active_trays_ht_slot():
     """_seed_active_trays picks up HT slot 5 from active_tray sensor."""
-    sm = {**_default_state_map({5: 30}), **_active_tray_state(128, 0, "Generic PETG")}
-    app = _TestableUsageSync(state_map=sm)
+    app = _TestableUsageSync(state_map=_default_state_map({5: 30}))
+    app._state_map.update(_active_tray_state(app, 128, 0, "Generic PETG"))
     app._print_active = True
     app._seed_active_trays()
     assert 5 in app._trays_used
@@ -442,12 +444,12 @@ def test_seed_active_trays_ht_slot():
 
 def test_on_active_tray_change_records_slot():
     """Simulating active_tray state change records the slot."""
-    sm = {**_default_state_map({2: 5}), **_active_tray_state(0, 1)}
-    app = _TestableUsageSync(state_map=sm)
+    app = _TestableUsageSync(state_map=_default_state_map({2: 5}))
+    app._state_map.update(_active_tray_state(app, 0, 1))
     app._print_active = True
 
     app._on_active_tray_change(
-        ACTIVE_TRAY_ENTITY, "state", "none", "Generic PLA", {}
+        app._active_tray_entity, "state", "none", "Generic PLA", {}
     )
     assert 2 in app._trays_used
     assert app._current_active_slot == 2
@@ -455,20 +457,20 @@ def test_on_active_tray_change_records_slot():
 
 def test_on_active_tray_change_closes_previous():
     """Switching trays closes the previous segment and opens a new one."""
-    sm = {**_default_state_map({2: 5, 4: 10}), **_active_tray_state(0, 1)}
-    app = _TestableUsageSync(state_map=sm)
+    app = _TestableUsageSync(state_map=_default_state_map({2: 5, 4: 10}))
+    app._state_map.update(_active_tray_state(app, 0, 1))
     app._print_active = True
 
     # First tray activates
     app._on_active_tray_change(
-        ACTIVE_TRAY_ENTITY, "state", "none", "Generic PLA", {}
+        app._active_tray_entity, "state", "none", "Generic PLA", {}
     )
     assert app._current_active_slot == 2
 
     # Switch to slot 4 (ams_index=0, tray_index=3)
-    sm.update(_active_tray_state(0, 3, "Overture Matte PLA"))
+    app._state_map.update(_active_tray_state(app, 0, 3, "Overture Matte PLA"))
     app._on_active_tray_change(
-        ACTIVE_TRAY_ENTITY, "state", "Generic PLA", "Overture Matte PLA", {}
+        app._active_tray_entity, "state", "Generic PLA", "Overture Matte PLA", {}
     )
     assert app._current_active_slot == 4
     assert app._trays_used == {2, 4}
@@ -478,22 +480,23 @@ def test_on_active_tray_change_closes_previous():
 
 def test_on_active_tray_change_none_closes_segment():
     """Tray going to 'none' closes current segment."""
-    sm = {**_default_state_map({2: 5}), **_active_tray_state(0, 1)}
-    app = _TestableUsageSync(state_map=sm)
+    app = _TestableUsageSync(state_map=_default_state_map({2: 5}))
+    app._state_map.update(_active_tray_state(app, 0, 1))
     app._print_active = True
 
     app._on_active_tray_change(
-        ACTIVE_TRAY_ENTITY, "state", "none", "Generic PLA", {}
+        app._active_tray_entity, "state", "none", "Generic PLA", {}
     )
     assert app._current_active_slot == 2
 
     # State goes to none — update state_map to reflect no attributes
-    app._state_map[ACTIVE_TRAY_ENTITY] = "none"
-    app._state_map.pop(f"{ACTIVE_TRAY_ENTITY}::ams_index", None)
-    app._state_map.pop(f"{ACTIVE_TRAY_ENTITY}::tray_index", None)
+    e = app._active_tray_entity
+    app._state_map[e] = "none"
+    app._state_map.pop(f"{e}::ams_index", None)
+    app._state_map.pop(f"{e}::tray_index", None)
 
     app._on_active_tray_change(
-        ACTIVE_TRAY_ENTITY, "state", "Generic PLA", "none", {}
+        e, "state", "Generic PLA", "none", {}
     )
     assert app._current_active_slot is None
     assert app._tray_active_times[2][0]["end"] is not None
@@ -501,12 +504,12 @@ def test_on_active_tray_change_none_closes_segment():
 
 def test_on_active_tray_change_ignored_when_not_printing():
     """Active tray changes are ignored when _print_active is False."""
-    sm = {**_default_state_map(), **_active_tray_state(0, 1)}
-    app = _TestableUsageSync(state_map=sm)
+    app = _TestableUsageSync(state_map=_default_state_map())
+    app._state_map.update(_active_tray_state(app, 0, 1))
     app._print_active = False
 
     app._on_active_tray_change(
-        ACTIVE_TRAY_ENTITY, "state", "none", "Generic PLA", {}
+        app._active_tray_entity, "state", "none", "Generic PLA", {}
     )
     assert len(app._trays_used) == 0
     assert app._current_active_slot is None

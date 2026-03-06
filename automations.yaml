@@ -236,7 +236,7 @@
   - platform: state
     entity_id: sensor.p1s_01p00c5a3101668_end_time
   - platform: state
-    entity_id: sensor.p1s_operator_status
+    entity_id: sensor.filament_iq_operator_status
     to:
     - printing_normally
     - printing_attention_needed
@@ -249,7 +249,7 @@
       sequence:
       - action: input_datetime.set_datetime
         target:
-          entity_id: input_datetime.p1s_print_start_time
+          entity_id: input_datetime.filament_iq_print_start_time
         data:
           datetime: "{{ trigger.to_state.state }}"
     - conditions:
@@ -258,12 +258,12 @@
       sequence:
       - action: input_datetime.set_datetime
         target:
-          entity_id: input_datetime.p1s_print_end_time
+          entity_id: input_datetime.filament_iq_print_end_time
         data:
           datetime: "{{ trigger.to_state.state }}"
     - conditions:
       - condition: state
-        entity_id: sensor.p1s_operator_status
+        entity_id: sensor.filament_iq_operator_status
         state:
         - printing_normally
         - printing_attention_needed
@@ -272,14 +272,14 @@
       sequence:
       - action: input_datetime.set_datetime
         target:
-          entity_id: input_datetime.p1s_print_start_time
+          entity_id: input_datetime.filament_iq_print_start_time
         data:
           datetime: "{{ states('sensor.p1s_01p00c5a3101668_start_time') }}"
       - condition: template
         value_template: "{{ states('sensor.p1s_01p00c5a3101668_end_time') not in ['unknown', 'unavailable', ''] }}"
       - action: input_datetime.set_datetime
         target:
-          entity_id: input_datetime.p1s_print_end_time
+          entity_id: input_datetime.filament_iq_print_end_time
         data:
           datetime: "{{ states('sensor.p1s_01p00c5a3101668_end_time') }}"
   mode: restart
@@ -387,7 +387,7 @@
   action:
     - action: input_text.set_value
       target:
-        entity_id: input_text.p1s_trays_used_this_print
+        entity_id: input_text.filament_iq_trays_used_this_print
       data:
         value: ""
     - wait_template: >
@@ -406,7 +406,7 @@
           sequence:
             - action: input_text.set_value
               target:
-                entity_id: input_text.p1s_last_tray_entity
+                entity_id: input_text.filament_iq_last_tray_entity
               data:
                 value: "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
             - service: logbook.log
@@ -419,7 +419,7 @@
           sequence:
             - action: input_text.set_value
               target:
-                entity_id: input_text.p1s_last_tray_entity
+                entity_id: input_text.filament_iq_last_tray_entity
               data:
                 value: "sensor.p1s_01p00c5a3101668_ams_1_tray_2"
             - service: logbook.log
@@ -432,7 +432,7 @@
           sequence:
             - action: input_text.set_value
               target:
-                entity_id: input_text.p1s_last_tray_entity
+                entity_id: input_text.filament_iq_last_tray_entity
               data:
                 value: "sensor.p1s_01p00c5a3101668_ams_1_tray_3"
             - service: logbook.log
@@ -445,7 +445,7 @@
           sequence:
             - action: input_text.set_value
               target:
-                entity_id: input_text.p1s_last_tray_entity
+                entity_id: input_text.filament_iq_last_tray_entity
               data:
                 value: "sensor.p1s_01p00c5a3101668_ams_1_tray_4"
             - service: logbook.log
@@ -458,7 +458,7 @@
           sequence:
             - action: input_text.set_value
               target:
-                entity_id: input_text.p1s_last_tray_entity
+                entity_id: input_text.filament_iq_last_tray_entity
               data:
                 value: "sensor.p1s_01p00c5a3101668_ams_128_tray_1"
             - service: logbook.log
@@ -471,7 +471,7 @@
           sequence:
             - action: input_text.set_value
               target:
-                entity_id: input_text.p1s_last_tray_entity
+                entity_id: input_text.filament_iq_last_tray_entity
               data:
                 value: "sensor.p1s_01p00c5a3101668_ams_129_tray_1"
             - service: logbook.log
@@ -510,10 +510,10 @@
   action:
     - action: input_text.set_value
       target:
-        entity_id: input_text.p1s_trays_used_this_print
+        entity_id: input_text.filament_iq_trays_used_this_print
       data:
         value: >
-          {% set raw = (states('input_text.p1s_trays_used_this_print') or '') | trim %}
+          {% set raw = (states('input_text.filament_iq_trays_used_this_print') or '') | trim %}
           {% set tid = trigger.entity_id %}
           {% set slot = '1' if tid == 'sensor.p1s_01p00c5a3101668_ams_1_tray_1'
                    else '2' if tid == 'sensor.p1s_01p00c5a3101668_ams_1_tray_2'
@@ -545,31 +545,31 @@
     # Mutex: Set print active + job key
     - service: input_boolean.turn_on
       target:
-        entity_id: input_boolean.p1s_print_active
+        entity_id: input_boolean.filament_iq_print_active
     - action: input_text.set_value
       target:
-        entity_id: input_text.p1s_print_job_key
+        entity_id: input_text.filament_iq_active_job_key
       data:
         value: "{{ now().timestamp() | string }}_{{ states('sensor.p1s_01p00c5a3101668_task_name') | replace(' ', '_') }}"
     - service: input_boolean.turn_off
       target:
-        entity_id: input_boolean.p1s_needs_reconcile
+        entity_id: input_boolean.filament_iq_needs_reconcile
     - variables:
         debug_info: "print_status={{ states('sensor.p1s_01p00c5a3101668_print_status') }} | reset_start_end_json=1"
     - action: input_text.set_value
       target:
-        entity_id: input_text.p1s_init_seed_debug
+        entity_id: input_text.filament_iq_init_seed_debug
       data:
         value: "{{ debug_info }}"
     # Clear JSON helpers (legacy)
     - action: input_text.set_value
       target:
-        entity_id: input_text.p1s_tray_remaining_start_json
+        entity_id: input_text.filament_iq_start_json
       data:
         value: "{}"
     - action: input_text.set_value
       target:
-        entity_id: input_text.p1s_tray_remaining_end_json
+        entity_id: input_text.filament_iq_end_json
       data:
         value: "{}"
     # Clear input_number helpers (ALL slots to 0)
@@ -578,12 +578,12 @@
         sequence:
           - service: input_number.set_value
             target:
-              entity_id: "input_number.p1s_start_slot_{{ repeat.index }}_g"
+              entity_id: "input_number.filament_iq_start_slot_{{ repeat.index }}_g"
             data:
               value: 0
           - service: input_number.set_value
             target:
-              entity_id: "input_number.p1s_end_slot_{{ repeat.index }}_g"
+              entity_id: "input_number.filament_iq_end_slot_{{ repeat.index }}_g"
             data:
               value: 0
     # Wait for printer to report which tray is in use (tray active or active_tray state), not Spoolman slot remaining
@@ -675,7 +675,7 @@
           {{ ns.lines | join(' | ') }}
     - action: input_text.set_value
       target:
-        entity_id: input_text.p1s_init_seed_debug
+        entity_id: input_text.filament_iq_init_seed_debug
       data:
         value: "print_status={{ states('sensor.p1s_01p00c5a3101668_print_status') }} | active_slots={{ active_slots }} | {{ debug_detail }} | seeded={{ seeded_dict | tojson }}{% if seeded_dict | length == 0 and fallback_dict | length > 0 %} | fallback={{ fallback_dict | tojson }}{% endif %}"
     - if:
@@ -684,7 +684,7 @@
       then:
         - action: input_text.set_value
           target:
-            entity_id: input_text.p1s_tray_remaining_start_json
+            entity_id: input_text.filament_iq_start_json
           data:
             value: "{{ dict_to_seed | tojson }}"
         # ALSO seed input_number helpers (JSON-free path)
@@ -696,7 +696,7 @@
                   grams: "{{ dict_to_seed.get(slot_str, 0) | int }}"
               - service: input_number.set_value
                 target:
-                  entity_id: "input_number.p1s_start_slot_{{ repeat.index }}_g"
+                  entity_id: "input_number.filament_iq_start_slot_{{ repeat.index }}_g"
                 data:
                   value: "{{ grams }}"
     - service: logbook.log
@@ -735,7 +735,7 @@
     ams: "{{ states('sensor.ams_slot_' ~ slot_int ~ '_remaining_g') | float(-1) }}"
     eff: "{{ fg if fg > 0 else (ams if ams > 0 else -1) }}"
     grams: "{{ [0, eff] | max | round(0) | int }}"
-    already_set: "{{ states('input_number.p1s_start_slot_' ~ slot_int ~ '_g') | int(0) > 0 }}"
+    already_set: "{{ states('input_number.filament_iq_start_slot_' ~ slot_int ~ '_g') | int(0) > 0 }}"
   action:
     - if:
         - condition: template
@@ -743,12 +743,12 @@
       then:
         - service: input_number.set_value
           target:
-            entity_id: "input_number.p1s_start_slot_{{ slot_int }}_g"
+            entity_id: "input_number.filament_iq_start_slot_{{ slot_int }}_g"
           data:
             value: "{{ grams }}"
         - action: input_text.set_value
           target:
-            entity_id: input_text.p1s_init_seed_debug
+            entity_id: input_text.filament_iq_init_seed_debug
           data:
             value: "tray={{ trigger.entity_id }} | slot={{ slot_int }} | fg={{ fg | round(0) | int }} | ams={{ ams | round(0) | int }} | eff={{ eff | round(0) | int }} | grams={{ grams }} | written"
       else:
@@ -759,7 +759,7 @@
               {% else %}unknown{% endif %}
         - action: input_text.set_value
           target:
-            entity_id: input_text.p1s_init_seed_debug
+            entity_id: input_text.filament_iq_init_seed_debug
           data:
             value: "tray={{ trigger.entity_id }} | slot={{ slot_int }} | skip={{ skip_reason }}"
   mode: queued
@@ -779,7 +779,7 @@
   action:
     - action: input_text.set_value
       target:
-        entity_id: input_text.p1s_last_print_status_transition
+        entity_id: input_text.filament_iq_last_print_status_transition
       data:
         value: "{{ (now().isoformat() ~ ' | from=' ~ (trigger.from_state.state | default('(none)')) ~ ' | to=' ~ (trigger.to_state.state | default('(none)')))[:255] }}"
   mode: single
@@ -803,22 +803,22 @@
     trigger_state: "{{ 'debug' if trigger.entity_id == 'input_boolean.p1s_debug_finish_trigger' else (trigger.to_state.state | default('finish')) }}"
     task_name: "{{ states('sensor.p1s_01p00c5a3101668_task_name') }}"
     is_failed: "{{ trigger_state in ['failed', 'error', 'canceled'] }}"
-    should_decrement: "{{ not is_failed or states('input_boolean.p1s_decrement_on_failed') == 'on' }}"
+    should_decrement: "{{ not is_failed or states('input_boolean.filament_iq_decrement_on_failed') == 'on' }}"
   action:
     # 0. Guard: skip if we already processed this job (duplicate finish+offline trigger)
     - choose:
         - conditions:
             - condition: template
               value_template: >
-                {{ states('input_text.p1s_finish_automation_checkpoint') == 'complete'
-                   and (as_timestamp(now()) - as_timestamp(states.input_text.p1s_finish_automation_checkpoint.last_changed | default(now()))) < 120 }}
+                {{ states('input_text.filament_iq_finish_automation_checkpoint') == 'complete'
+                   and (as_timestamp(now()) - as_timestamp(states.input_text.filament_iq_finish_automation_checkpoint.last_changed | default(now()))) < 120 }}
           sequence:
             - stop: "Already processed this print (duplicate trigger)"
 
     # 1. Checkpoint
     - service: input_text.set_value
       target:
-        entity_id: input_text.p1s_finish_automation_checkpoint
+        entity_id: input_text.filament_iq_finish_automation_checkpoint
       data:
         value: "entered"
 
@@ -840,7 +840,7 @@
       then:
         - service: input_text.set_value
           target:
-            entity_id: input_text.p1s_finish_automation_checkpoint
+            entity_id: input_text.filament_iq_finish_automation_checkpoint
           data:
             value: "skipped: no_start_snapshot"
         - stop: "No start snapshot"
@@ -871,7 +871,7 @@
     # 5. Write end_json
     - service: input_text.set_value
       target:
-        entity_id: input_text.p1s_tray_remaining_end_json
+        entity_id: input_text.filament_iq_end_json
       data:
         value: "{{ end_json_built | to_json }}"
 
@@ -881,7 +881,7 @@
         job_key: "{{ states('input_text.p1s_print_job_key') }}"
         task_name: "{{ states('sensor.p1s_01p00c5a3101668_task_name') }}"
         print_weight_g: "{{ states('sensor.p1s_01p00c5a3101668_print_weight') | float(0) }}"
-        trays_used: "{{ states('input_text.p1s_trays_used_this_print') }}"
+        trays_used: "{{ states('input_text.filament_iq_trays_used_this_print') }}"
         start_json: "{{ states('input_text.p1s_tray_remaining_start_json') }}"
         end_json: "{{ end_json_built | to_json }}"
         print_status: "{{ trigger_state }}"
@@ -889,7 +889,7 @@
     # 7. Checkpoint complete
     - service: input_text.set_value
       target:
-        entity_id: input_text.p1s_finish_automation_checkpoint
+        entity_id: input_text.filament_iq_finish_automation_checkpoint
       data:
         value: "event_fired"
 
@@ -898,7 +898,7 @@
     # 9. Final checkpoint
     - service: input_text.set_value
       target:
-        entity_id: input_text.p1s_finish_automation_checkpoint
+        entity_id: input_text.filament_iq_finish_automation_checkpoint
       data:
         value: "complete"
   mode: single
@@ -918,7 +918,7 @@
         - input_text.ams_slot_6_spool_id
   condition:
     - condition: state
-      entity_id: input_boolean.p1s_print_active
+      entity_id: input_boolean.filament_iq_print_active
       state: 'on'
     - condition: state
       entity_id: input_boolean.appdaemon_startup_suppress_swap
@@ -933,7 +933,7 @@
   action:
     - service: input_boolean.turn_on
       target:
-        entity_id: input_boolean.p1s_needs_reconcile
+        entity_id: input_boolean.filament_iq_needs_reconcile
     - service: notify.persistent_notification
       data:
         title: "P1S Spool Swap During Print Detected"
@@ -1134,7 +1134,7 @@
   action:
     - service: input_boolean.turn_on
       target:
-        entity_id: input_boolean.p1s_print_active
+        entity_id: input_boolean.filament_iq_print_active
   mode: single
 
 # Auto-detect AMS tray changes and try to match to Spoolman spools on Shelf. If exactly one match, auto-assign; otherwise notify for manual assignment.
