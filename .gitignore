@@ -48,3 +48,4 @@ appdaemon/apps/data/
 .vscode/
 .claude/
 appdaemon/apps/filament_iq/
+scripts/validate_filament_iq.sh
