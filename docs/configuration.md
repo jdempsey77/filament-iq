@@ -34,7 +34,7 @@ Restart Home Assistant.
 
 ### 3. Configure apps.yaml
 
-Copy `appdaemon/apps/filament_iq/apps.yaml.example` to your AppDaemon `apps.yaml` and adjust values. See the example file for all available keys with defaults.
+Copy `apps/filament_iq/apps.yaml.example` to your AppDaemon `apps.yaml` and adjust values. See the example file for all available keys with defaults.
 
 ### 4. Printer Serial in Source
 

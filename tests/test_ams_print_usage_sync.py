@@ -26,7 +26,7 @@ if "hassapi" not in sys.modules:
     _hassapi.Hass = _FakeHass
     sys.modules["hassapi"] = _hassapi
 
-_APPS = os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps", "filament_iq")
+_APPS = os.path.join(os.path.dirname(__file__), "..", "apps", "filament_iq")
 if _APPS not in sys.path:
     sys.path.insert(0, _APPS)
 
