@@ -44,7 +44,7 @@
                   action: more-info
                 icon_color: accent
               - type: custom:mushroom-entity-card
-                entity: sensor.p1s_operator_status
+                entity: sensor.filament_iq_operator_status
                 name: Status
                 icon: mdi:printer-3d
                 icon_color: accent
@@ -52,7 +52,7 @@
                 conditions:
                   - entity: sensor.p1s_YOUR_PRINTER_SERIAL_mqtt_connection_mode
                     state: local
-                  - entity: sensor.p1s_operator_status
+                  - entity: sensor.filament_iq_operator_status
                     state:
                       - printing_normally
                       - printing_attention_needed
@@ -69,7 +69,7 @@
                 conditions:
                   - entity: sensor.p1s_YOUR_PRINTER_SERIAL_mqtt_connection_mode
                     state: local
-                  - entity: sensor.p1s_operator_status
+                  - entity: sensor.filament_iq_operator_status
                     state:
                       - printing_normally
                       - printing_attention_needed
@@ -80,7 +80,7 @@
                   cards:
                     - type: conditional
                       conditions:
-                        - entity: sensor.p1s_operator_status
+                        - entity: sensor.filament_iq_operator_status
                           state:
                             - printing_normally
                             - printing_attention_needed
@@ -97,7 +97,7 @@
                         icon_color: orange
                     - type: conditional
                       conditions:
-                        - entity: sensor.p1s_operator_status
+                        - entity: sensor.filament_iq_operator_status
                           state:
                             - paused_user
                             - paused_error
@@ -125,7 +125,7 @@
                         text: Cancel Print?
               - type: conditional
                 conditions:
-                  - entity: sensor.p1s_operator_status
+                  - entity: sensor.filament_iq_operator_status
                     state:
                       - printing_normally
                       - printing_attention_needed
@@ -152,15 +152,15 @@
                         icon: mdi:layers
                   - type: conditional
                     conditions:
-                      - entity: sensor.p1s_operator_status
+                      - entity: sensor.filament_iq_operator_status
                         state:
                           - printing_normally
                           - printing_attention_needed
                       - condition: state
-                        entity: input_datetime.p1s_print_start_time
+                        entity: input_datetime.filament_iq_print_start_time
                         state_not: unavailable
                       - condition: state
-                        entity: input_datetime.p1s_print_end_time
+                        entity: input_datetime.filament_iq_print_end_time
                         state_not: unavailable
                     card:
                       type: custom:timer-bar-card
@@ -171,9 +171,9 @@
                         - running
                         - RUNNING
                       start_time:
-                        entity: input_datetime.p1s_print_start_time
+                        entity: input_datetime.filament_iq_print_start_time
                       end_time:
-                        entity: input_datetime.p1s_print_end_time
+                        entity: input_datetime.filament_iq_print_end_time
                       icon: mdi:timer-sand
                       active_icon: mdi:printer-3d
                       invert: false
@@ -209,21 +209,21 @@
                       - type: conditional
                         conditions:
                           - condition: state
-                            entity: input_datetime.p1s_print_start_time
+                            entity: input_datetime.filament_iq_print_start_time
                             state_not: unavailable
                         card:
                           type: custom:mushroom-entity-card
-                          entity: input_datetime.p1s_print_start_time
+                          entity: input_datetime.filament_iq_print_start_time
                           name: Start Time
                           icon: mdi:clock-time-four
                       - type: conditional
                         conditions:
                           - condition: state
-                            entity: input_datetime.p1s_print_end_time
+                            entity: input_datetime.filament_iq_print_end_time
                             state_not: unavailable
                         card:
                           type: custom:mushroom-entity-card
-                          entity: input_datetime.p1s_print_end_time
+                          entity: input_datetime.filament_iq_print_end_time
                           name: End Time
                           icon: mdi:clock-time-four-outline
                   - type: custom:mushroom-entity-card

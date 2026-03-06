@@ -84,7 +84,7 @@ input_text:
   p1s_last_tray_entity:
     name: P1S Last Tray Entity
     max: 100
-  p1s_trays_used_this_print:
+  filament_iq_trays_used_this_print:
     name: P1S Trays used this print (comma-separated slot numbers)
     max: 255
   p1s_init_seed_debug:
@@ -103,7 +103,7 @@ input_text:
     name: P1S Slot to Spool Binding (JSON)
     max: 255
     initial: "{}"
-  p1s_last_mapping_json:
+  filament_iq_last_mapping_json:
     name: P1S Last Mapping Result
     max: 255
     initial: ""
@@ -244,7 +244,7 @@ input_text:
 
 # Filament tracking safety flags
 input_boolean:
-  p1s_print_active:
+  filament_iq_print_active:
     name: P1S Print Active (mutex lock)
     initial: false
   p1s_needs_reconcile:
@@ -265,7 +265,7 @@ input_boolean:
   p1s_auto_mode_opinionated:
     name: P1S Opinionated Auto Mode
     initial: true
-  p1s_nonrfid_enabled:
+  filament_iq_nonrfid_enabled:
     name: P1S Non-RFID Spool Support Enabled
     icon: mdi:toggle-switch
   appdaemon_startup_suppress_swap:
@@ -1642,7 +1642,7 @@ automation:
     - platform: state
       entity_id: sensor.p1s_YOUR_PRINTER_SERIAL_end_time
     - platform: state
-      entity_id: sensor.p1s_operator_status
+      entity_id: sensor.filament_iq_operator_status
       to:
       - printing_normally
       - printing_attention_needed
@@ -1655,7 +1655,7 @@ automation:
         sequence:
         - action: input_datetime.set_datetime
           target:
-            entity_id: input_datetime.p1s_print_start_time
+            entity_id: input_datetime.filament_iq_print_start_time
           data:
             datetime: "{{ trigger.to_state.state }}"
       - conditions:
@@ -1664,12 +1664,12 @@ automation:
         sequence:
         - action: input_datetime.set_datetime
           target:
-            entity_id: input_datetime.p1s_print_end_time
+            entity_id: input_datetime.filament_iq_print_end_time
           data:
             datetime: "{{ trigger.to_state.state }}"
       - conditions:
         - condition: state
-          entity_id: sensor.p1s_operator_status
+          entity_id: sensor.filament_iq_operator_status
           state:
           - printing_normally
           - printing_attention_needed
@@ -1678,14 +1678,14 @@ automation:
         sequence:
         - action: input_datetime.set_datetime
           target:
-            entity_id: input_datetime.p1s_print_start_time
+            entity_id: input_datetime.filament_iq_print_start_time
           data:
             datetime: "{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_start_time') }}"
         - condition: template
           value_template: "{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_end_time') not in ['unknown', 'unavailable', ''] }}"
         - action: input_datetime.set_datetime
           target:
-            entity_id: input_datetime.p1s_print_end_time
+            entity_id: input_datetime.filament_iq_print_end_time
           data:
             datetime: "{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_end_time') }}"
     mode: restart
@@ -1793,7 +1793,7 @@ automation:
     action:
       - action: input_text.set_value
         target:
-          entity_id: input_text.p1s_trays_used_this_print
+          entity_id: input_text.filament_iq_trays_used_this_print
         data:
           value: ""
       - wait_template: >
@@ -1905,7 +1905,7 @@ automation:
       # Mutex: Set print active + job key
       - service: input_boolean.turn_on
         target:
-          entity_id: input_boolean.p1s_print_active
+          entity_id: input_boolean.filament_iq_print_active
       - action: input_text.set_value
         target:
           entity_id: input_text.p1s_print_job_key
@@ -1913,7 +1913,7 @@ automation:
           value: "{{ now().timestamp() | string }}_{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_task_name') | replace(' ', '_') }}"
       - service: input_boolean.turn_off
         target:
-          entity_id: input_boolean.p1s_needs_reconcile
+          entity_id: input_boolean.filament_iq_needs_reconcile
       - variables:
           debug_info: "print_status={{ states('sensor.p1s_YOUR_PRINTER_SERIAL_print_status') }} | reset_start_end_json=1"
       - action: input_text.set_value
@@ -2134,12 +2134,12 @@ automation:
         entity_id: sensor.p1s_YOUR_PRINTER_SERIAL_print_status
     condition:
       - condition: state
-        entity_id: input_boolean.filament_debug_mode
+        entity_id: input_boolean.filament_iq_debug_mode
         state: "on"
     action:
       - action: input_text.set_value
         target:
-          entity_id: input_text.p1s_last_print_status_transition
+          entity_id: input_text.filament_iq_last_print_status_transition
         data:
           value: "{{ (now().isoformat() ~ ' | from=' ~ (trigger.from_state.state | default('(none)')) ~ ' | to=' ~ (trigger.to_state.state | default('(none)')))[:255] }}"
     mode: single
@@ -2156,29 +2156,29 @@ automation:
           - pause
           - paused
       - platform: state
-        entity_id: input_boolean.p1s_debug_finish_trigger
+        entity_id: input_boolean.filament_iq_debug_finish_trigger
         to: "on"
     condition: []
     variables:
-      trigger_state: "{{ 'debug' if trigger.entity_id == 'input_boolean.p1s_debug_finish_trigger' else (trigger.to_state.state | default('finish')) }}"
+      trigger_state: "{{ 'debug' if trigger.entity_id == 'input_boolean.filament_iq_debug_finish_trigger' else (trigger.to_state.state | default('finish')) }}"
       task_name: "{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_task_name') }}"
       is_failed: "{{ trigger_state in ['failed', 'error', 'canceled'] }}"
-      should_decrement: "{{ not is_failed or states('input_boolean.p1s_decrement_on_failed') == 'on' }}"
+      should_decrement: "{{ not is_failed or states('input_boolean.filament_iq_decrement_on_failed') == 'on' }}"
     action:
       # 0. Guard: skip if we already processed this job (duplicate finish+offline trigger)
       - choose:
           - conditions:
               - condition: template
                 value_template: >
-                  {{ states('input_text.p1s_finish_automation_checkpoint') == 'complete'
-                     and (as_timestamp(now()) - as_timestamp(states.input_text.p1s_finish_automation_checkpoint.last_changed | default(now()))) < 120 }}
+                  {{ states('input_text.filament_iq_finish_automation_checkpoint') == 'complete'
+                     and (as_timestamp(now()) - as_timestamp(states.input_text.filament_iq_finish_automation_checkpoint.last_changed | default(now()))) < 120 }}
             sequence:
               - stop: "Already processed this print (duplicate trigger)"
   
       # 1. Checkpoint
       - service: input_text.set_value
         target:
-          entity_id: input_text.p1s_finish_automation_checkpoint
+          entity_id: input_text.filament_iq_finish_automation_checkpoint
         data:
           value: "entered"
   
@@ -2186,11 +2186,11 @@ automation:
       - choose:
           - conditions:
               - condition: template
-                value_template: "{{ trigger.entity_id == 'input_boolean.p1s_debug_finish_trigger' }}"
+                value_template: "{{ trigger.entity_id == 'input_boolean.filament_iq_debug_finish_trigger' }}"
             sequence:
               - service: input_boolean.turn_off
                 target:
-                  entity_id: input_boolean.p1s_debug_finish_trigger
+                  entity_id: input_boolean.filament_iq_debug_finish_trigger
   
       # 3. Guard: skip if no start snapshot
       - if:
@@ -2200,7 +2200,7 @@ automation:
         then:
           - service: input_text.set_value
             target:
-              entity_id: input_text.p1s_finish_automation_checkpoint
+              entity_id: input_text.filament_iq_finish_automation_checkpoint
             data:
               value: "skipped: no_start_snapshot"
           - stop: "No start snapshot"
@@ -2241,7 +2241,7 @@ automation:
           job_key: "{{ states('input_text.p1s_print_job_key') }}"
           task_name: "{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_task_name') }}"
           print_weight_g: "{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_print_weight') | float(0) }}"
-          trays_used: "{{ states('input_text.p1s_trays_used_this_print') }}"
+          trays_used: "{{ states('input_text.filament_iq_trays_used_this_print') }}"
           start_json: "{{ states('input_text.p1s_tray_remaining_start_json') }}"
           end_json: "{{ end_json_built | to_json }}"
           print_status: "{{ trigger_state }}"
@@ -2249,7 +2249,7 @@ automation:
       # 7. Checkpoint complete
       - service: input_text.set_value
         target:
-          entity_id: input_text.p1s_finish_automation_checkpoint
+          entity_id: input_text.filament_iq_finish_automation_checkpoint
         data:
           value: "event_fired"
   
@@ -2258,7 +2258,7 @@ automation:
       # 9. Final checkpoint
       - service: input_text.set_value
         target:
-          entity_id: input_text.p1s_finish_automation_checkpoint
+          entity_id: input_text.filament_iq_finish_automation_checkpoint
         data:
           value: "complete"
     mode: single
@@ -2278,22 +2278,22 @@ automation:
           - input_text.ams_slot_6_spool_id
     condition:
       - condition: state
-        entity_id: input_boolean.p1s_print_active
+        entity_id: input_boolean.filament_iq_print_active
         state: 'on'
       - condition: state
-        entity_id: input_boolean.appdaemon_startup_suppress_swap
+        entity_id: input_boolean.filament_iq_startup_suppress_swap
         state: 'off'
       # Only fire when printer is actually printing (avoid false positives when mutex is stale)
       - condition: or
         conditions:
           - condition: template
-            value_template: "{{ states('sensor.p1s_operator_status') in ['printing_normally', 'printing_attention_needed', 'printing'] }}"
+            value_template: "{{ states('sensor.filament_iq_operator_status') in ['printing_normally', 'printing_attention_needed', 'printing'] }}"
           - condition: template
             value_template: "{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_print_status') in ['running', 'printing'] }}"
     action:
       - service: input_boolean.turn_on
         target:
-          entity_id: input_boolean.p1s_needs_reconcile
+          entity_id: input_boolean.filament_iq_needs_reconcile
       - service: notify.persistent_notification
         data:
           title: "P1S Spool Swap During Print Detected"
@@ -2311,17 +2311,17 @@ automation:
           - appdaemon_startup
           - ams_rfid_reconcile_startup
       - platform: state
-        entity_id: input_boolean.appdaemon_startup_suppress_swap
+        entity_id: input_boolean.filament_iq_startup_suppress_swap
         to: 'on'
     action:
       - service: input_boolean.turn_on
         target:
-          entity_id: input_boolean.appdaemon_startup_suppress_swap
+          entity_id: input_boolean.filament_iq_startup_suppress_swap
       - delay:
           seconds: 90
       - service: input_boolean.turn_off
         target:
-          entity_id: input_boolean.appdaemon_startup_suppress_swap
+          entity_id: input_boolean.filament_iq_startup_suppress_swap
     mode: restart
   
   # Sync spool dropdown to bound spool when helper changes (reconciler or assign).
@@ -2494,7 +2494,7 @@ automation:
     action:
       - service: input_boolean.turn_on
         target:
-          entity_id: input_boolean.p1s_print_active
+          entity_id: input_boolean.filament_iq_print_active
     mode: single
   
   # Auto-detect AMS tray changes and try to match to Spoolman spools on Shelf. If exactly one match, auto-assign; otherwise notify for manual assignment.
@@ -2661,7 +2661,7 @@ automation:
           {{ trigger.to_state.state | default('') not in
           ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] }}
       - condition: state
-        entity_id: input_boolean.appdaemon_startup_suppress_swap
+        entity_id: input_boolean.filament_iq_startup_suppress_swap
         state: 'off'
     actions:
       - variables:
@@ -2903,10 +2903,10 @@ script:
         example: "500"
     sequence:
       - variables:
-          auto_enabled: "{{ states('input_boolean.p1s_auto_mode_opinionated') == 'on' }}"
+          auto_enabled: "{{ states('input_boolean.filament_iq_auto_mode_opinionated') == 'on' }}"
           # RESILIENT: Check if binding helper exists before reading
-          binding_helper_exists: "{{ states('input_text.p1s_slot_to_spool_binding_json') not in ['unavailable', 'unknown', ''] }}"
-          binding_raw: "{{ states('input_text.p1s_slot_to_spool_binding_json') | default('{}', true) | string }}"
+          binding_helper_exists: "{{ states('input_text.filament_iq_slot_to_spool_binding_json') not in ['unavailable', 'unknown', ''] }}"
+          binding_raw: "{{ states('input_text.filament_iq_slot_to_spool_binding_json') | default('{}', true) | string }}"
           binding_dict: >
             {% set s = (binding_raw | trim) %}
             {% if s.startswith('{') and s.endswith('}') %}
@@ -2924,11 +2924,11 @@ script:
           # RESILIENT: Only write if helper exists
           - if:
               - condition: template
-                value_template: "{{ states('input_text.p1s_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
+                value_template: "{{ states('input_text.filament_iq_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
             then:
               - service: input_text.set_value
                 target:
-                  entity_id: input_text.p1s_last_mapping_json
+                  entity_id: input_text.filament_iq_last_mapping_json
                 data:
                   value: "{{ ('slot=' ~ slot_number ~ ' | auto_mode=OFF | no_action') | string }}"
           - stop: "Auto mode disabled"
@@ -2952,11 +2952,11 @@ script:
               # RESILIENT: Only write if helper exists
               - if:
                   - condition: template
-                    value_template: "{{ states('input_text.p1s_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
+                    value_template: "{{ states('input_text.filament_iq_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
                 then:
                   - service: input_text.set_value
                     target:
-                      entity_id: input_text.p1s_last_mapping_json
+                      entity_id: input_text.filament_iq_last_mapping_json
                     data:
                       value: "{{ ('slot=' ~ slot_number ~ ' | spool_id=' ~ bound_spool_id ~ ' | confidence=high | rule=binding_reused') | string }}"
               - stop: "Binding reused"
@@ -3002,31 +3002,31 @@ script:
                   binding_json_str: "{{ (updated_binding | tojson)[:1020] | string }}"
               - service: input_text.set_value
                 target:
-                  entity_id: input_text.p1s_slot_to_spool_binding_json
+                  entity_id: input_text.filament_iq_slot_to_spool_binding_json
                 data:
                   value: "{{ binding_json_str }}"
           # Log mapping result - RESILIENT: Only if helper exists
           - if:
               - condition: template
-                value_template: "{{ states('input_text.p1s_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
+                value_template: "{{ states('input_text.filament_iq_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
             then:
               - variables:
                   # RESILIENT: Ensure log string doesn't exceed max (2048)
                   log_str: "{{ ('slot=' ~ slot_number ~ ' | mat=' ~ mat_lower ~ ' | spool_id=' ~ chosen_spool_id ~ ' | remaining=' ~ chosen.remaining ~ 'g | confidence=' ~ confidence ~ ' | rule=' ~ rule ~ ' | candidates=' ~ candidates | length)[:2044] | string }}"
               - service: input_text.set_value
                 target:
-                  entity_id: input_text.p1s_last_mapping_json
+                  entity_id: input_text.filament_iq_last_mapping_json
                 data:
                   value: "{{ log_str }}"
         else:
           # No spools available (should never happen)
           - if:
               - condition: template
-                value_template: "{{ states('input_text.p1s_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
+                value_template: "{{ states('input_text.filament_iq_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
             then:
               - service: input_text.set_value
                 target:
-                  entity_id: input_text.p1s_last_mapping_json
+                  entity_id: input_text.filament_iq_last_mapping_json
                 data:
                   value: "{{ ('slot=' ~ slot_number ~ ' | ERROR | no_spools_available') | string }}"
   
@@ -3052,22 +3052,22 @@ script:
       # Seed slot 1
       - service: input_number.set_value
         target:
-          entity_id: input_number.p1s_start_slot_1_g
+          entity_id: input_number.filament_iq_start_slot_1_g
         data:
           value: 350
       - service: input_number.set_value
         target:
-          entity_id: input_number.p1s_end_slot_1_g
+          entity_id: input_number.filament_iq_end_slot_1_g
         data:
           value: 315
       # Trigger finish
       - service: input_boolean.turn_off
         target:
-          entity_id: input_boolean.p1s_debug_finish_trigger
+          entity_id: input_boolean.filament_iq_debug_finish_trigger
       - delay: "00:00:01"
       - service: input_boolean.turn_on
         target:
-          entity_id: input_boolean.p1s_debug_finish_trigger
+          entity_id: input_boolean.filament_iq_debug_finish_trigger
   
   test_scenario_4_multi_slot:
     alias: "Test Scenario 4: Multi-Slot Print"
@@ -3090,33 +3090,33 @@ script:
       # Seed slot 1
       - service: input_number.set_value
         target:
-          entity_id: input_number.p1s_start_slot_1_g
+          entity_id: input_number.filament_iq_start_slot_1_g
         data:
           value: 300
       - service: input_number.set_value
         target:
-          entity_id: input_number.p1s_end_slot_1_g
+          entity_id: input_number.filament_iq_end_slot_1_g
         data:
           value: 270
       # Seed slot 2
       - service: input_number.set_value
         target:
-          entity_id: input_number.p1s_start_slot_2_g
+          entity_id: input_number.filament_iq_start_slot_2_g
         data:
           value: 200
       - service: input_number.set_value
         target:
-          entity_id: input_number.p1s_end_slot_2_g
+          entity_id: input_number.filament_iq_end_slot_2_g
         data:
           value: 165
       # Trigger
       - service: input_boolean.turn_off
         target:
-          entity_id: input_boolean.p1s_debug_finish_trigger
+          entity_id: input_boolean.filament_iq_debug_finish_trigger
       - delay: "00:00:01"
       - service: input_boolean.turn_on
         target:
-          entity_id: input_boolean.p1s_debug_finish_trigger
+          entity_id: input_boolean.filament_iq_debug_finish_trigger
   
   test_clear_binding:
     alias: "Test: Clear Binding JSON"
@@ -3124,7 +3124,7 @@ script:
     sequence:
       - service: input_text.set_value
         target:
-          entity_id: input_text.p1s_slot_to_spool_binding_json
+          entity_id: input_text.filament_iq_slot_to_spool_binding_json
         data:
           value: "{}"
   
@@ -3134,9 +3134,9 @@ script:
     description: "Confirms binding + mapping helpers exist and are writable. Returns PASS/FAIL."
     sequence:
       - variables:
-          binding_exists: "{{ states('input_text.p1s_slot_to_spool_binding_json') not in ['unavailable', 'unknown'] }}"
-          mapping_exists: "{{ states('input_text.p1s_last_mapping_json') not in ['unavailable', 'unknown'] }}"
-          binding_state_before: "{{ states('input_text.p1s_slot_to_spool_binding_json') | default('', true) | string }}"
+          binding_exists: "{{ states('input_text.filament_iq_slot_to_spool_binding_json') not in ['unavailable', 'unknown'] }}"
+          mapping_exists: "{{ states('input_text.filament_iq_last_mapping_json') not in ['unavailable', 'unknown'] }}"
+          binding_state_before: "{{ states('input_text.filament_iq_slot_to_spool_binding_json') | default('', true) | string }}"
       # Test 1: Check existence
       - if:
           - condition: template
@@ -3152,28 +3152,28 @@ script:
                 ACTION REQUIRED: Create missing helpers via HA UI:
                 1. Settings → Devices & Services → Helpers
                 2. Create Text helpers with exact entity IDs:
-                   - input_text.p1s_slot_to_spool_binding_json (max: 1024)
-                   - input_text.p1s_last_mapping_json (max: 2048)
+                   - input_text.filament_iq_slot_to_spool_binding_json (max: 1024)
+                   - input_text.filament_iq_last_mapping_json (max: 2048)
           - stop: "FAIL: Helpers missing"
       # Test 2: Attempt safe write/restore (doesn't alter production data long-term)
       - service: input_text.set_value
         target:
-          entity_id: input_text.p1s_slot_to_spool_binding_json
+          entity_id: input_text.filament_iq_slot_to_spool_binding_json
         data:
           value: "{{ ('{}') | string }}"
       - delay: "00:00:01"
       - variables:
-          write_test: "{{ states('input_text.p1s_slot_to_spool_binding_json') | string }}"
+          write_test: "{{ states('input_text.filament_iq_slot_to_spool_binding_json') | string }}"
       # Restore original value (if unavailable/unknown, restore '{}')
       - service: input_text.set_value
         target:
-          entity_id: input_text.p1s_slot_to_spool_binding_json
+          entity_id: input_text.filament_iq_slot_to_spool_binding_json
         data:
           value: "{{ (binding_state_before if binding_state_before not in ['', 'unavailable', 'unknown'] else '{}') | string }}"
       # Test 3: Log result
       - service: input_text.set_value
         target:
-          entity_id: input_text.p1s_last_mapping_json
+          entity_id: input_text.filament_iq_last_mapping_json
         data:
           value: "{{ ('validation=PASS | binding_writable=true | mapping_writable=true | timestamp=' ~ now().isoformat()) | string }}"
       - service: persistent_notification.create
@@ -3194,33 +3194,33 @@ script:
       # Set start values
       - service: input_number.set_value
         target:
-          entity_id: input_number.p1s_start_slot_1_g
+          entity_id: input_number.filament_iq_start_slot_1_g
         data:
           value: 100
       - service: input_number.set_value
         target:
-          entity_id: input_number.p1s_start_slot_2_g
+          entity_id: input_number.filament_iq_start_slot_2_g
         data:
           value: 200
       # Set end values
       - service: input_number.set_value
         target:
-          entity_id: input_number.p1s_end_slot_1_g
+          entity_id: input_number.filament_iq_end_slot_1_g
         data:
           value: 90
       - service: input_number.set_value
         target:
-          entity_id: input_number.p1s_end_slot_2_g
+          entity_id: input_number.filament_iq_end_slot_2_g
         data:
           value: 150
       # Trigger finish automation
       - service: input_boolean.turn_off
         target:
-          entity_id: input_boolean.p1s_debug_finish_trigger
+          entity_id: input_boolean.filament_iq_debug_finish_trigger
       - delay: "00:00:01"
       - service: input_boolean.turn_on
         target:
-          entity_id: input_boolean.p1s_debug_finish_trigger
+          entity_id: input_boolean.filament_iq_debug_finish_trigger
   
   # TODO: Replace YOUR_SPOOLMAN_ENTRY_ID with your Spoolman config entry ID (Settings → Devices & Services → Spoolman → Configure)
   reload_spoolman_integration:

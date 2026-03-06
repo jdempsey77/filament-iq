@@ -24,21 +24,21 @@ class FilamentWeightTracker(hass.Hass):
         # Auto trigger: print start
         self.listen_state(
             self._on_print_start,
-            "sensor.p1s_operator_status",
+            "sensor.filament_iq_operator_status",
             new=lambda x: x in ("printing_normally", "printing"),
         )
 
         # Auto trigger: print end
         self.listen_state(
             self._on_print_end,
-            "sensor.p1s_operator_status",
+            "sensor.filament_iq_operator_status",
             new=lambda x: x in ("idle", "finished", "failed"),
         )
 
         # Manual trigger
         self.listen_state(
             self._on_manual_snapshot,
-            "input_button.p1s_weight_snapshot_now",  # TODO: Create this helper in HA if missing.
+            "input_button.filament_iq_weight_snapshot_now",  # TODO: Create this helper in HA if missing.
         )
 
     def _get_all_spool_weights(self):
