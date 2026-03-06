@@ -1,0 +1,1856 @@
+# 3D Printer dashboard view – extracted from home_assistant/dashboards/dashboard.stage.yaml
+# TODO: Replace YOUR_PRINTER_SERIAL with your Bambu P1S serial (e.g. 01p00a1b2c3d4e5f)
+# 3D Printer dashboard view – extracted from home_assistant/dashboards/dashboard.stage.yaml
+# TODO: Replace YOUR_PRINTER_SERIAL with your Bambu P1S serial (e.g. 01p00a1b2c3d4e5f)
+  - title: 3D Printer
+    icon: mdi:printer-3d
+    path: printer
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        cards:
+          - type: vertical-stack
+            cards:
+              - type: custom:mushroom-template-card
+                primary: AMS Filament Slots
+                secondary: >-
+                  {% set count = states('sensor.ams_unbound_slot_count') |
+                  int(0) %} {% if count > 0 %}{{ count }} slot{{ 's' if count >
+                  1 }} need{{ '' if count > 1 else 's' }} binding {% else %}All
+                  slots bound {% endif %}
+                icon: mdi:tray-full
+                tap_action:
+                  action: none
+                color: >-
+                  {% if states('sensor.ams_unbound_slot_count') | int(0) > 0
+                  %}red {% else %}green{% endif %}
+                features_position: bottom
+                card_mod:
+                  style: >
+                    ha-card { --ha-card-background: transparent; box-shadow:
+                    none; }
+          - type: vertical-stack
+            cards:
+              - type: custom:mushroom-entity-card
+                entity: switch.officeoutlet01_3dprinter
+                name: Power
+                icon: mdi:power
+                tap_action:
+                  action: toggle
+                  confirmation:
+                    text: Toggle Printer Power?
+                hold_action:
+                  action: more-info
+                icon_color: accent
+              - type: custom:mushroom-entity-card
+                entity: sensor.p1s_operator_status
+                name: Status
+                icon: mdi:printer-3d
+                icon_color: accent
+              - type: conditional
+                conditions:
+                  - entity: sensor.p1s_YOUR_PRINTER_SERIAL_mqtt_connection_mode
+                    state: local
+                  - entity: sensor.p1s_operator_status
+                    state:
+                      - printing_normally
+                      - printing_attention_needed
+                  - condition: state
+                    entity: select.p1s_YOUR_PRINTER_SERIAL_printing_speed
+                    state_not: unavailable
+                card:
+                  type: custom:mushroom-entity-card
+                  entity: select.p1s_YOUR_PRINTER_SERIAL_printing_speed
+                  name: Speed
+                  icon: mdi:speedometer
+                  icon_color: red
+              - type: conditional
+                conditions:
+                  - entity: sensor.p1s_YOUR_PRINTER_SERIAL_mqtt_connection_mode
+                    state: local
+                  - entity: sensor.p1s_operator_status
+                    state:
+                      - printing_normally
+                      - printing_attention_needed
+                      - paused_user
+                      - paused_error
+                card:
+                  type: horizontal-stack
+                  cards:
+                    - type: conditional
+                      conditions:
+                        - entity: sensor.p1s_operator_status
+                          state:
+                            - printing_normally
+                            - printing_attention_needed
+                      card:
+                        type: custom:mushroom-entity-card
+                        entity: button.p1s_YOUR_PRINTER_SERIAL_pause_printing
+                        name: Pause
+                        icon: mdi:pause
+                        tap_action:
+                          action: call-service
+                          service: button.press
+                          service_data:
+                            entity_id: button.p1s_YOUR_PRINTER_SERIAL_pause_printing
+                        icon_color: orange
+                    - type: conditional
+                      conditions:
+                        - entity: sensor.p1s_operator_status
+                          state:
+                            - paused_user
+                            - paused_error
+                      card:
+                        type: custom:mushroom-entity-card
+                        entity: button.p1s_YOUR_PRINTER_SERIAL_resume_printing
+                        name: Resume
+                        icon: mdi:play
+                        tap_action:
+                          action: call-service
+                          service: button.press
+                          service_data:
+                            entity_id: button.p1s_YOUR_PRINTER_SERIAL_resume_printing
+                        icon_color: orange
+                    - type: custom:mushroom-template-card
+                      primary: Cancel
+                      icon: mdi:cancel
+                      icon_color: red
+                      tap_action:
+                        action: call-service
+                        service: button.press
+                        service_data:
+                          entity_id: button.p1s_YOUR_PRINTER_SERIAL_stop_printing
+                      confirmation:
+                        text: Cancel Print?
+              - type: conditional
+                conditions:
+                  - entity: sensor.p1s_operator_status
+                    state:
+                      - printing_normally
+                      - printing_attention_needed
+                card:
+                  type: custom:mushroom-entity-card
+                  entity: sensor.p1s_YOUR_PRINTER_SERIAL_task_name
+                  name: Task
+                  icon: mdi:clipboard-text
+              - type: vertical-stack
+                cards:
+                  - type: horizontal-stack
+                    cards:
+                      - type: custom:mushroom-entity-card
+                        entity: sensor.p1s_YOUR_PRINTER_SERIAL_print_progress
+                        name: Progress
+                        icon: mdi:progress-helper
+                      - type: custom:mushroom-template-card
+                        primary: Layer
+                        icon_color: var(--rgb-state-entity)
+                        secondary: >-
+                          {{states('sensor.p1s_YOUR_PRINTER_SERIAL_current_layer')}}
+                          /
+                          {{states('sensor.p1s_YOUR_PRINTER_SERIAL_total_layer_count')}}
+                        icon: mdi:layers
+                  - type: conditional
+                    conditions:
+                      - entity: sensor.p1s_operator_status
+                        state:
+                          - printing_normally
+                          - printing_attention_needed
+                      - condition: state
+                        entity: input_datetime.p1s_print_start_time
+                        state_not: unavailable
+                      - condition: state
+                        entity: input_datetime.p1s_print_end_time
+                        state_not: unavailable
+                    card:
+                      type: custom:timer-bar-card
+                      entity: sensor.p1s_YOUR_PRINTER_SERIAL_print_status
+                      name: Time Remaining
+                      mushroom: true
+                      active_state:
+                        - running
+                        - RUNNING
+                      start_time:
+                        entity: input_datetime.p1s_print_start_time
+                      end_time:
+                        entity: input_datetime.p1s_print_end_time
+                      icon: mdi:timer-sand
+                      active_icon: mdi:printer-3d
+                      invert: false
+                      bar_radius: 6px
+                      bar_height: 6px
+                      bar_foreground: rgb(var(--rgb-accent-color))
+                      bar_background: rgba(var(--rgb-primary-text-color), 0.12)
+                      state_color: true
+                      card_mod:
+                        style: >
+                          ha-card {
+                            border: none !important;
+                            border-radius: 12px !important;
+                            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                            padding: 6px 12px 8px !important;
+                          }
+
+                          timer-bar-card {
+                            --tbc-name-color: var(--primary-text-color);
+                            --tbc-time-color: var(--secondary-text-color);
+                          }
+
+                          timer-bar-mushroom-row {
+                            min-height: 0 !important;
+                          }
+
+                          timer-bar-mushroom-row .info, timer-bar-mushroom-row
+                          .time {
+                            line-height: 1.2 !important;
+                          }
+                  - type: horizontal-stack
+                    cards:
+                      - type: conditional
+                        conditions:
+                          - condition: state
+                            entity: input_datetime.p1s_print_start_time
+                            state_not: unavailable
+                        card:
+                          type: custom:mushroom-entity-card
+                          entity: input_datetime.p1s_print_start_time
+                          name: Start Time
+                          icon: mdi:clock-time-four
+                      - type: conditional
+                        conditions:
+                          - condition: state
+                            entity: input_datetime.p1s_print_end_time
+                            state_not: unavailable
+                        card:
+                          type: custom:mushroom-entity-card
+                          entity: input_datetime.p1s_print_end_time
+                          name: End Time
+                          icon: mdi:clock-time-four-outline
+                  - type: custom:mushroom-entity-card
+                    entity: binary_sensor.p1s_YOUR_PRINTER_SERIAL_firmware_update
+                    name: Firmware
+                    icon: mdi:chip
+                  - type: custom:mushroom-template-card
+                    entity: sensor.p1s_YOUR_PRINTER_SERIAL_active_tray
+                    primary: >-
+                      {% set active = state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray', 'ams_index') %}
+                      {% set tray = state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray', 'tray_index') %}
+                      {% set name = states('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray') %}
+                      Active Slot: {% if active == 1 and tray == 1 %}AMS Pro 1 · {{ name }}
+                      {% elif active == 1 and tray == 2 %}AMS Pro 2 · {{ name }}
+                      {% elif active == 1 and tray == 3 %}AMS Pro 3 · {{ name }}
+                      {% elif active == 1 and tray == 4 %}AMS Pro 4 · {{ name }}
+                      {% elif active == 128 and tray == 1 %}HT 1 · {{ name }}
+                      {% elif active == 129 and tray == 1 %}HT 2 · {{ name }}
+                      {% else %}{{ name }}{% endif %}
+                    secondary: >-
+                      {% set active = state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray', 'ams_index') %}
+                      {% set tray = state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray', 'tray_index') %}
+                      {% set remain = state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray', 'remain') %}
+                      {% if active == 1 and tray == 1 %}{{ states('sensor.ams_slot_1_vendor') }} · {{ states('sensor.ams_slot_1_material') }} · {{ states('sensor.ams_slot_1_remaining_g') }}g
+                      {% elif active == 1 and tray == 2 %}{{ states('sensor.ams_slot_2_vendor') }} · {{ states('sensor.ams_slot_2_material') }} · {{ states('sensor.ams_slot_2_remaining_g') }}g
+                      {% elif active == 1 and tray == 3 %}{{ states('sensor.ams_slot_3_vendor') }} · {{ states('sensor.ams_slot_3_material') }} · {{ states('sensor.ams_slot_3_remaining_g') }}g
+                      {% elif active == 1 and tray == 4 %}{{ states('sensor.ams_slot_4_vendor') }} · {{ states('sensor.ams_slot_4_material') }} · {{ states('sensor.ams_slot_4_remaining_g') }}g
+                      {% elif active == 128 and tray == 1 %}{{ states('sensor.ams_slot_5_vendor') }} · {{ states('sensor.ams_slot_5_material') }} · {{ states('sensor.ams_slot_5_remaining_g') }}g
+                      {% elif active == 129 and tray == 1 %}{{ states('sensor.ams_slot_6_vendor') }} · {{ states('sensor.ams_slot_6_material') }} · {{ states('sensor.ams_slot_6_remaining_g') }}g
+                      {% elif remain is not none and remain != '' %}{{ name }} · {{ remain }}g
+                      {% else %}{{ name }}{% endif %}
+                    icon: mdi:printer-3d-nozzle
+                    card_mod:
+                      style: |
+                        ha-card {
+                          --card-mod-icon-color: {{ state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray', 'color') | default('rgb(var(--rgb-state-entity))') }};
+                        }
+                  - type: custom:mushroom-entity-card
+                    entity: sensor.p1s_YOUR_PRINTER_SERIAL_total_usage
+                    name: Print Hours
+                    icon: mdi:clock-outline
+          - type: custom:webrtc-camera
+            entity: camera.tapo_c111_live_view
+            card_mod:
+              style: |
+                ha-card {
+                  border: 2px solid var(--ha-card-border-color, #444) !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                }
+          - type: conditional
+            conditions:
+              - entity: switch.officeoutlet01_3dprinter
+                state: 'on'
+            card:
+              show_state: false
+              show_name: false
+              camera_view: live
+              fit_mode: cover
+              type: picture-entity
+              entity: camera.p1s_YOUR_PRINTER_SERIAL_camera
+              card_mod:
+                style: |
+                  ha-card {
+                    border: 2px solid var(--ha-card-border-color, #444) !important;
+                    border-radius: 12px !important;
+                    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                  }
+      - type: grid
+        cards:
+          - type: picture-elements
+            elements:
+              - type: conditional
+                conditions:
+                  - entity: sensor.p1s_YOUR_PRINTER_SERIAL_print_status
+                    state_not: offline
+                elements:
+                  - type: custom:config-template-card
+                    entities:
+                      - sensor.p1s_YOUR_PRINTER_SERIAL_wi_fi_signal
+                    element:
+                      type: state-icon
+                      entity: sensor.p1s_YOUR_PRINTER_SERIAL_wi_fi_signal
+                      icon: >-
+                        ${states['sensor.p1s_YOUR_PRINTER_SERIAL_wi_fi_signal'].state
+                        > -50 ? 'mdi:wifi-strength-4' :
+                          states['sensor.p1s_YOUR_PRINTER_SERIAL_wi_fi_signal'].state > -60 ?
+                        'mdi:wifi-strength-3' :
+                          states['sensor.p1s_YOUR_PRINTER_SERIAL_wi_fi_signal'].state > -67 ?
+                        'mdi:wifi-strength-2' :
+                          states['sensor.p1s_YOUR_PRINTER_SERIAL_wi_fi_signal'].state > -70 ?
+                        'mdi:wifi-strength-1-alert' :
+                        'mdi:wifi-strength-outline'}
+                    style:
+                      left: 67%
+                      top: 13.2%
+                      font-size: 0.8em
+                      color: rgba(0,0,0,0)
+                      '--paper-item-icon-color': >-
+                        ${states['sensor.p1s_YOUR_PRINTER_SERIAL_wi_fi_signal'].state
+                        > -50 ? 'green' :
+                          states['sensor.p1s_YOUR_PRINTER_SERIAL_wi_fi_signal'].state > -60 ?
+                        'yellow' :
+                          states['sensor.p1s_YOUR_PRINTER_SERIAL_wi_fi_signal'].state > -67 ?
+                        'orange' :
+                          states['sensor.p1s_YOUR_PRINTER_SERIAL_wi_fi_signal'].state > -70 ?
+                        'red' : 'red'}
+                  - type: conditional
+                    conditions:
+                      - entity: light.p1s_YOUR_PRINTER_SERIAL_chamber_light
+                        state_not: unavailable
+                    elements:
+                      - entity: light.p1s_YOUR_PRINTER_SERIAL_chamber_light
+                        type: state-icon
+                        style:
+                          top: 46%
+                          left: 18%
+                          '--mdc-icon-size': 2.6em
+                        tap_action:
+                          action: toggle
+                  - type: conditional
+                    conditions:
+                      - entity: light.p1s_YOUR_PRINTER_SERIAL_chamber_light
+                        state: unavailable
+                    elements:
+                      - type: icon
+                        icon: mdi:led-strip
+                        style:
+                          top: 46%
+                          left: 18%
+                          '--mdc-icon-size': 2.6em
+                        tap_action:
+                          action: call-service
+                          service: light.toggle
+                          service_data:
+                            entity_id: light.p1s_YOUR_PRINTER_SERIAL_chamber_light
+                  - entity: sensor.p1s_YOUR_PRINTER_SERIAL_print_status
+                    type: state-label
+                    style:
+                      top: 6.5%
+                      left: 23.69%
+                      font-size: 1em
+                      color: '#FFFFFF'
+                  - type: conditional
+                    conditions:
+                      - entity: sensor.p1s_YOUR_PRINTER_SERIAL_print_status
+                        state:
+                          - running
+                          - pause
+                    elements:
+                      - type: conditional
+                        conditions:
+                          - entity: image.p1s_YOUR_PRINTER_SERIAL_cover_image
+                            state_not: unavailable
+                        elements:
+                          - type: custom:hui-element
+                            card_type: picture-entity
+                            show_name: false
+                            show_state: false
+                            entity: image.p1s_YOUR_PRINTER_SERIAL_cover_image
+                            style:
+                              top: 50%
+                              left: 50%
+                              transform: translate(-45%, -40%) scale(75%, 75%)
+                              '--ha-card-border-width': 0px
+                              '--ha-card-background': none
+                      - entity: sensor.p1s_YOUR_PRINTER_SERIAL_print_progress
+                        type: state-badge
+                        tap_action:
+                          action: more-info
+                        style:
+                          top: 18.5%
+                          left: 81%
+                          font-size: 1em
+                          color: rgba(0,0,0,0)
+                          '--label-badge-red': '#11739D'
+                  - type: conditional
+                    conditions:
+                      - entity: sensor.p1s_YOUR_PRINTER_SERIAL_chamber_temperature
+                        state_not:
+                          - unavailable
+                          - unknown
+                    elements:
+                      - type: custom:config-template-card
+                        entities:
+                          - sensor.p1s_YOUR_PRINTER_SERIAL_chamber_temperature
+                        element:
+                          type: state-label
+                          entity: sensor.p1s_YOUR_PRINTER_SERIAL_chamber_temperature
+                          label: |-
+                            [[[
+                              const temp_f = parseFloat(entity.state) || 0;
+                              const temp_c = Math.round((temp_f - 32) * 5/9);
+                              return temp_c + '°C';
+                            ]]]
+                          style:
+                            font-size: 0.8em
+                            top: 31%
+                            left: 19%
+                            color: '#FFFFFF'
+                            background-color: rgba(0,0,0,0.5)
+                            padding: 2px 6px
+                            border-radius: 4px
+            card_mod:
+              style: |
+                ha-card {
+                  box-shadow: none !important;
+                  background: none !important;
+                  border: none !important;
+                }
+            image: /local/media/bambuprinter/on_p1s.png
+            entity: light.p1s_YOUR_PRINTER_SERIAL_chamber_light
+            state_image:
+              unavailable: /local/media/bambuprinter/off_p1s.png
+              'on': /local/media/bambuprinter/on_p1s.png
+              'off': /local/media/bambuprinter/off_p1s.png
+          - type: vertical-stack
+            cards:
+              - type: custom:mod-card
+                style: |
+                  ha-card {
+                    border: 2px solid var(--ha-card-border-color, #444) !important;
+                    border-radius: 12px !important;
+                    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    padding: 12px !important;
+                  }
+                card:
+                  type: vertical-stack
+                  cards:
+                    - type: custom:mushroom-template-card
+                      primary: AMS 2 Pro
+                      icon: mdi:printer-3d
+                      icon_color: green
+                      tap_action:
+                        action: none
+                      card_mod:
+                        style: >
+                          ha-card { --ha-card-background: transparent;
+                          box-shadow: none; padding: 0; }
+                    - type: grid
+                      columns: 2
+                      square: false
+                      cards:
+                        - type: custom:mushroom-template-card
+                          entity: sensor.ams_slot_1_name
+                          primary: >-
+                            {% set status = states('sensor.ams_slot_1_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_1_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}Slot 1 - Reload Spool
+                            {% elif status == 'empty' %}Slot 1 - Empty {% elif
+                            status == 'needs_bind' %}Slot 1 - Needs Binding {%
+                            else %}{{ states('sensor.ams_slot_1_name') }} {%
+                            endif %}
+                          secondary: >-
+                            {% set status = states('sensor.ams_slot_1_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_1_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}{{
+                            states('sensor.ams_slot_1_name') }} assigned -
+                            unload & reload for RFID {% elif status == 'ok' %}{{
+                            states('sensor.ams_slot_1_vendor') }} - {{
+                            states('sensor.ams_slot_1_material') }} - {{
+                            states('sensor.ams_slot_1_remaining_g') }}g {% elif
+                            status == 'needs_bind' %}
+                              {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
+                              {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
+                              {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                              {% elif 'NOT_FOUND' in r %}Spool missing - tap to reassign
+                              {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                              {% else %}Manual binding required
+                              {% endif %}
+                            {% elif status == 'empty' %}No spool loaded {% else
+                            %}Unknown {% endif %}
+                          icon: >-
+                            {% set status = states('sensor.ams_slot_1_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_1_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
+                            elif status == 'empty' %}mdi:tray-remove {% elif
+                            status == 'needs_bind' %}mdi:alert-circle {% else
+                            %}mdi:circle {% endif %}
+                          icon_color: >-
+                            {% set status = states('sensor.ams_slot_1_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_1_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'empty' %}disabled {% elif status == 'needs_bind'
+                            %}red {% else %}
+                              {% set hex = states('sensor.ams_slot_1_color_hex') %}
+                              {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                                #333333
+                              {% else %}
+                                #{{ hex }}
+                              {% endif %}
+                            {% endif %}
+                          badge_icon: mdi:numeric-1-circle
+                          badge_color: >-
+                            {% set status = states('sensor.ams_slot_1_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_1_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'needs_bind' %}red {% else %}green {% endif %}
+                          tap_action:
+                            action: fire-dom-event
+                            browser_mod:
+                              service: browser_mod.popup
+                              data:
+                                title: Slot 1
+                                content:
+                                  type: vertical-stack
+                                  cards:
+                                    - type: markdown
+                                      content: >-
+                                        {% set r =
+                                        states('input_text.ams_slot_1_unbound_reason')
+                                        %} {% set status =
+                                        states('sensor.ams_slot_1_status') %} {%
+                                        if 'RFID_NOT_REFRESHED' in r %}### RFID
+                                        Refresh Needed
+
+                                        **{{ states('sensor.ams_slot_1_name')
+                                        }}** (spool #{{
+                                        states('input_text.ams_slot_1_spool_id')
+                                        }}) is correctly assigned to this slot,
+                                        but the AMS hasn't read the RFID tag.
+
+                                        **To fix:** Physically unload the spool
+                                        from slot 1, then reload it. After
+                                        reloading, tap **Reconcile** below. {%
+                                        elif status == 'ok' %}### {{
+                                        states('sensor.ams_slot_1_name') }}
+
+                                        {{ states('sensor.ams_slot_1_vendor') }}
+                                        - {{
+                                        states('sensor.ams_slot_1_material') }}
+
+                                        Remaining: {{
+                                        states('sensor.ams_slot_1_remaining_g')
+                                        }}g
+
+                                        Spool #{{
+                                        states('input_text.ams_slot_1_spool_id')
+                                        }} {% elif status == 'needs_bind' %}###
+                                        Binding Required
+
+                                        {% if 'NONRFID_NO_MATCH' in r %}This
+                                        slot has a spool that doesn't match
+                                        anything in Spoolman. {% elif
+                                        'AMBIGUOUS' in r %}Multiple spools match
+                                        this slot's signature. {% elif
+                                        'NOT_FOUND' in r %}The previously
+                                        assigned spool was not found. {% elif
+                                        'UID_NO_MATCH' in r %}The RFID tag isn't
+                                        recognized. {% else %}This slot needs
+                                        manual binding. {% endif %}
+
+                                        Select a spool below and tap **Assign &
+                                        Bind**. {% elif status == 'empty' %}###
+                                        Empty Slot
+
+                                        No spool is loaded in this slot. {%
+                                        endif %}
+                                    - type: entities
+                                      entities:
+                                        - entity: input_select.ams_slot_1_select_spool
+                                    - type: grid
+                                      columns: 3
+                                      square: false
+                                      cards:
+                                        - type: custom:mushroom-template-card
+                                          primary: Assign & Bind
+                                          icon: mdi:link-variant
+                                          icon_color: blue
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.ams_slot_assign_and_update
+                                            data:
+                                              slot: '1'
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Reconcile
+                                          icon: mdi:sync
+                                          icon_color: cyan
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.reconcile_all_ams_slots
+                                            data: {}
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Force Accept
+                                          icon: mdi:check-circle-outline
+                                          icon_color: green
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: input_text.set_value
+                                            target:
+                                              entity_id: input_text.ams_slot_1_unbound_reason
+                                            data:
+                                              value: FORCE_ACCEPTED
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                          card_mod:
+                            style: |
+                              ha-card {
+                                {% set active = state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray', 'ams_index') %}
+                                {% set tray = state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray', 'tray_index') %}
+                                {% set printing = states('sensor.p1s_YOUR_PRINTER_SERIAL_current_stage') in ['printing'] %}
+                                {% set is_active = printing and active == 1 and tray == 1 %}
+                                {% if is_active %}
+                                  border: 2px solid var(--primary-color);
+                                  box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
+                                {% endif %}
+                                {% set status = states('sensor.ams_slot_1_status') %}
+                                {% set hex = states('sensor.ams_slot_1_color_hex') %}
+                                {% set r = states('input_text.ams_slot_1_unbound_reason') %}
+                                {% if 'RFID_NOT_REFRESHED' in r %}
+                                border-left: 3px solid var(--warning-color);
+                                --ha-card-background: #FF980015;
+                                {% elif status == 'ok' and hex not in ['000000', 'Unknown'] %}
+                                border-left: 3px solid #{{ hex }};
+                                {% elif status == 'needs_bind' %}
+                                border-left: 3px solid var(--error-color);
+                                {% elif status == 'empty' %}
+                                opacity: 0.5;
+                                {% endif %}
+                              }
+                        - type: custom:mushroom-template-card
+                          entity: sensor.ams_slot_2_name
+                          primary: >-
+                            {% set status = states('sensor.ams_slot_2_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_2_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}Slot 2 - Reload Spool
+                            {% elif status == 'empty' %}Slot 2 - Empty {% elif
+                            status == 'needs_bind' %}Slot 2 - Needs Binding {%
+                            else %}{{ states('sensor.ams_slot_2_name') }} {%
+                            endif %}
+                          secondary: >-
+                            {% set status = states('sensor.ams_slot_2_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_2_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}{{
+                            states('sensor.ams_slot_2_name') }} assigned -
+                            unload & reload for RFID {% elif status == 'ok' %}{{
+                            states('sensor.ams_slot_2_vendor') }} - {{
+                            states('sensor.ams_slot_2_material') }} - {{
+                            states('sensor.ams_slot_2_remaining_g') }}g {% elif
+                            status == 'needs_bind' %}
+                              {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
+                              {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
+                              {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                              {% elif 'NOT_FOUND' in r %}Spool missing - tap to reassign
+                              {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                              {% else %}Manual binding required
+                              {% endif %}
+                            {% elif status == 'empty' %}No spool loaded {% else
+                            %}Unknown {% endif %}
+                          icon: >-
+                            {% set status = states('sensor.ams_slot_2_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_2_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
+                            elif status == 'empty' %}mdi:tray-remove {% elif
+                            status == 'needs_bind' %}mdi:alert-circle {% else
+                            %}mdi:circle {% endif %}
+                          icon_color: >-
+                            {% set status = states('sensor.ams_slot_2_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_2_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'empty' %}disabled {% elif status == 'needs_bind'
+                            %}red {% else %}
+                              {% set hex = states('sensor.ams_slot_2_color_hex') %}
+                              {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                                #333333
+                              {% else %}
+                                #{{ hex }}
+                              {% endif %}
+                            {% endif %}
+                          badge_icon: mdi:numeric-2-circle
+                          badge_color: >-
+                            {% set status = states('sensor.ams_slot_2_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_2_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'needs_bind' %}red {% else %}green {% endif %}
+                          tap_action:
+                            action: fire-dom-event
+                            browser_mod:
+                              service: browser_mod.popup
+                              data:
+                                title: Slot 2
+                                content:
+                                  type: vertical-stack
+                                  cards:
+                                    - type: markdown
+                                      content: >-
+                                        {% set r =
+                                        states('input_text.ams_slot_2_unbound_reason')
+                                        %} {% set status =
+                                        states('sensor.ams_slot_2_status') %} {%
+                                        if 'RFID_NOT_REFRESHED' in r %}### RFID
+                                        Refresh Needed
+
+                                        **{{ states('sensor.ams_slot_2_name')
+                                        }}** (spool #{{
+                                        states('input_text.ams_slot_2_spool_id')
+                                        }}) is correctly assigned to this slot,
+                                        but the AMS hasn't read the RFID tag.
+
+                                        **To fix:** Physically unload the spool
+                                        from slot 2, then reload it. After
+                                        reloading, tap **Reconcile** below. {%
+                                        elif status == 'ok' %}### {{
+                                        states('sensor.ams_slot_2_name') }}
+
+                                        {{ states('sensor.ams_slot_2_vendor') }}
+                                        - {{
+                                        states('sensor.ams_slot_2_material') }}
+
+                                        Remaining: {{
+                                        states('sensor.ams_slot_2_remaining_g')
+                                        }}g
+
+                                        Spool #{{
+                                        states('input_text.ams_slot_2_spool_id')
+                                        }} {% elif status == 'needs_bind' %}###
+                                        Binding Required
+
+                                        {% if 'NONRFID_NO_MATCH' in r %}This
+                                        slot has a spool that doesn't match
+                                        anything in Spoolman. {% elif
+                                        'AMBIGUOUS' in r %}Multiple spools match
+                                        this slot's signature. {% elif
+                                        'NOT_FOUND' in r %}The previously
+                                        assigned spool was not found. {% elif
+                                        'UID_NO_MATCH' in r %}The RFID tag isn't
+                                        recognized. {% else %}This slot needs
+                                        manual binding. {% endif %}
+
+                                        Select a spool below and tap **Assign &
+                                        Bind**. {% elif status == 'empty' %}###
+                                        Empty Slot
+
+                                        No spool is loaded in this slot. {%
+                                        endif %}
+                                    - type: entities
+                                      entities:
+                                        - entity: input_select.ams_slot_2_select_spool
+                                    - type: grid
+                                      columns: 3
+                                      square: false
+                                      cards:
+                                        - type: custom:mushroom-template-card
+                                          primary: Assign & Bind
+                                          icon: mdi:link-variant
+                                          icon_color: blue
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.ams_slot_assign_and_update
+                                            data:
+                                              slot: '2'
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Reconcile
+                                          icon: mdi:sync
+                                          icon_color: cyan
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.reconcile_all_ams_slots
+                                            data: {}
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Force Accept
+                                          icon: mdi:check-circle-outline
+                                          icon_color: green
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: input_text.set_value
+                                            target:
+                                              entity_id: input_text.ams_slot_2_unbound_reason
+                                            data:
+                                              value: FORCE_ACCEPTED
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                          card_mod:
+                            style: |
+                              ha-card {
+                                {% set active = state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray', 'ams_index') %}
+                                {% set tray = state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray', 'tray_index') %}
+                                {% set printing = states('sensor.p1s_YOUR_PRINTER_SERIAL_current_stage') in ['printing'] %}
+                                {% set is_active = printing and active == 1 and tray == 2 %}
+                                {% if is_active %}
+                                  border: 2px solid var(--primary-color);
+                                  box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
+                                {% endif %}
+                                {% set status = states('sensor.ams_slot_2_status') %}
+                                {% set hex = states('sensor.ams_slot_2_color_hex') %}
+                                {% set r = states('input_text.ams_slot_2_unbound_reason') %}
+                                {% if 'RFID_NOT_REFRESHED' in r %}
+                                border-left: 3px solid var(--warning-color);
+                                --ha-card-background: #FF980015;
+                                {% elif status == 'ok' and hex not in ['000000', 'Unknown'] %}
+                                border-left: 3px solid #{{ hex }};
+                                {% elif status == 'needs_bind' %}
+                                border-left: 3px solid var(--error-color);
+                                {% elif status == 'empty' %}
+                                opacity: 0.5;
+                                {% endif %}
+                              }
+                        - type: custom:mushroom-template-card
+                          entity: sensor.ams_slot_3_name
+                          primary: >-
+                            {% set status = states('sensor.ams_slot_3_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_3_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}Slot 3 - Reload Spool
+                            {% elif status == 'empty' %}Slot 3 - Empty {% elif
+                            status == 'needs_bind' %}Slot 3 - Needs Binding {%
+                            else %}{{ states('sensor.ams_slot_3_name') }} {%
+                            endif %}
+                          secondary: >-
+                            {% set status = states('sensor.ams_slot_3_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_3_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}{{
+                            states('sensor.ams_slot_3_name') }} assigned -
+                            unload & reload for RFID {% elif status == 'ok' %}{{
+                            states('sensor.ams_slot_3_vendor') }} - {{
+                            states('sensor.ams_slot_3_material') }} - {{
+                            states('sensor.ams_slot_3_remaining_g') }}g {% elif
+                            status == 'needs_bind' %}
+                              {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
+                              {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
+                              {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                              {% elif 'NOT_FOUND' in r %}Spool missing - tap to reassign
+                              {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                              {% else %}Manual binding required
+                              {% endif %}
+                            {% elif status == 'empty' %}No spool loaded {% else
+                            %}Unknown {% endif %}
+                          icon: >-
+                            {% set status = states('sensor.ams_slot_3_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_3_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
+                            elif status == 'empty' %}mdi:tray-remove {% elif
+                            status == 'needs_bind' %}mdi:alert-circle {% else
+                            %}mdi:circle {% endif %}
+                          icon_color: >-
+                            {% set status = states('sensor.ams_slot_3_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_3_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'empty' %}disabled {% elif status == 'needs_bind'
+                            %}red {% else %}
+                              {% set hex = states('sensor.ams_slot_3_color_hex') %}
+                              {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                                #333333
+                              {% else %}
+                                #{{ hex }}
+                              {% endif %}
+                            {% endif %}
+                          badge_icon: mdi:numeric-3-circle
+                          badge_color: >-
+                            {% set status = states('sensor.ams_slot_3_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_3_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'needs_bind' %}red {% else %}green {% endif %}
+                          tap_action:
+                            action: fire-dom-event
+                            browser_mod:
+                              service: browser_mod.popup
+                              data:
+                                title: Slot 3
+                                content:
+                                  type: vertical-stack
+                                  cards:
+                                    - type: markdown
+                                      content: >-
+                                        {% set r =
+                                        states('input_text.ams_slot_3_unbound_reason')
+                                        %} {% set status =
+                                        states('sensor.ams_slot_3_status') %} {%
+                                        if 'RFID_NOT_REFRESHED' in r %}### RFID
+                                        Refresh Needed
+
+                                        **{{ states('sensor.ams_slot_3_name')
+                                        }}** (spool #{{
+                                        states('input_text.ams_slot_3_spool_id')
+                                        }}) is correctly assigned to this slot,
+                                        but the AMS hasn't read the RFID tag.
+
+                                        **To fix:** Physically unload the spool
+                                        from slot 3, then reload it. After
+                                        reloading, tap **Reconcile** below. {%
+                                        elif status == 'ok' %}### {{
+                                        states('sensor.ams_slot_3_name') }}
+
+                                        {{ states('sensor.ams_slot_3_vendor') }}
+                                        - {{
+                                        states('sensor.ams_slot_3_material') }}
+
+                                        Remaining: {{
+                                        states('sensor.ams_slot_3_remaining_g')
+                                        }}g
+
+                                        Spool #{{
+                                        states('input_text.ams_slot_3_spool_id')
+                                        }} {% elif status == 'needs_bind' %}###
+                                        Binding Required
+
+                                        {% if 'NONRFID_NO_MATCH' in r %}This
+                                        slot has a spool that doesn't match
+                                        anything in Spoolman. {% elif
+                                        'AMBIGUOUS' in r %}Multiple spools match
+                                        this slot's signature. {% elif
+                                        'NOT_FOUND' in r %}The previously
+                                        assigned spool was not found. {% elif
+                                        'UID_NO_MATCH' in r %}The RFID tag isn't
+                                        recognized. {% else %}This slot needs
+                                        manual binding. {% endif %}
+
+                                        Select a spool below and tap **Assign &
+                                        Bind**. {% elif status == 'empty' %}###
+                                        Empty Slot
+
+                                        No spool is loaded in this slot. {%
+                                        endif %}
+                                    - type: entities
+                                      entities:
+                                        - entity: input_select.ams_slot_3_select_spool
+                                    - type: grid
+                                      columns: 3
+                                      square: false
+                                      cards:
+                                        - type: custom:mushroom-template-card
+                                          primary: Assign & Bind
+                                          icon: mdi:link-variant
+                                          icon_color: blue
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.ams_slot_assign_and_update
+                                            data:
+                                              slot: '3'
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Reconcile
+                                          icon: mdi:sync
+                                          icon_color: cyan
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.reconcile_all_ams_slots
+                                            data: {}
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Force Accept
+                                          icon: mdi:check-circle-outline
+                                          icon_color: green
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: input_text.set_value
+                                            target:
+                                              entity_id: input_text.ams_slot_3_unbound_reason
+                                            data:
+                                              value: FORCE_ACCEPTED
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                          card_mod:
+                            style: |
+                              ha-card {
+                                {% set active = state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray', 'ams_index') %}
+                                {% set tray = state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray', 'tray_index') %}
+                                {% set printing = states('sensor.p1s_YOUR_PRINTER_SERIAL_current_stage') in ['printing'] %}
+                                {% set is_active = printing and active == 1 and tray == 3 %}
+                                {% if is_active %}
+                                  border: 2px solid var(--primary-color);
+                                  box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
+                                {% endif %}
+                                {% set status = states('sensor.ams_slot_3_status') %}
+                                {% set hex = states('sensor.ams_slot_3_color_hex') %}
+                                {% set r = states('input_text.ams_slot_3_unbound_reason') %}
+                                {% if 'RFID_NOT_REFRESHED' in r %}
+                                border-left: 3px solid var(--warning-color);
+                                --ha-card-background: #FF980015;
+                                {% elif status == 'ok' and hex not in ['000000', 'Unknown'] %}
+                                border-left: 3px solid #{{ hex }};
+                                {% elif status == 'needs_bind' %}
+                                border-left: 3px solid var(--error-color);
+                                {% elif status == 'empty' %}
+                                opacity: 0.5;
+                                {% endif %}
+                              }
+                        - type: custom:mushroom-template-card
+                          entity: sensor.ams_slot_4_name
+                          primary: >-
+                            {% set status = states('sensor.ams_slot_4_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_4_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}Slot 4 - Reload Spool
+                            {% elif status == 'empty' %}Slot 4 - Empty {% elif
+                            status == 'needs_bind' %}Slot 4 - Needs Binding {%
+                            else %}{{ states('sensor.ams_slot_4_name') }} {%
+                            endif %}
+                          secondary: >-
+                            {% set status = states('sensor.ams_slot_4_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_4_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}{{
+                            states('sensor.ams_slot_4_name') }} assigned -
+                            unload & reload for RFID {% elif status == 'ok' %}{{
+                            states('sensor.ams_slot_4_vendor') }} - {{
+                            states('sensor.ams_slot_4_material') }} - {{
+                            states('sensor.ams_slot_4_remaining_g') }}g {% elif
+                            status == 'needs_bind' %}
+                              {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
+                              {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
+                              {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                              {% elif 'NOT_FOUND' in r %}Spool missing - tap to reassign
+                              {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                              {% else %}Manual binding required
+                              {% endif %}
+                            {% elif status == 'empty' %}No spool loaded {% else
+                            %}Unknown {% endif %}
+                          icon: >-
+                            {% set status = states('sensor.ams_slot_4_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_4_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
+                            elif status == 'empty' %}mdi:tray-remove {% elif
+                            status == 'needs_bind' %}mdi:alert-circle {% else
+                            %}mdi:circle {% endif %}
+                          icon_color: >-
+                            {% set status = states('sensor.ams_slot_4_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_4_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'empty' %}disabled {% elif status == 'needs_bind'
+                            %}red {% else %}
+                              {% set hex = states('sensor.ams_slot_4_color_hex') %}
+                              {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                                #333333
+                              {% else %}
+                                #{{ hex }}
+                              {% endif %}
+                            {% endif %}
+                          badge_icon: mdi:numeric-4-circle
+                          badge_color: >-
+                            {% set status = states('sensor.ams_slot_4_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_4_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'needs_bind' %}red {% else %}green {% endif %}
+                          tap_action:
+                            action: fire-dom-event
+                            browser_mod:
+                              service: browser_mod.popup
+                              data:
+                                title: Slot 4
+                                content:
+                                  type: vertical-stack
+                                  cards:
+                                    - type: markdown
+                                      content: >-
+                                        {% set r =
+                                        states('input_text.ams_slot_4_unbound_reason')
+                                        %} {% set status =
+                                        states('sensor.ams_slot_4_status') %} {%
+                                        if 'RFID_NOT_REFRESHED' in r %}### RFID
+                                        Refresh Needed
+
+                                        **{{ states('sensor.ams_slot_4_name')
+                                        }}** (spool #{{
+                                        states('input_text.ams_slot_4_spool_id')
+                                        }}) is correctly assigned to this slot,
+                                        but the AMS hasn't read the RFID tag.
+
+                                        **To fix:** Physically unload the spool
+                                        from slot 4, then reload it. After
+                                        reloading, tap **Reconcile** below. {%
+                                        elif status == 'ok' %}### {{
+                                        states('sensor.ams_slot_4_name') }}
+
+                                        {{ states('sensor.ams_slot_4_vendor') }}
+                                        - {{
+                                        states('sensor.ams_slot_4_material') }}
+
+                                        Remaining: {{
+                                        states('sensor.ams_slot_4_remaining_g')
+                                        }}g
+
+                                        Spool #{{
+                                        states('input_text.ams_slot_4_spool_id')
+                                        }} {% elif status == 'needs_bind' %}###
+                                        Binding Required
+
+                                        {% if 'NONRFID_NO_MATCH' in r %}This
+                                        slot has a spool that doesn't match
+                                        anything in Spoolman. {% elif
+                                        'AMBIGUOUS' in r %}Multiple spools match
+                                        this slot's signature. {% elif
+                                        'NOT_FOUND' in r %}The previously
+                                        assigned spool was not found. {% elif
+                                        'UID_NO_MATCH' in r %}The RFID tag isn't
+                                        recognized. {% else %}This slot needs
+                                        manual binding. {% endif %}
+
+                                        Select a spool below and tap **Assign &
+                                        Bind**. {% elif status == 'empty' %}###
+                                        Empty Slot
+
+                                        No spool is loaded in this slot. {%
+                                        endif %}
+                                    - type: entities
+                                      entities:
+                                        - entity: input_select.ams_slot_4_select_spool
+                                    - type: grid
+                                      columns: 3
+                                      square: false
+                                      cards:
+                                        - type: custom:mushroom-template-card
+                                          primary: Assign & Bind
+                                          icon: mdi:link-variant
+                                          icon_color: blue
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.ams_slot_assign_and_update
+                                            data:
+                                              slot: '4'
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Reconcile
+                                          icon: mdi:sync
+                                          icon_color: cyan
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.reconcile_all_ams_slots
+                                            data: {}
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Force Accept
+                                          icon: mdi:check-circle-outline
+                                          icon_color: green
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: input_text.set_value
+                                            target:
+                                              entity_id: input_text.ams_slot_4_unbound_reason
+                                            data:
+                                              value: FORCE_ACCEPTED
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                          card_mod:
+                            style: |
+                              ha-card {
+                                {% set active = state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray', 'ams_index') %}
+                                {% set tray = state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray', 'tray_index') %}
+                                {% set printing = states('sensor.p1s_YOUR_PRINTER_SERIAL_current_stage') in ['printing'] %}
+                                {% set is_active = printing and active == 1 and tray == 4 %}
+                                {% if is_active %}
+                                  border: 2px solid var(--primary-color);
+                                  box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
+                                {% endif %}
+                                {% set status = states('sensor.ams_slot_4_status') %}
+                                {% set hex = states('sensor.ams_slot_4_color_hex') %}
+                                {% set r = states('input_text.ams_slot_4_unbound_reason') %}
+                                {% if 'RFID_NOT_REFRESHED' in r %}
+                                border-left: 3px solid var(--warning-color);
+                                --ha-card-background: #FF980015;
+                                {% elif status == 'ok' and hex not in ['000000', 'Unknown'] %}
+                                border-left: 3px solid #{{ hex }};
+                                {% elif status == 'needs_bind' %}
+                                border-left: 3px solid var(--error-color);
+                                {% elif status == 'empty' %}
+                                opacity: 0.5;
+                                {% endif %}
+                              }
+                    - type: custom:mushroom-entity-card
+                      entity: sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_humidity
+                      name: Humidity (AMS 2 Pro)
+                      icon: mdi:water-percent
+                      icon_color: var(--rgb-state-entity)
+                      tap_action:
+                        action: more-info
+                    - type: custom:mushroom-entity-card
+                      entity: sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_temperature
+                      name: Temperature (AMS 2 Pro)
+                      icon: mdi:thermometer
+                      icon_color: var(--rgb-state-entity)
+                      tap_action:
+                        action: more-info
+          - type: vertical-stack
+            cards:
+              - type: custom:mod-card
+                style: |
+                  ha-card {
+                    border: 2px solid var(--ha-card-border-color, #444) !important;
+                    border-radius: 12px !important;
+                    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    padding: 12px !important;
+                  }
+                card:
+                  type: grid
+                  columns: 2
+                  square: false
+                  cards:
+                    - type: custom:mushroom-template-card
+                      primary: Reconcile
+                      icon: mdi:sync
+                      icon_color: blue
+                      layout: horizontal
+                      tap_action:
+                        action: call-service
+                        service: script.reconcile_all_ams_slots
+                        data: {}
+                      card_mod:
+                        style: |
+                          ha-card { --ha-card-padding: 4px; }
+                          mushroom-shape-icon { --icon-size: 24px; }
+                    - type: custom:mushroom-template-card
+                      primary: Reload
+                      icon: mdi:refresh
+                      icon_color: cyan
+                      layout: horizontal
+                      tap_action:
+                        action: call-service
+                        service: script.reload_spoolman_integration
+                        data: {}
+                      card_mod:
+                        style: |
+                          ha-card { --ha-card-padding: 4px; }
+                          mushroom-shape-icon { --icon-size: 24px; }
+                    # NOTE: Test dashboard uses dashboard-test; stage uses lovelace-stage
+                    - type: custom:mushroom-template-card
+                      primary: Filaments
+                      icon: mdi:palette-swatch-variant
+                      icon_color: purple
+                      layout: horizontal
+                      tap_action:
+                        action: navigate
+                        navigation_path: /lovelace-stage/filaments
+                      card_mod:
+                        style: |
+                          ha-card { --ha-card-padding: 4px; }
+                          mushroom-shape-icon { --icon-size: 24px; }
+                    # NOTE: Test dashboard uses dashboard-test; stage uses lovelace-stage
+                    - type: custom:mushroom-template-card
+                      primary: Spools
+                      icon: mdi:printer-3d-nozzle
+                      icon_color: teal
+                      layout: horizontal
+                      tap_action:
+                        action: navigate
+                        navigation_path: /lovelace-stage/spools
+                      card_mod:
+                        style: |
+                          ha-card { --ha-card-padding: 4px; }
+                          mushroom-shape-icon { --icon-size: 24px; }
+      - type: grid
+        cards:
+          - type: vertical-stack
+            cards:
+              - type: custom:mod-card
+                style: |
+                  ha-card {
+                    border: 2px solid var(--ha-card-border-color, #444) !important;
+                    border-radius: 12px !important;
+                    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    padding: 12px !important;
+                  }
+                card:
+                  type: vertical-stack
+                  cards:
+                    - type: custom:mushroom-template-card
+                      primary: HT 1
+                      icon: mdi:printer-3d
+                      icon_color: green
+                      tap_action:
+                        action: none
+                      card_mod:
+                        style: >
+                          ha-card { --ha-card-background: transparent;
+                          box-shadow: none; padding: 0; }
+                    - type: grid
+                      columns: 1
+                      square: false
+                      cards:
+                        - type: custom:mushroom-template-card
+                          entity: sensor.ams_slot_5_name
+                          primary: >-
+                            {% set status = states('sensor.ams_slot_5_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_5_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}Slot 5 - Reload Spool
+                            {% elif status == 'empty' %}Slot 5 - Empty {% elif
+                            status == 'needs_bind' %}Slot 5 - Needs Binding {%
+                            else %}{{ states('sensor.ams_slot_5_name') }} {%
+                            endif %}
+                          secondary: >-
+                            {% set status = states('sensor.ams_slot_5_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_5_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}{{
+                            states('sensor.ams_slot_5_name') }} assigned -
+                            unload & reload for RFID {% elif status == 'ok' %}{{
+                            states('sensor.ams_slot_5_vendor') }} - {{
+                            states('sensor.ams_slot_5_material') }} - {{
+                            states('sensor.ams_slot_5_remaining_g') }}g {% elif
+                            status == 'needs_bind' %}
+                              {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
+                              {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
+                              {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                              {% elif 'NOT_FOUND' in r %}Spool missing - tap to reassign
+                              {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                              {% else %}Manual binding required
+                              {% endif %}
+                            {% elif status == 'empty' %}No spool loaded {% else
+                            %}Unknown {% endif %}
+                          icon: >-
+                            {% set status = states('sensor.ams_slot_5_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_5_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
+                            elif status == 'empty' %}mdi:tray-remove {% elif
+                            status == 'needs_bind' %}mdi:alert-circle {% else
+                            %}mdi:circle {% endif %}
+                          icon_color: >-
+                            {% set status = states('sensor.ams_slot_5_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_5_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'empty' %}disabled {% elif status == 'needs_bind'
+                            %}red {% else %}
+                              {% set hex = states('sensor.ams_slot_5_color_hex') %}
+                              {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                                #333333
+                              {% else %}
+                                #{{ hex }}
+                              {% endif %}
+                            {% endif %}
+                          badge_icon: mdi:numeric-5-circle
+                          badge_color: >-
+                            {% set status = states('sensor.ams_slot_5_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_5_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'needs_bind' %}red {% else %}green {% endif %}
+                          tap_action:
+                            action: fire-dom-event
+                            browser_mod:
+                              service: browser_mod.popup
+                              data:
+                                title: Slot 5 (HT1)
+                                content:
+                                  type: vertical-stack
+                                  cards:
+                                    - type: markdown
+                                      content: >-
+                                        {% set r =
+                                        states('input_text.ams_slot_5_unbound_reason')
+                                        %} {% set status =
+                                        states('sensor.ams_slot_5_status') %} {%
+                                        if 'RFID_NOT_REFRESHED' in r %}### RFID
+                                        Refresh Needed
+
+                                        **{{ states('sensor.ams_slot_5_name')
+                                        }}** (spool #{{
+                                        states('input_text.ams_slot_5_spool_id')
+                                        }}) is correctly assigned to this slot,
+                                        but the AMS hasn't read the RFID tag.
+
+                                        **To fix:** Physically unload the spool
+                                        from slot 5, then reload it. After
+                                        reloading, tap **Reconcile** below. {%
+                                        elif status == 'ok' %}### {{
+                                        states('sensor.ams_slot_5_name') }}
+
+                                        {{ states('sensor.ams_slot_5_vendor') }}
+                                        - {{
+                                        states('sensor.ams_slot_5_material') }}
+
+                                        Remaining: {{
+                                        states('sensor.ams_slot_5_remaining_g')
+                                        }}g
+
+                                        Spool #{{
+                                        states('input_text.ams_slot_5_spool_id')
+                                        }} {% elif status == 'needs_bind' %}###
+                                        Binding Required
+
+                                        {% if 'NONRFID_NO_MATCH' in r %}This
+                                        slot has a spool that doesn't match
+                                        anything in Spoolman. {% elif
+                                        'AMBIGUOUS' in r %}Multiple spools match
+                                        this slot's signature. {% elif
+                                        'NOT_FOUND' in r %}The previously
+                                        assigned spool was not found. {% elif
+                                        'UID_NO_MATCH' in r %}The RFID tag isn't
+                                        recognized. {% else %}This slot needs
+                                        manual binding. {% endif %}
+
+                                        Select a spool below and tap **Assign &
+                                        Bind**. {% elif status == 'empty' %}###
+                                        Empty Slot
+
+                                        No spool is loaded in this slot. {%
+                                        endif %}
+                                    - type: entities
+                                      entities:
+                                        - entity: input_select.ams_slot_5_select_spool
+                                    - type: grid
+                                      columns: 3
+                                      square: false
+                                      cards:
+                                        - type: custom:mushroom-template-card
+                                          primary: Assign & Bind
+                                          icon: mdi:link-variant
+                                          icon_color: blue
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.ams_slot_assign_and_update
+                                            data:
+                                              slot: '5'
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Reconcile
+                                          icon: mdi:sync
+                                          icon_color: cyan
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.reconcile_all_ams_slots
+                                            data: {}
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                    - type: custom:mushroom-template-card
+                                      primary: Force Accept
+                                      icon: mdi:check-circle-outline
+                                      icon_color: green
+                                      layout: horizontal
+                                      tap_action:
+                                        action: call-service
+                                        service: input_text.set_value
+                                        target:
+                                          entity_id: input_text.ams_slot_5_unbound_reason
+                                        data:
+                                          value: FORCE_ACCEPTED
+                                      card_mod:
+                                        style: >
+                                          ha-card { --ha-card-padding: 4px; }
+
+                                          mushroom-shape-icon { --icon-size: 24px;
+                                          }
+                          card_mod:
+                            style: |
+                              ha-card {
+                                {% set active = state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray', 'ams_index') %}
+                                {% set tray = state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray', 'tray_index') %}
+                                {% set printing = states('sensor.p1s_YOUR_PRINTER_SERIAL_current_stage') in ['printing'] %}
+                                {% set is_active = printing and active == 128 and tray == 1 %}
+                                {% if is_active %}
+                                  border: 2px solid var(--primary-color);
+                                  box-shadow: 0 0 8px rgba(var(--rgb-primary-color), 0.3);
+                                {% endif %}
+                                {% set status = states('sensor.ams_slot_5_status') %}
+                                {% set hex = states('sensor.ams_slot_5_color_hex') %}
+                                {% set r = states('input_text.ams_slot_5_unbound_reason') %}
+                                {% if 'RFID_NOT_REFRESHED' in r %}
+                                border-left: 3px solid var(--warning-color);
+                                --ha-card-background: #FF980015;
+                                {% elif status == 'ok' and hex not in ['000000', 'Unknown'] %}
+                                border-left: 3px solid #{{ hex }};
+                                {% elif status == 'needs_bind' %}
+                                border-left: 3px solid var(--error-color);
+                                {% elif status == 'empty' %}
+                                opacity: 0.5;
+                                {% endif %}
+                              }
+                    - type: custom:mushroom-entity-card
+                      entity: sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_humidity
+                      name: Humidity (HT 1)
+                      icon: mdi:water-percent
+                      icon_color: var(--rgb-state-entity)
+                      tap_action:
+                        action: more-info
+                    - type: custom:mushroom-entity-card
+                      entity: sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_temperature
+                      name: Temperature (HT 1)
+                      icon: mdi:thermometer
+                      icon_color: var(--rgb-state-entity)
+                      tap_action:
+                        action: more-info
+                    - type: conditional
+                      conditions:
+                        - condition: numeric_state
+                          entity: >-
+                            sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_remaining_drying_time
+                          above: 0
+                      card:
+                        type: vertical-stack
+                        cards:
+                          - type: custom:mushroom-template-card
+                            primary: Drying Temperature (HT 1)
+                            secondary: >-
+                              {{
+                              states('sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_temperature')
+                              }}
+                            icon: mdi:thermometer
+                            icon_color: var(--rgb-state-entity)
+                            tap_action:
+                              action: none
+                          - type: custom:mushroom-template-card
+                            primary: Drying (HT 1)
+                            secondary: >-
+                              {% set tray1_temp_128 =
+                              state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1',
+                              'drying_temp') %}{% set drying_time_128 =
+                              states('sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_remaining_drying_time')
+                              %}{% set drying_active_128 = (tray1_temp_128 is
+                              not none and tray1_temp_128 | int > 0) or
+                              (drying_time_128 and drying_time_128 !=
+                              'unavailable' and drying_time_128 != 'unknown' and
+                              drying_time_128 != '0' and drying_time_128 !=
+                              '0.0' and drying_time_128 != 'None' and
+                              drying_time_128 | float > 0) %}{% if
+                              drying_active_128 %}Yes{% else %}No{% endif %}
+                            icon: mdi:air-humidifier
+                            icon_color: var(--rgb-state-entity)
+                            tap_action:
+                              action: none
+                          - type: custom:mushroom-template-card
+                            primary: Remaining Time (HT 1)
+                            secondary: >-
+                              {% set tray1_temp_128 =
+                              state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1',
+                              'drying_temp') %}{% set drying_time_128 =
+                              states('sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_remaining_drying_time')
+                              %}{% set drying_active_128 = (tray1_temp_128 is
+                              not none and tray1_temp_128 | int > 0) or
+                              (drying_time_128 and drying_time_128 !=
+                              'unavailable' and drying_time_128 != 'unknown' and
+                              drying_time_128 != '0' and drying_time_128 !=
+                              '0.0' and drying_time_128 != 'None' and
+                              drying_time_128 | float > 0) %}{% if
+                              drying_active_128 %}{% if drying_time_128 and
+                              drying_time_128 != 'unavailable' and
+                              drying_time_128 != 'unknown' and drying_time_128
+                              != '0' and drying_time_128 != '0.0' and
+                              drying_time_128 != 'None' %}{{ ((drying_time_128 |
+                              float) * 60) | round(0) | int }} min{% else %}-{%
+                              endif %}{% else %}-{% endif %}
+                            icon: mdi:timer-outline
+                            icon_color: var(--rgb-state-entity)
+                            tap_action:
+                              action: none
+          - type: vertical-stack
+            cards:
+              - type: custom:mod-card
+                style: |
+                  ha-card {
+                    border: 2px solid var(--ha-card-border-color, #444) !important;
+                    border-radius: 12px !important;
+                    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
+                    padding: 12px !important;
+                  }
+                card:
+                  type: vertical-stack
+                  cards:
+                    - type: custom:mushroom-template-card
+                      primary: HT 2
+                      icon: mdi:printer-3d
+                      icon_color: green
+                      tap_action:
+                        action: none
+                      card_mod:
+                        style: >
+                          ha-card { --ha-card-background: transparent;
+                          box-shadow: none; padding: 0; }
+                    - type: grid
+                      columns: 1
+                      square: false
+                      cards:
+                        - type: custom:mushroom-template-card
+                          entity: sensor.ams_slot_6_name
+                          primary: >-
+                            {% set status = states('sensor.ams_slot_6_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_6_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}Slot 6 - Reload Spool
+                            {% elif status == 'empty' %}Slot 6 - Empty {% elif
+                            status == 'needs_bind' %}Slot 6 - Needs Binding {%
+                            else %}{{ states('sensor.ams_slot_6_name') }} {%
+                            endif %}
+                          secondary: >-
+                            {% set status = states('sensor.ams_slot_6_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_6_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}{{
+                            states('sensor.ams_slot_6_name') }} assigned -
+                            unload & reload for RFID {% elif status == 'ok' %}{{
+                            states('sensor.ams_slot_6_vendor') }} - {{
+                            states('sensor.ams_slot_6_material') }} - {{
+                            states('sensor.ams_slot_6_remaining_g') }}g {% elif
+                            status == 'needs_bind' %}
+                              {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
+                              {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
+                              {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                              {% elif 'NOT_FOUND' in r %}Spool missing - tap to reassign
+                              {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                              {% else %}Manual binding required
+                              {% endif %}
+                            {% elif status == 'empty' %}No spool loaded {% else
+                            %}Unknown {% endif %}
+                          icon: >-
+                            {% set status = states('sensor.ams_slot_6_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_6_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}mdi:reload-alert {%
+                            elif status == 'empty' %}mdi:tray-remove {% elif
+                            status == 'needs_bind' %}mdi:alert-circle {% else
+                            %}mdi:circle {% endif %}
+                          icon_color: >-
+                            {% set status = states('sensor.ams_slot_6_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_6_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'empty' %}disabled {% elif status == 'needs_bind'
+                            %}red {% else %}
+                              {% set hex = states('sensor.ams_slot_6_color_hex') %}
+                              {% if hex in ['000000', 'unknown', 'unavailable', ''] %}
+                                #333333
+                              {% else %}
+                                #{{ hex }}
+                              {% endif %}
+                            {% endif %}
+                          badge_icon: mdi:numeric-6-circle
+                          badge_color: >-
+                            {% set status = states('sensor.ams_slot_6_status')
+                            %} {% set r =
+                            states('input_text.ams_slot_6_unbound_reason') %} {%
+                            if 'RFID_NOT_REFRESHED' in r %}orange {% elif status
+                            == 'needs_bind' %}red {% else %}green {% endif %}
+                          tap_action:
+                            action: fire-dom-event
+                            browser_mod:
+                              service: browser_mod.popup
+                              data:
+                                title: Slot 6 (HT2)
+                                content:
+                                  type: vertical-stack
+                                  cards:
+                                    - type: markdown
+                                      content: >-
+                                        {% set r =
+                                        states('input_text.ams_slot_6_unbound_reason')
+                                        %} {% set status =
+                                        states('sensor.ams_slot_6_status') %} {%
+                                        if 'RFID_NOT_REFRESHED' in r %}### RFID
+                                        Refresh Needed
+
+                                        **{{ states('sensor.ams_slot_6_name')
+                                        }}** (spool #{{
+                                        states('input_text.ams_slot_6_spool_id')
+                                        }}) is correctly assigned to this slot,
+                                        but the AMS hasn't read the RFID tag.
+
+                                        **To fix:** Physically unload the spool
+                                        from slot 6, then reload it. After
+                                        reloading, tap **Reconcile** below. {%
+                                        elif status == 'ok' %}### {{
+                                        states('sensor.ams_slot_6_name') }}
+
+                                        {{ states('sensor.ams_slot_6_vendor') }}
+                                        - {{
+                                        states('sensor.ams_slot_6_material') }}
+
+                                        Remaining: {{
+                                        states('sensor.ams_slot_6_remaining_g')
+                                        }}g
+
+                                        Spool #{{
+                                        states('input_text.ams_slot_6_spool_id')
+                                        }} {% elif status == 'needs_bind' %}###
+                                        Binding Required
+
+                                        {% if 'NONRFID_NO_MATCH' in r %}This
+                                        slot has a spool that doesn't match
+                                        anything in Spoolman. {% elif
+                                        'AMBIGUOUS' in r %}Multiple spools match
+                                        this slot's signature. {% elif
+                                        'NOT_FOUND' in r %}The previously
+                                        assigned spool was not found. {% elif
+                                        'UID_NO_MATCH' in r %}The RFID tag isn't
+                                        recognized. {% else %}This slot needs
+                                        manual binding. {% endif %}
+
+                                        Select a spool below and tap **Assign &
+                                        Bind**. {% elif status == 'empty' %}###
+                                        Empty Slot
+
+                                        No spool is loaded in this slot. {%
+                                        endif %}
+                                    - type: entities
+                                      entities:
+                                        - entity: input_select.ams_slot_6_select_spool
+                                    - type: grid
+                                      columns: 3
+                                      square: false
+                                      cards:
+                                        - type: custom:mushroom-template-card
+                                          primary: Assign & Bind
+                                          icon: mdi:link-variant
+                                          icon_color: blue
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.ams_slot_assign_and_update
+                                            data:
+                                              slot: '6'
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Reconcile
+                                          icon: mdi:sync
+                                          icon_color: cyan
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: script.reconcile_all_ams_slots
+                                            data: {}
+                                          card_mod:
+                                            style: >
+                                              ha-card { --ha-card-padding: 4px; }
+
+                                              mushroom-shape-icon { --icon-size: 24px;
+                                              }
+                                        - type: custom:mushroom-template-card
+                                          primary: Force Accept
+                                          icon: mdi:check-circle-outline
+                                          icon_color: green
+                                          layout: horizontal
+                                          tap_action:
+                                            action: call-service
+                                            service: input_text.set_value
+                                            target:
+                                              entity_id: input_text.ams_slot_6_unbound_reason
