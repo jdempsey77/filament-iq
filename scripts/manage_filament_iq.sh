@@ -58,7 +58,7 @@ cmd_appdaemon() {
   echo "=== Deploying FilamentIQ AppDaemon apps ==="
   echo "Target: $target:$remote_path"
   ssh $(_SSH_ARGS) "$target" "mkdir -p $remote_path"
-  scp $(_SCP_ARGS) -r "$REPO_ROOT/appdaemon/apps/filament_iq/." "$target:$remote_path/"
+  scp $(_SCP_ARGS) -r "$REPO_ROOT/apps/filament_iq/." "$target:$remote_path/"
   echo "Files deployed."
   echo "Restarting AppDaemon ($APPDAEMON_ADDON_SLUG)..."
   ssh $(_SSH_ARGS) "$target" "ha apps restart '$APPDAEMON_ADDON_SLUG'"
@@ -105,7 +105,7 @@ cmd_check() {
   local target; target=$(_resolve_ssh_target)
   local remote_path="/addon_configs/${APPDAEMON_ADDON_SLUG}/apps/filament_iq"
   echo "=== Checking deployed FilamentIQ files ==="
-  for local_file in $(find "$REPO_ROOT/appdaemon/apps/filament_iq" -name "*.py" | sort); do
+  for local_file in $(find "$REPO_ROOT/apps/filament_iq" -name "*.py" | sort); do
     local filename; filename=$(basename "$local_file")
     local local_md5; local_md5=$(md5 -q "$local_file" 2>/dev/null || md5sum "$local_file" | awk '{print $1}')
     local remote_md5; remote_md5=$(ssh $(_SSH_ARGS) "$target" "md5sum $remote_path/$filename 2>/dev/null | awk '{print \$1}'" 2>/dev/null || echo "missing")

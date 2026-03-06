@@ -10,7 +10,7 @@ import zipfile
 import pytest
 
 sys.path.insert(
-    0, os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps", "filament_iq")
+    0, os.path.join(os.path.dirname(__file__), "..", "apps", "filament_iq")
 )
 
 from threemf_parser import (

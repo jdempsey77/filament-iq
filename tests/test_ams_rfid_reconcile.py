@@ -30,8 +30,8 @@ _hassapi.Hass = _FakeHass
 if "hassapi" not in sys.modules:
     sys.modules["hassapi"] = _hassapi
 
-# Add appdaemon/apps/filament_iq to path
-_APPS = os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps", "filament_iq")
+# Add apps/filament_iq to path
+_APPS = os.path.join(os.path.dirname(__file__), "..", "apps", "filament_iq")
 if _APPS not in sys.path:
     sys.path.insert(0, _APPS)
 

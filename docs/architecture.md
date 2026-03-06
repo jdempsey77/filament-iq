@@ -46,7 +46,7 @@ FilamentIQ is a set of AppDaemon apps that bridge Bambu Lab printers, Home Assis
 
 ## AppDaemon Apps
 
-All apps live in `appdaemon/apps/filament_iq/` and extend `hassapi.Hass`. They communicate with Spoolman via raw `urllib.request` (no `requests` library).
+All apps live in `apps/filament_iq/` and extend `hassapi.Hass`. They communicate with Spoolman via raw `urllib.request` (no `requests` library).
 
 ### ams_print_usage_sync.py (~930 lines)
 

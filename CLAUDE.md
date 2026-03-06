@@ -31,7 +31,7 @@ bash scripts/manage_filament_iq.sh
 
 ## Architecture
 
-All AppDaemon apps live in `appdaemon/apps/filament_iq/`. Each extends `hassapi.Hass`.
+All AppDaemon apps live in `apps/filament_iq/`. Each extends `hassapi.Hass`.
 
 ### Core apps (by importance)
 
