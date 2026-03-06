@@ -9,3 +9,4 @@ scripts/deploy.env
 htmlcov/
 .coverage
 appdaemon/apps/filament_iq/data/
+deploy.env
