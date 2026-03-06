@@ -22,6 +22,8 @@ The integration provides AMS slot management: each physical slot (1–6 for AMS 
 
 ## Installation
 
+**HACS (Custom repository):** Add `https://github.com/jdempsey77/filament-iq` as a custom repository in HACS, then install FilamentIQ.
+
 ### Manual install
 
 1. Clone or download this repository.
@@ -29,7 +31,7 @@ The integration provides AMS slot management: each physical slot (1–6 for AMS 
    - Standard: `config/appdaemon/apps/filament_iq/`
    - Add-on: `/addon_configs/a0d7b954_appdaemon/apps/filament_iq/`
 3. Copy `appdaemon/apps/filament_iq/apps.yaml.example` to your AppDaemon `apps.yaml` (or merge its contents).
-4. Edit `apps.yaml` and replace placeholders (`YOUR_SPOOLMAN_IP`, `YOUR_PRINTER_IP`, printer serial, etc.).
+4. Edit `apps.yaml` and replace placeholders (`YOUR_SPOOLMAN_IP`, `YOUR_PRINTER_IP`, printer serial, etc.). Printer serial and entity IDs are configured via the HA package file and `apps.yaml` — no source code edits required.
 5. Restart the AppDaemon add-on.
 6. Create the required Home Assistant helpers — see `ha-config/packages/filament_iq.yaml` and the [Configuration guide](docs/configuration.md).
 
