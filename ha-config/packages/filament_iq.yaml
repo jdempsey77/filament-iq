@@ -1,0 +1,4029 @@
+# Filament IQ package – consolidated from home_assistant
+# TODO: Replace YOUR_SPOOLMAN_IP with your Spoolman server IP (e.g. 192.168.4.124)
+# TODO: Replace YOUR_PRINTER_SERIAL with your Bambu P1S serial (e.g. 01p00c5a3101668)
+# TODO: Replace Spoolman config entry_id in reload_spoolman_integration script
+
+input_datetime:
+  # P1S print times – persisted so they survive HA restart
+  p1s_print_start_time:
+    name: P1S Print Start Time
+    has_date: true
+    has_time: true
+  p1s_print_end_time:
+    name: P1S Print End Time
+    has_date: true
+    has_time: true
+
+# Slot → Spoolman spool ID (1–6 or ID from placeholder). Updated by ams_ensure_slot_spools.
+input_text:
+  bambu_printer_access_code:
+    name: Bambu Printer Access Code
+    min: 0
+    max: 32
+    mode: password
+  spoolman_base_url:
+    name: Spoolman API base URL
+    initial: "http://YOUR_SPOOLMAN_IP:7912"
+  # Add filament form (test dashboard): name, material, color_hex. Submit via rest_command.
+  spoolman_new_filament_name:
+    name: New filament – name
+    max: 200
+  spoolman_new_filament_material:
+    name: New filament – material (e.g. PLA, PETG)
+    max: 50
+  spoolman_new_filament_color_hex:
+    name: New filament – color hex (e.g. FF0000)
+    max: 9
+  # Add spool form (test dashboard): location for new spool. Filament ID and remaining from input_number.
+  spoolman_new_spool_location:
+    name: New spool – location (e.g. New, Shelf, AMS1_Slot1)
+    initial: "New"
+    max: 64
+  spoolman_edit_spool_id:
+    name: "Edit spool – spool ID"
+    max: 10
+    initial: ""
+  # Spool edit popup – location (UI only, not system-critical)
+  spoolman_edit_spool_location:
+    name: "Edit spool – location"
+    max: 64
+    initial: ""
+  ams_slot_1_spool_id:
+    name: AMS Slot 1 (AMS1_Slot1) – Spoolman spool ID
+  ams_slot_2_spool_id:
+    name: AMS Slot 2 (AMS1_Slot2) – Spoolman spool ID
+  ams_slot_3_spool_id:
+    name: AMS Slot 3 (AMS1_Slot3) – Spoolman spool ID
+  ams_slot_4_spool_id:
+    name: AMS Slot 4 (AMS1_Slot4) – Spoolman spool ID
+  ams_slot_5_spool_id:
+    name: AMS Slot 5 (AMS2_HT_Slot1) – Spoolman spool ID
+  ams_slot_6_spool_id:
+    name: AMS Slot 6 (AMS2_HT_Slot2) – Spoolman spool ID
+  ams_slot_1_unbound_reason:
+    name: "AMS Slot 1 Unbound Reason"
+    max: 100
+  ams_slot_2_unbound_reason:
+    name: "AMS Slot 2 Unbound Reason"
+    max: 100
+  ams_slot_3_unbound_reason:
+    name: "AMS Slot 3 Unbound Reason"
+    max: 100
+  ams_slot_4_unbound_reason:
+    name: "AMS Slot 4 Unbound Reason"
+    max: 100
+  ams_slot_5_unbound_reason:
+    name: "AMS Slot 5 Unbound Reason"
+    max: 100
+  ams_slot_6_unbound_reason:
+    name: "AMS Slot 6 Unbound Reason"
+    max: 100
+  p1s_last_active_tray:
+    name: P1S Last Active Tray
+    max: 100
+  p1s_last_tray_entity:
+    name: P1S Last Tray Entity
+    max: 100
+  p1s_trays_used_this_print:
+    name: P1S Trays used this print (comma-separated slot numbers)
+    max: 255
+  p1s_init_seed_debug:
+    name: P1S init seed debug
+    max: 255
+  p1s_last_print_status_transition:
+    name: P1S last print_status transition (debug)
+    max: 255
+  p1s_finish_automation_checkpoint:
+    name: P1S finish automation checkpoint (debug)
+    max: 255
+  filament_test_last_result:
+    name: Filament Test Last Result (PASS/FAIL + details)
+    max: 255
+  p1s_slot_to_spool_binding_json:
+    name: P1S Slot to Spool Binding (JSON)
+    max: 255
+    initial: "{}"
+  p1s_last_mapping_json:
+    name: P1S Last Mapping Result
+    max: 255
+    initial: ""
+  p1s_tray_remaining_start_json:
+    name: P1S tray remaining start JSON
+    max: 255
+  p1s_tray_remaining_end_json:
+    name: P1S tray remaining end JSON
+    max: 255
+  p1s_print_job_key:
+    name: P1S Print Job Key (mutex)
+    max: 100
+
+    # AMS UI / mapping helpers (managed)
+  ams_slot_1_expected_spool_id:
+    name: AMS Slot 1 – Expected Spool ID
+    max: 50
+  ams_slot_2_expected_spool_id:
+    name: AMS Slot 2 – Expected Spool ID
+    max: 50
+  ams_slot_3_expected_spool_id:
+    name: AMS Slot 3 – Expected Spool ID
+    max: 50
+  ams_slot_4_expected_spool_id:
+    name: AMS Slot 4 – Expected Spool ID
+    max: 50
+  ams_slot_5_expected_spool_id:
+    name: AMS Slot 5 – Expected Spool ID
+    max: 50
+  ams_slot_6_expected_spool_id:
+    name: AMS Slot 6 – Expected Spool ID
+    max: 50
+
+  ams_slot_1_status:
+    name: AMS Slot 1 – Status
+    max: 100
+    initial: ""
+  ams_slot_2_status:
+    name: AMS Slot 2 – Status
+    max: 100
+    initial: ""
+  ams_slot_3_status:
+    name: AMS Slot 3 – Status
+    max: 100
+    initial: ""
+  ams_slot_4_status:
+    name: AMS Slot 4 – Status
+    max: 100
+    initial: ""
+  ams_slot_5_status:
+    name: AMS Slot 5 – Status
+    max: 100
+    initial: ""
+  ams_slot_6_status:
+    name: AMS Slot 6 – Status
+    max: 100
+    initial: ""
+
+  ams_slot_1_tray_signature:
+    name: AMS Slot 1 – Tray Signature
+    max: 255
+    initial: ""
+  ams_slot_2_tray_signature:
+    name: AMS Slot 2 – Tray Signature
+    max: 255
+    initial: ""
+  ams_slot_3_tray_signature:
+    name: AMS Slot 3 – Tray Signature
+    max: 255
+    initial: ""
+  ams_slot_4_tray_signature:
+    name: AMS Slot 4 – Tray Signature
+    max: 255
+    initial: ""
+  ams_slot_5_tray_signature:
+    name: AMS Slot 5 – Tray Signature
+    max: 255
+    initial: ""
+  ams_slot_6_tray_signature:
+    name: AMS Slot 6 – Tray Signature
+    max: 255
+    initial: ""
+
+  ams_slot_1_expected_color_hex:
+    name: AMS Slot 1 – Expected Color HEX
+    max: 9
+    initial: ""
+  ams_slot_2_expected_color_hex:
+    name: AMS Slot 2 – Expected Color HEX
+    max: 9
+    initial: ""
+  ams_slot_3_expected_color_hex:
+    name: AMS Slot 3 – Expected Color HEX
+    max: 9
+    initial: ""
+  ams_slot_4_expected_color_hex:
+    name: AMS Slot 4 – Expected Color HEX
+    max: 9
+    initial: ""
+  ams_slot_5_expected_color_hex:
+    name: AMS Slot 5 – Expected Color HEX
+    max: 9
+    initial: ""
+  ams_slot_6_expected_color_hex:
+    name: AMS Slot 6 – Expected Color HEX
+    max: 9
+    initial: ""
+
+  spoolman_new_spool_uuid:
+    name: New spool – UUID (generated)
+    max: 64
+    initial: ""
+  ams_slot_1_rfid_pending_until:
+    name: AMS Slot 1 – RFID Pending Until
+    max: 255
+    initial: ""
+  ams_slot_2_rfid_pending_until:
+    name: AMS Slot 2 – RFID Pending Until
+    max: 255
+    initial: ""
+  ams_slot_3_rfid_pending_until:
+    name: AMS Slot 3 – RFID Pending Until
+    max: 255
+    initial: ""
+  ams_slot_4_rfid_pending_until:
+    name: AMS Slot 4 – RFID Pending Until
+    max: 255
+    initial: ""
+  ams_slot_5_rfid_pending_until:
+    name: AMS Slot 5 – RFID Pending Until
+    max: 255
+    initial: ""
+  ams_slot_6_rfid_pending_until:
+    name: AMS Slot 6 – RFID Pending Until
+    max: 255
+    initial: ""
+
+
+# Filament tracking safety flags
+input_boolean:
+  p1s_print_active:
+    name: P1S Print Active (mutex lock)
+    initial: false
+  p1s_needs_reconcile:
+    name: P1S Needs Reconcile
+    initial: false
+  p1s_decrement_on_failed:
+    name: P1S Decrement on Failed Print
+    initial: false
+  filament_debug_mode:
+    name: Filament Debug Mode (instrumentation)
+    initial: false
+  p1s_debug_finish_trigger:
+    name: P1S Debug Finish Trigger (script fires this)
+    initial: false
+  filament_test_mode:
+    name: Filament Test Mode (disables real Spoolman calls)
+    initial: false
+  p1s_auto_mode_opinionated:
+    name: P1S Opinionated Auto Mode
+    initial: true
+  p1s_nonrfid_enabled:
+    name: P1S Non-RFID Spool Support Enabled
+    icon: mdi:toggle-switch
+  appdaemon_startup_suppress_swap:
+    name: AppDaemon startup – suppress spool swap detection
+    initial: false
+  spoolman_edit_update_weight:
+    name: "Edit spool – update weight"
+    initial: false
+    icon: mdi:weight-gram
+  spoolman_edit_update_location:
+    name: "Edit spool – update location"
+    initial: false
+
+
+input_button:
+  p1s_rfid_reconcile_now:
+    name: P1S RFID Reconcile Now
+    icon: mdi:refresh
+  p1s_weight_snapshot_now:
+    name: P1S Weight Snapshot Now
+    icon: mdi:scale
+
+input_number:
+  tare_bambu_lab_plastic:
+    name: Tare – Bambu (spool + silica) (g)
+    min: 0
+    max: 600
+    step: 1
+    unit_of_measurement: g
+    mode: box
+    initial: 296
+  tare_overture_cardboard:
+    name: Tare – Overture (cardboard + spool + silica + guides) (g)
+    min: 0
+    max: 600
+    step: 1
+    unit_of_measurement: g
+    mode: box
+    initial: 250
+  ams_placeholder_filament_id:
+    name: AMS placeholder filament ID
+    min: 1
+    max: 9999
+    step: 1
+    mode: box
+    initial: 1
+  # Add filament form: diameter (mm), density (g/cm³). Required by Spoolman.
+  spoolman_new_filament_diameter:
+    name: New filament – diameter (mm)
+    min: 0.5
+    max: 5
+    step: 0.05
+    unit_of_measurement: mm
+    mode: box
+    initial: 1.75
+  spoolman_new_filament_density:
+    name: New filament – density (g/cm³)
+    min: 0.5
+    max: 3
+    step: 0.01
+    unit_of_measurement: "g/cm³"
+    mode: box
+    initial: 1.24
+  # P1S Start/End snapshot (grams per slot) - eliminates JSON parsing
+  p1s_start_slot_1_g:
+    name: P1S Start Slot 1 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_start_slot_2_g:
+    name: P1S Start Slot 2 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_start_slot_3_g:
+    name: P1S Start Slot 3 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_start_slot_4_g:
+    name: P1S Start Slot 4 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_start_slot_5_g:
+    name: P1S Start Slot 5 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_start_slot_6_g:
+    name: P1S Start Slot 6 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_end_slot_1_g:
+    name: P1S End Slot 1 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_end_slot_2_g:
+    name: P1S End Slot 2 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_end_slot_3_g:
+    name: P1S End Slot 3 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_end_slot_4_g:
+    name: P1S End Slot 4 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_end_slot_5_g:
+    name: P1S End Slot 5 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  p1s_end_slot_6_g:
+    name: P1S End Slot 6 (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    initial: 0
+  spoolman_new_filament_weight:
+    name: New filament – spool weight (g)
+    min: 0
+    max: 5000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+    initial: 1000
+  spoolman_new_filament_vendor_id:
+    name: New filament – vendor ID (0 = no manufacturer)
+    min: 0
+    max: 9999
+    step: 1
+    mode: box
+    initial: 0
+  # Add spool form: which filament this spool uses (ID from Spoolman). Required.
+  spoolman_new_spool_filament_id:
+    name: New spool – filament ID (from Spoolman)
+    min: 1
+    max: 9999
+    step: 1
+    mode: box
+    initial: 1
+  spoolman_new_spool_remaining_weight:
+    name: New spool – remaining weight (g)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+    initial: 1000
+  spoolman_new_spool_quantity:
+    name: New spool – quantity
+    min: 1
+    max: 20
+    step: 1
+    mode: box
+    initial: 1
+  spoolman_edit_remaining_weight:
+    name: "Edit spool – remaining weight (g)"
+    min: 0
+    max: 5000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+    initial: 0
+  ams_slot_1_gross_weight:
+    name: AMS Slot 1 – gross scale (g)
+    min: 0
+    max: 3000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_2_gross_weight:
+    name: AMS Slot 2 – gross scale (g)
+    min: 0
+    max: 3000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_3_gross_weight:
+    name: AMS Slot 3 – gross scale (g)
+    min: 0
+    max: 3000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_4_gross_weight:
+    name: AMS Slot 4 – gross scale (g)
+    min: 0
+    max: 3000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_5_gross_weight:
+    name: AMS Slot 5 (HT1) – gross scale (g)
+    min: 0
+    max: 3000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_6_gross_weight:
+    name: AMS Slot 6 (HT2) – gross scale (g)
+    min: 0
+    max: 3000
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_1_tare_override:
+    name: AMS Slot 1 – tare override (g, custom only)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_2_tare_override:
+    name: AMS Slot 2 – tare override (g, custom only)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_3_tare_override:
+    name: AMS Slot 3 – tare override (g, custom only)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_4_tare_override:
+    name: AMS Slot 4 – tare override (g, custom only)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_5_tare_override:
+    name: AMS Slot 5 (HT1) – tare override (g, custom only)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_6_tare_override:
+    name: AMS Slot 6 (HT2) – tare override (g, custom only)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_1_extras_weight:
+    name: AMS Slot 1 – extras (silica/adapter) (g)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_2_extras_weight:
+    name: AMS Slot 2 – extras (silica/adapter) (g)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_3_extras_weight:
+    name: AMS Slot 3 – extras (silica/adapter) (g)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_4_extras_weight:
+    name: AMS Slot 4 – extras (silica/adapter) (g)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_5_extras_weight:
+    name: AMS Slot 5 (HT1) – extras (silica/adapter) (g)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_slot_6_extras_weight:
+    name: AMS Slot 6 (HT2) – extras (silica/adapter) (g)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: g
+    mode: box
+  ams_assign_source_spool_id:
+    name: Assign from warehouse – source spool ID
+    min: 1
+    max: 9999
+    step: 1
+    mode: box
+# Legacy: remaining (g) per slot; AMS Slot Manager uses gross + tare instead.
+# AMS Slot Manager: Spoolman filament_id per slot. Assign & Update sends this to patch_spool when > 0. 0 = do not change filament.
+  ams_slot_1_filament_id:
+    name: AMS Slot 1 – Spoolman filament ID
+    min: 0
+    max: 9999
+    step: 1
+    initial: 1
+    mode: box
+  ams_slot_2_filament_id:
+    name: AMS Slot 2 – Spoolman filament ID
+    min: 0
+    max: 9999
+    step: 1
+    initial: 1
+    mode: box
+  ams_slot_3_filament_id:
+    name: AMS Slot 3 – Spoolman filament ID
+    min: 0
+    max: 9999
+    step: 1
+    initial: 1
+    mode: box
+  ams_slot_4_filament_id:
+    name: AMS Slot 4 – Spoolman filament ID
+    min: 0
+    max: 9999
+    step: 1
+    initial: 1
+    mode: box
+  ams_slot_5_filament_id:
+    name: AMS Slot 5 (HT1) – Spoolman filament ID
+    min: 0
+    max: 9999
+    step: 1
+    initial: 1
+    mode: box
+  ams_slot_6_filament_id:
+    name: AMS Slot 6 (HT2) – Spoolman filament ID
+    min: 0
+    max: 9999
+    step: 1
+    initial: 1
+    mode: box
+
+
+input_select:
+  ams_slot_1_spool_type:
+    name: AMS Slot 1 – spool type
+    options: ["Bambu Lab (plastic)", "Overture cardboard", "Custom"]
+    initial: "Bambu Lab (plastic)"
+  ams_slot_2_spool_type:
+    name: AMS Slot 2 – spool type
+    options: ["Bambu Lab (plastic)", "Overture cardboard", "Custom"]
+    initial: "Bambu Lab (plastic)"
+  ams_slot_3_spool_type:
+    name: AMS Slot 3 – spool type
+    options: ["Bambu Lab (plastic)", "Overture cardboard", "Custom"]
+    initial: "Bambu Lab (plastic)"
+  ams_slot_4_spool_type:
+    name: AMS Slot 4 – spool type
+    options: ["Bambu Lab (plastic)", "Overture cardboard", "Custom"]
+    initial: "Bambu Lab (plastic)"
+  ams_slot_5_spool_type:
+    name: AMS Slot 5 (HT1) – spool type
+    options: ["Bambu Lab (plastic)", "Overture cardboard", "Custom"]
+    initial: "Bambu Lab (plastic)"
+  ams_slot_6_spool_type:
+    name: AMS Slot 6 (HT2) – spool type
+    options: ["Bambu Lab (plastic)", "Overture cardboard", "Custom"]
+    initial: "Bambu Lab (plastic)"
+  ams_assign_source_spool:
+    name: Assign from warehouse – source spool
+    options: ["— Select spool —"]
+    initial: "— Select spool —"
+  ams_slot_1_select_spool:
+    name: Slot 1 – select spool
+    options: ["— Select spool —"]
+    initial: "— Select spool —"
+  ams_slot_2_select_spool:
+    name: Slot 2 – select spool
+    options: ["— Select spool —"]
+    initial: "— Select spool —"
+  ams_slot_3_select_spool:
+    name: Slot 3 – select spool
+    options: ["— Select spool —"]
+    initial: "— Select spool —"
+  ams_slot_4_select_spool:
+    name: Slot 4 – select spool
+    options: ["— Select spool —"]
+    initial: "— Select spool —"
+  ams_slot_5_select_spool:
+    name: Slot 5 – select spool
+    options: ["— Select spool —"]
+    initial: "— Select spool —"
+  ams_slot_6_select_spool:
+    name: Slot 6 – select spool
+    options: ["— Select spool —"]
+    initial: "— Select spool —"
+  # Add spool form: select filament by name. Options filled from sensor.ams_filament_list_options (Spoolman filaments).
+  spoolman_new_spool_filament:
+    name: New spool – filament (dropdown)
+    options: ["— Select filament —"]
+    initial: "— Select filament —"
+  spoolman_new_filament_vendor:
+    name: New filament – vendor
+    options: ["— No vendor —"]
+    initial: "— No vendor —"
+  # --- Spoolman dashboard filters (UI only, not system-critical) ---
+  spoolman_filter_filament_material:
+    name: "Filter – Filament Material"
+    options:
+      - "All"
+    initial: "All"
+  spoolman_filter_filament_vendor:
+    name: "Filter – Filament Vendor"
+    options:
+      - "All"
+
+# Filament list from Spoolman API for "Add spool" dropdown. Uses fixed resource URL so the entity is always created (resource_template can prevent REST entity creation).
+# Set resource below to your Spoolman API base + /api/v1/filament (e.g. http://192.168.1.100:7912/api/v1/filament). Restart HA after changing.
+sensor:
+  - platform: rest
+    resource: "http://YOUR_SPOOLMAN_IP:7912/api/v1/filament"
+    name: Spoolman filaments API
+    value_template: >
+      {% if value_json is defined and value_json is iterable and value_json is not string %}
+        OK
+      {% else %}
+        {{ this.state if this.state is defined else 'unknown' }}
+      {% endif %}
+    json_attributes_path: "$"
+    scan_interval: 3600
+    unique_id: spoolman_filaments_api
+  - platform: rest
+    resource: "http://YOUR_SPOOLMAN_IP:7912/api/v1/vendor"
+    name: Spoolman vendors API
+    value_template: >
+      {% if value_json is defined and value_json is iterable and value_json is not string %}
+        {% set ns = namespace(parts=[]) %}
+        {% for v in value_json %}
+          {% set vendor_name = (v.name | default('')) | string | trim %}
+          {% if vendor_name %}
+            {% set ns.parts = ns.parts + [(v.id | string) ~ ' - ' ~ vendor_name] %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.parts | join('|||') }}
+      {% else %}
+        {{ this.state if this.state is defined else '' }}
+      {% endif %}
+    scan_interval: 3600
+    unique_id: spoolman_vendors_api
+  - platform: rest
+    resource: "http://YOUR_SPOOLMAN_IP:7912/api/v1/spool"
+    name: Spoolman spools API
+    value_template: >
+      {% if value_json is defined and value_json is iterable and value_json is not string %}
+        {% set ns = namespace(fids=[]) %}
+        {% for s in value_json %}
+          {% if s.filament and s.filament.id %}
+            {% set fid = s.filament.id | string %}
+            {% if fid not in ns.fids %}
+              {% set ns.fids = ns.fids + [fid] %}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.fids | join(',') }}
+      {% else %}
+        {{ this.state if this.state is defined else '' }}
+      {% endif %}
+    scan_interval: 3600
+    unique_id: spoolman_spools_api
+
+
+# Spoolman list data for flex-table dashboard (wraps API array in object so HA can store items)
+command_line:
+  - sensor:
+      name: "Spoolman filament list data"
+      unique_id: spoolman_filament_list_data
+      command: 'curl -s "http://YOUR_SPOOLMAN_IP:7912/api/v1/filament" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({\"count\":len(d),\"items\":d}))"'
+      value_template: "{{ value_json.count }}"
+      json_attributes:
+        - items
+      scan_interval: 300
+  - sensor:
+      name: "Spoolman spool list data"
+      unique_id: spoolman_spool_list_data
+      command: 'curl -s "http://YOUR_SPOOLMAN_IP:7912/api/v1/spool" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({\"count\":len(d),\"items\":d}))"'
+      value_template: "{{ value_json.count }}"
+      json_attributes:
+        - items
+      scan_interval: 300
+
+
+template:
+  - sensor:
+      - name: "P1S Operator Status"
+        unique_id: p1s_operator_status_YOUR_PRINTER_SERIAL
+        availability: >
+          {{ states('sensor.p1s_YOUR_PRINTER_SERIAL_print_status') not in ['unknown', 'unavailable'] or states('binary_sensor.p1s_YOUR_PRINTER_SERIAL_online') not in ['unknown', 'unavailable'] }}
+        state: >
+          {% set status = states('sensor.p1s_YOUR_PRINTER_SERIAL_print_status') | lower %}
+          {% set online = states('binary_sensor.p1s_YOUR_PRINTER_SERIAL_online') %}
+          {% set print_error = states('binary_sensor.p1s_YOUR_PRINTER_SERIAL_print_error') %}
+          {% set hms_errors = states('binary_sensor.p1s_YOUR_PRINTER_SERIAL_hms_errors') %}
+          {% set has_error = print_error == 'on' or hms_errors == 'on' %}
+          {% if online == 'off' or status == 'offline' or status in ['unknown', 'unavailable', ''] %}
+            offline
+          {% elif status == 'failed' or (has_error and status in ['idle', 'finish']) %}
+            failed_requires_intervention
+          {% elif status in ['finish', 'finished', 'completed'] %}
+            finished_success
+          {% elif status in ['running', 'printing'] %}
+            {% if has_error %}printing_attention_needed{% else %}printing_normally{% endif %}
+          {% elif status in ['pause', 'paused'] %}
+            {% if has_error %}paused_error{% else %}paused_user{% endif %}
+          {% elif status in ['prepare', 'init', 'slicing'] %}
+            printing_normally
+          {% elif status == 'idle' %}
+            idle_ready
+          {% else %}
+            unknown
+          {% endif %}
+        icon: >
+          {% set status = states('sensor.p1s_YOUR_PRINTER_SERIAL_print_status') | lower %}
+          {% set online = states('binary_sensor.p1s_YOUR_PRINTER_SERIAL_online') %}
+          {% set print_error = states('binary_sensor.p1s_YOUR_PRINTER_SERIAL_print_error') %}
+          {% set hms_errors = states('binary_sensor.p1s_YOUR_PRINTER_SERIAL_hms_errors') %}
+          {% set has_error = print_error == 'on' or hms_errors == 'on' %}
+          {% if online == 'off' or status == 'offline' %}mdi:printer-off
+          {% elif status == 'failed' or (has_error and status in ['idle', 'finish']) %}mdi:printer-alert
+          {% elif status in ['finish', 'finished', 'completed'] %}mdi:printer-3d-nozzle-check
+          {% elif status in ['running', 'printing'] and has_error %}mdi:printer-3d-nozzle-alert
+          {% elif status in ['running', 'printing'] %}mdi:printer-3d
+          {% elif status in ['pause', 'paused'] and has_error %}mdi:printer-alert
+          {% elif status in ['pause', 'paused'] %}mdi:printer-3d-paused
+          {% else %}mdi:printer-3d{% endif %}
+      - name: "AMS Unbound Slot Count"
+        unique_id: ams_unbound_slot_count
+        state: >-
+          {% set ns = namespace(count=0) %}
+          {% for i in range(1,7) %}
+          {% set r = states('input_text.ams_slot_' ~ i ~ '_unbound_reason') %}
+          {% if r not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY', 'FORCE_ACCEPTED'] %}
+          {% set ns.count = ns.count + 1 %}
+          {% endif %}
+          {% endfor %}
+          {{ ns.count }}
+        icon: >-
+          {% set ns = namespace(count=0) %}
+          {% for i in range(1,7) %}
+          {% set r = states('input_text.ams_slot_' ~ i ~ '_unbound_reason') %}
+          {% if r not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY', 'FORCE_ACCEPTED'] %}
+          {% set ns.count = ns.count + 1 %}
+          {% endif %}
+          {% endfor %}
+          {% if ns.count > 0 %}mdi:alert{% else %}mdi:check-circle{% endif %}
+        unit_of_measurement: slots
+      # AMS Slot Manager: display name and remaining (g) per slot from persisted spool ID.
+      - name: "AMS Slot 1 – name"
+        unique_id: ams_slot_1_name
+        state: >-
+          {% set sid = states('input_text.ams_slot_1_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Empty
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'name')) | default('Slot 1') }}
+          {% endif %}
+      - name: "AMS Slot 1 – remaining (g)"
+        unique_id: ams_slot_1_remaining_g
+        unit_of_measurement: g
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_1_spool_id'), 'remaining_weight') | default(states('sensor.spoolman_spool_' ~ states('input_text.ams_slot_1_spool_id'))) | float(0) | round(0) }}"
+      - name: "AMS Slot 1 – material"
+        unique_id: ams_slot_1_material
+        state: >-
+          {% set sid = states('input_text.ams_slot_1_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('Unknown') }}
+          {% endif %}
+      - name: "AMS Slot 1 – vendor"
+        unique_id: ams_slot_1_vendor
+        state: >-
+          {% set sid = states('input_text.ams_slot_1_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('Unknown') }}
+          {% endif %}
+      - name: "AMS Slot 1 – color hex"
+        unique_id: ams_slot_1_color_hex
+        state: >-
+          {% set sid = states('input_text.ams_slot_1_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}000000
+          {% else %}
+            {% set c = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_color_hex') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'color_hex')) | default('000000') %}
+            {{ c | replace('#', '') | truncate(6, True, '') }}
+          {% endif %}
+      - name: "AMS Slot 1 – status"
+        unique_id: ams_slot_1_status
+        state: >-
+          {% set reason = states('input_text.ams_slot_1_unbound_reason') %}
+          {% set sid = states('input_text.ams_slot_1_spool_id') %}
+          {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
+          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
+          {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
+          {% else %}unknown
+          {% endif %}
+        icon: >-
+          {% set s = this.state %}
+          {% if s == 'ok' %}mdi:check-circle
+          {% elif s == 'needs_bind' %}mdi:alert
+          {% elif s == 'empty' %}mdi:tray-remove
+          {% else %}mdi:help-circle
+          {% endif %}
+      - name: "AMS Slot 2 – name"
+        unique_id: ams_slot_2_name
+        state: >-
+          {% set sid = states('input_text.ams_slot_2_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Empty
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'name')) | default('Slot 2') }}
+          {% endif %}
+      - name: "AMS Slot 2 – remaining (g)"
+        unique_id: ams_slot_2_remaining_g
+        unit_of_measurement: g
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_2_spool_id'), 'remaining_weight') | default(states('sensor.spoolman_spool_' ~ states('input_text.ams_slot_2_spool_id'))) | float(0) | round(0) }}"
+      - name: "AMS Slot 2 – material"
+        unique_id: ams_slot_2_material
+        state: >-
+          {% set sid = states('input_text.ams_slot_2_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('Unknown') }}
+          {% endif %}
+      - name: "AMS Slot 2 – vendor"
+        unique_id: ams_slot_2_vendor
+        state: >-
+          {% set sid = states('input_text.ams_slot_2_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('Unknown') }}
+          {% endif %}
+      - name: "AMS Slot 2 – color hex"
+        unique_id: ams_slot_2_color_hex
+        state: >-
+          {% set sid = states('input_text.ams_slot_2_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}000000
+          {% else %}
+            {% set c = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_color_hex') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'color_hex')) | default('000000') %}
+            {{ c | replace('#', '') | truncate(6, True, '') }}
+          {% endif %}
+      - name: "AMS Slot 2 – status"
+        unique_id: ams_slot_2_status
+        state: >-
+          {% set reason = states('input_text.ams_slot_2_unbound_reason') %}
+          {% set sid = states('input_text.ams_slot_2_spool_id') %}
+          {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
+          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
+          {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
+          {% else %}unknown
+          {% endif %}
+        icon: >-
+          {% set s = this.state %}
+          {% if s == 'ok' %}mdi:check-circle
+          {% elif s == 'needs_bind' %}mdi:alert
+          {% elif s == 'empty' %}mdi:tray-remove
+          {% else %}mdi:help-circle
+          {% endif %}
+      - name: "AMS Slot 3 – name"
+        unique_id: ams_slot_3_name
+        state: >-
+          {% set sid = states('input_text.ams_slot_3_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Empty
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'name')) | default('Slot 3') }}
+          {% endif %}
+      - name: "AMS Slot 3 – remaining (g)"
+        unique_id: ams_slot_3_remaining_g
+        unit_of_measurement: g
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_3_spool_id'), 'remaining_weight') | default(states('sensor.spoolman_spool_' ~ states('input_text.ams_slot_3_spool_id'))) | float(0) | round(0) }}"
+      - name: "AMS Slot 3 – material"
+        unique_id: ams_slot_3_material
+        state: >-
+          {% set sid = states('input_text.ams_slot_3_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('Unknown') }}
+          {% endif %}
+      - name: "AMS Slot 3 – vendor"
+        unique_id: ams_slot_3_vendor
+        state: >-
+          {% set sid = states('input_text.ams_slot_3_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('Unknown') }}
+          {% endif %}
+      - name: "AMS Slot 3 – color hex"
+        unique_id: ams_slot_3_color_hex
+        state: >-
+          {% set sid = states('input_text.ams_slot_3_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}000000
+          {% else %}
+            {% set c = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_color_hex') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'color_hex')) | default('000000') %}
+            {{ c | replace('#', '') | truncate(6, True, '') }}
+          {% endif %}
+      - name: "AMS Slot 3 – status"
+        unique_id: ams_slot_3_status
+        state: >-
+          {% set reason = states('input_text.ams_slot_3_unbound_reason') %}
+          {% set sid = states('input_text.ams_slot_3_spool_id') %}
+          {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
+          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
+          {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
+          {% else %}unknown
+          {% endif %}
+        icon: >-
+          {% set s = this.state %}
+          {% if s == 'ok' %}mdi:check-circle
+          {% elif s == 'needs_bind' %}mdi:alert
+          {% elif s == 'empty' %}mdi:tray-remove
+          {% else %}mdi:help-circle
+          {% endif %}
+      - name: "AMS Slot 4 – name"
+        unique_id: ams_slot_4_name
+        state: >-
+          {% set sid = states('input_text.ams_slot_4_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Empty
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'name')) | default('Slot 4') }}
+          {% endif %}
+      - name: "AMS Slot 4 – remaining (g)"
+        unique_id: ams_slot_4_remaining_g
+        unit_of_measurement: g
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_4_spool_id'), 'remaining_weight') | default(states('sensor.spoolman_spool_' ~ states('input_text.ams_slot_4_spool_id'))) | float(0) | round(0) }}"
+      - name: "AMS Slot 4 – material"
+        unique_id: ams_slot_4_material
+        state: >-
+          {% set sid = states('input_text.ams_slot_4_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('Unknown') }}
+          {% endif %}
+      - name: "AMS Slot 4 – vendor"
+        unique_id: ams_slot_4_vendor
+        state: >-
+          {% set sid = states('input_text.ams_slot_4_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('Unknown') }}
+          {% endif %}
+      - name: "AMS Slot 4 – color hex"
+        unique_id: ams_slot_4_color_hex
+        state: >-
+          {% set sid = states('input_text.ams_slot_4_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}000000
+          {% else %}
+            {% set c = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_color_hex') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'color_hex')) | default('000000') %}
+            {{ c | replace('#', '') | truncate(6, True, '') }}
+          {% endif %}
+      - name: "AMS Slot 4 – status"
+        unique_id: ams_slot_4_status
+        state: >-
+          {% set reason = states('input_text.ams_slot_4_unbound_reason') %}
+          {% set sid = states('input_text.ams_slot_4_spool_id') %}
+          {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
+          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
+          {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
+          {% else %}unknown
+          {% endif %}
+        icon: >-
+          {% set s = this.state %}
+          {% if s == 'ok' %}mdi:check-circle
+          {% elif s == 'needs_bind' %}mdi:alert
+          {% elif s == 'empty' %}mdi:tray-remove
+          {% else %}mdi:help-circle
+          {% endif %}
+      - name: "AMS Slot 5 – name"
+        unique_id: ams_slot_5_name
+        state: >-
+          {% set sid = states('input_text.ams_slot_5_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Empty
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'name')) | default('HT 1') }}
+          {% endif %}
+      - name: "AMS Slot 5 – remaining (g)"
+        unique_id: ams_slot_5_remaining_g
+        unit_of_measurement: g
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_5_spool_id'), 'remaining_weight') | default(states('sensor.spoolman_spool_' ~ states('input_text.ams_slot_5_spool_id'))) | float(0) | round(0) }}"
+      - name: "AMS Slot 5 – material"
+        unique_id: ams_slot_5_material
+        state: >-
+          {% set sid = states('input_text.ams_slot_5_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('Unknown') }}
+          {% endif %}
+      - name: "AMS Slot 5 – vendor"
+        unique_id: ams_slot_5_vendor
+        state: >-
+          {% set sid = states('input_text.ams_slot_5_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('Unknown') }}
+          {% endif %}
+      - name: "AMS Slot 5 – color hex"
+        unique_id: ams_slot_5_color_hex
+        state: >-
+          {% set sid = states('input_text.ams_slot_5_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}000000
+          {% else %}
+            {% set c = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_color_hex') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'color_hex')) | default('000000') %}
+            {{ c | replace('#', '') | truncate(6, True, '') }}
+          {% endif %}
+      - name: "AMS Slot 5 – status"
+        unique_id: ams_slot_5_status
+        state: >-
+          {% set reason = states('input_text.ams_slot_5_unbound_reason') %}
+          {% set sid = states('input_text.ams_slot_5_spool_id') %}
+          {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
+          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
+          {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
+          {% else %}unknown
+          {% endif %}
+        icon: >-
+          {% set s = this.state %}
+          {% if s == 'ok' %}mdi:check-circle
+          {% elif s == 'needs_bind' %}mdi:alert
+          {% elif s == 'empty' %}mdi:tray-remove
+          {% else %}mdi:help-circle
+          {% endif %}
+      - name: "AMS Slot 6 – name"
+        unique_id: ams_slot_6_name
+        state: >-
+          {% set sid = states('input_text.ams_slot_6_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Empty
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'name')) | default('HT 2') }}
+          {% endif %}
+      - name: "AMS Slot 6 – remaining (g)"
+        unique_id: ams_slot_6_remaining_g
+        unit_of_measurement: g
+        state: "{{ state_attr('sensor.spoolman_spool_' ~ states('input_text.ams_slot_6_spool_id'), 'remaining_weight') | default(states('sensor.spoolman_spool_' ~ states('input_text.ams_slot_6_spool_id'))) | float(0) | round(0) }}"
+      - name: "AMS Slot 6 – material"
+        unique_id: ams_slot_6_material
+        state: >-
+          {% set sid = states('input_text.ams_slot_6_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_material') | default('Unknown') }}
+          {% endif %}
+      - name: "AMS Slot 6 – vendor"
+        unique_id: ams_slot_6_vendor
+        state: >-
+          {% set sid = states('input_text.ams_slot_6_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}Unknown
+          {% else %}{{ state_attr('sensor.spoolman_spool_' ~ sid, 'filament_vendor_name') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'vendor_name')) | default('Unknown') }}
+          {% endif %}
+      - name: "AMS Slot 6 – color hex"
+        unique_id: ams_slot_6_color_hex
+        state: >-
+          {% set sid = states('input_text.ams_slot_6_spool_id') %}
+          {% if sid in ['0', '', 'unknown', 'unavailable'] %}000000
+          {% else %}
+            {% set c = state_attr('sensor.spoolman_spool_' ~ sid, 'filament_color_hex') | default(state_attr('sensor.spoolman_spool_' ~ sid, 'color_hex')) | default('000000') %}
+            {{ c | replace('#', '') | truncate(6, True, '') }}
+          {% endif %}
+      - name: "AMS Slot 6 – status"
+        unique_id: ams_slot_6_status
+        state: >-
+          {% set reason = states('input_text.ams_slot_6_unbound_reason') %}
+          {% set sid = states('input_text.ams_slot_6_spool_id') %}
+          {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
+          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
+          {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
+          {% else %}unknown
+          {% endif %}
+        icon: >-
+          {% set s = this.state %}
+          {% if s == 'ok' %}mdi:check-circle
+          {% elif s == 'needs_bind' %}mdi:alert
+          {% elif s == 'empty' %}mdi:tray-remove
+          {% else %}mdi:help-circle
+          {% endif %}
+      # Spool list for dropdown: extract spool ID from entity_id (sensor.spoolman_spool_<digits>).
+      # Filter by split('_') length to get only main spool entities, not children. No .append() (unsafe).
+      - name: "AMS Spool list – options"
+        unique_id: ams_spool_list_options
+        state: >
+          {% set ns = namespace(seen=[]) %}
+          {% for st in (states.sensor | list) %}
+            {% if st and st.entity_id %}
+              {% set eid = st.entity_id | string %}
+              {% if eid is match('sensor\\.spoolman_spool_\\d+$') %}
+                {% set sid = eid | regex_replace('sensor\\.spoolman_spool_', '') %}
+                {% if sid and sid not in ns.seen %}
+                  {% set loc = (state_attr(eid, 'location') or '') | string | trim | lower %}
+                  {% if loc not in ['empty', 'new', ''] %}
+                    {% set ns.seen = ns.seen + [sid] %}
+                  {% endif %}
+                {% endif %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.seen | length }}
+        attributes:
+          options: >
+            {% set ns = namespace(opts=[], seen=[]) %}
+            {% for st in (states.sensor | list) %}
+              {% if st and st.entity_id %}
+                {% set eid = st.entity_id | string %}
+                {% if eid is match('sensor\\.spoolman_spool_\\d+$') %}
+                  {% set sid = eid | regex_replace('sensor\\.spoolman_spool_', '') %}
+                  {% if sid and sid not in ns.seen %}
+                    {% set loc = (state_attr(eid, 'location') or '') | string | trim | lower %}
+                    {% if loc not in ['empty', 'new', ''] %}
+                      {% set vendor_attr = state_attr(eid, 'vendor') %}
+                      {% set v = (state_attr(eid, 'filament_vendor_name') or state_attr(eid, 'vendor_name') or state_attr(eid, 'manufacturer') or (vendor_attr.name | default('') if vendor_attr is mapping else (vendor_attr | string if vendor_attr is string else '')) or '') | string | trim %}
+                      {% set n = (state_attr(eid, 'filament_name') or state_attr(eid, 'name') or '') | string | trim %}
+                      {% set m = (state_attr(eid, 'filament_material') or state_attr(eid, 'material') or '') | string | trim %}
+                      {% set label = ((v + ' – ' if v else '') + (n + ' – ' if n else '') + (m if m else '')) | trim | regex_replace(' – $', '') | trim %}
+                      {% set label = label if label else ('Spool ' ~ sid) %}
+                      {% set ns.seen = ns.seen + [sid] %}
+                      {% set ns.opts = ns.opts + [label ~ ' (' ~ sid ~ ')'] %}
+                    {% endif %}
+                  {% endif %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.opts | sort }}
+      # Process Spoolman filaments API raw data into formatted list (stored in attributes to avoid 255 char limit)
+      - name: "Spoolman filaments processed"
+        unique_id: spoolman_filaments_processed
+        state: >
+          {% set api_data = state_attr('sensor.spoolman_filament_list_data', 'items') %}
+          {% if api_data is iterable and api_data is not string %}
+            {{ api_data | length }}
+          {% else %}
+            {{ this.state if this.state is defined else 0 }}
+          {% endif %}
+        attributes:
+          filament_list: >
+            {% set api_data = state_attr('sensor.spoolman_filament_list_data', 'items') %}
+            {% if api_data is iterable and api_data is not string %}
+              {% set ns = namespace(parts=[]) %}
+              {% for f in api_data %}
+                {% set v = (f.vendor.name | default('')) if (f.vendor is defined and f.vendor is mapping) else '' %}
+                {% set mat = (f.material | default('')) | string | trim %}
+                {% set n = (f.name | default('')) | replace('|', ' ') | trim %}
+                {% set bits = [v, mat, n] | reject('eq', '') | list %}
+                {% set label = (bits | join(' – ')) or ('Filament ' ~ (f.id | string)) %}
+                {% set ns.parts = ns.parts + [(f.id | string) ~ ' - ' ~ label] %}
+              {% endfor %}
+              {{ ns.parts }}
+            {% else %}
+              {{ state_attr('sensor.spoolman_filaments_processed', 'filament_list') or [] }}
+            {% endif %}
+      # Filament list for "Add spool" dropdown: all filaments from Spoolman (unfiltered)
+      - name: "AMS Filament list – options"
+        unique_id: ams_filament_list_options
+        state: >
+          {% set all_parts = state_attr('sensor.spoolman_filaments_processed', 'filament_list') or [] %}
+          {{ all_parts | length }}
+        attributes:
+          options: >
+            {% set all_parts = state_attr('sensor.spoolman_filaments_processed', 'filament_list') or [] %}
+            {{ all_parts | sort if all_parts | length > 0 else [] }}
+      # Vendor list for "Add filament" dropdown: from Spoolman API
+      - name: "AMS Vendor list – options"
+        unique_id: ams_vendor_list_options
+        state: >
+          {% set raw = states('sensor.spoolman_vendors_api') | default('') %}
+          {% if raw is string and raw not in ['unknown', 'unavailable', ''] %}
+            {% if '|||' in raw %}
+              {{ (raw.split('|||') | map('trim') | reject('eq', '') | list) | length }}
+            {% elif ' - ' in raw %}
+              {{ 1 }}
+            {% else %}
+              {{ 0 }}
+            {% endif %}
+          {% else %}
+            {{ 0 }}
+          {% endif %}
+        attributes:
+          options: >
+            {% set raw = states('sensor.spoolman_vendors_api') | default('') %}
+            {% if raw is string and raw not in ['unknown', 'unavailable', ''] %}
+              {% if '|||' in raw %}
+                {% set parts = (raw.split('|||') | map('trim') | reject('eq', '') | list) %}
+                {{ parts | sort }}
+              {% elif ' - ' in raw %}
+                {{ [raw | trim] }}
+              {% else %}
+                {{ [] }}
+              {% endif %}
+            {% else %}
+              {{ [] }}
+            {% endif %}
+      # Temporary debug: spool entities seen, options built. Remove once Slot 1 works.
+      - name: "AMS Spool list – debug"
+        unique_id: ams_spool_list_options_debug
+        state: "{{ (state_attr('sensor.ams_spool_list_options', 'options') or []) | length }}"
+        attributes:
+          spool_entities_seen: >
+            {% set ns = namespace(out=[]) %}
+            {% for st in (states.sensor | list) %}
+              {% if st and st.entity_id %}
+                {% set eid = st.entity_id | string %}
+                {% if eid is match('sensor\\.spoolman_spool_\\d+$') %}
+                  {% set ns.out = ns.out + [eid] %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.out[:30] }}
+          options_sample: "{{ (state_attr('sensor.ams_spool_list_options', 'options') or [])[:15] }}"
+
+      # Fuel gauge: computed remaining grams from tray_weight * remain / 100
+      - name: "P1S Tray 1 Fuel Gauge Remaining"
+        unique_id: p1s_tray_1_fuel_gauge_remaining_g
+        unit_of_measurement: "g"
+        device_class: weight
+        state_class: measurement
+        state: >
+          {{ [0, (state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_1', 'tray_weight') | float(0) * state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_1', 'remain') | float(0) / 100)] | max | round(1) }}
+
+      - name: "P1S Tray 2 Fuel Gauge Remaining"
+        unique_id: p1s_tray_2_fuel_gauge_remaining_g
+        unit_of_measurement: "g"
+        device_class: weight
+        state_class: measurement
+        state: >
+          {{ [0, (state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_2', 'tray_weight') | float(0) * state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_2', 'remain') | float(0) / 100)] | max | round(1) }}
+
+      - name: "P1S Tray 3 Fuel Gauge Remaining"
+        unique_id: p1s_tray_3_fuel_gauge_remaining_g
+        unit_of_measurement: "g"
+        device_class: weight
+        state_class: measurement
+        state: >
+          {{ [0, (state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_3', 'tray_weight') | float(0) * state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_3', 'remain') | float(0) / 100)] | max | round(1) }}
+
+      - name: "P1S Tray 4 Fuel Gauge Remaining"
+        unique_id: p1s_tray_4_fuel_gauge_remaining_g
+        unit_of_measurement: "g"
+        device_class: weight
+        state_class: measurement
+        state: >
+          {{ [0, (state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_4', 'tray_weight') | float(0) * state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_4', 'remain') | float(0) / 100)] | max | round(1) }}
+
+      - name: "P1S Tray 5 Fuel Gauge Remaining"
+        unique_id: p1s_tray_5_fuel_gauge_remaining_g
+        unit_of_measurement: "g"
+        device_class: weight
+        state_class: measurement
+        state: >
+          {{ [0, (state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1', 'tray_weight') | float(0) * state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1', 'remain') | float(0) / 100)] | max | round(1) }}
+
+      - name: "P1S Tray 6 Fuel Gauge Remaining"
+        unique_id: p1s_tray_6_fuel_gauge_remaining_g
+        unit_of_measurement: "g"
+        device_class: weight
+        state_class: measurement
+        state: >
+          {{ [0, (state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_129_tray_1', 'tray_weight') | float(0) * state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_129_tray_1', 'remain') | float(0) / 100)] | max | round(1) }}
+
+      # --- Spoolman filter option sensors ---
+      - name: "Spoolman filter – filament materials"
+        unique_id: spoolman_filter_options_filament_materials
+        state: >
+          {% set items = state_attr('sensor.spoolman_filament_list_data', 'items') or [] %}
+          {% set ns = namespace(vals=['All']) %}
+          {% for f in items %}
+            {% set m = (f.material | default('')) | trim %}
+            {% if m and m not in ns.vals %}
+              {% set ns.vals = ns.vals + [m] %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.vals | length }}
+        attributes:
+          options: >
+            {% set items = state_attr('sensor.spoolman_filament_list_data', 'items') or [] %}
+            {% set ns = namespace(vals=['All']) %}
+            {% for f in items %}
+              {% set m = (f.material | default('')) | trim %}
+              {% if m and m not in ns.vals %}
+                {% set ns.vals = ns.vals + [m] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.vals | sort }}
+
+      - name: "Spoolman filter – filament vendors"
+        unique_id: spoolman_filter_options_filament_vendors
+        state: >
+          {% set items = state_attr('sensor.spoolman_filament_list_data', 'items') or [] %}
+          {% set ns = namespace(vals=['All']) %}
+          {% for f in items %}
+            {% set v = ((f.vendor.name | default('')) if f.vendor is mapping else '') | trim %}
+            {% if v and v not in ns.vals %}
+              {% set ns.vals = ns.vals + [v] %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.vals | length }}
+        attributes:
+          options: >
+            {% set items = state_attr('sensor.spoolman_filament_list_data', 'items') or [] %}
+            {% set ns = namespace(vals=['All']) %}
+            {% for f in items %}
+              {% set v = ((f.vendor.name | default('')) if f.vendor is mapping else '') | trim %}
+              {% if v and v not in ns.vals %}
+                {% set ns.vals = ns.vals + [v] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.vals | sort }}
+
+      - name: "Spoolman filter – spool materials"
+        unique_id: spoolman_filter_options_spool_materials
+        state: >
+          {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+          {% set ns = namespace(vals=['All']) %}
+          {% for s in items %}
+            {% set m = ((s.filament.material | default('')) if s.filament is mapping else '') | trim %}
+            {% if m and m not in ns.vals %}
+              {% set ns.vals = ns.vals + [m] %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.vals | length }}
+        attributes:
+          options: >
+            {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+            {% set ns = namespace(vals=['All']) %}
+            {% for s in items %}
+              {% set m = ((s.filament.material | default('')) if s.filament is mapping else '') | trim %}
+              {% if m and m not in ns.vals %}
+                {% set ns.vals = ns.vals + [m] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.vals | sort }}
+
+      - name: "Spoolman filter – spool vendors"
+        unique_id: spoolman_filter_options_spool_vendors
+        state: >
+          {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+          {% set ns = namespace(vals=['All']) %}
+          {% for s in items %}
+            {% set v = ((s.filament.vendor.name | default('')) if s.filament is mapping and s.filament.vendor is mapping else '') | trim %}
+            {% if v and v not in ns.vals %}
+              {% set ns.vals = ns.vals + [v] %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.vals | length }}
+        attributes:
+          options: >
+            {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+            {% set ns = namespace(vals=['All']) %}
+            {% for s in items %}
+              {% set v = ((s.filament.vendor.name | default('')) if s.filament is mapping and s.filament.vendor is mapping else '') | trim %}
+              {% if v and v not in ns.vals %}
+                {% set ns.vals = ns.vals + [v] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.vals | sort }}
+
+      - name: "Spoolman filter – spool locations"
+        unique_id: spoolman_filter_options_spool_locations
+        state: >
+          {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+          {% set ns = namespace(vals=['All']) %}
+          {% for s in items %}
+            {% set loc = (s.location | default('')) | trim %}
+            {% set loc = loc if loc else '(none)' %}
+            {% if loc not in ns.vals %}
+              {% set ns.vals = ns.vals + [loc] %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.vals | length }}
+        attributes:
+          options: >
+            {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+            {% set ns = namespace(vals=['All']) %}
+            {% for s in items %}
+              {% set loc = (s.location | default('')) | trim %}
+              {% set loc = loc if loc else '(none)' %}
+              {% if loc not in ns.vals %}
+                {% set ns.vals = ns.vals + [loc] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.vals | sort }}
+
+      # --- Filtered data sensors ---
+      - name: "Spoolman filament list filtered"
+        unique_id: spoolman_filament_list_filtered
+        state: >
+          {% set items = state_attr('sensor.spoolman_filament_list_data', 'items') or [] %}
+          {% set fm = states('input_select.spoolman_filter_filament_material') | default('All') | trim %}
+          {% set fv = states('input_select.spoolman_filter_filament_vendor') | default('All') | trim %}
+          {% set ns = namespace(filtered=[]) %}
+          {% for f in items %}
+            {% set mat = (f.material | default('')) | trim %}
+            {% set vendor = ((f.vendor.name | default('')) if f.vendor is mapping else '') | trim %}
+            {% set mat_ok = (fm == 'All' or mat == fm) %}
+            {% set vendor_ok = (fv == 'All' or vendor == fv) %}
+            {% if mat_ok and vendor_ok %}
+              {% set ns.filtered = ns.filtered + [f] %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.filtered | length }}
+        attributes:
+          items: >
+            {% set items = state_attr('sensor.spoolman_filament_list_data', 'items') or [] %}
+            {% set fm = states('input_select.spoolman_filter_filament_material') | default('All') | trim %}
+            {% set fv = states('input_select.spoolman_filter_filament_vendor') | default('All') | trim %}
+            {% set ns = namespace(filtered=[]) %}
+            {% for f in items %}
+              {% set mat = (f.material | default('')) | trim %}
+              {% set vendor = ((f.vendor.name | default('')) if f.vendor is mapping else '') | trim %}
+              {% set mat_ok = (fm == 'All' or mat == fm) %}
+              {% set vendor_ok = (fv == 'All' or vendor == fv) %}
+              {% if mat_ok and vendor_ok %}
+                {% set ns.filtered = ns.filtered + [f] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.filtered }}
+
+      - name: "Spoolman spool list filtered"
+        unique_id: spoolman_spool_list_filtered
+        state: >
+          {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+          {% set fm = states('input_select.spoolman_filter_spool_material') | default('All') | trim %}
+          {% set fv = states('input_select.spoolman_filter_spool_vendor') | default('All') | trim %}
+          {% set fl = states('input_select.spoolman_filter_spool_location') | default('All') | trim %}
+          {% set ns = namespace(filtered=[]) %}
+          {% for s in items %}
+            {% set mat = ((s.filament.material | default('')) if s.filament is mapping else '') | trim %}
+            {% set vendor = ((s.filament.vendor.name | default('')) if s.filament is mapping and s.filament.vendor is mapping else '') | trim %}
+            {% set loc = (s.location | default('')) | trim %}
+            {% set loc_display = loc if loc else '(none)' %}
+            {% set mat_ok = (fm == 'All' or mat == fm) %}
+            {% set vendor_ok = (fv == 'All' or vendor == fv) %}
+            {% set loc_ok = (fl == 'All' or loc_display == fl) %}
+            {% if mat_ok and vendor_ok and loc_ok %}
+              {% set ns.filtered = ns.filtered + [s] %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.filtered | length }}
+        attributes:
+          items: >
+            {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+            {% set fm = states('input_select.spoolman_filter_spool_material') | default('All') | trim %}
+            {% set fv = states('input_select.spoolman_filter_spool_vendor') | default('All') | trim %}
+            {% set fl = states('input_select.spoolman_filter_spool_location') | default('All') | trim %}
+            {% set ns = namespace(filtered=[]) %}
+            {% for s in items %}
+              {% set mat = ((s.filament.material | default('')) if s.filament is mapping else '') | trim %}
+              {% set vendor = ((s.filament.vendor.name | default('')) if s.filament is mapping and s.filament.vendor is mapping else '') | trim %}
+              {% set loc = (s.location | default('')) | trim %}
+              {% set loc_display = loc if loc else '(none)' %}
+              {% set mat_ok = (fm == 'All' or mat == fm) %}
+              {% set vendor_ok = (fv == 'All' or vendor == fv) %}
+              {% set loc_ok = (fl == 'All' or loc_display == fl) %}
+              {% if mat_ok and vendor_ok and loc_ok %}
+                {% set ns.filtered = ns.filtered + [s] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.filtered }}
+
+
+# AMS Slot Manager: Spoolman REST API. Set input_text.spoolman_base_url (e.g. http://192.168.x.x:8080).
+rest_command:
+  ams_spoolman_get_spool:
+    url: "http://YOUR_SPOOLMAN_IP:7912/api/v1/spool/{{ spool_id }}"
+    method: GET
+  ams_spoolman_create_placeholder:
+    url: "http://YOUR_SPOOLMAN_IP:7912/api/v1/spool"
+    method: POST
+    content_type: "application/json"
+    payload: >
+      {
+        "filament_id": {{ placeholder_filament_id | int }},
+        "location": "HA_AMS_SLOT_{{ slot }}",
+        "comment": "HA_AMS_SLOT={{ slot }}",
+        "remaining_weight": 0,
+        "archived": false
+      }
+  # Add filament to Spoolman (from dashboard form). Uses input_text/input_number/input_select spoolman_new_filament_*.
+  ams_spoolman_create_filament:
+    url: "http://YOUR_SPOOLMAN_IP:7912/api/v1/filament"
+    method: POST
+    content_type: "application/json"
+    payload: >
+      {% set vendor_sel = states('input_select.spoolman_new_filament_vendor') | default('— No vendor —') %}
+      {% set vendor_id = none %}
+      {% if vendor_sel != '— No vendor —' and ' - ' in vendor_sel %}
+        {% set vendor_id = vendor_sel.split(' - ')[0] | trim | int(0) or none %}
+      {% endif %}
+      {{ {'name': (states('input_text.spoolman_new_filament_name') | default('') | trim) or 'Unnamed', 'density': states('input_number.spoolman_new_filament_density') | float(1.24), 'diameter': states('input_number.spoolman_new_filament_diameter') | float(1.75), 'weight': states('input_number.spoolman_new_filament_weight') | float(1000), 'material': (states('input_text.spoolman_new_filament_material') | default('') | trim) or none, 'color_hex': (states('input_text.spoolman_new_filament_color_hex') | default('') | trim) | replace('#', '') or none, 'comment': 'added by Home Assistant', 'vendor_id': vendor_id} | tojson }}
+  # Add spool to Spoolman (from dashboard). Filament ID from dropdown (id - name).
+  ams_spoolman_create_spool:
+    url: "http://YOUR_SPOOLMAN_IP:7912/api/v1/spool"
+    method: POST
+    content_type: "application/json"
+    payload: >-
+      {{ {'filament_id': ((states('input_select.spoolman_new_spool_filament') or '').split(' - ')[0] | trim | int(1)) if ' - ' in (states('input_select.spoolman_new_spool_filament') or '') else (states('input_number.spoolman_new_spool_filament_id') | int(1)), 'location': (states('input_text.spoolman_new_spool_location') | default('') | trim) or 'New', 'remaining_weight': states('input_number.spoolman_new_spool_remaining_weight') | float(0), 'archived': false} | tojson }}
+  # PATCH spool remaining_weight and/or location in Spoolman (from edit popup)
+    method: PATCH
+    content_type: "application/json"
+    payload: "{{ payload }}"
+# Load frontend themes from the themes folder
+frontend:
+
+automation:
+  - id: printer_air_purifier_lan
+    alias: Printer Air Purifier (LAN-proof)
+    description: Turn office air purifier + outlet on when printing/paused, off when idle/finished/failed. Logs unknown states.
+    trigger:
+      - platform: state
+        entity_id: sensor.p1s_YOUR_PRINTER_SERIAL_print_status
+      - platform: homeassistant
+        event: start
+  
+    condition: []
+  
+    action:
+      - variables:
+          current_state: "{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_print_status') | lower }}"
+  
+      - choose:
+  
+          # PRINTING / PAUSED → ON
+          - conditions:
+              - condition: template
+                value_template: "{{ current_state in ['running','printing','pause','paused'] }}"
+            sequence:
+              - service: fan.turn_on
+                target:
+                  entity_id: fan.office_air_purifier
+                data:
+                  percentage: 75
+              - service: switch.turn_on
+                target:
+                  entity_id: switch.officeoutlet_02
+  
+          # IDLE / FINISHED / FAILED → OFF
+          - conditions:
+              - condition: template
+                value_template: "{{ current_state in ['idle','standby','finish','finished','completed','failed','error'] }}"
+            sequence:
+              - service: fan.turn_off
+                target:
+                  entity_id: fan.office_air_purifier
+              - service: switch.turn_off
+                target:
+                  entity_id: switch.officeoutlet_02
+  
+        default:
+          - service: logbook.log
+            data:
+              name: Printer Air Purifier
+              message: "Unknown print_status '{{ current_state }}' - no action taken"
+  
+    mode: single
+  - id: p1s_persist_print_times
+    alias: P1S – persist print start/end times
+    description: Capture start_time and end_time sensors to persistent helpers so they survive HA restart
+    trigger:
+    - platform: state
+      entity_id: sensor.p1s_YOUR_PRINTER_SERIAL_start_time
+    - platform: state
+      entity_id: sensor.p1s_YOUR_PRINTER_SERIAL_end_time
+    - platform: state
+      entity_id: sensor.p1s_operator_status
+      to:
+      - printing_normally
+      - printing_attention_needed
+    condition: []
+    action:
+    - choose:
+      - conditions:
+        - condition: template
+          value_template: "{{ trigger.entity_id == 'sensor.p1s_YOUR_PRINTER_SERIAL_start_time' and trigger.to_state.state not in ['unknown', 'unavailable', ''] }}"
+        sequence:
+        - action: input_datetime.set_datetime
+          target:
+            entity_id: input_datetime.p1s_print_start_time
+          data:
+            datetime: "{{ trigger.to_state.state }}"
+      - conditions:
+        - condition: template
+          value_template: "{{ trigger.entity_id == 'sensor.p1s_YOUR_PRINTER_SERIAL_end_time' and trigger.to_state.state not in ['unknown', 'unavailable', ''] }}"
+        sequence:
+        - action: input_datetime.set_datetime
+          target:
+            entity_id: input_datetime.p1s_print_end_time
+          data:
+            datetime: "{{ trigger.to_state.state }}"
+      - conditions:
+        - condition: state
+          entity_id: sensor.p1s_operator_status
+          state:
+          - printing_normally
+          - printing_attention_needed
+        - condition: template
+          value_template: "{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_start_time') not in ['unknown', 'unavailable', ''] }}"
+        sequence:
+        - action: input_datetime.set_datetime
+          target:
+            entity_id: input_datetime.p1s_print_start_time
+          data:
+            datetime: "{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_start_time') }}"
+        - condition: template
+          value_template: "{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_end_time') not in ['unknown', 'unavailable', ''] }}"
+        - action: input_datetime.set_datetime
+          target:
+            entity_id: input_datetime.p1s_print_end_time
+          data:
+            datetime: "{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_end_time') }}"
+    mode: restart
+  
+  # -----------------------------------------------------------------------------
+  # Spoolman filament tracking (Bambu P1S): low filament + subtract after print
+  # -----------------------------------------------------------------------------
+  # Which spool: printer active_tray when available, else input_select.active_filament_spool.
+  # Spoolman reserved IDs 1–6 for AMS slots: slot 1 = spool 1, … slot 6 = spool 6.
+  # Map printer tray display name → slot 1–6; spool_id comes from input_text.ams_slot_N_spool_id (persisted).
+  # -----------------------------------------------------------------------------
+  
+  - id: spoolman_low_filament_warning
+    alias: Spoolman low filament warning
+    description: Notify when any AMS slot (1–6) has remaining weight below 50g (critical) or 100g (warning). Uses reconciler helpers (spool_id, remaining_g, name) per slot.
+    trigger:
+    - platform: state
+      entity_id:
+        - input_select.active_filament_spool
+        - sensor.p1s_YOUR_PRINTER_SERIAL_active_tray
+    - platform: time
+      at: "09:00:00"
+    condition:
+    - condition: template
+      value_template: >-
+        {% set ns = namespace(found=false) %}
+        {% for i in range(1, 7) %}
+          {% set remaining = states('sensor.ams_slot_' ~ i ~ '_remaining_g') | float(0) %}
+          {% set spool_id = states('input_text.ams_slot_' ~ i ~ '_spool_id') %}
+          {% if remaining > 0 and remaining < 100 and spool_id not in ['0', '', 'unknown', 'unavailable'] %}
+            {% set ns.found = true %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.found }}
+    action:
+    - variables:
+        critical_msg: >-
+          {% set lines = [] %}
+          {% for i in range(1, 7) %}
+          {% set remaining = states('sensor.ams_slot_' ~ i ~ '_remaining_g') | float(0) %}
+          {% set spool_id = states('input_text.ams_slot_' ~ i ~ '_spool_id') %}
+          {% set name = states('sensor.ams_slot_' ~ i ~ '_name') | default('Slot ' ~ i) %}
+          {% if remaining > 0 and remaining < 50 and spool_id not in ['0', '', 'unknown', 'unavailable'] %}
+          {{ lines.append('Slot ' ~ i ~ ': ' ~ name ~ ', ' ~ (remaining | round(1)) ~ ' g') or '' }}
+          {% endif %}
+          {% endfor %}
+          {{ lines | join('\n') }}
+        warning_msg: >-
+          {% set lines = [] %}
+          {% for i in range(1, 7) %}
+          {% set remaining = states('sensor.ams_slot_' ~ i ~ '_remaining_g') | float(0) %}
+          {% set spool_id = states('input_text.ams_slot_' ~ i ~ '_spool_id') %}
+          {% set name = states('sensor.ams_slot_' ~ i ~ '_name') | default('Slot ' ~ i) %}
+          {% if remaining >= 50 and remaining < 100 and spool_id not in ['0', '', 'unknown', 'unavailable'] %}
+          {{ lines.append('Slot ' ~ i ~ ': ' ~ name ~ ', ' ~ (remaining | round(1)) ~ ' g') or '' }}
+          {% endif %}
+          {% endfor %}
+          {{ lines | join('\n') }}
+    - choose:
+      - conditions:
+        - condition: template
+          value_template: >-
+            {% set ns = namespace(found=false) %}
+            {% for i in range(1, 7) %}
+              {% set remaining = states('sensor.ams_slot_' ~ i ~ '_remaining_g') | float(0) %}
+              {% set spool_id = states('input_text.ams_slot_' ~ i ~ '_spool_id') %}
+              {% if remaining > 0 and remaining < 50 and spool_id not in ['0', '', 'unknown', 'unavailable'] %}
+                {% set ns.found = true %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.found }}
+        sequence:
+        - action: notify.persistent_notification
+          data:
+            title: "Spoolman – critical low filament (< 50 g)"
+            message: "{{ critical_msg }}"
+      - conditions:
+        - condition: template
+          value_template: >-
+            {% set ns = namespace(found=false) %}
+            {% for i in range(1, 7) %}
+              {% set remaining = states('sensor.ams_slot_' ~ i ~ '_remaining_g') | float(0) %}
+              {% set spool_id = states('input_text.ams_slot_' ~ i ~ '_spool_id') %}
+              {% if remaining >= 50 and remaining < 100 and spool_id not in ['0', '', 'unknown', 'unavailable'] %}
+                {% set ns.found = true %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.found }}
+        sequence:
+        - action: notify.persistent_notification
+          data:
+            title: "Spoolman – low filament (< 100 g)"
+            message: "{{ warning_msg }}"
+    mode: single
+  
+  - id: p1s_capture_active_tray_entity
+    alias: P1S – capture active tray entity during print
+    description: When print starts, clear trays-used list, wait until any tray reports active=true then store that tray entity for subtract-after-print.
+    trigger:
+      - platform: state
+        entity_id: sensor.p1s_YOUR_PRINTER_SERIAL_print_status
+        to:
+          - running
+          - printing
+    action:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.p1s_trays_used_this_print
+        data:
+          value: ""
+      - wait_template: >
+          {{ state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_1','active') == true or
+             state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_2','active') == true or
+             state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_3','active') == true or
+             state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_4','active') == true or
+             state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1','active') == true or
+             state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_129_tray_1','active') == true }}
+        timeout: "00:01:00"
+        continue_on_timeout: true
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_1','active') == true }}"
+            sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.p1s_last_tray_entity
+                data:
+                  value: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_1"
+              - service: logbook.log
+                data:
+                  name: P1S Tray Capture
+                  message: "Captured tray entity: sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_1"
+          - conditions:
+              - condition: template
+                value_template: "{{ state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_2','active') == true }}"
+            sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.p1s_last_tray_entity
+                data:
+                  value: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_2"
+              - service: logbook.log
+                data:
+                  name: P1S Tray Capture
+                  message: "Captured tray entity: sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_2"
+          - conditions:
+              - condition: template
+                value_template: "{{ state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_3','active') == true }}"
+            sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.p1s_last_tray_entity
+                data:
+                  value: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_3"
+              - service: logbook.log
+                data:
+                  name: P1S Tray Capture
+                  message: "Captured tray entity: sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_3"
+          - conditions:
+              - condition: template
+                value_template: "{{ state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_4','active') == true }}"
+            sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.p1s_last_tray_entity
+                data:
+                  value: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_4"
+              - service: logbook.log
+                data:
+                  name: P1S Tray Capture
+                  message: "Captured tray entity: sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_4"
+          - conditions:
+              - condition: template
+                value_template: "{{ state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1','active') == true }}"
+            sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.p1s_last_tray_entity
+                data:
+                  value: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1"
+              - service: logbook.log
+                data:
+                  name: P1S Tray Capture
+                  message: "Captured tray entity: sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1"
+          - conditions:
+              - condition: template
+                value_template: "{{ state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_129_tray_1','active') == true }}"
+            sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.p1s_last_tray_entity
+                data:
+                  value: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_129_tray_1"
+              - service: logbook.log
+                data:
+                  name: P1S Tray Capture
+                  message: "Captured tray entity: sensor.p1s_YOUR_PRINTER_SERIAL_ams_129_tray_1"
+        default:
+          - service: logbook.log
+            data:
+              name: P1S Tray Capture
+              message: "FAILED to capture tray entity (no tray active=true within 60s)."
+    mode: single
+  
+  # While print is running, append any tray that becomes active to the "trays used" list (for multi-color subtract).
+  - id: p1s_remaining_snapshot_init
+    alias: P1S – init remaining filament snapshots
+    description: Clear snapshot JSON helpers when print starts, then seed with currently-active trays
+    trigger:
+      - platform: state
+        entity_id: sensor.p1s_YOUR_PRINTER_SERIAL_print_status
+        to:
+          - running
+          - printing
+    action:
+      # Mutex: Set print active + job key
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.p1s_print_active
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.p1s_print_job_key
+        data:
+          value: "{{ now().timestamp() | string }}_{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_task_name') | replace(' ', '_') }}"
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.p1s_needs_reconcile
+      - variables:
+          debug_info: "print_status={{ states('sensor.p1s_YOUR_PRINTER_SERIAL_print_status') }} | reset_start_end_json=1"
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.p1s_init_seed_debug
+        data:
+          value: "{{ debug_info }}"
+      # Clear JSON helpers (legacy)
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.p1s_tray_remaining_start_json
+        data:
+          value: "{}"
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.p1s_tray_remaining_end_json
+        data:
+          value: "{}"
+      # Clear input_number helpers (ALL slots to 0)
+      - repeat:
+          count: 6
+          sequence:
+            - service: input_number.set_value
+              target:
+                entity_id: "input_number.p1s_start_slot_{{ repeat.index }}_g"
+              data:
+                value: 0
+            - service: input_number.set_value
+              target:
+                entity_id: "input_number.p1s_end_slot_{{ repeat.index }}_g"
+              data:
+                value: 0
+      # Wait for printer to report which tray is in use (tray active or active_tray state), not Spoolman slot remaining
+      - wait_template: >
+          {{ state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_1', 'active') == true
+             or state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_2', 'active') == true
+             or state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_3', 'active') == true
+             or state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_4', 'active') == true
+             or state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1', 'active') == true
+             or state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_129_tray_1', 'active') == true
+             or ((states('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray') | default('') | trim) not in ['', 'unknown', 'unavailable', 'None']) }}
+        timeout: "00:02:00"
+        continue_on_timeout: true
+      - variables:
+          tray_entities:
+            - sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_1
+            - sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_2
+            - sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_3
+            - sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_4
+            - sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1
+            - sensor.p1s_YOUR_PRINTER_SERIAL_ams_129_tray_1
+          slot_map: [1, 2, 3, 4, 5, 6]
+          seeded_dict: >
+            {% set active_name = states('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray') | lower | trim %}
+            {% set ns = namespace(result={}) %}
+            {% for i in range(6) %}
+              {% set tray = tray_entities[i] %}
+              {% set slot = slot_map[i] | string %}
+              {% set is_active_attr = state_attr(tray, 'active') == true %}
+              {% set tray_name = states(tray) | lower | trim %}
+              {% set is_active_by_name = active_name and tray_name and active_name == tray_name %}
+              {% if is_active_attr or is_active_by_name %}
+                {% set fg = states('sensor.p1s_tray_' ~ slot ~ '_fuel_gauge_remaining') | float(-1) %}
+                {% set ams = states('sensor.ams_slot_' ~ slot ~ '_remaining_g') | float(-1) %}
+                {% set effective = fg if fg > 0 else (ams if ams > 0 else -1) %}
+                {% set grams = (effective if effective >= 0 else 0) | round(0) | int %}
+                {# SAFETY: Clamp to >= 0 (replaces old comment) #}
+                {% set ns.result = dict(ns.result, **{slot: grams}) %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.result }}
+          # Fallback when no tray reports active: seed all slots with valid remaining so we still get start/end snapshots.
+          fallback_dict: >
+            {% set ns = namespace(result={}) %}
+            {% for i in range(6) %}
+              {% set slot = slot_map[i] | string %}
+              {% set fg = states('sensor.p1s_tray_' ~ slot ~ '_fuel_gauge_remaining') | float(-1) %}
+              {% set ams = states('sensor.ams_slot_' ~ slot ~ '_remaining_g') | float(-1) %}
+              {% set effective = fg if fg > 0 else (ams if ams > 0 else -1) %}
+              {% if effective >= 0 %}
+                {# SAFETY: Clamp to >= 0 #}
+                {% set grams = [0, effective] | max | round(0) | int %}
+                {% set ns.result = dict(ns.result, **{slot: grams}) %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.result }}
+          dict_to_seed: "{{ seeded_dict if seeded_dict | length > 0 else fallback_dict }}"
+          active_slots: >
+            {% set active_name = states('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray') | lower | trim %}
+            {% set ns = namespace(slots=[]) %}
+            {% for i in range(6) %}
+              {% set t = tray_entities[i] %}
+              {% set by_attr = state_attr(t, 'active') == true %}
+              {% set by_name = active_name and (states(t) | lower | trim) == active_name %}
+              {% if by_attr or by_name %}
+                {% set ns.slots = ns.slots + [slot_map[i]] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.slots | join(',') }}
+          debug_detail: >
+            {% set active_name = states('sensor.p1s_YOUR_PRINTER_SERIAL_active_tray') | lower | trim %}
+            {% set ns = namespace(lines=[]) %}
+            {% for i in range(6) %}
+              {% set slot = slot_map[i] | string %}
+              {% set t = tray_entities[i] %}
+              {% set by_attr = state_attr(t, 'active') == true %}
+              {% set by_name = active_name and (states(t) | lower | trim) == active_name %}
+              {% if by_attr or by_name %}
+                {% set fg = states('sensor.p1s_tray_' ~ slot ~ '_fuel_gauge_remaining') | float(-1) %}
+                {% set ams = states('sensor.ams_slot_' ~ slot ~ '_remaining_g') | float(-1) %}
+                {% set effective = fg if fg > 0 else (ams if ams > 0 else -1) %}
+                {% set fg_int = fg | round(0) | int %}
+                {% set ams_int = ams | round(0) | int %}
+                {% set eff_int = effective | round(0) | int %}
+                {% set src = 'attr' if by_attr else 'name' %}
+                {% set ns.lines = ns.lines + ['s' ~ slot ~ '(' ~ src ~ ') fg=' ~ fg_int ~ ' ams=' ~ ams_int ~ ' eff=' ~ eff_int] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.lines | join(' | ') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.p1s_init_seed_debug
+        data:
+          value: "print_status={{ states('sensor.p1s_YOUR_PRINTER_SERIAL_print_status') }} | active_slots={{ active_slots }} | {{ debug_detail }} | seeded={{ seeded_dict | tojson }}{% if seeded_dict | length == 0 and fallback_dict | length > 0 %} | fallback={{ fallback_dict | tojson }}{% endif %}"
+      - if:
+          - condition: template
+            value_template: "{{ dict_to_seed | length > 0 }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.p1s_tray_remaining_start_json
+            data:
+              value: "{{ dict_to_seed | tojson }}"
+          # ALSO seed input_number helpers (JSON-free path)
+          - repeat:
+              count: 6
+              sequence:
+                - variables:
+                    slot_str: "{{ repeat.index | string }}"
+                    grams: "{{ dict_to_seed.get(slot_str, 0) | int }}"
+                - service: input_number.set_value
+                  target:
+                    entity_id: "input_number.p1s_start_slot_{{ repeat.index }}_g"
+                  data:
+                    value: "{{ grams }}"
+      - service: logbook.log
+        data:
+          name: P1S Filament Tracking
+          message: "Init: reset helpers, seeded {{ dict_to_seed | length }} slot(s){% if seeded_dict | length == 0 and fallback_dict | length > 0 %} (fallback: no tray active){% endif %}"
+    mode: single
+  
+  - id: p1s_remaining_snapshot_on_tray_first_active
+    alias: P1S – seed start grams on tray first active
+    description: Record start grams when tray becomes active during print (merge-only, write-once per slot)
+    trigger:
+      - platform: state
+        entity_id:
+          - sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_1
+          - sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_2
+          - sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_3
+          - sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_4
+          - sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1
+          - sensor.p1s_YOUR_PRINTER_SERIAL_ams_129_tray_1
+        attribute: active
+        to: true
+    condition:
+      - condition: template
+        value_template: "{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_print_status') in ['running', 'printing'] }}"
+    variables:
+      slot_map:
+        sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_1: 1
+        sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_2: 2
+        sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_3: 3
+        sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_4: 4
+        sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1: 5
+        sensor.p1s_YOUR_PRINTER_SERIAL_ams_129_tray_1: 6
+      slot_int: "{{ slot_map[trigger.entity_id] }}"
+      fg: "{{ states('sensor.p1s_tray_' ~ slot_int ~ '_fuel_gauge_remaining') | float(-1) }}"
+      ams: "{{ states('sensor.ams_slot_' ~ slot_int ~ '_remaining_g') | float(-1) }}"
+      eff: "{{ fg if fg > 0 else (ams if ams > 0 else -1) }}"
+      grams: "{{ [0, eff] | max | round(0) | int }}"
+      already_set: "{{ states('input_number.p1s_start_slot_' ~ slot_int ~ '_g') | int(0) > 0 }}"
+    action:
+      - if:
+          - condition: template
+            value_template: "{{ eff >= 0 and not already_set }}"
+        then:
+          - service: input_number.set_value
+            target:
+              entity_id: "input_number.p1s_start_slot_{{ slot_int }}_g"
+            data:
+              value: "{{ grams }}"
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.p1s_init_seed_debug
+            data:
+              value: "tray={{ trigger.entity_id }} | slot={{ slot_int }} | fg={{ fg | round(0) | int }} | ams={{ ams | round(0) | int }} | eff={{ eff | round(0) | int }} | grams={{ grams }} | written"
+        else:
+          - variables:
+              skip_reason: >
+                {% if eff < 0 %}eff<0
+                {% elif already_set %}already_set
+                {% else %}unknown{% endif %}
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.p1s_init_seed_debug
+            data:
+              value: "tray={{ trigger.entity_id }} | slot={{ slot_int }} | skip={{ skip_reason }}"
+    mode: queued
+    max: 10
+  
+  # DEBUG: Record every print_status change to helper (when filament_debug_mode ON)
+  - id: p1s_debug_print_status_transition
+    alias: P1S – DEBUG record print_status transitions
+    description: "When filament_debug_mode ON: record print_status from→to to p1s_last_print_status_transition."
+    trigger:
+      - platform: state
+        entity_id: sensor.p1s_YOUR_PRINTER_SERIAL_print_status
+    condition:
+      - condition: state
+        entity_id: input_boolean.filament_debug_mode
+        state: "on"
+    action:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.p1s_last_print_status_transition
+        data:
+          value: "{{ (now().isoformat() ~ ' | from=' ~ (trigger.from_state.state | default('(none)')) ~ ' | to=' ~ (trigger.to_state.state | default('(none)')))[:255] }}"
+    mode: single
+  
+  - id: p1s_remaining_snapshot_on_finish
+    alias: P1S – snapshot remaining on print finish
+    description: Record tray remaining_filament at print finish and notify with start→end delta (NO JSON PARSING)
+    trigger:
+      - platform: state
+        entity_id: sensor.p1s_YOUR_PRINTER_SERIAL_print_status
+        from:
+          - running
+          - printing
+          - pause
+          - paused
+      - platform: state
+        entity_id: input_boolean.p1s_debug_finish_trigger
+        to: "on"
+    condition: []
+    variables:
+      trigger_state: "{{ 'debug' if trigger.entity_id == 'input_boolean.p1s_debug_finish_trigger' else (trigger.to_state.state | default('finish')) }}"
+      task_name: "{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_task_name') }}"
+      is_failed: "{{ trigger_state in ['failed', 'error', 'canceled'] }}"
+      should_decrement: "{{ not is_failed or states('input_boolean.p1s_decrement_on_failed') == 'on' }}"
+    action:
+      # 0. Guard: skip if we already processed this job (duplicate finish+offline trigger)
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >
+                  {{ states('input_text.p1s_finish_automation_checkpoint') == 'complete'
+                     and (as_timestamp(now()) - as_timestamp(states.input_text.p1s_finish_automation_checkpoint.last_changed | default(now()))) < 120 }}
+            sequence:
+              - stop: "Already processed this print (duplicate trigger)"
+  
+      # 1. Checkpoint
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.p1s_finish_automation_checkpoint
+        data:
+          value: "entered"
+  
+      # 2. Reset debug trigger if applicable
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.entity_id == 'input_boolean.p1s_debug_finish_trigger' }}"
+            sequence:
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.p1s_debug_finish_trigger
+  
+      # 3. Guard: skip if no start snapshot
+      - if:
+          - condition: template
+            value_template: >
+              {{ states('input_text.p1s_tray_remaining_start_json') in ['', '{}', 'unavailable', 'unknown'] }}
+        then:
+          - service: input_text.set_value
+            target:
+              entity_id: input_text.p1s_finish_automation_checkpoint
+            data:
+              value: "skipped: no_start_snapshot"
+          - stop: "No start snapshot"
+  
+      # 4. Build end_json from fuel gauge sensors (only slots with valid fuel gauge AND in start snapshot)
+      - variables:
+          end_json_built: >-
+            {% set fuel_gauge_sensors = [
+              'sensor.p1s_tray_1_fuel_gauge_remaining',
+              'sensor.p1s_tray_2_fuel_gauge_remaining',
+              'sensor.p1s_tray_3_fuel_gauge_remaining',
+              'sensor.p1s_tray_4_fuel_gauge_remaining',
+              'sensor.p1s_tray_5_fuel_gauge_remaining',
+              'sensor.p1s_tray_6_fuel_gauge_remaining'
+            ] %}
+            {% set start_raw = states('input_text.p1s_tray_remaining_start_json') %}
+            {% set start = start_raw | from_json if start_raw not in ['', '{}', 'unavailable', 'unknown'] else {} %}
+            {% set ns = namespace(pairs=[]) %}
+            {% for i in range(6) %}
+              {% set slot_str = (i+1) | string %}
+              {% set remaining = states(fuel_gauge_sensors[i]) | float(-1) %}
+              {% if remaining > 0 and slot_str in start %}
+                {% set ns.pairs = ns.pairs + ['"' ~ slot_str ~ '": ' ~ remaining] %}
+              {% endif %}
+            {% endfor %}
+            {{ '{' ~ ns.pairs | join(', ') ~ '}' }}
+  
+      # 5. Write end_json
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.p1s_tray_remaining_end_json
+        data:
+          value: "{{ end_json_built | to_json }}"
+  
+      # 6. Fire P1S_PRINT_USAGE_READY event for AppDaemon
+      - event: P1S_PRINT_USAGE_READY
+        event_data:
+          job_key: "{{ states('input_text.p1s_print_job_key') }}"
+          task_name: "{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_task_name') }}"
+          print_weight_g: "{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_print_weight') | float(0) }}"
+          trays_used: "{{ states('input_text.p1s_trays_used_this_print') }}"
+          start_json: "{{ states('input_text.p1s_tray_remaining_start_json') }}"
+          end_json: "{{ end_json_built | to_json }}"
+          print_status: "{{ trigger_state }}"
+  
+      # 7. Checkpoint complete
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.p1s_finish_automation_checkpoint
+        data:
+          value: "event_fired"
+  
+      # 8. Notification — handled by AppDaemon ams_print_usage_sync
+  
+      # 9. Final checkpoint
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.p1s_finish_automation_checkpoint
+        data:
+          value: "complete"
+    mode: single
+  
+  # Detect mid-print spool mapping changes → set reconcile flag
+  - id: p1s_detect_spool_swap_during_print
+    alias: P1S – detect spool swap during print
+    description: When spool assignment changes while print is active, set reconcile flag and notify
+    trigger:
+      - platform: state
+        entity_id:
+          - input_text.ams_slot_1_spool_id
+          - input_text.ams_slot_2_spool_id
+          - input_text.ams_slot_3_spool_id
+          - input_text.ams_slot_4_spool_id
+          - input_text.ams_slot_5_spool_id
+          - input_text.ams_slot_6_spool_id
+    condition:
+      - condition: state
+        entity_id: input_boolean.p1s_print_active
+        state: 'on'
+      - condition: state
+        entity_id: input_boolean.appdaemon_startup_suppress_swap
+        state: 'off'
+      # Only fire when printer is actually printing (avoid false positives when mutex is stale)
+      - condition: or
+        conditions:
+          - condition: template
+            value_template: "{{ states('sensor.p1s_operator_status') in ['printing_normally', 'printing_attention_needed', 'printing'] }}"
+          - condition: template
+            value_template: "{{ states('sensor.p1s_YOUR_PRINTER_SERIAL_print_status') in ['running', 'printing'] }}"
+    action:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.p1s_needs_reconcile
+      - service: notify.persistent_notification
+        data:
+          title: "P1S Spool Swap During Print Detected"
+          message: "{{ trigger.to_state.entity_id }} changed from {{ trigger.from_state.state }} to {{ trigger.to_state.state }} while print active. Automatic filament tracking disabled for this print. Manual reconciliation required."
+      - delay: "00:05:00"
+    mode: single
+  
+  # After AppDaemon/reconcile startup, suppress spool-swap detection for 90s to avoid false positives from bulk helper updates.
+  - id: appdaemon_startup_suppress_swap_clear
+    alias: AppDaemon startup – suppress spool swap detection then clear
+    description: On appdaemon_startup or ams_rfid_reconcile_startup (or when suppress boolean turns on), ensure suppress is on then turn it off after 90s.
+    trigger:
+      - platform: event
+        event_type:
+          - appdaemon_startup
+          - ams_rfid_reconcile_startup
+      - platform: state
+        entity_id: input_boolean.appdaemon_startup_suppress_swap
+        to: 'on'
+    action:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.appdaemon_startup_suppress_swap
+      - delay:
+          seconds: 90
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.appdaemon_startup_suppress_swap
+    mode: restart
+  
+  # Sync spool dropdown to bound spool when helper changes (reconciler or assign).
+  - id: ams_sync_dropdown_to_bound_spool
+    alias: "AMS: Sync spool dropdown to bound spool ID"
+    description: When input_text.ams_slot_N_spool_id changes to a positive value, select the matching option in the slot's dropdown.
+    trigger:
+      - platform: state
+        entity_id:
+          - input_text.ams_slot_1_spool_id
+          - input_text.ams_slot_2_spool_id
+          - input_text.ams_slot_3_spool_id
+          - input_text.ams_slot_4_spool_id
+          - input_text.ams_slot_5_spool_id
+          - input_text.ams_slot_6_spool_id
+    condition:
+      - condition: template
+        value_template: "{{ trigger.to_state.state | int(0) > 0 }}"
+    action:
+      - variables:
+          slot: "{{ trigger.entity_id.split('_slot_')[1].split('_')[0] }}"
+          spool_id: "{{ trigger.to_state.state }}"
+          match: "{% set ns = namespace(match='') %}{% for opt in state_attr('input_select.ams_slot_' ~ slot ~ '_select_spool', 'options') or [] %}{% if ('(' ~ spool_id ~ ')') in opt %}{% set ns.match = opt %}{% endif %}{% endfor %}{{ ns.match }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ match | trim | length > 0 }}"
+            sequence:
+              - service: input_select.select_option
+                target:
+                  entity_id: "input_select.ams_slot_{{ slot }}_select_spool"
+                data:
+                  option: "{{ match | trim }}"
+  
+  # Reload automations when Spoolman fires a threshold event (info/warning/critical).
+  # The Spoolman integration does not fire an event when spools are added/updated;
+  # after swapping a spool and updating automations.yaml, deploy then either run
+  # automation.reload from Developer Tools > Services, or wait for a threshold event.
+  - id: spoolman_reload_automations_on_threshold
+    alias: Spoolman – reload automations on threshold event
+    description: When any spool hits a Spoolman threshold, reload automations so updated name→spool_id mappings are picked up.
+    trigger:
+    - platform: event
+      event_type: spoolman_spool_threshold_exceeded
+    action:
+    - action: automation.reload
+    mode: single
+  
+  # Populate all spool dropdowns (global + per-slot) from Spoolman entities (no REST).
+  # Trigger on HA start and when options sensor changes; condition options non-empty.
+  - id: ams_populate_spool_dropdown_on_rest_data
+    alias: AMS – populate all spool dropdowns from Spoolman entities
+    description: On start or when sensor.ams_spool_list_options changes, set all dropdowns (global + slots 1-6).
+    trigger:
+      - platform: homeassistant
+        event: start
+      - platform: state
+        entity_id:
+          - sensor.ams_spool_list_options
+    condition:
+      - condition: template
+        value_template: "{{ (state_attr('sensor.ams_spool_list_options', 'options') or []) | length > 0 }}"
+    action:
+      - action: input_select.set_options
+        target:
+          entity_id:
+            - input_select.ams_assign_source_spool
+            - input_select.ams_slot_1_select_spool
+            - input_select.ams_slot_2_select_spool
+            - input_select.ams_slot_3_select_spool
+            - input_select.ams_slot_4_select_spool
+            - input_select.ams_slot_5_select_spool
+            - input_select.ams_slot_6_select_spool
+        data:
+          options: "{{ ['— Select spool —'] + (state_attr('sensor.ams_spool_list_options', 'options') or []) }}"
+    mode: single
+  
+  # When user selects a spool from "Assign from warehouse" dropdown, set the numeric ID for scripts.
+  - id: ams_assign_source_spool_from_select
+    alias: AMS – set source spool ID from dropdown selection
+    description: When Assign from warehouse source spool dropdown changes, set input_number.ams_assign_source_spool_id for assign script.
+    trigger:
+      - platform: state
+        entity_id:
+          - input_select.ams_assign_source_spool
+    action:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.ams_assign_source_spool_id
+        data:
+          value: "{{ (trigger.to_state.state.split('(')[-1].split(')')[0] | trim | int(0)) if (trigger.to_state.state != '— Select spool —' and '(' in trigger.to_state.state) else 0 }}"
+    mode: single
+  
+  # Populate "New spool – filament" dropdown from Spoolman (API or entities). Trigger when list sensor or API sensor updates, or on start.
+  - id: ams_filament_list_populate_dropdown
+    alias: AMS – populate Add spool filament dropdown
+    description: When filament list sensor or Spoolman API sensors update or on start, set input_select.spoolman_new_spool_filament options from all Spoolman filaments.
+    trigger:
+      - platform: homeassistant
+        event: start
+        id: homeassistant_start
+      - platform: state
+        entity_id:
+          - sensor.ams_filament_list_options
+          - sensor.spoolman_filaments_api
+          - sensor.spoolman_filaments_processed
+          - sensor.spoolman_spools_api
+    condition:
+      - condition: template
+        value_template: >
+          {{ states('input_select.spoolman_new_spool_filament') not in ['unknown', 'unavailable'] }}
+    action:
+      - if:
+          - condition: trigger
+            id: homeassistant_start
+        then:
+          - delay:
+              seconds: 5
+      - action: input_select.set_options
+        target:
+          entity_id: input_select.spoolman_new_spool_filament
+        data:
+          options: "{{ ['— Select filament —'] + (state_attr('sensor.ams_filament_list_options', 'options') or []) }}"
+    mode: single
+  
+  - id: ams_vendor_list_populate_dropdown
+    alias: AMS – populate Add filament vendor dropdown
+    description: When vendor list sensor or Spoolman vendors API sensor updates or on start, set input_select.spoolman_new_filament_vendor options.
+    trigger:
+      - platform: homeassistant
+        event: start
+        id: homeassistant_start
+      - platform: state
+        entity_id:
+          - sensor.ams_vendor_list_options
+          - sensor.spoolman_vendors_api
+    condition:
+      - condition: template
+        value_template: >
+          {{ states('input_select.spoolman_new_filament_vendor') not in ['unknown', 'unavailable'] }}
+    action:
+      - if:
+          - condition: trigger
+            id: homeassistant_start
+        then:
+          - delay:
+              seconds: 5
+      - action: input_select.set_options
+        target:
+          entity_id: input_select.spoolman_new_filament_vendor
+        data:
+          options: "{{ ['— No vendor —'] + (state_attr('sensor.ams_vendor_list_options', 'options') or []) }}"
+    mode: single
+  
+  # Rehydrate print active mutex after HA restart if print is still running
+  - id: p1s_rehydrate_mutex_on_restart
+    alias: P1S – rehydrate print active mutex on HA restart
+    description: If HA restarts while print is active, restore mutex to ON to prevent manual slot mapping changes
+    trigger:
+      - platform: homeassistant
+        event: start
+    condition:
+      - condition: state
+        entity_id: sensor.p1s_YOUR_PRINTER_SERIAL_print_status
+        state:
+          - running
+          - printing
+          - pause
+          - paused
+    action:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.p1s_print_active
+    mode: single
+  
+  # Auto-detect AMS tray changes and try to match to Spoolman spools on Shelf. If exactly one match, auto-assign; otherwise notify for manual assignment.
+  - id: ams_tray_auto_detect_and_assign
+    alias: AMS – auto-detect tray change and assign Spoolman spool
+    description: When an AMS tray changes (new filament loaded), try to match to a Spoolman spool on Shelf and auto-assign if unique match.
+    initial_state: false
+    trigger:
+      - platform: state
+        entity_id:
+          - sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_1
+          - sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_2
+          - sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_3
+          - sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_4
+          - sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1
+          - sensor.p1s_YOUR_PRINTER_SERIAL_ams_129_tray_1
+    condition:
+      # Only fire if state actually changed (not just republished)
+      - condition: template
+        value_template: >
+          {{ trigger.to_state.state not in ['Empty', 'unknown', 'unavailable', ''] 
+             and trigger.from_state is not none
+             and trigger.from_state.state != trigger.to_state.state 
+             and trigger.from_state.state not in ['unknown', 'unavailable', 'None', ''] }}
+    action:
+      - variables:
+          tray_text: "{{ trigger.to_state.state | trim }}"
+          slot_map:
+            sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_1: { slot: 1, location: "AMS1_Slot1" }
+            sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_2: { slot: 2, location: "AMS1_Slot2" }
+            sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_3: { slot: 3, location: "AMS1_Slot3" }
+            sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_4: { slot: 4, location: "AMS1_Slot4" }
+            sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1: { slot: 5, location: "AMS2_HT_Slot1" }
+            sensor.p1s_YOUR_PRINTER_SERIAL_ams_129_tray_1: { slot: 6, location: "AMS2_HT_Slot2" }
+          slot_num: "{{ slot_map[trigger.entity_id].slot }}"
+          ams_location: "{{ slot_map[trigger.entity_id].location }}"
+          # Check if tray text is specific enough (has color, weight, or distinguishing info)
+          # Generic examples: "Overture PLA", "eSUN ABS" (only vendor+material)
+          # Specific examples: "Overture PLA Black", "eSUN ABS+ White 1kg"
+          is_generic: >
+            {% set words = (tray_text | lower).split() %}
+            {% set has_color = words | select('in', ['black', 'white', 'red', 'blue', 'green', 'yellow', 'orange', 'purple', 'gray', 'grey', 'pink', 'brown', 'transparent', 'clear', 'natural']) | list | length > 0 %}
+            {% set tl = tray_text | lower %}
+            {% set has_weight = 'g' in tl or 'kg' in tl or 'lb' in tl %}
+            {% set word_count = words | length %}
+            {{ not has_color and not has_weight and word_count <= 2 }}
+          # Find all spools on Shelf that match the tray text (vendor/material/name fuzzy match)
+          matching_spools: >
+            {% set ns = namespace(matches=[]) %}
+            {% for st in (states.sensor | selectattr('entity_id', 'match', '^sensor\\.spoolman_spool_\\d+$') | list) %}
+              {% set loc = (state_attr(st.entity_id, 'location') or '') | string | lower %}
+              {% if loc == 'shelf' %}
+                {% set vendor = (state_attr(st.entity_id, 'filament_vendor_name') or state_attr(st.entity_id, 'vendor_name') or '') | string | lower %}
+                {% set material = (state_attr(st.entity_id, 'filament_material') or state_attr(st.entity_id, 'material') or '') | string | lower %}
+                {% set name = (state_attr(st.entity_id, 'filament_name') or state_attr(st.entity_id, 'name') or '') | string | lower %}
+                {% set tray_lower = tray_text | lower %}
+                {% set match_score = 0 %}
+                {# Vendor: check full string OR first word (handles multi-word vendors like "Bambu Lab") #}
+                {% set vendor_first_word = vendor.split() | first if vendor else '' %}
+                {% if (vendor and vendor in tray_lower) or (vendor_first_word and vendor_first_word | length > 2 and vendor_first_word in tray_lower) %}
+                  {% set match_score = match_score + 1 %}
+                {% endif %}
+                {% if material and material in tray_lower %}{% set match_score = match_score + 1 %}{% endif %}
+                {% if name and name in tray_lower %}{% set match_score = match_score + 1 %}{% endif %}
+                {% if match_score >= 2 %}
+                  {% set spool_id = st.entity_id.split('_')[-1] %}
+                  {% set remaining = state_attr(st.entity_id, 'remaining_weight') | float(999999) %}
+                  {% set ns.matches = ns.matches + [{'id': spool_id, 'remaining': remaining}] %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.matches }}
+      - choose:
+          # Generic tray text → skip auto-assign, notify once
+          - conditions:
+              - condition: template
+                value_template: "{{ is_generic }}"
+            sequence:
+              - action: notify.persistent_notification
+                data:
+                  title: "AMS Slot {{ slot_num }}: Manual Assignment Required"
+                  message: "Detected '{{ tray_text }}' in {{ ams_location }}. Tray text is too generic for auto-matching (lacks color/weight). Go to Spool Management to manually assign."
+          # Exactly one match → auto-assign
+          - conditions:
+              - condition: template
+                value_template: "{{ not is_generic and matching_spools | length == 1 }}"
+            sequence:
+              - variables:
+                  spool_id: "{{ matching_spools[0].id }}"
+              - action: input_text.set_value
+                target:
+                  entity_id: "input_text.ams_slot_{{ slot_num }}_spool_id"
+                data:
+                  value: "{{ spool_id }}"
+              - action: spoolman.patch_spool
+                data:
+                  id: "{{ spool_id | int }}"
+                  location: "{{ ams_location }}"
+              - action: script.reload_spoolman_integration
+              - action: notify.persistent_notification
+                data:
+                  title: "AMS Slot {{ slot_num }} Auto-Assigned"
+                  message: "Detected '{{ tray_text }}' in {{ ams_location }}. Auto-assigned Spoolman spool {{ spool_id }}. Weigh the spool and tap 'Assign & Update' to set remaining weight."
+          # Multiple matches → pick least remaining if unique winner, else manual
+          - conditions:
+              - condition: template
+                value_template: "{{ not is_generic and matching_spools | length > 1 }}"
+            sequence:
+              - variables:
+                  sorted_matches: "{{ matching_spools | sort(attribute='remaining') }}"
+                  least_remaining: "{{ sorted_matches[0].remaining }}"
+                  second_least: "{{ sorted_matches[1].remaining if sorted_matches | length > 1 else 999999 }}"
+                  is_unique_winner: "{{ least_remaining < (second_least - 50) }}"
+                  winner_spool_id: "{{ sorted_matches[0].id if is_unique_winner else none }}"
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ is_unique_winner }}"
+                    sequence:
+                      - action: input_text.set_value
+                        target:
+                          entity_id: "input_text.ams_slot_{{ slot_num }}_spool_id"
+                        data:
+                          value: "{{ winner_spool_id }}"
+                      - action: spoolman.patch_spool
+                        data:
+                          id: "{{ winner_spool_id | int }}"
+                          location: "{{ ams_location }}"
+                      - action: script.reload_spoolman_integration
+                      - action: notify.persistent_notification
+                        data:
+                          title: "AMS Slot {{ slot_num }} Auto-Assigned (Least Remaining)"
+                          message: "Detected '{{ tray_text }}' in {{ ams_location }}. Auto-assigned Spoolman spool {{ winner_spool_id }} (least remaining: {{ least_remaining | round(0) }}g). Verify and update weight if needed."
+                default:
+                  - action: notify.persistent_notification
+                    data:
+                      title: "AMS Slot {{ slot_num }}: Manual Assignment Required"
+                      message: "Detected '{{ tray_text }}' in {{ ams_location }}. Found {{ matching_spools | length }} possible matches (IDs: {{ matching_spools | map(attribute='id') | join(', ') }}), but no clear winner. Go to Spool Management to manually assign."
+        default:
+          # No matches → notify
+          - action: notify.persistent_notification
+            data:
+              title: "AMS Slot {{ slot_num }}: Manual Assignment Required"
+              message: "Detected '{{ tray_text }}' in {{ ams_location }}. No matching Spoolman spool found on Shelf. Go to Spool Management to manually assign."
+    mode: queued
+    max: 10
+  
+  - id: ams_bind_reminder_push
+    alias: "AMS Bind Reminder Push"
+    description: "Push notification when an AMS slot needs binding"
+    triggers:
+      - trigger: state
+        entity_id:
+          - input_text.ams_slot_1_unbound_reason
+          - input_text.ams_slot_2_unbound_reason
+          - input_text.ams_slot_3_unbound_reason
+          - input_text.ams_slot_4_unbound_reason
+          - input_text.ams_slot_5_unbound_reason
+          - input_text.ams_slot_6_unbound_reason
+        for: "00:00:30"
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ trigger.to_state.state | default('') not in
+          ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] }}
+      - condition: state
+        entity_id: input_boolean.appdaemon_startup_suppress_swap
+        state: 'off'
+    actions:
+      - variables:
+          slot_num: >-
+            {{ trigger.entity_id | regex_findall('ams_slot_(\d+)_unbound') | first }}
+      - action: notify.mobile_app_jd_pixel_10xl
+        data:
+          title: "AMS Slot {{ slot_num }} Needs Binding"
+          message: >-
+            ⚠️ Slot {{ slot_num }}: {{ states('sensor.ams_slot_' ~ slot_num ~ '_name') }}
+            Reason: {{ trigger.to_state.state }}
+            Open dashboard to bind.
+          data:
+            tag: "ams_bind_slot_{{ slot_num }}"
+            clickAction: "/lovelace/3d-printer"
+            url: "/lovelace/3d-printer"
+    mode: queued
+    max: 6
+  
+  - id: ams_bind_reminder_clear
+    alias: "AMS Bind Reminder Clear"
+    description: "Clear bind reminder notification when slot is bound"
+    triggers:
+      - trigger: state
+        entity_id:
+          - input_text.ams_slot_1_unbound_reason
+          - input_text.ams_slot_2_unbound_reason
+          - input_text.ams_slot_3_unbound_reason
+          - input_text.ams_slot_4_unbound_reason
+          - input_text.ams_slot_5_unbound_reason
+          - input_text.ams_slot_6_unbound_reason
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set val = trigger.to_state.state | default('') %}
+          {{ val == '' or val == 'unknown' or val == 'unavailable' }}
+    actions:
+      - variables:
+          slot_num: >-
+            {{ trigger.entity_id | regex_findall('ams_slot_(\d+)_unbound') | first }}
+      - action: notify.mobile_app_jd_pixel_10xl
+        data:
+          message: clear_notification
+          data:
+            tag: "ams_bind_slot_{{ slot_num }}"
+    mode: queued
+    max: 6
+  
+  - id: ams_print_unbound_warning
+    alias: "AMS Print With Unbound Warning"
+    description: "Urgent push when print starts with unbound slots"
+    triggers:
+      - trigger: state
+        entity_id: sensor.p1s_YOUR_PRINTER_SERIAL_print_status
+        to:
+          - running
+          - printing
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set reasons = [
+            states('input_text.ams_slot_1_unbound_reason'),
+            states('input_text.ams_slot_2_unbound_reason'),
+            states('input_text.ams_slot_3_unbound_reason'),
+            states('input_text.ams_slot_4_unbound_reason'),
+            states('input_text.ams_slot_5_unbound_reason'),
+            states('input_text.ams_slot_6_unbound_reason')
+          ] %}
+          {{ reasons | reject('in', ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY']) | list | length > 0 }}
+    actions:
+      - action: notify.mobile_app_jd_pixel_10xl
+        data:
+          title: "Print Started With Unbound Slots"
+          message: "🚨 Print started with unbound slot — filament usage won't be tracked!"
+          data:
+            tag: ams_print_unbound_warning
+            importance: high
+            channel: alarm_stream
+    mode: single
+  - id: spoolman_edit_prefill_location
+    alias: "Spoolman edit – prefill on spool select, reset on clear"
+    trigger:
+      - platform: state
+        entity_id: input_select.spoolman_edit_spool_select
+    condition: []
+    action:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >
+                  {{ trigger.to_state.state in ['— Select spool —', '', 'unknown', 'unavailable'] }}
+            sequence:
+              - service: input_boolean.turn_off
+                target:
+                  entity_id:
+                    - input_boolean.spoolman_edit_update_weight
+                    - input_boolean.spoolman_edit_update_location
+              - service: input_number.set_value
+                target:
+                  entity_id: input_number.spoolman_edit_remaining_weight
+                data:
+                  value: 0
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.spoolman_edit_spool_location
+                data:
+                  value: ""
+          - conditions:
+              - condition: template
+                value_template: >
+                  {{ trigger.to_state.state not in ['— Select spool —', '', 'unknown', 'unavailable'] }}
+            sequence:
+              - variables:
+                  spool_id: "{{ trigger.to_state.state.split(' - ')[0] | trim }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.spoolman_edit_spool_location
+                data:
+                  value: >
+                    {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                    {% set match = items | selectattr('id', 'eq', spool_id | int(0)) | list %}
+                    {% if match | length > 0 %}
+                      {{ match[0].location | default('') }}
+                    {% else %}
+                      {{ '' }}
+                    {% endif %}
+              - service: input_number.set_value
+                target:
+                  entity_id: input_number.spoolman_edit_remaining_weight
+                data:
+                  value: >
+                    {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+                    {% set match = items | selectattr('id', 'eq', spool_id | int(0)) | list %}
+                    {% if match | length > 0 %}
+                      {{ match[0].remaining_weight | default(0) | round(0) }}
+                    {% else %}
+                      0
+                    {% endif %}
+              - service: input_boolean.turn_off
+                target:
+                  entity_id:
+                    - input_boolean.spoolman_edit_update_weight
+                    - input_boolean.spoolman_edit_update_location
+    mode: single
+  
+  - alias: "Spoolman filter – refresh dropdown options"
+    id: spoolman_filter_refresh_dropdown_options
+    description: "Updates filter input_select options when Spoolman data sensors change"
+    mode: single
+    trigger:
+      - platform: state
+        entity_id:
+          - sensor.spoolman_filament_list_data
+          - sensor.spoolman_spool_list_data
+      - platform: homeassistant
+        event: start
+    condition: []
+    action:
+      - delay:
+          seconds: 5
+      - service: input_select.set_options
+        target:
+          entity_id: input_select.spoolman_filter_filament_material
+        data:
+          options: "{{ state_attr('sensor.spoolman_filter_filament_materials', 'options') or ['All'] }}"
+      - service: input_select.set_options
+        target:
+          entity_id: input_select.spoolman_filter_filament_vendor
+        data:
+          options: "{{ state_attr('sensor.spoolman_filter_filament_vendors', 'options') or ['All'] }}"
+      - service: input_select.set_options
+        target:
+          entity_id: input_select.spoolman_filter_spool_material
+        data:
+          options: "{{ state_attr('sensor.spoolman_filter_spool_materials', 'options') or ['All'] }}"
+      - service: input_select.set_options
+        target:
+          entity_id: input_select.spoolman_filter_spool_vendor
+        data:
+          options: "{{ state_attr('sensor.spoolman_filter_spool_vendors', 'options') or ['All'] }}"
+      - service: input_select.set_options
+        target:
+          entity_id: input_select.spoolman_filter_spool_location
+        data:
+          options: "{{ state_attr('sensor.spoolman_filter_spool_locations', 'options') or ['All'] }}"
+      # Edit spool dropdown
+      - service: input_select.set_options
+        target:
+          entity_id: input_select.spoolman_edit_spool_select
+        data:
+          options: >
+            {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
+            {% set ns = namespace(opts=['— Select spool —']) %}
+            {% for s in items %}
+              {% set f = s.filament if s.filament is mapping else {} %}
+              {% set vendor = (f.vendor.name | default('')) if f.vendor is mapping else '' %}
+              {% set name = f.name | default('') %}
+              {% set mat = f.material | default('') %}
+              {% set loc = s.location | default('') %}
+              {% set remaining = s.remaining_weight | default(0) | round(0) | string %}
+              {% set label = ((vendor ~ ' – ' if vendor else '') ~ (name ~ ' – ' if name else '') ~ mat ~ ' – ' ~ remaining ~ 'g' ~ (' [' ~ loc ~ ']' if loc else '')) | trim %}
+              {% set label = label if label else ('Spool ' ~ s.id | string) %}
+              {% set ns.opts = ns.opts + [s.id | string ~ ' - ' ~ label] %}
+            {% endfor %}
+            {{ ns.opts }}
+      # Auto-populate Add Spool filament dropdown
+      - service: script.refresh_filament_dropdown
+        data: {}
+
+script:
+  # Scripts (included from configuration.yaml).
+  # Root keys are script IDs (e.g. reload_spoolman_integration); each has alias, sequence, etc.
+  #
+  # Reload Spoolman (dashboard button): REQUIRED — replace YOUR_SPOOLMAN_ENTRY_ID below
+  # with your Spoolman config entry ID. Get it: Settings → Devices & Services → Spoolman
+  # → ⋮ → Configure; the URL ends with /integration/XXXXXXXX — that hex is entry_id.
+  # Or in .storage/core.config_entries search for "spoolman" and copy "entry_id".
+  # Then redeploy: ./scripts/manage_ha.sh --scripts (and restart HA if needed).
+  #
+  # yaml-language-server: $schema=
+  # Reload Spoolman integration only. Do NOT run refresh_ams_spool_list here (causes spinners; dropdown is populated by automation when REST data arrives).
+  
+  # V1 OPINIONATED AUTO-MAPPING: Choose spool for slot (deterministic, minimal logic)
+  # Returns spool_id via ams_slot_N_spool_id helper. Called by finish automation for each slot.
+  p1s_choose_spool_for_slot_v1:
+    alias: P1S Choose Spool for Slot (V1 Opinionated)
+    description: "Deterministic spool selection: binding > material+lightest > overall-lightest. Persists choice."
+    mode: queued
+    max: 10
+    fields:
+      slot:
+        description: "Slot number (1-6)"
+        example: "1"
+      material:
+        description: "Material (PLA, PETG, ABS, etc.)"
+        example: "PLA"
+      start_weight_g:
+        description: "Start weight in grams"
+        example: "500"
+    sequence:
+      - variables:
+          auto_enabled: "{{ states('input_boolean.p1s_auto_mode_opinionated') == 'on' }}"
+          # RESILIENT: Check if binding helper exists before reading
+          binding_helper_exists: "{{ states('input_text.p1s_slot_to_spool_binding_json') not in ['unavailable', 'unknown', ''] }}"
+          binding_raw: "{{ states('input_text.p1s_slot_to_spool_binding_json') | default('{}', true) | string }}"
+          binding_dict: >
+            {% set s = (binding_raw | trim) %}
+            {% if s.startswith('{') and s.endswith('}') %}
+              {{ s | from_json }}
+            {% else %}
+              {{ {} }}
+            {% endif %}
+          slot_str: "{{ slot_number | string }}"
+          bound_spool_id: "{{ binding_dict.get(slot_str, 0) | int }}"
+      # If auto mode OFF: return null (do nothing)
+      - if:
+          - condition: template
+            value_template: "{{ not auto_enabled }}"
+        then:
+          # RESILIENT: Only write if helper exists
+          - if:
+              - condition: template
+                value_template: "{{ states('input_text.p1s_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
+            then:
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.p1s_last_mapping_json
+                data:
+                  value: "{{ ('slot=' ~ slot_number ~ ' | auto_mode=OFF | no_action') | string }}"
+          - stop: "Auto mode disabled"
+      # Check if binding exists and spool exists
+      - if:
+          - condition: template
+            value_template: "{{ bound_spool_id > 0 }}"
+        then:
+          - variables:
+              spool_exists: >
+                {{ states('sensor.spoolman_spool_' ~ bound_spool_id) not in ['unavailable', 'unknown', ''] }}
+          - if:
+              - condition: template
+                value_template: "{{ spool_exists }}"
+            then:
+              - service: input_text.set_value
+                target:
+                  entity_id: "input_text.ams_slot_{{ slot_number }}_spool_id"
+                data:
+                  value: "{{ bound_spool_id | string }}"
+              # RESILIENT: Only write if helper exists
+              - if:
+                  - condition: template
+                    value_template: "{{ states('input_text.p1s_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
+                then:
+                  - service: input_text.set_value
+                    target:
+                      entity_id: input_text.p1s_last_mapping_json
+                    data:
+                      value: "{{ ('slot=' ~ slot_number ~ ' | spool_id=' ~ bound_spool_id ~ ' | confidence=high | rule=binding_reused') | string }}"
+              - stop: "Binding reused"
+      # Choose by material + lightest, or fallback to overall-lightest
+      - variables:
+          mat_lower: "{{ (material | default('PLA') | lower | trim) }}"
+          all_spools: >
+            {% set ns = namespace(spools=[]) %}
+            {% for st in (states.sensor | selectattr('entity_id', 'match', '^sensor\\.spoolman_spool_\\d+$') | list) %}
+              {% set mat = (state_attr(st.entity_id, 'filament_material') or '') | string | lower %}
+              {% set rem = state_attr(st.entity_id, 'remaining_weight') | float(-1) %}
+              {% if rem >= 0 %}
+                {% set spool_id = st.entity_id.split('_')[-1] %}
+                {% set ns.spools = ns.spools + [{'id': spool_id, 'material': mat, 'remaining': rem}] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.spools }}
+          material_matches: "{{ all_spools | selectattr('material', 'eq', mat_lower) | list }}"
+          candidates: "{{ material_matches if material_matches | length > 0 else all_spools }}"
+          sorted_candidates: "{{ candidates | sort(attribute='remaining') }}"
+          chosen: "{{ sorted_candidates[0] if sorted_candidates | length > 0 else none }}"
+          chosen_spool_id: "{{ chosen.id if chosen else 0 }}"
+          confidence: "{{ 'medium' if material_matches | length > 0 else 'low' }}"
+          rule: "{{ 'material_lightest' if material_matches | length > 0 else 'fallback_overall_lightest' }}"
+      - if:
+          - condition: template
+            value_template: "{{ chosen_spool_id | int > 0 }}"
+        then:
+          # Assign spool to slot
+          - service: input_text.set_value
+            target:
+              entity_id: "input_text.ams_slot_{{ slot_number }}_spool_id"
+            data:
+              value: "{{ chosen_spool_id | string }}"
+          # Update binding JSON (persist for next time) - RESILIENT: Only if helper exists
+          - if:
+              - condition: template
+                value_template: "{{ binding_helper_exists }}"
+            then:
+              - variables:
+                  updated_binding: "{{ binding_dict | combine({slot_str: chosen_spool_id | int}) }}"
+                  # RESILIENT: Ensure JSON string doesn't exceed max (1024)
+                  binding_json_str: "{{ (updated_binding | tojson)[:1020] | string }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.p1s_slot_to_spool_binding_json
+                data:
+                  value: "{{ binding_json_str }}"
+          # Log mapping result - RESILIENT: Only if helper exists
+          - if:
+              - condition: template
+                value_template: "{{ states('input_text.p1s_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
+            then:
+              - variables:
+                  # RESILIENT: Ensure log string doesn't exceed max (2048)
+                  log_str: "{{ ('slot=' ~ slot_number ~ ' | mat=' ~ mat_lower ~ ' | spool_id=' ~ chosen_spool_id ~ ' | remaining=' ~ chosen.remaining ~ 'g | confidence=' ~ confidence ~ ' | rule=' ~ rule ~ ' | candidates=' ~ candidates | length)[:2044] | string }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.p1s_last_mapping_json
+                data:
+                  value: "{{ log_str }}"
+        else:
+          # No spools available (should never happen)
+          - if:
+              - condition: template
+                value_template: "{{ states('input_text.p1s_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
+            then:
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.p1s_last_mapping_json
+                data:
+                  value: "{{ ('slot=' ~ slot_number ~ ' | ERROR | no_spools_available') | string }}"
+  
+  # E2E VALIDATION: Test scenarios for V1 opinionated auto-mapping
+  test_scenario_1_single_slot:
+    alias: "Test Scenario 1: Single Slot Print (35g)"
+    description: "Clear state, seed slot 1 (350g→315g), trigger finish, verify decrement"
+    sequence:
+      # Clear all start/end helpers
+      - repeat:
+          count: 6
+          sequence:
+            - service: input_number.set_value
+              target:
+                entity_id: "input_number.p1s_start_slot_{{ repeat.index }}_g"
+              data:
+                value: 0
+            - service: input_number.set_value
+              target:
+                entity_id: "input_number.p1s_end_slot_{{ repeat.index }}_g"
+              data:
+                value: 0
+      # Seed slot 1
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.p1s_start_slot_1_g
+        data:
+          value: 350
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.p1s_end_slot_1_g
+        data:
+          value: 315
+      # Trigger finish
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.p1s_debug_finish_trigger
+      - delay: "00:00:01"
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.p1s_debug_finish_trigger
+  
+  test_scenario_4_multi_slot:
+    alias: "Test Scenario 4: Multi-Slot Print"
+    description: "Seed slot 1 (300g→270g) + slot 2 (200g→165g), verify both processed"
+    sequence:
+      # Clear all
+      - repeat:
+          count: 6
+          sequence:
+            - service: input_number.set_value
+              target:
+                entity_id: "input_number.p1s_start_slot_{{ repeat.index }}_g"
+              data:
+                value: 0
+            - service: input_number.set_value
+              target:
+                entity_id: "input_number.p1s_end_slot_{{ repeat.index }}_g"
+              data:
+                value: 0
+      # Seed slot 1
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.p1s_start_slot_1_g
+        data:
+          value: 300
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.p1s_end_slot_1_g
+        data:
+          value: 270
+      # Seed slot 2
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.p1s_start_slot_2_g
+        data:
+          value: 200
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.p1s_end_slot_2_g
+        data:
+          value: 165
+      # Trigger
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.p1s_debug_finish_trigger
+      - delay: "00:00:01"
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.p1s_debug_finish_trigger
+  
+  test_clear_binding:
+    alias: "Test: Clear Binding JSON"
+    description: "Reset binding JSON to {} for determinism tests"
+    sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.p1s_slot_to_spool_binding_json
+        data:
+          value: "{}"
+  
+  # INFRASTRUCTURE VALIDATION: Verify persistence helpers exist and are writable
+  p1s_validate_persistence_infrastructure:
+    alias: "P1S Validate Persistence Infrastructure"
+    description: "Confirms binding + mapping helpers exist and are writable. Returns PASS/FAIL."
+    sequence:
+      - variables:
+          binding_exists: "{{ states('input_text.p1s_slot_to_spool_binding_json') not in ['unavailable', 'unknown'] }}"
+          mapping_exists: "{{ states('input_text.p1s_last_mapping_json') not in ['unavailable', 'unknown'] }}"
+          binding_state_before: "{{ states('input_text.p1s_slot_to_spool_binding_json') | default('', true) | string }}"
+      # Test 1: Check existence
+      - if:
+          - condition: template
+            value_template: "{{ not binding_exists or not mapping_exists }}"
+        then:
+          - service: persistent_notification.create
+            data:
+              title: "P1S Infrastructure Validation: FAIL"
+              message: >
+                Binding helper exists: {{ binding_exists }}
+                Mapping helper exists: {{ mapping_exists }}
+                
+                ACTION REQUIRED: Create missing helpers via HA UI:
+                1. Settings → Devices & Services → Helpers
+                2. Create Text helpers with exact entity IDs:
+                   - input_text.p1s_slot_to_spool_binding_json (max: 1024)
+                   - input_text.p1s_last_mapping_json (max: 2048)
+          - stop: "FAIL: Helpers missing"
+      # Test 2: Attempt safe write/restore (doesn't alter production data long-term)
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.p1s_slot_to_spool_binding_json
+        data:
+          value: "{{ ('{}') | string }}"
+      - delay: "00:00:01"
+      - variables:
+          write_test: "{{ states('input_text.p1s_slot_to_spool_binding_json') | string }}"
+      # Restore original value (if unavailable/unknown, restore '{}')
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.p1s_slot_to_spool_binding_json
+        data:
+          value: "{{ (binding_state_before if binding_state_before not in ['', 'unavailable', 'unknown'] else '{}') | string }}"
+      # Test 3: Log result
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.p1s_last_mapping_json
+        data:
+          value: "{{ ('validation=PASS | binding_writable=true | mapping_writable=true | timestamp=' ~ now().isoformat()) | string }}"
+      - service: persistent_notification.create
+        data:
+          title: "P1S Infrastructure Validation: PASS"
+          message: >
+            ✓ Binding helper exists and is writable
+            ✓ Mapping helper exists and is writable
+            
+            Infrastructure is ready for V1 opinionated auto-mapping.
+  
+  # DEBUG: Simulate finish path without a real print. Requires filament_debug_mode ON for checkpoints.
+  # Seeds start/end input_numbers (NO JSON), fires finish automation. Verify checkpoints reach COMPLETE.
+  # Spoolman decrement only runs if ams_slot_1_spool_id/ams_slot_2_spool_id are set and > 0.
+  p1s_debug_force_finish_path:
+    alias: P1S Debug – force finish path (no print)
+    sequence:
+      # Set start values
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.p1s_start_slot_1_g
+        data:
+          value: 100
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.p1s_start_slot_2_g
+        data:
+          value: 200
+      # Set end values
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.p1s_end_slot_1_g
+        data:
+          value: 90
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.p1s_end_slot_2_g
+        data:
+          value: 150
+      # Trigger finish automation
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.p1s_debug_finish_trigger
+      - delay: "00:00:01"
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.p1s_debug_finish_trigger
+  
+  # TODO: Replace YOUR_SPOOLMAN_ENTRY_ID with your Spoolman config entry ID (Settings → Devices & Services → Spoolman → Configure)
+  reload_spoolman_integration:
+    alias: Reload Spoolman integration
+    sequence:
+      - action: homeassistant.reload_config_entry
+        data:
+          entry_id: "YOUR_SPOOLMAN_ENTRY_ID"
+  
+  # Add filament to Spoolman from test dashboard form (uses spoolman_new_filament_* helpers). Then reload integration.
+  # If spoolman_base_url is empty, request goes to localhost:8080 and the filament won't appear in your Spoolman.
+  spoolman_add_filament:
+    alias: Add filament to Spoolman
+    sequence:
+      - action: rest_command.ams_spoolman_create_filament
+      - action: script.reload_spoolman_integration
+      - action: notify.persistent_notification
+        data:
+          message: "Filament created and Spoolman reloaded."
+          title: Filament added to Spoolman
+  
+  # Add spool to Spoolman from dashboard (uses spoolman_new_spool_* helpers).
+  spoolman_add_spool:
+    alias: Add spool to Spoolman
+    sequence:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ (states('input_select.spoolman_new_spool_filament') or '') | trim != '' and ' - ' in (states('input_select.spoolman_new_spool_filament') or '') }}"
+            sequence:
+              - variables:
+                  qty: "{{ states('input_number.spoolman_new_spool_quantity') | int(1) }}"
+              - repeat:
+                  count: "{{ qty }}"
+                  sequence:
+                    - action: rest_command.ams_spoolman_create_spool
+              - action: script.reload_spoolman_integration
+              - action: browser_mod.notification
+                data:
+                  message: "✅ Spool added to Spoolman"
+  
+  # Manual entrypoint for AMS reconciliation (fires AMS_RECONCILE_ALL event for AppDaemon).
+  reconcile_all_ams_slots:
+    alias: Reconcile AMS Slots
+    description: "Manual entrypoint for AMS reconciliation (fires AMS_RECONCILE_ALL event)"
+    sequence:
+      - event: AMS_RECONCILE_ALL
+        event_data:
+          status_only: false
+          reason: "manual_button"
+  
+  # Optional manual refresh: re-apply dropdown from template sensor options only (no Spoolman reload).
+  refresh_ams_spool_list:
+    alias: Refresh AMS spool list (Assign from warehouse)
+    sequence:
+      - action: input_select.set_options
+        target:
+          entity_id: input_select.ams_assign_source_spool
+        data:
+          options: "{{ ['— Select spool —'] + (state_attr('sensor.ams_spool_list_options', 'options') or []) }}"
+  
+  # Force Spoolman filaments fetch and repopulate "Add spool" filament dropdown. Use if dropdown is empty (wrong URL or sensor not yet updated).
+  refresh_filament_dropdown:
+    alias: Refresh filament list (Add spool)
+    sequence:
+      - action: homeassistant.update_entity
+        target:
+          entity_id:
+            - sensor.spoolman_filaments_api
+            - sensor.spoolman_vendors_api
+            - sensor.spoolman_spools_api
+      - delay:
+          seconds: 2
+      - action: input_select.set_options
+        target:
+          entity_id: input_select.spoolman_new_spool_filament
+        data:
+          options: "{{ ['— Select filament —'] + (state_attr('sensor.ams_filament_list_options', 'options') or []) }}"
+  
+  # Assign the currently selected warehouse spool to a slot (sets input_text.ams_slot_N_spool_id).
+  # No-op if no spool selected (source ID 0).
+  ams_assign_to_slot_1:
+    alias: Assign selected spool to Slot 1
+    sequence:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ states('input_number.ams_assign_source_spool_id') | int > 0 }}"
+            sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_1_spool_id
+                data:
+                  value: "{{ states('input_number.ams_assign_source_spool_id') | int }}"
+  ams_assign_to_slot_2:
+    alias: Assign selected spool to Slot 2
+    sequence:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ states('input_number.ams_assign_source_spool_id') | int > 0 }}"
+            sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_2_spool_id
+                data:
+                  value: "{{ states('input_number.ams_assign_source_spool_id') | int }}"
+  ams_assign_to_slot_3:
+    alias: Assign selected spool to Slot 3
+    sequence:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ states('input_number.ams_assign_source_spool_id') | int > 0 }}"
+            sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_3_spool_id
+                data:
+                  value: "{{ states('input_number.ams_assign_source_spool_id') | int }}"
+  ams_assign_to_slot_4:
+    alias: Assign selected spool to Slot 4
+    sequence:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ states('input_number.ams_assign_source_spool_id') | int > 0 }}"
+            sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_4_spool_id
+                data:
+                  value: "{{ states('input_number.ams_assign_source_spool_id') | int }}"
+  ams_assign_to_slot_5:
+    alias: Assign selected spool to Slot 5 (AMS2 HT 1)
+    sequence:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ states('input_number.ams_assign_source_spool_id') | int > 0 }}"
+            sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_5_spool_id
+                data:
+                  value: "{{ states('input_number.ams_assign_source_spool_id') | int }}"
+  ams_assign_to_slot_6:
+    alias: Assign selected spool to Slot 6 (AMS2 HT 2)
+    sequence:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ states('input_number.ams_assign_source_spool_id') | int > 0 }}"
+            sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_6_spool_id
+                data:
+                  value: "{{ states('input_number.ams_assign_source_spool_id') | int }}"
+  
+  # -----------------------------------------------------------------------------
+  # AMS Slot Manager: scale-first update. remaining = max(0, gross - tare).
+  # Tare from spool type (Bambu Lab / Overture cardboard) or per-slot override (Custom).
+  # Spool ID from input_text.ams_slot_N_spool_id (persisted, may not be 1-6).
+  # -----------------------------------------------------------------------------
+  ams_update_slot_1:
+    alias: AMS Slot 1 – update weight (gross − tare → Spoolman)
+    sequence:
+      - variables:
+          spool_id: "{{ states('input_text.ams_slot_1_spool_id') }}"
+          gross: "{{ states('input_number.ams_slot_1_gross_weight') | float(0) }}"
+          stype: "{{ states('input_select.ams_slot_1_spool_type') }}"
+          tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_1_tare_override') | float(0) }}{% endif %}"
+          remaining: "{{ [0, gross - tare] | max }}"
+      - service: spoolman.patch_spool
+        data:
+          id: "{{ spool_id | int }}"
+          remaining_weight: "{{ remaining }}"
+  ams_update_slot_2:
+    alias: AMS Slot 2 – update weight (gross − tare → Spoolman)
+    sequence:
+      - variables:
+          spool_id: "{{ states('input_text.ams_slot_2_spool_id') }}"
+          gross: "{{ states('input_number.ams_slot_2_gross_weight') | float(0) }}"
+          stype: "{{ states('input_select.ams_slot_2_spool_type') }}"
+          tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_2_tare_override') | float(0) }}{% endif %}"
+          remaining: "{{ [0, gross - tare] | max }}"
+      - service: spoolman.patch_spool
+        data:
+          id: "{{ spool_id | int }}"
+          remaining_weight: "{{ remaining }}"
+  ams_update_slot_3:
+    alias: AMS Slot 3 – update weight (gross − tare → Spoolman)
+    sequence:
+      - variables:
+          spool_id: "{{ states('input_text.ams_slot_3_spool_id') }}"
+          gross: "{{ states('input_number.ams_slot_3_gross_weight') | float(0) }}"
+          stype: "{{ states('input_select.ams_slot_3_spool_type') }}"
+          tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_3_tare_override') | float(0) }}{% endif %}"
+          remaining: "{{ [0, gross - tare] | max }}"
+      - service: spoolman.patch_spool
+        data:
+          id: "{{ spool_id | int }}"
+          remaining_weight: "{{ remaining }}"
+  ams_update_slot_4:
+    alias: AMS Slot 4 – update weight (gross − tare → Spoolman)
+    sequence:
+      - variables:
+          spool_id: "{{ states('input_text.ams_slot_4_spool_id') }}"
+          gross: "{{ states('input_number.ams_slot_4_gross_weight') | float(0) }}"
+          stype: "{{ states('input_select.ams_slot_4_spool_type') }}"
+          tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_4_tare_override') | float(0) }}{% endif %}"
+          remaining: "{{ [0, gross - tare] | max }}"
+      - service: spoolman.patch_spool
+        data:
+          id: "{{ spool_id | int }}"
+          remaining_weight: "{{ remaining }}"
+  ams_update_slot_5:
+    alias: AMS Slot 5 (HT1) – update weight (gross − tare → Spoolman)
+    sequence:
+      - variables:
+          spool_id: "{{ states('input_text.ams_slot_5_spool_id') }}"
+          gross: "{{ states('input_number.ams_slot_5_gross_weight') | float(0) }}"
+          stype: "{{ states('input_select.ams_slot_5_spool_type') }}"
+          tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_5_tare_override') | float(0) }}{% endif %}"
+          remaining: "{{ [0, gross - tare] | max }}"
+      - service: spoolman.patch_spool
+        data:
+          id: "{{ spool_id | int }}"
+          remaining_weight: "{{ remaining }}"
+  ams_update_slot_6:
+    alias: AMS Slot 6 (HT2) – update weight (gross − tare → Spoolman)
+    sequence:
+      - variables:
+          spool_id: "{{ states('input_text.ams_slot_6_spool_id') }}"
+          gross: "{{ states('input_number.ams_slot_6_gross_weight') | float(0) }}"
+          stype: "{{ states('input_select.ams_slot_6_spool_type') }}"
+          tare: "{% if stype == 'Bambu Lab (plastic)' %}{{ states('input_number.tare_bambu_lab_plastic') | float(0) }}{% elif stype == 'Overture cardboard' %}{{ states('input_number.tare_overture_cardboard') | float(0) }}{% else %}{{ states('input_number.ams_slot_6_tare_override') | float(0) }}{% endif %}"
+          remaining: "{{ [0, gross - tare] | max }}"
+      - service: spoolman.patch_spool
+        data:
+          id: "{{ spool_id | int }}"
+          remaining_weight: "{{ remaining }}"
+  
+  # Legacy: direct remaining (g). Prefer ams_update_slot_N with gross + spool type.
+  ams_slot_assign_and_update:
+    alias: "AMS Slot – Assign & Update (unified)"
+    description: "Parse dropdown, assign spool, move old to Shelf, update Spoolman location, fire enroll event, clear unbound_reason."
+    mode: single
+    fields:
+      slot:
+        description: "Slot number (1-6)"
+        example: "1"
+    sequence:
+      - variables:
+          selected: "{{ states('input_select.ams_slot_' ~ slot ~ '_select_spool') }}"
+          spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
+          old_spool_id: "{{ states('input_text.ams_slot_' ~ slot ~ '_spool_id') | int(0) }}"
+          location_map:
+            "1": "AMS1_Slot1"
+            "2": "AMS1_Slot2"
+            "3": "AMS1_Slot3"
+            "4": "AMS1_Slot4"
+            "5": "AMS128_Slot1"
+            "6": "AMS129_Slot1"
+          target_location: "{{ location_map[slot | string] }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ spool_id > 0 }}"
+            sequence:
+              - service: input_text.set_value
+                target:
+                  entity_id: "input_text.ams_slot_{{ slot }}_spool_id"
+                data:
+                  value: "{{ spool_id }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: "input_text.ams_slot_{{ slot }}_expected_spool_id"
+                data:
+                  value: "{{ spool_id }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ old_spool_id > 0 and old_spool_id != spool_id }}"
+            sequence:
+              - service: spoolman.patch_spool
+                data:
+                  id: "{{ old_spool_id }}"
+                  location: "Shelf"
+      - variables:
+          final_spool_id: "{{ states('input_text.ams_slot_' ~ slot ~ '_spool_id') | int }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ final_spool_id > 0 }}"
+            sequence:
+              - service: spoolman.patch_spool
+                data:
+                  id: "{{ final_spool_id }}"
+                  location: "{{ target_location }}"
+              - service: script.reload_spoolman_integration
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: >-
+                          {{ state_attr(
+                            'sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_' ~ slot if slot | int <= 4
+                            else ('sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1' if slot | int == 5 else 'sensor.p1s_YOUR_PRINTER_SERIAL_ams_129_tray_1'),
+                            'tag_uid'
+                          ) not in ['', '0000000000000000', None] }}
+                    sequence:
+                      - event: bambu_rfid_manual_enroll_tag_to_spool
+                        event_data:
+                          slot: "{{ slot | int }}"
+                          spool_id: "{{ final_spool_id }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: "input_text.ams_slot_{{ slot }}_unbound_reason"
+                data:
+                  value: ""
+              - action: browser_mod.notification
+                data:
+                  message: "✅ Slot {{ slot }} bound"
+        default:
+          - action: browser_mod.notification
+            data:
+              message: "Select a spool from the dropdown first."
+  
+  # Combined assign + update scripts (one per slot). Parse dropdown, assign if valid, calculate remaining, update Spoolman.
+  ams_slot_1_assign_and_update:
+    alias: Slot 1 – Assign & Update
+    sequence:
+      - variables:
+          selected: "{{ states('input_select.ams_slot_1_select_spool') }}"
+          spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
+          old_spool_id: "{{ states('input_text.ams_slot_1_spool_id') | int(0) }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ spool_id > 0 }}"
+            sequence:
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_1_spool_id
+                data:
+                  value: "{{ spool_id }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_1_expected_spool_id
+                data:
+                  value: "{{ spool_id }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ old_spool_id > 0 and old_spool_id != spool_id }}"
+            sequence:
+              - service: spoolman.patch_spool
+                data:
+                  id: "{{ old_spool_id }}"
+                  location: "Shelf"
+      - variables:
+          final_spool_id: "{{ states('input_text.ams_slot_1_spool_id') | int }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ final_spool_id > 0 }}"
+            sequence:
+              - service: spoolman.patch_spool
+                data:
+                  id: "{{ final_spool_id }}"
+                  location: "AMS1_Slot1"
+              - service: script.reload_spoolman_integration
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: >-
+                          {{ state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_1', 'tag_uid')
+                             not in ['', '0000000000000000', None] }}
+                    sequence:
+                      - event: bambu_rfid_manual_enroll_tag_to_spool
+                        event_data:
+                          slot: 1
+                          spool_id: "{{ final_spool_id }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_1_unbound_reason
+                data:
+                  value: ""
+              - action: browser_mod.notification
+                data:
+                  message: "✅ Slot 1 updated"
+        default:
+          - action: browser_mod.notification
+            data:
+              message: "Select a spool from the dropdown first."
+  
+  ams_slot_2_assign_and_update:
+    alias: Slot 2 – Assign & Update
+    sequence:
+      - variables:
+          selected: "{{ states('input_select.ams_slot_2_select_spool') }}"
+          spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
+          old_spool_id: "{{ states('input_text.ams_slot_2_spool_id') | int(0) }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ spool_id > 0 }}"
+            sequence:
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_2_spool_id
+                data:
+                  value: "{{ spool_id }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_2_expected_spool_id
+                data:
+                  value: "{{ spool_id }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ old_spool_id > 0 and old_spool_id != spool_id }}"
+            sequence:
+              - service: spoolman.patch_spool
+                data:
+                  id: "{{ old_spool_id }}"
+                  location: "Shelf"
+      - variables:
+          final_spool_id: "{{ states('input_text.ams_slot_2_spool_id') | int }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ final_spool_id > 0 }}"
+            sequence:
+              - service: spoolman.patch_spool
+                data:
+                  id: "{{ final_spool_id }}"
+                  location: "AMS1_Slot2"
+              - service: script.reload_spoolman_integration
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: >-
+                          {{ state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_2', 'tag_uid')
+                             not in ['', '0000000000000000', None] }}
+                    sequence:
+                      - event: bambu_rfid_manual_enroll_tag_to_spool
+                        event_data:
+                          slot: 2
+                          spool_id: "{{ final_spool_id }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_2_unbound_reason
+                data:
+                  value: ""
+              - action: browser_mod.notification
+                data:
+                  message: "✅ Slot 2 updated"
+        default:
+          - action: browser_mod.notification
+            data:
+              message: "Select a spool from the dropdown first."
+  
+  ams_slot_3_assign_and_update:
+    alias: Slot 3 – Assign & Update
+    sequence:
+      - variables:
+          selected: "{{ states('input_select.ams_slot_3_select_spool') }}"
+          spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
+          old_spool_id: "{{ states('input_text.ams_slot_3_spool_id') | int(0) }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ spool_id > 0 }}"
+            sequence:
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_3_spool_id
+                data:
+                  value: "{{ spool_id }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_3_expected_spool_id
+                data:
+                  value: "{{ spool_id }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ old_spool_id > 0 and old_spool_id != spool_id }}"
+            sequence:
+              - service: spoolman.patch_spool
+                data:
+                  id: "{{ old_spool_id }}"
+                  location: "Shelf"
+      - variables:
+          final_spool_id: "{{ states('input_text.ams_slot_3_spool_id') | int }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ final_spool_id > 0 }}"
+            sequence:
+              - service: spoolman.patch_spool
+                data:
+                  id: "{{ final_spool_id }}"
+                  location: "AMS1_Slot3"
+              - service: script.reload_spoolman_integration
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: >-
+                          {{ state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_3', 'tag_uid')
+                             not in ['', '0000000000000000', None] }}
+                    sequence:
+                      - event: bambu_rfid_manual_enroll_tag_to_spool
+                        event_data:
+                          slot: 3
+                          spool_id: "{{ final_spool_id }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_3_unbound_reason
+                data:
+                  value: ""
+              - action: browser_mod.notification
+                data:
+                  message: "✅ Slot 3 updated"
+        default:
+          - action: browser_mod.notification
+            data:
+              message: "Select a spool from the dropdown first."
+  
+  ams_slot_4_assign_and_update:
+    alias: Slot 4 – Assign & Update
+    sequence:
+      - variables:
+          selected: "{{ states('input_select.ams_slot_4_select_spool') }}"
+          spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
+          old_spool_id: "{{ states('input_text.ams_slot_4_spool_id') | int(0) }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ spool_id > 0 }}"
+            sequence:
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_4_spool_id
+                data:
+                  value: "{{ spool_id }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_4_expected_spool_id
+                data:
+                  value: "{{ spool_id }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ old_spool_id > 0 and old_spool_id != spool_id }}"
+            sequence:
+              - service: spoolman.patch_spool
+                data:
+                  id: "{{ old_spool_id }}"
+                  location: "Shelf"
+      - variables:
+          final_spool_id: "{{ states('input_text.ams_slot_4_spool_id') | int }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ final_spool_id > 0 }}"
+            sequence:
+              - service: spoolman.patch_spool
+                data:
+                  id: "{{ final_spool_id }}"
+                  location: "AMS1_Slot4"
+              - service: script.reload_spoolman_integration
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: >-
+                          {{ state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_4', 'tag_uid')
+                             not in ['', '0000000000000000', None] }}
+                    sequence:
+                      - event: bambu_rfid_manual_enroll_tag_to_spool
+                        event_data:
+                          slot: 4
+                          spool_id: "{{ final_spool_id }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_4_unbound_reason
+                data:
+                  value: ""
+              - action: browser_mod.notification
+                data:
+                  message: "✅ Slot 4 updated"
+        default:
+          - action: browser_mod.notification
+            data:
+              message: "Select a spool from the dropdown first."
+  
+  ams_slot_5_assign_and_update:
+    alias: Slot 5 – Assign & Update
+    sequence:
+      - variables:
+          selected: "{{ states('input_select.ams_slot_5_select_spool') }}"
+          spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
+          old_spool_id: "{{ states('input_text.ams_slot_5_spool_id') | int(0) }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ spool_id > 0 }}"
+            sequence:
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_5_spool_id
+                data:
+                  value: "{{ spool_id }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_5_expected_spool_id
+                data:
+                  value: "{{ spool_id }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ old_spool_id > 0 and old_spool_id != spool_id }}"
+            sequence:
+              - service: spoolman.patch_spool
+                data:
+                  id: "{{ old_spool_id }}"
+                  location: "Shelf"
+      - variables:
+          final_spool_id: "{{ states('input_text.ams_slot_5_spool_id') | int }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ final_spool_id > 0 }}"
+            sequence:
+              - service: spoolman.patch_spool
+                data:
+                  id: "{{ final_spool_id }}"
+                  location: "AMS128_Slot1"
+              - service: script.reload_spoolman_integration
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: >-
+                          {{ state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1', 'tag_uid')
+                             not in ['', '0000000000000000', None] }}
+                    sequence:
+                      - event: bambu_rfid_manual_enroll_tag_to_spool
+                        event_data:
+                          slot: 5
+                          spool_id: "{{ final_spool_id }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_5_unbound_reason
+                data:
+                  value: ""
+              - action: browser_mod.notification
+                data:
+                  message: "✅ Slot 5 updated"
+        default:
+          - action: browser_mod.notification
+            data:
+              message: "Select a spool from the dropdown first."
+  
+  ams_slot_6_assign_and_update:
+    alias: Slot 6 – Assign & Update
+    sequence:
+      - variables:
+          selected: "{{ states('input_select.ams_slot_6_select_spool') }}"
+          spool_id: "{{ (selected.split('(')[-1].split(')')[0] | trim | int(0)) if (selected != '— Select spool —' and '(' in selected) else 0 }}"
+          old_spool_id: "{{ states('input_text.ams_slot_6_spool_id') | int(0) }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ spool_id > 0 }}"
+            sequence:
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_6_spool_id
+                data:
+                  value: "{{ spool_id }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_6_expected_spool_id
+                data:
+                  value: "{{ spool_id }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ old_spool_id > 0 and old_spool_id != spool_id }}"
+            sequence:
+              - service: spoolman.patch_spool
+                data:
+                  id: "{{ old_spool_id }}"
+                  location: "Shelf"
+      - variables:
+          final_spool_id: "{{ states('input_text.ams_slot_6_spool_id') | int }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ final_spool_id > 0 }}"
+            sequence:
+              - service: spoolman.patch_spool
+                data:
+                  id: "{{ final_spool_id }}"
+                  location: "AMS129_Slot1"
+              - service: script.reload_spoolman_integration
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: >-
+                          {{ state_attr('sensor.p1s_YOUR_PRINTER_SERIAL_ams_129_tray_1', 'tag_uid')
+                             not in ['', '0000000000000000', None] }}
+                    sequence:
+                      - event: bambu_rfid_manual_enroll_tag_to_spool
+                        event_data:
+                          slot: 6
+                          spool_id: "{{ final_spool_id }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: input_text.ams_slot_6_unbound_reason
+                data:
+                  value: ""
+              - action: browser_mod.notification
+                data:
+                  message: "✅ Slot 6 updated"
+        default:
+          - action: browser_mod.notification
+            data:
+              message: "Select a spool from the dropdown first."
+  
+  spoolman_update_spool_remaining:
+    alias: "Spoolman – Update spool"
+    description: "PATCHes selected fields for a spool in Spoolman (only toggled-on fields)"
+    mode: single
+    sequence:
+      - variables:
+          edit_selection: "{{ states('input_select.spoolman_edit_spool_select') | default('') }}"
+          edit_spool_id: >
+            {% if '—' in edit_selection or edit_selection == '' %}
+              {{ states('input_text.spoolman_edit_spool_id') | trim }}
+            {% else %}
+              {{ edit_selection.split(' - ')[0] | trim }}
+            {% endif %}
+          update_weight: "{{ is_state('input_boolean.spoolman_edit_update_weight', 'on') }}"
+          update_location: "{{ is_state('input_boolean.spoolman_edit_update_location', 'on') }}"
+          edit_weight: "{{ states('input_number.spoolman_edit_remaining_weight') | float(0) }}"
+          edit_location: "{{ states('input_text.spoolman_edit_spool_location') | default('') | trim }}"
+          payload_json: >
+            {% set pd = {} %}
+            {% if update_weight %}
+              {% set pd = dict(pd, **{'remaining_weight': edit_weight}) %}
+            {% endif %}
+            {% if update_location %}
+              {% set pd = dict(pd, **{'location': edit_location}) %}
+            {% endif %}
+            {{ pd | tojson }}
+      - condition: template
+        value_template: >
+          {{ edit_spool_id | trim not in ['', '0', 'unknown', 'unavailable'] }}
+      - condition: template
+        value_template: >
+          {{ update_weight or update_location }}
+      - service: rest_command.ams_spoolman_patch_spool
+        data:
+          spool_id: "{{ edit_spool_id }}"
+          payload: "{{ payload_json }}"
+      - service: persistent_notification.create
+        data:
+          title: "Spool Updated"
+          message: >
+            Spool #{{ edit_spool_id }} updated:
+            {% if update_weight %} weight={{ edit_weight }}g{% endif %}
+            {% if update_location %} location={{ edit_location }}{% endif %}
+          notification_id: "spoolman_edit_result"
+      - service: input_boolean.turn_off
+        target:
+          entity_id:
+            - input_boolean.spoolman_edit_update_weight
+            - input_boolean.spoolman_edit_update_location
+      - service: input_select.select_option
+        target:
+          entity_id: input_select.spoolman_edit_spool_select
+        data:
+          option: "— Select spool —"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.spoolman_edit_remaining_weight
+        data:
+          value: 0
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.spoolman_edit_spool_location
+        data:
+          value: ""
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.spoolman_edit_spool_id
+        data:
+          value: ""
+      - service: homeassistant.update_entity
+        target:
+          entity_id: sensor.spoolman_spool_list_data
+      - service: script.reconcile_all_ams_slots
+        data: {}
