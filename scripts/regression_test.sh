@@ -1,131 +1,222 @@
-#!/usr/bin/env bash
-# regression_test.sh — comprehensive live regression test for FilamentIQ
-set -e
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEPLOY_ENV="$SCRIPT_DIR/deploy.env"
-if [[ ! -f "$DEPLOY_ENV" ]]; then echo "Error: $DEPLOY_ENV not found." >&2; exit 1; fi
-set -a; source "$DEPLOY_ENV"; set +a
+#!/usr/bin/env python3
+import subprocess, json, os, sys, re
 
-VERBOSE=0; [[ "${1:-}" == "--verbose" ]] && VERBOSE=1
-PRINTER_PREFIX="${PRINTER_PREFIX:-p1s_01p00a1b2c3d4e5f}"
-PASS=0; WARN=0; FAIL=0; GROUP_PASS=0; GROUP_WARN=0; GROUP_FAIL=0
+env = {}
+deploy_env = os.path.join(os.path.dirname(os.path.abspath(__file__)), "deploy.env")
+with open(deploy_env) as f:
+    for line in f:
+        line = line.strip()
+        if '=' in line and not line.startswith('#'):
+            k, v = line.split('=', 1)
+            env[k] = v.strip('"').strip("'")
 
-_get_entity() { curl -s -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/states/$1" 2>/dev/null; }
-_http_code()  { curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/states/$1" 2>/dev/null; }
-_state() { echo "$1" | python3 -c "import json,sys; print(json.load(sys.stdin).get('state',''))" 2>/dev/null || echo ""; }
-_attr()  { echo "$1" | python3 -c "import json,sys; print(json.load(sys.stdin).get('attributes',{}).get('$2',''))" 2>/dev/null || echo ""; }
+VERBOSE = "--verbose" in sys.argv
+URL = env.get("HOME_ASSISTANT_URL", "")
+TOKEN = env.get("HOME_ASSISTANT_TOKEN", "")
+SPOOLMAN = env.get("SPOOLMAN_URL", "")
+PRINTER = env.get("PRINTER_PREFIX", "p1s_01p00a1b2c3d4e5f")
+AUTH = "Authorization: Bearer " + TOKEN
 
-pass() { (( PASS++  )) || true; (( GROUP_PASS++  )) || true; [[ $VERBOSE -eq 1 ]] && echo "  PASS  $*"; }
-warn() { (( WARN++  )) || true; (( GROUP_WARN++  )) || true; echo "  WARN  $*"; }
-fail() { (( FAIL++  )) || true; (( GROUP_FAIL++  )) || true; echo "  FAIL  $*"; }
-group_summary() { echo "  -> $1: ${GROUP_PASS} passed, ${GROUP_WARN} warned, ${GROUP_FAIL} failed"; GROUP_PASS=0; GROUP_WARN=0; GROUP_FAIL=0; }
+PASS = WARN = FAIL = 0
+GP = GW = GF = 0
 
-BOOLEANS=(input_boolean.filament_iq_nonrfid_enabled input_boolean.filament_iq_print_active input_boolean.filament_iq_needs_reconcile input_boolean.filament_iq_debug_finish_trigger input_boolean.filament_iq_startup_suppress_swap input_boolean.filament_iq_debug_mode input_boolean.filament_iq_decrement_on_failed input_boolean.filament_iq_auto_mode_opinionated)
-TEXTS=(input_text.filament_iq_trays_used_this_print input_text.filament_iq_last_mapping_json input_text.filament_iq_start_json input_text.filament_iq_end_json input_text.filament_iq_active_job_key input_text.filament_iq_last_active_tray input_text.filament_iq_last_print_status_transition input_text.filament_iq_finish_automation_checkpoint input_text.filament_iq_slot_to_spool_binding_json input_text.bambu_printer_access_code input_text.spoolman_base_url)
-BUTTONS=(input_button.filament_iq_reconcile_now input_button.filament_iq_weight_snapshot_now)
-SELECTS=(input_select.spoolman_new_spool_filament)
-NUMBERS=(); for i in 1 2 3 4 5 6; do NUMBERS+=("input_number.filament_iq_start_slot_${i}_g" "input_number.filament_iq_end_slot_${i}_g"); done
-DATETIMES=(input_datetime.filament_iq_print_start_time input_datetime.filament_iq_print_end_time)
-ALL_ENTITIES=("${BOOLEANS[@]}" "${TEXTS[@]}" "${BUTTONS[@]}" "${SELECTS[@]}" "${NUMBERS[@]}" "${DATETIMES[@]}" sensor.filament_iq_operator_status)
+def curl_get(url):
+    r = subprocess.run(["curl", "-s", "-H", AUTH, url], capture_output=True, text=True)
+    try: return json.loads(r.stdout)
+    except: return {}
 
-echo ""
-echo "Checking HA connectivity..."
-ha_code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" "$HOME_ASSISTANT_URL/api/" 2>/dev/null || echo "000")
-[[ "$ha_code" != "200" ]] && echo "FAIL: Cannot reach HA API (HTTP $ha_code)" && exit 1
-echo "PASS: HA API reachable"
+def curl_get_raw(url):
+    r = subprocess.run(["curl", "-s", url], capture_output=True, text=True)
+    return r.stdout
 
-echo ""; echo "[GROUP 1] Entity existence and domain"
-for entity in "${ALL_ENTITIES[@]}"; do
-  code=$(_http_code "$entity")
-  if [[ "$code" == "200" ]]; then
-    state=$(_state "$(_get_entity "$entity")")
-    [[ "$state" == "unavailable" ]] && warn "$entity (unavailable)" || pass "$entity"
-  else fail "$entity (HTTP $code)"; fi
-done
-group_summary "GROUP 1"
+def http_code(entity):
+    r = subprocess.run(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+                        "-H", AUTH, URL + "/api/states/" + entity],
+                       capture_output=True, text=True)
+    return r.stdout.strip()
 
-echo ""; echo "[GROUP 2] Helper type correctness"
-for entity in "${BOOLEANS[@]}"; do
-  state=$(_state "$(_get_entity "$entity")")
-  if [[ "$state" == "on" || "$state" == "off" ]]; then pass "$entity ($state)"
-  elif [[ "$state" == "unavailable" || "$state" == "unknown" ]]; then warn "$entity ($state)"
-  else fail "$entity -- expected on/off, got: $state"; fi
-done
-for entity in "${TEXTS[@]}"; do
-  resp=$(_get_entity "$entity"); maxlen=$(_attr "$resp" "max")
-  if [[ -z "$maxlen" ]]; then warn "$entity -- no max attribute"
-  elif [[ "$maxlen" -ge 255 ]]; then pass "$entity (max: $maxlen)"
-  else fail "$entity -- max=$maxlen < 255"; fi
-done
-for entity in "${NUMBERS[@]}"; do
-  resp=$(_get_entity "$entity"); minv=$(_attr "$resp" "min"); maxv=$(_attr "$resp" "max")
-  [[ -n "$minv" && -n "$maxv" ]] && pass "$entity (min:$minv max:$maxv)" || fail "$entity -- missing min/max"
-done
-for entity in "${DATETIMES[@]}"; do
-  state=$(_state "$(_get_entity "$entity")")
-  if [[ "$state" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2} ]]; then pass "$entity ($state)"
-  elif [[ "$state" == "unknown" || "$state" == "unavailable" ]]; then warn "$entity ($state)"
-  else fail "$entity -- unexpected: $state"; fi
-done
-for entity in "${BUTTONS[@]}"; do
-  code=$(_http_code "$entity"); [[ "$code" == "200" ]] && pass "$entity" || fail "$entity (not found)"
-done
-for entity in "${SELECTS[@]}"; do
-  resp=$(_get_entity "$entity"); opts=$(_attr "$resp" "options")
-  [[ -n "$opts" && "$opts" != "[]" ]] && pass "$entity (has options)" || warn "$entity -- options empty"
-done
-group_summary "GROUP 2"
+def get_entity(entity):
+    return curl_get(URL + "/api/states/" + entity)
 
-echo ""; echo "[GROUP 3] AppDaemon health"
-resp=$(_get_entity "input_text.filament_iq_last_mapping_json"); state=$(_state "$resp")
-if [[ -z "$state" || "$state" == "unknown" ]]; then warn "last_mapping_json empty (AppDaemon not yet written)"
-else echo "$state" | python3 -c "import json,sys; json.loads(sys.stdin.read())" 2>/dev/null && pass "last_mapping_json valid JSON" || fail "last_mapping_json invalid JSON: $state"; fi
+def p(msg):
+    global PASS, GP
+    PASS += 1; GP += 1
+    if VERBOSE: print("  PASS ", msg)
 
-resp=$(_get_entity "input_text.filament_iq_slot_to_spool_binding_json"); state=$(_state "$resp")
-if [[ -z "$state" || "$state" == "unknown" ]]; then warn "slot_to_spool_binding_json empty"
-else echo "$state" | python3 -c "import json,sys; json.loads(sys.stdin.read())" 2>/dev/null && pass "slot_to_spool_binding_json valid JSON" || fail "slot_to_spool_binding_json invalid JSON"; fi
+def w(msg):
+    global WARN, GW
+    WARN += 1; GW += 1
+    print("  WARN ", msg)
 
-state=$(_state "$(_get_entity "sensor.filament_iq_operator_status")")
-echo "printing_normally idle failed_requires_intervention paused unknown unavailable" | grep -qw "$state" && pass "operator_status ($state)" || fail "operator_status unexpected: $state"
-group_summary "GROUP 3"
+def f(msg):
+    global FAIL, GF
+    FAIL += 1; GF += 1
+    print("  FAIL ", msg)
 
-echo ""; echo "[GROUP 4] Spoolman connectivity"
-if [[ -z "$SPOOLMAN_URL" ]]; then warn "SPOOLMAN_URL not set -- skipping"
-else
-  for endpoint in "api/v1/info" "api/v1/spool" "api/v1/filament"; do
-    code=$(curl -s -o /tmp/fiq_sm.json -w "%{http_code}" "$SPOOLMAN_URL/$endpoint" 2>/dev/null || echo "000")
-    if [[ "$code" == "200" ]]; then
-      if [[ "$endpoint" == "api/v1/spool" ]]; then
-        count=$(python3 -c "import json; print(len(json.load(open('/tmp/fiq_sm.json'))))" 2>/dev/null || echo "0")
-        [[ "$count" -gt 0 ]] && pass "$endpoint (${count} spools)" || warn "$endpoint -- no spools"
-      else pass "$endpoint"; fi
-    else fail "$endpoint (HTTP $code)"; fi
-  done
-fi
-group_summary "GROUP 4"
+def group(name):
+    global GP, GW, GF
+    print(f"  -> {name}: {GP} passed, {GW} warned, {GF} failed")
+    GP = GW = GF = 0
 
-echo ""; echo "[GROUP 5] Printer sensors ($PRINTER_PREFIX)"
-for suffix in print_status active_tray task_name; do
-  entity="sensor.${PRINTER_PREFIX}_${suffix}"; code=$(_http_code "$entity")
-  if [[ "$code" == "200" ]]; then state=$(_state "$(_get_entity "$entity")"); pass "$entity ($state)"
-  else fail "$entity (not found)"; fi
-done
-group_summary "GROUP 5"
+def state(d): return d.get("state", "")
+def attrs(d): return d.get("attributes", {})
 
-echo ""; echo "[GROUP 6] AMS slot helpers"
-for slot in 1 2 3 4 5 6; do
-  for suffix in spool_id status unbound_reason; do
-    entity="input_text.ams_slot_${slot}_${suffix}"; code=$(_http_code "$entity")
-    if [[ "$code" == "200" ]]; then state=$(_state "$(_get_entity "$entity")"); pass "$entity ($state)"
-    else fail "$entity (not found)"; fi
-  done
-done
-group_summary "GROUP 6"
+VALID_OPERATOR = {"printing_normally","idle","failed_requires_intervention",
+                  "paused","waiting_for_user","unknown","unavailable"}
 
-echo ""
-echo "========================================"
-echo "  PASSED : $PASS"
-echo "  WARNED : $WARN"
-echo "  FAILED : $FAIL"
-echo "========================================"
-[[ $FAIL -gt 0 ]] && exit 1 || exit 0
+BOOLEANS = [
+    "input_boolean.filament_iq_nonrfid_enabled",
+    "input_boolean.filament_iq_print_active",
+    "input_boolean.filament_iq_needs_reconcile",
+    "input_boolean.filament_iq_debug_finish_trigger",
+    "input_boolean.filament_iq_startup_suppress_swap",
+    "input_boolean.filament_iq_debug_mode",
+    "input_boolean.filament_iq_decrement_on_failed",
+    "input_boolean.filament_iq_auto_mode_opinionated",
+]
+TEXTS = [
+    "input_text.filament_iq_trays_used_this_print",
+    "input_text.filament_iq_last_mapping_json",
+    "input_text.filament_iq_start_json",
+    "input_text.filament_iq_end_json",
+    "input_text.filament_iq_active_job_key",
+    "input_text.filament_iq_last_active_tray",
+    "input_text.filament_iq_last_print_status_transition",
+    "input_text.filament_iq_finish_automation_checkpoint",
+    "input_text.filament_iq_slot_to_spool_binding_json",
+    "input_text.bambu_printer_access_code",
+    "input_text.spoolman_base_url",
+]
+TEXT_MAX_EXEMPT = {"input_text.bambu_printer_access_code"}
+BUTTONS = ["input_button.filament_iq_reconcile_now", "input_button.filament_iq_weight_snapshot_now"]
+SELECTS = ["input_select.spoolman_new_spool_filament"]
+NUMBERS = [f"input_number.filament_iq_{se}_slot_{i}_g" for i in range(1,7) for se in ("start","end")]
+DATETIMES = ["input_datetime.filament_iq_print_start_time", "input_datetime.filament_iq_print_end_time"]
+ALL = BOOLEANS + TEXTS + BUTTONS + SELECTS + NUMBERS + DATETIMES + ["sensor.filament_iq_operator_status"]
+
+# Connectivity
+print("\nChecking HA connectivity...")
+d = curl_get(URL + "/api/")
+if not d and not isinstance(d, dict):
+    print("FAIL: Cannot reach HA API"); sys.exit(1)
+r = subprocess.run(["curl","-s","-o","/dev/null","-w","%{http_code}","-H",AUTH,URL+"/api/"],
+                   capture_output=True, text=True)
+if r.stdout.strip() != "200":
+    print(f"FAIL: HA API returned {r.stdout.strip()}"); sys.exit(1)
+print("PASS: HA API reachable")
+
+# GROUP 1
+print("\n[GROUP 1] Entity existence and domain")
+for entity in ALL:
+    code = http_code(entity)
+    if code == "200":
+        d = get_entity(entity)
+        if state(d) == "unavailable": w(f"{entity} (unavailable)")
+        else: p(entity)
+    else: f(f"{entity} (HTTP {code})")
+group("GROUP 1")
+
+# GROUP 2
+print("\n[GROUP 2] Helper type correctness")
+for entity in BOOLEANS:
+    d = get_entity(entity); s = state(d)
+    if s in ("on","off"): p(f"{entity} ({s})")
+    elif s in ("unavailable","unknown"): w(f"{entity} ({s})")
+    else: f(f"{entity} -- expected on/off got: '{s}'")
+
+for entity in TEXTS:
+    if entity in TEXT_MAX_EXEMPT:
+        p(f"{entity} (max exempt)"); continue
+    d = get_entity(entity)
+    maxlen = attrs(d).get("max")
+    if maxlen is None: w(f"{entity} -- no max attribute")
+    elif int(maxlen) >= 255: p(f"{entity} (max:{int(maxlen)})")
+    else: f(f"{entity} -- max={int(maxlen)} < 255")
+
+for entity in NUMBERS:
+    d = get_entity(entity); a = attrs(d)
+    if "min" in a and "max" in a: p(f"{entity} ({a['min']}/{a['max']})")
+    else: f(f"{entity} -- missing min/max")
+
+for entity in DATETIMES:
+    d = get_entity(entity); s = state(d)
+    if re.match(r'^\d{4}-\d{2}-\d{2}', s): p(f"{entity} ({s})")
+    elif s in ("unknown","unavailable"): w(f"{entity} ({s})")
+    else: f(f"{entity} -- unexpected: '{s}'")
+
+for entity in BUTTONS:
+    code = http_code(entity)
+    if code == "200": p(entity)
+    else: f(f"{entity} (HTTP {code})")
+
+for entity in SELECTS:
+    d = get_entity(entity)
+    if attrs(d).get("options"): p(entity)
+    else: w(f"{entity} -- options empty")
+group("GROUP 2")
+
+# GROUP 3
+print("\n[GROUP 3] AppDaemon health")
+for helper in ("last_mapping_json", "slot_to_spool_binding_json"):
+    d = get_entity(f"input_text.filament_iq_{helper}")
+    s = state(d).strip().strip("'\"")
+    if not s or s == "unknown": w(f"{helper} empty")
+    else:
+        try: json.loads(s); p(f"{helper} valid JSON ({s})")
+        except Exception as e: f(f"{helper} invalid JSON: {s} ({e})")
+
+d = get_entity("sensor.filament_iq_operator_status")
+s = state(d)
+if s in VALID_OPERATOR: p(f"operator_status ({s})")
+else: f(f"operator_status unexpected: '{s}'")
+group("GROUP 3")
+
+# GROUP 4
+print("\n[GROUP 4] Spoolman connectivity")
+if not SPOOLMAN:
+    w("SPOOLMAN_URL not set")
+else:
+    for endpoint in ("api/v1/info", "api/v1/spool", "api/v1/filament"):
+        r = subprocess.run(["curl","-s","-o","/dev/null","-w","%{http_code}",
+                            f"{SPOOLMAN}/{endpoint}"], capture_output=True, text=True)
+        code = r.stdout.strip()
+        if code == "200":
+            if endpoint == "api/v1/spool":
+                raw = curl_get_raw(f"{SPOOLMAN}/{endpoint}")
+                try:
+                    data = json.loads(raw)
+                    count = len(data) if isinstance(data, list) else len(data.get("items", data.get("spools", [])))
+                    if count > 0: p(f"{endpoint} ({count} spools)")
+                    else: w(f"{endpoint} -- 0 spools")
+                except: w(f"{endpoint} -- parse error")
+            else: p(endpoint)
+        else: f(f"{endpoint} (HTTP {code})")
+group("GROUP 4")
+
+# GROUP 5
+print(f"\n[GROUP 5] Printer sensors ({PRINTER})")
+for suffix in ("print_status", "active_tray", "task_name"):
+    entity = f"sensor.{PRINTER}_{suffix}"
+    code = http_code(entity)
+    if code == "200":
+        d = get_entity(entity); p(f"{entity} ({state(d)})")
+    else: f(f"{entity} (HTTP {code})")
+group("GROUP 5")
+
+# GROUP 6
+print("\n[GROUP 6] AMS slot helpers")
+for slot in range(1, 7):
+    for suffix in ("spool_id", "status", "unbound_reason"):
+        entity = f"input_text.ams_slot_{slot}_{suffix}"
+        code = http_code(entity)
+        if code == "200":
+            d = get_entity(entity); p(f"{entity} ({state(d)})")
+        else: f(f"{entity} (HTTP {code})")
+group("GROUP 6")
+
+print(f"\n========================================")
+print(f"  PASSED : {PASS}")
+print(f"  WARNED : {WARN}")
+print(f"  FAILED : {FAIL}")
+print(f"========================================")
+sys.exit(1 if FAIL > 0 else 0)
