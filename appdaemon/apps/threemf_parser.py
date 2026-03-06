@@ -11,7 +11,6 @@ import logging
 import os
 import re
 import subprocess
-import urllib.parse
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -121,49 +120,73 @@ def ftps_download_3mf(
     """Download a 3MF file from the printer's /cache/ directory.
     Returns local file path on success, None on failure.
 
-    Tries URL-encoded path first, then raw path (for unicode/emoji filenames
-    that may fail with standard encoding).
+    Uses curl CWD + RETR to avoid URL-encoding issues with spaces,
+    unicode, and emoji in filenames.
     """
-    remote_path = f"/cache/{remote_filename}"
     local_path = os.path.join(dest_dir, remote_filename)
+    base_url = f"ftps://{printer_ip}:{port}/cache/"
 
-    for attempt_path in [
-        urllib.parse.quote(remote_path, safe="/"),
-        remote_path,
-    ]:
-        url = f"ftps://{printer_ip}:{port}{attempt_path}"
-        cmd = [
+    cmd = [
+        "curl",
+        "--ssl-reqd",
+        "--insecure",
+        "--user",
+        f"bblp:{access_code}",
+        "--output",
+        local_path,
+        "--max-time",
+        str(timeout),
+        "-Q",
+        f"CWD /cache",
+        "-Q",
+        f"RETR {remote_filename}",
+        base_url,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout + 5)
+        if (
+            result.returncode == 0
+            and os.path.exists(local_path)
+            and os.path.getsize(local_path) > 0
+        ):
+            return local_path
+
+        # Fallback: try with --globoff and raw URL (works for some curl versions)
+        url_raw = f"ftps://{printer_ip}:{port}/cache/{remote_filename}"
+        cmd_fallback = [
             "curl",
             "--ssl-reqd",
             "--insecure",
+            "--globoff",
             "--user",
             f"bblp:{access_code}",
             "--output",
             local_path,
             "--max-time",
             str(timeout),
-            url,
+            url_raw,
         ]
-        try:
-            result = subprocess.run(
-                cmd, capture_output=True, timeout=timeout + 5
-            )
-            if result.returncode == 0 and os.path.exists(local_path):
-                if os.path.getsize(local_path) > 0:
-                    return local_path
-            if result.returncode != 0:
-                logger.warning(
-                    f"FTPS download attempt failed: "
-                    f"{result.stderr.decode('utf-8', errors='replace')}"
-                )
-        except subprocess.TimeoutExpired:
-            logger.warning("FTPS download timed out")
-        except FileNotFoundError:
-            logger.error("curl not found")
-            return None
+        result = subprocess.run(
+            cmd_fallback, capture_output=True, timeout=timeout + 5
+        )
+        if (
+            result.returncode == 0
+            and os.path.exists(local_path)
+            and os.path.getsize(local_path) > 0
+        ):
+            return local_path
 
-    logger.error(f"FTPS download failed for {remote_filename} (all attempts)")
-    return None
+        logger.error(
+            f"FTPS download failed for '{remote_filename}': "
+            f"{result.stderr.decode('utf-8', errors='replace').strip()}"
+        )
+        return None
+    except subprocess.TimeoutExpired:
+        logger.error(f"FTPS download timed out for '{remote_filename}'")
+        return None
+    except FileNotFoundError:
+        logger.error("curl not found — cannot fetch 3MF from printer")
+        return None
 
 
 def find_best_3mf(file_list, task_name):

@@ -380,6 +380,33 @@ class AmsPrintUsageSync(hass.Hass):
                     level="INFO",
                 )
                 patched += 1
+                # Check if spool is now depleted — move to Empty and clear slot
+                try:
+                    spool_data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+                    if spool_data and float(
+                        spool_data.get("remaining_weight", 1)
+                    ) <= 0:
+                        self._spoolman_patch(spool_id, {"location": "Empty"})
+                        self.call_service(
+                            "input_text/set_value",
+                            entity_id=f"input_text.ams_slot_{slot}_spool_id",
+                            value="0",
+                        )
+                        self.call_service(
+                            "input_text/set_value",
+                            entity_id=f"input_text.ams_slot_{slot}_unbound_reason",
+                            value="UNBOUND_TRAY_EMPTY",
+                        )
+                        self.log(
+                            f"USAGE_SPOOL_DEPLETED slot={slot} spool_id={spool_id} "
+                            f"— moved to Empty",
+                            level="WARNING",
+                        )
+                except Exception as e:
+                    self.log(
+                        f"USAGE_DEPLETED_CHECK_FAILED: {e}",
+                        level="WARNING",
+                    )
             else:
                 skipped += 1
 
@@ -411,31 +438,36 @@ class AmsPrintUsageSync(hass.Hass):
             level="INFO",
         )
 
-        # ── Notification (actual Spoolman results) ─────────────────────
+        # ── Notification (all slots, including below-min / above-cap) ───
         job_label = task_name.replace(".gcode.3mf", "").replace(".3mf", "").strip()
         lines = [f"Job: {job_label}", f"Status: {print_status}", ""]
         for slot, spool_id, consumption_g, method in all_results:
-            spool_name = ""
-            try:
-                resp = self._spoolman_get(f"/api/v1/spool/{spool_id}")
-                if resp:
-                    filament = resp.get("filament", {})
-                    vendor = (filament.get("vendor") or {}).get("name", "")
-                    fname = filament.get("name", "")
-                    material = filament.get("material", "")
-                    remaining = resp.get("remaining_weight", 0)
-                    spool_name = f"{vendor} {fname} {material}".strip()
-                    lines.append(
-                        f"Slot {slot}: {spool_name} — used {consumption_g:.1f}g "
-                        f"({remaining:.0f}g left) [{method}]"
-                    )
-                else:
-                    lines.append(
-                        f"Slot {slot}: spool {spool_id} — used {consumption_g:.1f}g [{method}]"
-                    )
-            except Exception:
+            spool_name = self._get_spool_display_name(spool_id)
+            remaining = self._get_spool_remaining(spool_id)
+            in_range = (
+                consumption_g >= self.min_consumption_g
+                and consumption_g <= self.max_consumption_g
+            )
+            was_written = in_range and not self.dry_run
+            if was_written:
                 lines.append(
-                    f"Slot {slot}: spool {spool_id} — used {consumption_g:.1f}g [{method}]"
+                    f"Slot {slot}: {spool_name} — used {consumption_g:.1f}g "
+                    f"({remaining:.0f}g left) [{method}]"
+                )
+            elif in_range and self.dry_run:
+                lines.append(
+                    f"Slot {slot}: {spool_name} — used {consumption_g:.1f}g "
+                    f"({remaining:.0f}g left) [dry run, not written] [{method}]"
+                )
+            elif consumption_g > self.max_consumption_g:
+                lines.append(
+                    f"Slot {slot}: {spool_name} — {consumption_g:.1f}g "
+                    f"SKIPPED (exceeds {self.max_consumption_g:.0f}g cap) [{method}]"
+                )
+            elif consumption_g < self.min_consumption_g:
+                lines.append(
+                    f"Slot {slot}: {spool_name} — {consumption_g:.1f}g "
+                    f"(below {self.min_consumption_g:.0f}g min, not written) [{method}]"
                 )
         if not all_results:
             lines.append("No filament consumption recorded.")
@@ -828,6 +860,50 @@ class AmsPrintUsageSync(hass.Hass):
             with urllib.request.urlopen(req, timeout=10) as resp:
                 return json.loads(resp.read().decode())
         except Exception:
+            return None
+
+    def _get_spool_display_name(self, spool_id):
+        """Get human-readable spool name from Spoolman."""
+        try:
+            data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+            if data:
+                f = data.get("filament", {})
+                vendor = (
+                    f.get("vendor", {}).get("name", "")
+                    if f.get("vendor")
+                    else ""
+                )
+                name = f.get("name", "")
+                material = f.get("material", "")
+                return f"{vendor} {name} {material}".strip()
+        except Exception:
+            pass
+        return f"spool {spool_id}"
+
+    def _get_spool_remaining(self, spool_id):
+        """Get remaining weight from Spoolman."""
+        try:
+            data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+            if data:
+                return float(data.get("remaining_weight", 0))
+        except Exception:
+            pass
+        return 0.0
+
+    def _spoolman_patch(self, spool_id, data):
+        """PATCH Spoolman spool with given fields. Returns parsed JSON or None."""
+        url = f"{self.spoolman_base_url}/api/v1/spool/{spool_id}"
+        try:
+            payload = json.dumps(data).encode("utf-8")
+            req = urllib.request.Request(url, data=payload, method="PATCH")
+            req.add_header("Content-Type", "application/json")
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read().decode())
+        except Exception as e:
+            self.log(
+                f"SPOOLMAN_PATCH_FAILED spool={spool_id}: {e}",
+                level="ERROR",
+            )
             return None
 
     def _spoolman_use(self, spool_id, use_weight_g):
