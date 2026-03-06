@@ -486,52 +486,6 @@
   mode: single
 
 # While print is running, append any tray that becomes active to the "trays used" list (for multi-color subtract).
-- id: p1s_record_trays_used_during_print
-  alias: P1S – record trays used during print
-  enabled: false
-  description: When a tray reports active=true during a print, add it to p1s_trays_used_this_print so we can split weight on finish. Replaced by AppDaemon tray tracking in ams_print_usage_sync.
-  trigger:
-    - platform: state
-      entity_id:
-        - sensor.p1s_01p00c5a3101668_ams_1_tray_1
-        - sensor.p1s_01p00c5a3101668_ams_1_tray_2
-        - sensor.p1s_01p00c5a3101668_ams_1_tray_3
-        - sensor.p1s_01p00c5a3101668_ams_1_tray_4
-        - sensor.p1s_01p00c5a3101668_ams_128_tray_1
-        - sensor.p1s_01p00c5a3101668_ams_129_tray_1
-  condition:
-    - condition: state
-      entity_id: sensor.p1s_01p00c5a3101668_print_status
-      state:
-        - running
-        - printing
-    - condition: template
-      value_template: "{{ state_attr(trigger.entity_id, 'active') == true }}"
-  action:
-    - action: input_text.set_value
-      target:
-        entity_id: input_text.filament_iq_trays_used_this_print
-      data:
-        value: >
-          {% set raw = (states('input_text.filament_iq_trays_used_this_print') or '') | trim %}
-          {% set tid = trigger.entity_id %}
-          {% set slot = '1' if tid == 'sensor.p1s_01p00c5a3101668_ams_1_tray_1'
-                   else '2' if tid == 'sensor.p1s_01p00c5a3101668_ams_1_tray_2'
-                   else '3' if tid == 'sensor.p1s_01p00c5a3101668_ams_1_tray_3'
-                   else '4' if tid == 'sensor.p1s_01p00c5a3101668_ams_1_tray_4'
-                   else '5' if tid == 'sensor.p1s_01p00c5a3101668_ams_128_tray_1'
-                   else '6' if tid == 'sensor.p1s_01p00c5a3101668_ams_129_tray_1'
-                   else '0' %}
-          {# keep only valid numeric slots from existing state (auto-cleans legacy entity_id strings) #}
-          {% set slots_list = raw.split(',') | map('trim') | select | list %}
-          {% set slots_list = slots_list | select('in', ['1','2','3','4','5','6']) | list %}
-          {% set cur = slots_list | join(',') %}
-          {% if slot == '0' %}{{ cur }}
-          {% elif slot in slots_list %}{{ cur }}
-          {% else %}{{ cur + (',' if cur else '') + slot }}{% endif %}
-  mode: restart
-
-# Fuel gauge: snapshot AMS tray remaining_filament at print start and finish (for usage estimation).
 - id: p1s_remaining_snapshot_init
   alias: P1S – init remaining filament snapshots
   description: Clear snapshot JSON helpers when print starts, then seed with currently-active trays
