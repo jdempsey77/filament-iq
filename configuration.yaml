@@ -80,27 +80,21 @@ input_text:
   ams_slot_1_unbound_reason:
     name: "AMS Slot 1 Unbound Reason"
     max: 100
-    initial: ""
   ams_slot_2_unbound_reason:
     name: "AMS Slot 2 Unbound Reason"
     max: 100
-    initial: ""
   ams_slot_3_unbound_reason:
     name: "AMS Slot 3 Unbound Reason"
     max: 100
-    initial: ""
   ams_slot_4_unbound_reason:
     name: "AMS Slot 4 Unbound Reason"
     max: 100
-    initial: ""
   ams_slot_5_unbound_reason:
     name: "AMS Slot 5 Unbound Reason"
     max: 100
-    initial: ""
   ams_slot_6_unbound_reason:
     name: "AMS Slot 6 Unbound Reason"
     max: 100
-    initial: ""
   p1s_last_active_tray:
     name: P1S Last Active Tray
     max: 100
