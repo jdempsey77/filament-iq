@@ -790,7 +790,7 @@
     - if:
         - condition: template
           value_template: >
-            {{ states('input_text.p1s_tray_remaining_start_json') in ['', '{}', 'unavailable', 'unknown'] }}
+            {{ states('input_text.filament_iq_start_json') in ['', '{}', 'unavailable', 'unknown'] }}
       then:
         - service: input_text.set_value
           target:
@@ -810,7 +810,7 @@
             'sensor.p1s_tray_5_fuel_gauge_remaining',
             'sensor.p1s_tray_6_fuel_gauge_remaining'
           ] %}
-          {% set start_raw = states('input_text.p1s_tray_remaining_start_json') %}
+          {% set start_raw = states('input_text.filament_iq_start_json') %}
           {% set start = start_raw | from_json if start_raw not in ['', '{}', 'unavailable', 'unknown'] else {} %}
           {% set ns = namespace(pairs=[]) %}
           {% for i in range(6) %}
@@ -832,11 +832,11 @@
     # 6. Fire P1S_PRINT_USAGE_READY event for AppDaemon
     - event: P1S_PRINT_USAGE_READY
       event_data:
-        job_key: "{{ states('input_text.p1s_print_job_key') }}"
+        job_key: "{{ states('input_text.filament_iq_active_job_key') }}"
         task_name: "{{ states('sensor.p1s_01p00c5a3101668_task_name') }}"
         print_weight_g: "{{ states('sensor.p1s_01p00c5a3101668_print_weight') | float(0) }}"
         trays_used: "{{ states('input_text.filament_iq_trays_used_this_print') }}"
-        start_json: "{{ states('input_text.p1s_tray_remaining_start_json') }}"
+        start_json: "{{ states('input_text.filament_iq_start_json') }}"
         end_json: "{{ end_json_built | to_json }}"
         print_status: "{{ trigger_state }}"
 
