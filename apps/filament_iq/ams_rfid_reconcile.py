@@ -3451,24 +3451,20 @@ class AmsRfidReconcile(hass.Hass):
             return
         raise ValueError(f"_set_helper: unsupported entity domain for entity_id={entity_id}")
 
-    _LAST_MAPPING_JSON_MAX = 255
+    _LAST_MAPPING_JSON_PATH = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "data", "filament_iq_last_mapping.json"
+    )
 
     def write_last_mapping_json(self, reason, mapping):
-        """Write compact JSON to input_text.filament_iq_last_mapping_json. Always <= 255 chars."""
+        """Write mapping JSON to file (read by HA command_line sensor)."""
         ts = datetime.datetime.now().isoformat()[:19]
         out = json.dumps({"ts": ts, "reason": reason, "mapping": mapping}, separators=(",", ":"))
-        if len(out) <= self._LAST_MAPPING_JSON_MAX:
-            self._set_helper("input_text.filament_iq_last_mapping_json", out)
-            return
-        out = json.dumps({"reason": reason[:32], "mapping": mapping}, separators=(",", ":"))
-        if len(out) <= self._LAST_MAPPING_JSON_MAX:
-            self._set_helper("input_text.filament_iq_last_mapping_json", out)
-            return
-        out = json.dumps({"mapping": mapping}, separators=(",", ":"))
-        if len(out) <= self._LAST_MAPPING_JSON_MAX:
-            self._set_helper("input_text.filament_iq_last_mapping_json", out)
-            return
-        self._set_helper("input_text.filament_iq_last_mapping_json", out[:self._LAST_MAPPING_JSON_MAX])
+        try:
+            os.makedirs(os.path.dirname(self._LAST_MAPPING_JSON_PATH), exist_ok=True)
+            with open(self._LAST_MAPPING_JSON_PATH, "w") as f:
+                f.write(out)
+        except OSError as e:
+            self.log(f"write_last_mapping_json: could not write {self._LAST_MAPPING_JSON_PATH}: {e}", level="WARNING")
 
     def _apply_unbound_reason(self, slot, t, tray_meta, tag_uid, tray_empty, tray_state_str):
         """Set t[\"unbound_reason\"] and t[\"unbound_detail\"], log one INFO line, and write reason to helper."""

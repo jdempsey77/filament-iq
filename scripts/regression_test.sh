@@ -76,7 +76,7 @@ BOOLEANS = [
 ]
 TEXTS = [
     "input_text.filament_iq_trays_used_this_print",
-    "input_text.filament_iq_last_mapping_json",
+    # filament_iq_last_mapping_json is now a command_line sensor, checked in GROUP 3
     "input_text.filament_iq_start_json",
     "input_text.filament_iq_end_json",
     "input_text.filament_iq_active_job_key",
@@ -157,13 +157,14 @@ group("GROUP 2")
 
 # GROUP 3
 print("\n[GROUP 3] AppDaemon health")
-for helper in ("last_mapping_json", "slot_to_spool_binding_json"):
-    d = get_entity(f"input_text.filament_iq_{helper}")
+for entity, label in (("sensor.filament_iq_last_mapping_json", "last_mapping_json"),
+                      ("input_text.filament_iq_slot_to_spool_binding_json", "slot_to_spool_binding_json")):
+    d = get_entity(entity)
     s = state(d).strip().strip("'\"")
-    if not s or s == "unknown": w(f"{helper} empty")
+    if not s or s == "unknown": w(f"{label} empty")
     else:
-        try: json.loads(s); p(f"{helper} valid JSON ({s})")
-        except Exception as e: f(f"{helper} invalid JSON: {s} ({e})")
+        try: json.loads(s); p(f"{label} valid JSON ({s})")
+        except Exception as e: f(f"{label} invalid JSON: {s} ({e})")
 
 d = get_entity("sensor.filament_iq_operator_status")
 s = state(d)
