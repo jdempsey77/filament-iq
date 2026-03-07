@@ -5,9 +5,9 @@ default_config:
 logger:
   default: info
   logs:
-    custom_components.spoolman: debug
-    homeassistant.components.template: debug
-    homeassistant.helpers.template: debug
+    custom_components.spoolman: warning
+    homeassistant.components.template: warning
+    homeassistant.helpers.template: warning
 
 # Dishwasher "last finished" – automation updates this when cycle completes
 input_datetime:
@@ -121,10 +121,8 @@ input_text:
     name: P1S Slot to Spool Binding (JSON)
     max: 255
     initial: "{}"
-  filament_iq_last_mapping_json:
-    name: Filament IQ Last Mapping Result
-    max: 255
-    initial: ""
+  # filament_iq_last_mapping_json removed — replaced by command_line sensor
+  # in filament_iq.yaml package
   filament_iq_start_json:
     name: Filament IQ tray remaining start JSON
     max: 255
