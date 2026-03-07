@@ -750,11 +750,11 @@
         - pause
         - paused
     - platform: state
-      entity_id: input_boolean.p1s_debug_finish_trigger
+      entity_id: input_boolean.filament_iq_debug_finish_trigger
       to: "on"
   condition: []
   variables:
-    trigger_state: "{{ 'debug' if trigger.entity_id == 'input_boolean.p1s_debug_finish_trigger' else (trigger.to_state.state | default('finish')) }}"
+    trigger_state: "{{ 'debug' if trigger.entity_id == 'input_boolean.filament_iq_debug_finish_trigger' else (trigger.to_state.state | default('finish')) }}"
     task_name: "{{ states('sensor.p1s_01p00c5a3101668_task_name') }}"
     is_failed: "{{ trigger_state in ['failed', 'error', 'canceled'] }}"
     should_decrement: "{{ not is_failed or states('input_boolean.filament_iq_decrement_on_failed') == 'on' }}"
@@ -780,11 +780,11 @@
     - choose:
         - conditions:
             - condition: template
-              value_template: "{{ trigger.entity_id == 'input_boolean.p1s_debug_finish_trigger' }}"
+              value_template: "{{ trigger.entity_id == 'input_boolean.filament_iq_debug_finish_trigger' }}"
           sequence:
             - service: input_boolean.turn_off
               target:
-                entity_id: input_boolean.p1s_debug_finish_trigger
+                entity_id: input_boolean.filament_iq_debug_finish_trigger
 
     # 3. Guard: skip if no start snapshot
     - if:
@@ -881,7 +881,7 @@
     - condition: or
       conditions:
         - condition: template
-          value_template: "{{ states('sensor.p1s_operator_status') in ['printing_normally', 'printing_attention_needed', 'printing'] }}"
+          value_template: "{{ states('sensor.filament_iq_operator_status') in ['printing_normally', 'printing_attention_needed', 'printing'] }}"
         - condition: template
           value_template: "{{ states('sensor.p1s_01p00c5a3101668_print_status') in ['running', 'printing'] }}"
   action:

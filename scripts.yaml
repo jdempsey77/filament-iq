@@ -147,11 +147,11 @@ test_scenario_1_single_slot:
     # Trigger finish
     - service: input_boolean.turn_off
       target:
-        entity_id: input_boolean.p1s_debug_finish_trigger
+        entity_id: input_boolean.filament_iq_debug_finish_trigger
     - delay: "00:00:01"
     - service: input_boolean.turn_on
       target:
-        entity_id: input_boolean.p1s_debug_finish_trigger
+        entity_id: input_boolean.filament_iq_debug_finish_trigger
 
 test_scenario_4_multi_slot:
   alias: "Test Scenario 4: Multi-Slot Print"
@@ -196,11 +196,11 @@ test_scenario_4_multi_slot:
     # Trigger
     - service: input_boolean.turn_off
       target:
-        entity_id: input_boolean.p1s_debug_finish_trigger
+        entity_id: input_boolean.filament_iq_debug_finish_trigger
     - delay: "00:00:01"
     - service: input_boolean.turn_on
       target:
-        entity_id: input_boolean.p1s_debug_finish_trigger
+        entity_id: input_boolean.filament_iq_debug_finish_trigger
 
 test_clear_binding:
   alias: "Test: Clear Binding JSON"
@@ -295,11 +295,11 @@ p1s_debug_force_finish_path:
     # Trigger finish automation
     - service: input_boolean.turn_off
       target:
-        entity_id: input_boolean.p1s_debug_finish_trigger
+        entity_id: input_boolean.filament_iq_debug_finish_trigger
     - delay: "00:00:01"
     - service: input_boolean.turn_on
       target:
-        entity_id: input_boolean.p1s_debug_finish_trigger
+        entity_id: input_boolean.filament_iq_debug_finish_trigger
 
 reload_spoolman_integration:
   alias: Reload Spoolman integration
