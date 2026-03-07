@@ -764,26 +764,8 @@ sensor:
     unique_id: spoolman_spools_api
 
 
-# Spoolman list data for flex-table dashboard (wraps API array in object so HA can store items)
-  # NOTE: command_line sensors are defined in configuration.yaml (not mergeable in packages).
-  # sensor.filament_iq_last_mapping_json is defined there.
-command_line:
-  - sensor:
-      name: "Spoolman filament list data"
-      unique_id: spoolman_filament_list_data
-      command: 'curl -s "http://YOUR_SPOOLMAN_IP:7912/api/v1/filament" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({\"count\":len(d),\"items\":d}))"'
-      value_template: "{{ value_json.count }}"
-      json_attributes:
-        - items
-      scan_interval: 300
-  - sensor:
-      name: "Spoolman spool list data"
-      unique_id: spoolman_spool_list_data
-      command: 'curl -s "http://YOUR_SPOOLMAN_IP:7912/api/v1/spool" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({\"count\":len(d),\"items\":d}))"'
-      value_template: "{{ value_json.count }}"
-      json_attributes:
-        - items
-      scan_interval: 300
+# NOTE: command_line sensors (filament_iq_last_mapping_json, spoolman list data)
+# are defined in configuration.yaml — command_line: is not mergeable in packages.
 
 
 template:
