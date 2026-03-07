@@ -94,7 +94,7 @@ FilamentIQ allocates consumption to AMS slots using a priority cascade:
 ### 1. Install FilamentIQ via HACS
 
 - HACS → three-dot menu → Custom repositories
-- URL: `https://github.com/YOUR_USERNAME/filament-iq`, Category: **AppDaemon**
+- URL: `https://github.com/jdempsey77/filament-iq`, Category: **AppDaemon**
 
 ### 2. HA Configuration (packages drop-in)
 
@@ -115,11 +115,11 @@ Restart Home Assistant.
 
 ### 3. Configure apps.yaml
 
-Add the FilamentIQ apps to your AppDaemon `apps.yaml`. Example with every config key:
+Add the FilamentIQ apps to your AppDaemon `apps.yaml`. See `apps/filament_iq/apps.yaml.example` for a ready-to-copy template.
 
 ```yaml
 # apps.yaml — FilamentIQ configuration
-# Replace YOUR_PRINTER_IP, YOUR_PRINTER_SERIAL, YOUR_SPOOLMAN_IP with your values.
+# Replace YOUR_PRINTER_IP and YOUR_SPOOLMAN_IP with your values.
 
 ams_print_usage_sync:
   module: ams_print_usage_sync
@@ -127,10 +127,7 @@ ams_print_usage_sync:
   enabled: true
   spoolman_base_url: "http://YOUR_SPOOLMAN_IP:7912"
   dry_run: false
-  min_consumption_g: 2
-  max_consumption_g: 300
   printer_ip: "YOUR_PRINTER_IP"
-  printer_ftps_port: 990
   access_code_entity: "input_text.bambu_printer_access_code"
   threemf_enabled: true
   # printer_access_code: ""  # optional; overrides entity if set
@@ -141,35 +138,19 @@ ams_rfid_reconcile:
   enabled: true
   spoolman_url: "http://YOUR_SPOOLMAN_IP:7912"
   startup_delay_seconds: 60
-  startup_wait_helpers_seconds: 420
-  startup_wait_retry_initial_seconds: 2
-  startup_wait_retry_max_seconds: 30
-  startup_probe_helper_entity: "input_text.ams_slot_1_spool_id"
-  debounce_seconds: 3
-  safety_poll_seconds: 600
   debug_logs: false
-  strict_mode_reregister: false
-  color_distance_threshold: 90
-  evidence_log_path: "/config/ams_rfid_reconcile_evidence.log"
 
 ams_rfid_guard:
   module: ams_rfid_guard
   class: AmsRfidGuard
   enabled: true
   spoolman_base_url: "http://YOUR_SPOOLMAN_IP:7912"
-  scan_interval_seconds: 300
   dry_run: false
-  notify_cooldown_minutes: 360
-  cache_sensor_entity: "sensor.spoolman_spools_cache"
-  use_cache_trigger: false
-  rfid_managed_patterns: ["bambu", "bambu lab"]
-  missing_ha_spool_uuid_mode: "warn_only"
 
 filament_weight_tracker:
   module: filament_weight_tracker
   class: FilamentWeightTracker
   spoolman_url: "http://YOUR_SPOOLMAN_IP:7912"
-  report_path: "/config/filament_weight_reports.log"
 
 spoolman_dropdown_sync:
   module: spoolman_dropdown_sync
@@ -195,35 +176,45 @@ Replace `YOUR_PRINTER_SERIAL` in the dashboard YAML with your Bambu device seria
 
 | Key | App | Required | Default | Description |
 |-----|-----|----------|---------|-------------|
-| `enabled` | ams_print_usage_sync, ams_rfid_reconcile, ams_rfid_guard, spoolman_dropdown_sync | No | `true` | Master enable/disable |
+| `enabled` | all except filament_weight_tracker | No | `true` | Master enable/disable |
 | `spoolman_base_url` | ams_print_usage_sync, ams_rfid_guard, spoolman_dropdown_sync | Yes | — | Spoolman API base URL (e.g. `http://192.168.1.250:7912`) |
 | `spoolman_url` | ams_rfid_reconcile, filament_weight_tracker | Yes | — | Same as above; some apps use this key |
 | `dry_run` | ams_print_usage_sync, ams_rfid_guard | No | `false` | Log writes without calling Spoolman |
-| `min_consumption_g` | ams_print_usage_sync | No | `2` | Skip writes below this (g) |
-| `max_consumption_g` | ams_print_usage_sync | No | `300` | Reject writes above this (g) |
 | `printer_ip` | ams_print_usage_sync | Yes | — | Bambu printer LAN IP |
-| `printer_ftps_port` | ams_print_usage_sync | No | `990` | FTPS port for 3MF fetch |
 | `access_code_entity` | ams_print_usage_sync | No | `input_text.bambu_printer_access_code` | HA entity for printer access code |
 | `printer_access_code` | ams_print_usage_sync | No | — | Override; if set, ignores entity |
 | `threemf_enabled` | ams_print_usage_sync | No | `true` | Enable 3MF parsing (Tier 1) |
 | `startup_delay_seconds` | ams_rfid_reconcile | No | `60` | Delay before first reconcile |
-| `startup_wait_helpers_seconds` | ams_rfid_reconcile | No | `420` | Max wait for HA helpers to be ready |
-| `startup_wait_retry_initial_seconds` | ams_rfid_reconcile | No | `2` | Initial retry interval for startup probe |
-| `startup_wait_retry_max_seconds` | ams_rfid_reconcile | No | `30` | Max retry interval |
-| `startup_probe_helper_entity` | ams_rfid_reconcile | No | `input_text.ams_slot_1_spool_id` | Entity probed for readiness |
-| `debounce_seconds` | ams_rfid_reconcile | No | `3` | Debounce tray/helper changes |
-| `safety_poll_seconds` | ams_rfid_reconcile | No | `600` | Periodic reconcile interval |
 | `debug_logs` | ams_rfid_reconcile | No | `false` | Extra logging |
-| `strict_mode_reregister` | ams_rfid_reconcile | No | `false` | Strict mode for re-registration |
-| `color_distance_threshold` | ams_rfid_reconcile | No | `90` | RGB distance for "close" color match |
-| `evidence_log_path` | ams_rfid_reconcile | No | `/config/ams_rfid_reconcile_evidence.log` | Path for evidence log |
-| `scan_interval_seconds` | ams_rfid_guard | No | `300` | Scan interval for policy checks |
-| `notify_cooldown_minutes` | ams_rfid_guard | No | `360` | Min minutes between duplicate notifications |
-| `cache_sensor_entity` | ams_rfid_guard | No | `sensor.spoolman_spools_cache` | Optional cache trigger entity |
-| `use_cache_trigger` | ams_rfid_guard | No | `false` | Run scan on cache change |
-| `rfid_managed_patterns` | ams_rfid_guard | No | `["bambu", "bambu lab"]` | Regex patterns for RFID-managed filament |
-| `missing_ha_spool_uuid_mode` | ams_rfid_guard | No | `warn_only` | `warn_only` or `quarantine` |
-| `report_path` | filament_weight_tracker | No | `/config/filament_weight_reports.log` | Path for weight delta reports |
+
+<details>
+<summary>Advanced configuration</summary>
+
+All advanced tuning keys have sensible defaults and rarely need changing. See the source of each app for full documentation.
+
+| Key | App | Default | Description |
+|-----|-----|---------|-------------|
+| `min_consumption_g` | ams_print_usage_sync | `2` | Skip writes below this (g) |
+| `max_consumption_g` | ams_print_usage_sync | `300` | Reject writes above this (g) |
+| `printer_ftps_port` | ams_print_usage_sync | `990` | FTPS port for 3MF fetch |
+| `startup_wait_helpers_seconds` | ams_rfid_reconcile | `420` | Max wait for HA helpers to be ready |
+| `startup_wait_retry_initial_seconds` | ams_rfid_reconcile | `2` | Initial retry interval for startup probe |
+| `startup_wait_retry_max_seconds` | ams_rfid_reconcile | `30` | Max retry interval |
+| `startup_probe_helper_entity` | ams_rfid_reconcile | `input_text.ams_slot_1_spool_id` | Entity probed for readiness |
+| `debounce_seconds` | ams_rfid_reconcile | `3` | Debounce tray/helper changes |
+| `safety_poll_seconds` | ams_rfid_reconcile | `600` | Periodic reconcile interval |
+| `strict_mode_reregister` | ams_rfid_reconcile | `false` | Strict mode for re-registration |
+| `color_distance_threshold` | ams_rfid_reconcile | `90` | RGB distance for "close" color match |
+| `evidence_log_path` | ams_rfid_reconcile | `/config/ams_rfid_reconcile_evidence.log` | Path for evidence log |
+| `scan_interval_seconds` | ams_rfid_guard | `300` | Scan interval for policy checks |
+| `notify_cooldown_minutes` | ams_rfid_guard | `360` | Min minutes between duplicate notifications |
+| `cache_sensor_entity` | ams_rfid_guard | `sensor.spoolman_spools_cache` | Optional cache trigger entity |
+| `use_cache_trigger` | ams_rfid_guard | `false` | Run scan on cache change |
+| `rfid_managed_patterns` | ams_rfid_guard | `["bambu", "bambu lab"]` | Regex patterns for RFID-managed filament |
+| `missing_ha_spool_uuid_mode` | ams_rfid_guard | `warn_only` | `warn_only` or `quarantine` |
+| `report_path` | filament_weight_tracker | `/config/filament_weight_reports.log` | Path for weight delta reports |
+
+</details>
 
 ---
 
