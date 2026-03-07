@@ -1,13 +1,24 @@
 # Loads default set of integrations. Do not remove.
 default_config:
 
-# Temporary debug logging for Spoolman integration setup diagnosis (remove once stable)
 logger:
   default: info
   logs:
     custom_components.spoolman: warning
     homeassistant.components.template: warning
     homeassistant.helpers.template: warning
+
+recorder:
+  purge_keep_days: 5
+  exclude:
+    entity_globs:
+      - sensor.spoolman_spool_*
+      - sensor.p1s_*_ams_*
+      - input_text.ams_slot_*
+      - input_text.filament_iq_*
+      - input_number.filament_iq_*
+    domains:
+      - update
 
 # Dishwasher "last finished" – automation updates this when cycle completes
 input_datetime:
@@ -849,6 +860,12 @@ sensor:
 # Spoolman list data for flex-table dashboard (wraps API array in object so HA can store items)
 command_line:
   - sensor:
+      name: "Filament IQ last mapping JSON"
+      unique_id: filament_iq_last_mapping_json
+      command: "cat /addon_configs/a0d7b954_appdaemon/apps/filament_iq/data/filament_iq_last_mapping.json 2>/dev/null || echo '{}'"
+      value_template: "{{ value }}"
+      scan_interval: 300
+  - sensor:
       name: "Spoolman filament list data"
       unique_id: spoolman_filament_list_data
       command: 'curl -s "http://192.168.4.124:7912/api/v1/filament" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({\"count\":len(d),\"items\":d}))"'
@@ -1471,23 +1488,6 @@ template:
             {% else %}
               {{ [] }}
             {% endif %}
-      # Temporary debug: spool entities seen, options built. Remove once Slot 1 works.
-      - name: "AMS Spool list – debug"
-        unique_id: ams_spool_list_options_debug
-        state: "{{ (state_attr('sensor.ams_spool_list_options', 'options') or []) | length }}"
-        attributes:
-          spool_entities_seen: >
-            {% set ns = namespace(out=[]) %}
-            {% for st in (states.sensor | list) %}
-              {% if st and st.entity_id %}
-                {% set eid = st.entity_id | string %}
-                {% if eid is match('sensor\\.spoolman_spool_\\d+$') %}
-                  {% set ns.out = ns.out + [eid] %}
-                {% endif %}
-              {% endif %}
-            {% endfor %}
-            {{ ns.out[:30] }}
-          options_sample: "{{ (state_attr('sensor.ams_spool_list_options', 'options') or [])[:15] }}"
 
       # Fuel gauge: computed remaining grams from tray_weight * remain / 100
       - name: "P1S Tray 1 Fuel Gauge Remaining"

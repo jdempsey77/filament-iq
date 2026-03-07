@@ -60,7 +60,7 @@ declare -a FILAMENT_IQ_ENTITIES=(
   "input_datetime.filament_iq_print_start_time"
   "input_datetime.filament_iq_print_end_time"
   "input_text.filament_iq_trays_used_this_print"
-  "input_text.filament_iq_last_mapping_json"
+  # filament_iq_last_mapping_json is now a command_line sensor, checked in GROUP 3
   "input_text.filament_iq_printer_access_code"
   "input_text.filament_iq_last_active_tray"
   "input_text.filament_iq_last_print_status_transition"
@@ -250,20 +250,20 @@ echo ""
 # GROUP 3 — AppDaemon health
 # ---------------------------------------------------------------------------
 echo "[GROUP 3] AppDaemon health"
-# filament_iq_last_mapping_json: valid JSON or empty
-body=$(_fetch_entity "input_text.filament_iq_last_mapping_json")
+# filament_iq_last_mapping_json: command_line sensor — valid JSON or empty
+body=$(_fetch_entity "sensor.filament_iq_last_mapping_json")
 if [[ -n "$body" && "$body" != "null" ]]; then
   state=$(echo "$body" | jq -r '.state // ""')
   if [[ -n "$state" && "$state" != "unknown" && "$state" != "unavailable" ]]; then
     if ! echo "$state" | jq -e . >/dev/null 2>&1; then
-      _print_result "FAIL" "input_text.filament_iq_last_mapping_json" "invalid JSON"
+      _print_result "FAIL" "sensor.filament_iq_last_mapping_json" "invalid JSON"
       G3_FAIL=$((G3_FAIL + 1))
     else
-      [[ $VERBOSE -eq 1 ]] && _print_result "PASS" "input_text.filament_iq_last_mapping_json" "valid JSON"
+      [[ $VERBOSE -eq 1 ]] && _print_result "PASS" "sensor.filament_iq_last_mapping_json" "valid JSON"
       G3_PASS=$((G3_PASS + 1))
     fi
   else
-    [[ $VERBOSE -eq 1 ]] && _print_result "PASS" "input_text.filament_iq_last_mapping_json" "empty/unknown OK"
+    [[ $VERBOSE -eq 1 ]] && _print_result "PASS" "sensor.filament_iq_last_mapping_json" "empty/unknown OK"
     G3_PASS=$((G3_PASS + 1))
   fi
 fi
