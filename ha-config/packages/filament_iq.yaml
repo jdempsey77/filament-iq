@@ -103,10 +103,8 @@ input_text:
     name: P1S Slot to Spool Binding (JSON)
     max: 255
     initial: "{}"
-  filament_iq_last_mapping_json:
-    name: P1S Last Mapping Result
-    max: 255
-    initial: ""
+  # filament_iq_last_mapping_json removed — replaced by command_line sensor
+  # (see command_line: section below) to avoid HA 255-char input_text limit.
   p1s_tray_remaining_start_json:
     name: P1S tray remaining start JSON
     max: 255
@@ -767,6 +765,8 @@ sensor:
 
 
 # Spoolman list data for flex-table dashboard (wraps API array in object so HA can store items)
+  # NOTE: command_line sensors are defined in configuration.yaml (not mergeable in packages).
+  # sensor.filament_iq_last_mapping_json is defined there.
 command_line:
   - sensor:
       name: "Spoolman filament list data"
@@ -2921,16 +2921,6 @@ script:
           - condition: template
             value_template: "{{ not auto_enabled }}"
         then:
-          # RESILIENT: Only write if helper exists
-          - if:
-              - condition: template
-                value_template: "{{ states('input_text.filament_iq_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
-            then:
-              - service: input_text.set_value
-                target:
-                  entity_id: input_text.filament_iq_last_mapping_json
-                data:
-                  value: "{{ ('slot=' ~ slot_number ~ ' | auto_mode=OFF | no_action') | string }}"
           - stop: "Auto mode disabled"
       # Check if binding exists and spool exists
       - if:
@@ -2949,16 +2939,6 @@ script:
                   entity_id: "input_text.ams_slot_{{ slot_number }}_spool_id"
                 data:
                   value: "{{ bound_spool_id | string }}"
-              # RESILIENT: Only write if helper exists
-              - if:
-                  - condition: template
-                    value_template: "{{ states('input_text.filament_iq_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
-                then:
-                  - service: input_text.set_value
-                    target:
-                      entity_id: input_text.filament_iq_last_mapping_json
-                    data:
-                      value: "{{ ('slot=' ~ slot_number ~ ' | spool_id=' ~ bound_spool_id ~ ' | confidence=high | rule=binding_reused') | string }}"
               - stop: "Binding reused"
       # Choose by material + lightest, or fallback to overall-lightest
       - variables:
@@ -3005,30 +2985,8 @@ script:
                   entity_id: input_text.filament_iq_slot_to_spool_binding_json
                 data:
                   value: "{{ binding_json_str }}"
-          # Log mapping result - RESILIENT: Only if helper exists
-          - if:
-              - condition: template
-                value_template: "{{ states('input_text.filament_iq_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
-            then:
-              - variables:
-                  # RESILIENT: Ensure log string doesn't exceed max (2048)
-                  log_str: "{{ ('slot=' ~ slot_number ~ ' | mat=' ~ mat_lower ~ ' | spool_id=' ~ chosen_spool_id ~ ' | remaining=' ~ chosen.remaining ~ 'g | confidence=' ~ confidence ~ ' | rule=' ~ rule ~ ' | candidates=' ~ candidates | length)[:2044] | string }}"
-              - service: input_text.set_value
-                target:
-                  entity_id: input_text.filament_iq_last_mapping_json
-                data:
-                  value: "{{ log_str }}"
         else:
-          # No spools available (should never happen)
-          - if:
-              - condition: template
-                value_template: "{{ states('input_text.filament_iq_last_mapping_json') not in ['unavailable', 'unknown', ''] }}"
-            then:
-              - service: input_text.set_value
-                target:
-                  entity_id: input_text.filament_iq_last_mapping_json
-                data:
-                  value: "{{ ('slot=' ~ slot_number ~ ' | ERROR | no_spools_available') | string }}"
+          - stop: "No spools available"
   
   # E2E VALIDATION: Test scenarios for V1 opinionated auto-mapping
   test_scenario_1_single_slot:
@@ -3135,7 +3093,7 @@ script:
     sequence:
       - variables:
           binding_exists: "{{ states('input_text.filament_iq_slot_to_spool_binding_json') not in ['unavailable', 'unknown'] }}"
-          mapping_exists: "{{ states('input_text.filament_iq_last_mapping_json') not in ['unavailable', 'unknown'] }}"
+          mapping_exists: "{{ states('sensor.filament_iq_last_mapping_json') not in ['unavailable', 'unknown'] }}"
           binding_state_before: "{{ states('input_text.filament_iq_slot_to_spool_binding_json') | default('', true) | string }}"
       # Test 1: Check existence
       - if:
@@ -3153,7 +3111,7 @@ script:
                 1. Settings → Devices & Services → Helpers
                 2. Create Text helpers with exact entity IDs:
                    - input_text.filament_iq_slot_to_spool_binding_json (max: 1024)
-                   - input_text.filament_iq_last_mapping_json (max: 2048)
+                   - sensor.filament_iq_last_mapping_json (command_line)
           - stop: "FAIL: Helpers missing"
       # Test 2: Attempt safe write/restore (doesn't alter production data long-term)
       - service: input_text.set_value
@@ -3171,16 +3129,12 @@ script:
         data:
           value: "{{ (binding_state_before if binding_state_before not in ['', 'unavailable', 'unknown'] else '{}') | string }}"
       # Test 3: Log result
-      - service: input_text.set_value
-        target:
-          entity_id: input_text.filament_iq_last_mapping_json
-        data:
-          value: "{{ ('validation=PASS | binding_writable=true | mapping_writable=true | timestamp=' ~ now().isoformat()) | string }}"
       - service: persistent_notification.create
         data:
           title: "P1S Infrastructure Validation: PASS"
           message: >
             ✓ Binding helper exists and is writable
+            ✓ Mapping sensor exists (command_line)
             ✓ Mapping helper exists and is writable
             
             Infrastructure is ready for V1 opinionated auto-mapping.
