@@ -1218,8 +1218,7 @@ views:
                 primary: Layer
                 icon_color: var(--rgb-state-entity)
                 secondary: >-
-                  {{states('sensor.p1s_01p00c5a3101668_current_layer')}}
-                  /
+                  {{states('sensor.p1s_01p00c5a3101668_current_layer')}} /
                   {{states('sensor.p1s_01p00c5a3101668_total_layer_count')}}
                 icon: mdi:layers
           - type: conditional
@@ -1255,25 +1254,21 @@ views:
               bar_background: rgba(var(--rgb-primary-text-color), 0.12)
               state_color: true
               card_mod:
-                style: >
+                style: |
                   ha-card {
                     border: none !important;
                     border-radius: 12px !important;
                     box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6) !important;
                     padding: 6px 12px 8px !important;
                   }
-
                   timer-bar-card {
                     --tbc-name-color: var(--primary-text-color);
                     --tbc-time-color: var(--secondary-text-color);
                   }
-
                   timer-bar-mushroom-row {
                     min-height: 0 !important;
                   }
-
-                  timer-bar-mushroom-row .info, timer-bar-mushroom-row
-                  .time {
+                  timer-bar-mushroom-row .info, timer-bar-mushroom-row .time {
                     line-height: 1.2 !important;
                   }
           - type: horizontal-stack
@@ -1298,36 +1293,50 @@ views:
                   entity: input_datetime.filament_iq_print_end_time
                   name: End Time
                   icon: mdi:clock-time-four-outline
-          - type: custom:mushroom-entity-card
-            entity: binary_sensor.p1s_01p00c5a3101668_firmware_update
-            name: Firmware
-            icon: mdi:chip
           - type: custom:mushroom-template-card
             entity: sensor.p1s_01p00c5a3101668_active_tray
             primary: >-
-              {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
-              {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
-              {% set name = states('sensor.p1s_01p00c5a3101668_active_tray') %}
-              Active Slot: {% if active == 0 and tray == 0 %}AMS Pro 1 · {{ name }}
-              {% elif active == 0 and tray == 1 %}AMS Pro 2 · {{ name }}
-              {% elif active == 0 and tray == 2 %}AMS Pro 3 · {{ name }}
-              {% elif active == 0 and tray == 3 %}AMS Pro 4 · {{ name }}
-              {% elif active == 128 and tray == 0 %}HT 1 · {{ name }}
-              {% elif active == 129 and tray == 0 %}HT 2 · {{ name }}
-              {% else %}{{ name }}{% endif %}
+              {% set active =
+              state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index')
+              %} {% set tray =
+              state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index')
+              %} {% set name = states('sensor.p1s_01p00c5a3101668_active_tray')
+              %} Active Slot: {% if active == 0 and tray == 0 %}AMS Pro 1 · {{
+              name }} {% elif active == 0 and tray == 1 %}AMS Pro 2 · {{ name }}
+              {% elif active == 0 and tray == 2 %}AMS Pro 3 · {{ name }} {% elif
+              active == 0 and tray == 3 %}AMS Pro 4 · {{ name }} {% elif active
+              == 128 and tray == 0 %}HT 1 · {{ name }} {% elif active == 129 and
+              tray == 0 %}HT 2 · {{ name }} {% else %}{{ name }}{% endif %}
             secondary: >-
-              {% set active = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
-              {% set tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
-              {% set remain = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'remain') %}
-              {% if active == 0 and tray == 0 %}{{ states('sensor.ams_slot_1_vendor') }} · {{ states('sensor.ams_slot_1_material') }} · {{ states('sensor.ams_slot_1_remaining_g') }}g
-              {% elif active == 0 and tray == 1 %}{{ states('sensor.ams_slot_2_vendor') }} · {{ states('sensor.ams_slot_2_material') }} · {{ states('sensor.ams_slot_2_remaining_g') }}g
-              {% elif active == 0 and tray == 2 %}{{ states('sensor.ams_slot_3_vendor') }} · {{ states('sensor.ams_slot_3_material') }} · {{ states('sensor.ams_slot_3_remaining_g') }}g
-              {% elif active == 0 and tray == 3 %}{{ states('sensor.ams_slot_4_vendor') }} · {{ states('sensor.ams_slot_4_material') }} · {{ states('sensor.ams_slot_4_remaining_g') }}g
-              {% elif active == 128 and tray == 0 %}{{ states('sensor.ams_slot_5_vendor') }} · {{ states('sensor.ams_slot_5_material') }} · {{ states('sensor.ams_slot_5_remaining_g') }}g
-              {% elif active == 129 and tray == 0 %}{{ states('sensor.ams_slot_6_vendor') }} · {{ states('sensor.ams_slot_6_material') }} · {{ states('sensor.ams_slot_6_remaining_g') }}g
-              {% elif remain is not none and remain != '' %}{{ name }} · {{ remain }}g
-              {% else %}{{ name }}{% endif %}
+              {% set active =
+              state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index')
+              %} {% set tray =
+              state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index')
+              %} {% set remain =
+              state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'remain') %}
+              {% if active == 0 and tray == 0 %}{{
+              states('sensor.ams_slot_1_vendor') }} · {{
+              states('sensor.ams_slot_1_material') }} · {{
+              states('sensor.ams_slot_1_remaining_g') }}g {% elif active == 0
+              and tray == 1 %}{{ states('sensor.ams_slot_2_vendor') }} · {{
+              states('sensor.ams_slot_2_material') }} · {{
+              states('sensor.ams_slot_2_remaining_g') }}g {% elif active == 0
+              and tray == 2 %}{{ states('sensor.ams_slot_3_vendor') }} · {{
+              states('sensor.ams_slot_3_material') }} · {{
+              states('sensor.ams_slot_3_remaining_g') }}g {% elif active == 0
+              and tray == 3 %}{{ states('sensor.ams_slot_4_vendor') }} · {{
+              states('sensor.ams_slot_4_material') }} · {{
+              states('sensor.ams_slot_4_remaining_g') }}g {% elif active == 128
+              and tray == 0 %}{{ states('sensor.ams_slot_5_vendor') }} · {{
+              states('sensor.ams_slot_5_material') }} · {{
+              states('sensor.ams_slot_5_remaining_g') }}g {% elif active == 129
+              and tray == 0 %}{{ states('sensor.ams_slot_6_vendor') }} · {{
+              states('sensor.ams_slot_6_material') }} · {{
+              states('sensor.ams_slot_6_remaining_g') }}g {% elif remain is not
+              none and remain != '' %}{{ name }} · {{ remain }}g {% else %}{{
+              name }}{% endif %}
             icon: mdi:printer-3d-nozzle
+            features_position: bottom
             card_mod:
               style:
                 .: |
@@ -1343,6 +1352,13 @@ views:
                     color: #{{ (c | replace('#', ''))[:6] }} !important;
                     {% endif %}
                   }
+            grid_options:
+              columns: 12
+              rows: 1
+          - type: custom:mushroom-entity-card
+            entity: binary_sensor.p1s_01p00c5a3101668_firmware_update
+            name: Firmware
+            icon: mdi:chip
           - type: custom:mushroom-entity-card
             entity: sensor.p1s_01p00c5a3101668_total_usage
             name: Print Hours
@@ -1567,11 +1583,16 @@ views:
                             if 'RFID_NOT_REFRESHED' in r %}{{
                             states('sensor.ams_slot_1_name') }} assigned -
                             unload & reload for RFID {% elif status == 'ok' %}{%
-                            set remaining = states('sensor.ams_slot_1_remaining_g') | float(0) %}
-                            {% set initial = states('sensor.ams_slot_1_initial_weight_g') | float(0) %}
-                            {% set pct = ((remaining / initial * 100) | round(0)) if initial > 0 else 0 %}
-                            {{ states('sensor.ams_slot_1_vendor') }} · {{ states('sensor.ams_slot_1_material') }} · {{ remaining | round(0) }}g · {{ pct }}%
-                            {% elif status == 'needs_bind' %}
+                            set remaining =
+                            states('sensor.ams_slot_1_remaining_g') | float(0)
+                            %} {% set initial =
+                            states('sensor.ams_slot_1_initial_weight_g') |
+                            float(0) %} {% set pct = ((remaining / initial *
+                            100) | round(0)) if initial > 0 else 0 %} {{
+                            states('sensor.ams_slot_1_vendor') }} · {{
+                            states('sensor.ams_slot_1_material') }} · {{
+                            remaining | round(0) }}g · {{ pct }}% {% elif status
+                            == 'needs_bind' %}
                               {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
                               {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
                               {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
@@ -1605,11 +1626,11 @@ views:
                             {% endif %}
                           badge_icon: mdi:numeric-1-circle
                           badge_color: >-
-                            {% set status = states('sensor.ams_slot_1_status') %}
-                            {% set spool_id = states('input_text.ams_slot_1_spool_id') | int(0) %}
-                            {% if status == 'needs_bind' %}red
-                            {% elif spool_id > 0 %}green
-                            {% else %}orange{% endif %}
+                            {% set status = states('sensor.ams_slot_1_status')
+                            %} {% set spool_id =
+                            states('input_text.ams_slot_1_spool_id') | int(0) %}
+                            {% if status == 'needs_bind' %}red {% elif spool_id
+                            > 0 %}green {% else %}orange{% endif %}
                           tap_action:
                             action: fire-dom-event
                             browser_mod:
@@ -1796,11 +1817,16 @@ views:
                             if 'RFID_NOT_REFRESHED' in r %}{{
                             states('sensor.ams_slot_2_name') }} assigned -
                             unload & reload for RFID {% elif status == 'ok' %}{%
-                            set remaining = states('sensor.ams_slot_2_remaining_g') | float(0) %}
-                            {% set initial = states('sensor.ams_slot_2_initial_weight_g') | float(0) %}
-                            {% set pct = ((remaining / initial * 100) | round(0)) if initial > 0 else 0 %}
-                            {{ states('sensor.ams_slot_2_vendor') }} · {{ states('sensor.ams_slot_2_material') }} · {{ remaining | round(0) }}g · {{ pct }}%
-                            {% elif status == 'needs_bind' %}
+                            set remaining =
+                            states('sensor.ams_slot_2_remaining_g') | float(0)
+                            %} {% set initial =
+                            states('sensor.ams_slot_2_initial_weight_g') |
+                            float(0) %} {% set pct = ((remaining / initial *
+                            100) | round(0)) if initial > 0 else 0 %} {{
+                            states('sensor.ams_slot_2_vendor') }} · {{
+                            states('sensor.ams_slot_2_material') }} · {{
+                            remaining | round(0) }}g · {{ pct }}% {% elif status
+                            == 'needs_bind' %}
                               {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
                               {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
                               {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
@@ -1834,11 +1860,11 @@ views:
                             {% endif %}
                           badge_icon: mdi:numeric-2-circle
                           badge_color: >-
-                            {% set status = states('sensor.ams_slot_2_status') %}
-                            {% set spool_id = states('input_text.ams_slot_2_spool_id') | int(0) %}
-                            {% if status == 'needs_bind' %}red
-                            {% elif spool_id > 0 %}green
-                            {% else %}orange{% endif %}
+                            {% set status = states('sensor.ams_slot_2_status')
+                            %} {% set spool_id =
+                            states('input_text.ams_slot_2_spool_id') | int(0) %}
+                            {% if status == 'needs_bind' %}red {% elif spool_id
+                            > 0 %}green {% else %}orange{% endif %}
                           tap_action:
                             action: fire-dom-event
                             browser_mod:
@@ -2025,11 +2051,16 @@ views:
                             if 'RFID_NOT_REFRESHED' in r %}{{
                             states('sensor.ams_slot_3_name') }} assigned -
                             unload & reload for RFID {% elif status == 'ok' %}{%
-                            set remaining = states('sensor.ams_slot_3_remaining_g') | float(0) %}
-                            {% set initial = states('sensor.ams_slot_3_initial_weight_g') | float(0) %}
-                            {% set pct = ((remaining / initial * 100) | round(0)) if initial > 0 else 0 %}
-                            {{ states('sensor.ams_slot_3_vendor') }} · {{ states('sensor.ams_slot_3_material') }} · {{ remaining | round(0) }}g · {{ pct }}%
-                            {% elif status == 'needs_bind' %}
+                            set remaining =
+                            states('sensor.ams_slot_3_remaining_g') | float(0)
+                            %} {% set initial =
+                            states('sensor.ams_slot_3_initial_weight_g') |
+                            float(0) %} {% set pct = ((remaining / initial *
+                            100) | round(0)) if initial > 0 else 0 %} {{
+                            states('sensor.ams_slot_3_vendor') }} · {{
+                            states('sensor.ams_slot_3_material') }} · {{
+                            remaining | round(0) }}g · {{ pct }}% {% elif status
+                            == 'needs_bind' %}
                               {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
                               {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
                               {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
@@ -2063,11 +2094,11 @@ views:
                             {% endif %}
                           badge_icon: mdi:numeric-3-circle
                           badge_color: >-
-                            {% set status = states('sensor.ams_slot_3_status') %}
-                            {% set spool_id = states('input_text.ams_slot_3_spool_id') | int(0) %}
-                            {% if status == 'needs_bind' %}red
-                            {% elif spool_id > 0 %}green
-                            {% else %}orange{% endif %}
+                            {% set status = states('sensor.ams_slot_3_status')
+                            %} {% set spool_id =
+                            states('input_text.ams_slot_3_spool_id') | int(0) %}
+                            {% if status == 'needs_bind' %}red {% elif spool_id
+                            > 0 %}green {% else %}orange{% endif %}
                           tap_action:
                             action: fire-dom-event
                             browser_mod:
@@ -2254,11 +2285,16 @@ views:
                             if 'RFID_NOT_REFRESHED' in r %}{{
                             states('sensor.ams_slot_4_name') }} assigned -
                             unload & reload for RFID {% elif status == 'ok' %}{%
-                            set remaining = states('sensor.ams_slot_4_remaining_g') | float(0) %}
-                            {% set initial = states('sensor.ams_slot_4_initial_weight_g') | float(0) %}
-                            {% set pct = ((remaining / initial * 100) | round(0)) if initial > 0 else 0 %}
-                            {{ states('sensor.ams_slot_4_vendor') }} · {{ states('sensor.ams_slot_4_material') }} · {{ remaining | round(0) }}g · {{ pct }}%
-                            {% elif status == 'needs_bind' %}
+                            set remaining =
+                            states('sensor.ams_slot_4_remaining_g') | float(0)
+                            %} {% set initial =
+                            states('sensor.ams_slot_4_initial_weight_g') |
+                            float(0) %} {% set pct = ((remaining / initial *
+                            100) | round(0)) if initial > 0 else 0 %} {{
+                            states('sensor.ams_slot_4_vendor') }} · {{
+                            states('sensor.ams_slot_4_material') }} · {{
+                            remaining | round(0) }}g · {{ pct }}% {% elif status
+                            == 'needs_bind' %}
                               {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
                               {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
                               {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
@@ -2292,11 +2328,11 @@ views:
                             {% endif %}
                           badge_icon: mdi:numeric-4-circle
                           badge_color: >-
-                            {% set status = states('sensor.ams_slot_4_status') %}
-                            {% set spool_id = states('input_text.ams_slot_4_spool_id') | int(0) %}
-                            {% if status == 'needs_bind' %}red
-                            {% elif spool_id > 0 %}green
-                            {% else %}orange{% endif %}
+                            {% set status = states('sensor.ams_slot_4_status')
+                            %} {% set spool_id =
+                            states('input_text.ams_slot_4_spool_id') | int(0) %}
+                            {% if status == 'needs_bind' %}red {% elif spool_id
+                            > 0 %}green {% else %}orange{% endif %}
                           tap_action:
                             action: fire-dom-event
                             browser_mod:
@@ -2520,7 +2556,6 @@ views:
                         style: |
                           ha-card { --ha-card-padding: 4px; }
                           mushroom-shape-icon { --icon-size: 24px; }
-                    # NOTE: Test dashboard uses dashboard-test; stage uses lovelace-stage
                     - type: custom:mushroom-template-card
                       primary: Filaments
                       icon: mdi:palette-swatch-variant
@@ -2533,7 +2568,6 @@ views:
                         style: |
                           ha-card { --ha-card-padding: 4px; }
                           mushroom-shape-icon { --icon-size: 24px; }
-                    # NOTE: Test dashboard uses dashboard-test; stage uses lovelace-stage
                     - type: custom:mushroom-template-card
                       primary: Spools
                       icon: mdi:printer-3d-nozzle
@@ -2593,11 +2627,16 @@ views:
                             if 'RFID_NOT_REFRESHED' in r %}{{
                             states('sensor.ams_slot_5_name') }} assigned -
                             unload & reload for RFID {% elif status == 'ok' %}{%
-                            set remaining = states('sensor.ams_slot_5_remaining_g') | float(0) %}
-                            {% set initial = states('sensor.ams_slot_5_initial_weight_g') | float(0) %}
-                            {% set pct = ((remaining / initial * 100) | round(0)) if initial > 0 else 0 %}
-                            {{ states('sensor.ams_slot_5_vendor') }} · {{ states('sensor.ams_slot_5_material') }} · {{ remaining | round(0) }}g · {{ pct }}%
-                            {% elif status == 'needs_bind' %}
+                            set remaining =
+                            states('sensor.ams_slot_5_remaining_g') | float(0)
+                            %} {% set initial =
+                            states('sensor.ams_slot_5_initial_weight_g') |
+                            float(0) %} {% set pct = ((remaining / initial *
+                            100) | round(0)) if initial > 0 else 0 %} {{
+                            states('sensor.ams_slot_5_vendor') }} · {{
+                            states('sensor.ams_slot_5_material') }} · {{
+                            remaining | round(0) }}g · {{ pct }}% {% elif status
+                            == 'needs_bind' %}
                               {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
                               {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
                               {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
@@ -2631,11 +2670,11 @@ views:
                             {% endif %}
                           badge_icon: mdi:numeric-5-circle
                           badge_color: >-
-                            {% set status = states('sensor.ams_slot_5_status') %}
-                            {% set spool_id = states('input_text.ams_slot_5_spool_id') | int(0) %}
-                            {% if status == 'needs_bind' %}red
-                            {% elif spool_id > 0 %}green
-                            {% else %}orange{% endif %}
+                            {% set status = states('sensor.ams_slot_5_status')
+                            %} {% set spool_id =
+                            states('input_text.ams_slot_5_spool_id') | int(0) %}
+                            {% if status == 'needs_bind' %}red {% elif spool_id
+                            > 0 %}green {% else %}orange{% endif %}
                           tap_action:
                             action: fire-dom-event
                             browser_mod:
@@ -2926,11 +2965,16 @@ views:
                             if 'RFID_NOT_REFRESHED' in r %}{{
                             states('sensor.ams_slot_6_name') }} assigned -
                             unload & reload for RFID {% elif status == 'ok' %}{%
-                            set remaining = states('sensor.ams_slot_6_remaining_g') | float(0) %}
-                            {% set initial = states('sensor.ams_slot_6_initial_weight_g') | float(0) %}
-                            {% set pct = ((remaining / initial * 100) | round(0)) if initial > 0 else 0 %}
-                            {{ states('sensor.ams_slot_6_vendor') }} · {{ states('sensor.ams_slot_6_material') }} · {{ remaining | round(0) }}g · {{ pct }}%
-                            {% elif status == 'needs_bind' %}
+                            set remaining =
+                            states('sensor.ams_slot_6_remaining_g') | float(0)
+                            %} {% set initial =
+                            states('sensor.ams_slot_6_initial_weight_g') |
+                            float(0) %} {% set pct = ((remaining / initial *
+                            100) | round(0)) if initial > 0 else 0 %} {{
+                            states('sensor.ams_slot_6_vendor') }} · {{
+                            states('sensor.ams_slot_6_material') }} · {{
+                            remaining | round(0) }}g · {{ pct }}% {% elif status
+                            == 'needs_bind' %}
                               {% if 'NONRFID_NO_MATCH' in r %}No match - tap to select spool
                               {% elif 'AMBIGUOUS' in r %}Multiple matches - tap to select
                               {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
@@ -2964,11 +3008,11 @@ views:
                             {% endif %}
                           badge_icon: mdi:numeric-6-circle
                           badge_color: >-
-                            {% set status = states('sensor.ams_slot_6_status') %}
-                            {% set spool_id = states('input_text.ams_slot_6_spool_id') | int(0) %}
-                            {% if status == 'needs_bind' %}red
-                            {% elif spool_id > 0 %}green
-                            {% else %}orange{% endif %}
+                            {% set status = states('sensor.ams_slot_6_status')
+                            %} {% set spool_id =
+                            states('input_text.ams_slot_6_spool_id') | int(0) %}
+                            {% if status == 'needs_bind' %}red {% elif spool_id
+                            > 0 %}green {% else %}orange{% endif %}
                           tap_action:
                             action: fire-dom-event
                             browser_mod:
@@ -3515,7 +3559,6 @@ views:
                 data: items
                 modify: 'x.weight != null ? Math.round(x.weight) : '''''
                 align: right
-          # --- Actions ---
           - type: custom:mod-card
             style: |
               ha-card {
@@ -3548,26 +3591,20 @@ views:
                               content: >
                                 **Add Filament to Spoolman**
 
-                                Enter filament details below, then tap
-                                **Create filament**.
+                                Enter filament details below, then tap **Create
+                                filament**.
 
-                                Success or failure will appear in
-                                Notifications (bell icon).
+                                Success or failure will appear in Notifications
+                                (bell icon).
                             - type: entities
                               entities:
                                 - entity: input_text.spoolman_new_filament_name
-                                - entity: >-
-                                    input_select.spoolman_new_filament_vendor
-                                - entity: >-
-                                    input_text.spoolman_new_filament_material
-                                - entity: >-
-                                    input_text.spoolman_new_filament_color_hex
-                                - entity: >-
-                                    input_number.spoolman_new_filament_diameter
-                                - entity: >-
-                                    input_number.spoolman_new_filament_density
-                                - entity: >-
-                                    input_number.spoolman_new_filament_weight
+                                - entity: input_select.spoolman_new_filament_vendor
+                                - entity: input_text.spoolman_new_filament_material
+                                - entity: input_text.spoolman_new_filament_color_hex
+                                - entity: input_number.spoolman_new_filament_diameter
+                                - entity: input_number.spoolman_new_filament_density
+                                - entity: input_number.spoolman_new_filament_weight
                             - type: custom:mushroom-template-card
                               primary: Create filament
                               icon: mdi:plus
@@ -3615,7 +3652,6 @@ views:
             card_mod:
               style: |
                 ha-card { background: none; box-shadow: none; }
-          # --- AMS Slot Summary ---
           - type: custom:mod-card
             style: |
               ha-card {
@@ -3635,17 +3671,20 @@ views:
                     action: none
                   card_mod:
                     style: >
-                      ha-card { --ha-card-background: transparent; box-shadow: none; padding: 0; }
+                      ha-card { --ha-card-background: transparent; box-shadow:
+                      none; padding: 0; }
                 - type: grid
                   columns: 3
                   square: false
                   cards:
                     - type: custom:mushroom-template-card
-                      primary: "Slot 1"
+                      primary: Slot 1
                       secondary: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS1_Slot1') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS1_Slot1') | list %} {% if match | length > 0
+                        %}
                           {% set s = match[0] %}
                           {% set f = s.filament if s.filament is mapping else {} %}
                           {% set rem = s.remaining_weight | default(0) | float %}
@@ -3654,22 +3693,28 @@ views:
                           {{ f.name | default('?') }} · {{ rem | round(0) }}g · {{ pct }}%
                         {% else %}Empty{% endif %}
                       icon: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS1_Slot1') | list %}
-                        {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS1_Slot1') | list %} {% if match | length > 0
+                        %}mdi:circle{% else %}mdi:tray-remove{% endif %}
                       icon_color: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS1_Slot1') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS1_Slot1') | list %} {% if match | length > 0
+                        %}
                           {% set f = match[0].filament if match[0].filament is mapping else {} %}
                           {% set hex = f.color_hex | default('333333') %}
                           {% if hex in ['unknown', 'unavailable', ''] %}#444444{% else %}#{{ hex }}{% endif %}
                         {% else %}disabled{% endif %}
                       badge_icon: mdi:numeric-1-circle
                       badge_color: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS1_Slot1') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS1_Slot1') | list %} {% if match | length > 0
+                        %}
                           {% set s = match[0] %}
                           {% set rem = s.remaining_weight | default(0) | float %}
                           {% set init = s.initial_weight | default(0) | float %}
@@ -3680,11 +3725,11 @@ views:
                         action: none
                       card_mod:
                         style: >
-                          {% set items = state_attr('sensor.spoolman_spool_list_data',
-                          'items') or [] %}
-                          {% set match = items | selectattr('location', 'eq',
-                          'AMS1_Slot1') | list %}
-                          {% if match | length > 0 %}
+                          {% set items =
+                          state_attr('sensor.spoolman_spool_list_data', 'items')
+                          or [] %} {% set match = items | selectattr('location',
+                          'eq', 'AMS1_Slot1') | list %} {% if match | length > 0
+                          %}
                             {% set s = match[0] %}
                             {% set rem = s.remaining_weight | default(0) | float %}
                             {% set init = s.initial_weight | default(0) | float %}
@@ -3695,12 +3740,10 @@ views:
                           {% else %}
                             {% set pct = 0 %}
                             {% set hex = '555555' %}
-                          {% endif %}
-                          ha-card {
+                          {% endif %} ha-card {
                             overflow: hidden;
                             position: relative;
-                          }
-                          ha-card::before {
+                          } ha-card::before {
                             content: '';
                             position: absolute;
                             bottom: 0;
@@ -3708,8 +3751,7 @@ views:
                             height: 6px;
                             width: 100%;
                             background: rgba(255, 255, 255, 0.08);
-                          }
-                          ha-card::after {
+                          } ha-card::after {
                             content: '';
                             position: absolute;
                             bottom: 0;
@@ -3721,11 +3763,13 @@ views:
                             transition: width 1s ease;
                           }
                     - type: custom:mushroom-template-card
-                      primary: "Slot 2"
+                      primary: Slot 2
                       secondary: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS1_Slot2') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS1_Slot2') | list %} {% if match | length > 0
+                        %}
                           {% set s = match[0] %}
                           {% set f = s.filament if s.filament is mapping else {} %}
                           {% set rem = s.remaining_weight | default(0) | float %}
@@ -3734,22 +3778,28 @@ views:
                           {{ f.name | default('?') }} · {{ rem | round(0) }}g · {{ pct }}%
                         {% else %}Empty{% endif %}
                       icon: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS1_Slot2') | list %}
-                        {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS1_Slot2') | list %} {% if match | length > 0
+                        %}mdi:circle{% else %}mdi:tray-remove{% endif %}
                       icon_color: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS1_Slot2') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS1_Slot2') | list %} {% if match | length > 0
+                        %}
                           {% set f = match[0].filament if match[0].filament is mapping else {} %}
                           {% set hex = f.color_hex | default('333333') %}
                           {% if hex in ['unknown', 'unavailable', ''] %}#444444{% else %}#{{ hex }}{% endif %}
                         {% else %}disabled{% endif %}
                       badge_icon: mdi:numeric-2-circle
                       badge_color: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS1_Slot2') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS1_Slot2') | list %} {% if match | length > 0
+                        %}
                           {% set s = match[0] %}
                           {% set rem = s.remaining_weight | default(0) | float %}
                           {% set init = s.initial_weight | default(0) | float %}
@@ -3760,11 +3810,11 @@ views:
                         action: none
                       card_mod:
                         style: >
-                          {% set items = state_attr('sensor.spoolman_spool_list_data',
-                          'items') or [] %}
-                          {% set match = items | selectattr('location', 'eq',
-                          'AMS1_Slot2') | list %}
-                          {% if match | length > 0 %}
+                          {% set items =
+                          state_attr('sensor.spoolman_spool_list_data', 'items')
+                          or [] %} {% set match = items | selectattr('location',
+                          'eq', 'AMS1_Slot2') | list %} {% if match | length > 0
+                          %}
                             {% set s = match[0] %}
                             {% set rem = s.remaining_weight | default(0) | float %}
                             {% set init = s.initial_weight | default(0) | float %}
@@ -3775,12 +3825,10 @@ views:
                           {% else %}
                             {% set pct = 0 %}
                             {% set hex = '555555' %}
-                          {% endif %}
-                          ha-card {
+                          {% endif %} ha-card {
                             overflow: hidden;
                             position: relative;
-                          }
-                          ha-card::before {
+                          } ha-card::before {
                             content: '';
                             position: absolute;
                             bottom: 0;
@@ -3788,8 +3836,7 @@ views:
                             height: 6px;
                             width: 100%;
                             background: rgba(255, 255, 255, 0.08);
-                          }
-                          ha-card::after {
+                          } ha-card::after {
                             content: '';
                             position: absolute;
                             bottom: 0;
@@ -3801,11 +3848,13 @@ views:
                             transition: width 1s ease;
                           }
                     - type: custom:mushroom-template-card
-                      primary: "Slot 3"
+                      primary: Slot 3
                       secondary: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS1_Slot3') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS1_Slot3') | list %} {% if match | length > 0
+                        %}
                           {% set s = match[0] %}
                           {% set f = s.filament if s.filament is mapping else {} %}
                           {% set rem = s.remaining_weight | default(0) | float %}
@@ -3814,22 +3863,28 @@ views:
                           {{ f.name | default('?') }} · {{ rem | round(0) }}g · {{ pct }}%
                         {% else %}Empty{% endif %}
                       icon: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS1_Slot3') | list %}
-                        {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS1_Slot3') | list %} {% if match | length > 0
+                        %}mdi:circle{% else %}mdi:tray-remove{% endif %}
                       icon_color: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS1_Slot3') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS1_Slot3') | list %} {% if match | length > 0
+                        %}
                           {% set f = match[0].filament if match[0].filament is mapping else {} %}
                           {% set hex = f.color_hex | default('333333') %}
                           {% if hex in ['unknown', 'unavailable', ''] %}#444444{% else %}#{{ hex }}{% endif %}
                         {% else %}disabled{% endif %}
                       badge_icon: mdi:numeric-3-circle
                       badge_color: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS1_Slot3') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS1_Slot3') | list %} {% if match | length > 0
+                        %}
                           {% set s = match[0] %}
                           {% set rem = s.remaining_weight | default(0) | float %}
                           {% set init = s.initial_weight | default(0) | float %}
@@ -3840,11 +3895,11 @@ views:
                         action: none
                       card_mod:
                         style: >
-                          {% set items = state_attr('sensor.spoolman_spool_list_data',
-                          'items') or [] %}
-                          {% set match = items | selectattr('location', 'eq',
-                          'AMS1_Slot3') | list %}
-                          {% if match | length > 0 %}
+                          {% set items =
+                          state_attr('sensor.spoolman_spool_list_data', 'items')
+                          or [] %} {% set match = items | selectattr('location',
+                          'eq', 'AMS1_Slot3') | list %} {% if match | length > 0
+                          %}
                             {% set s = match[0] %}
                             {% set rem = s.remaining_weight | default(0) | float %}
                             {% set init = s.initial_weight | default(0) | float %}
@@ -3855,12 +3910,10 @@ views:
                           {% else %}
                             {% set pct = 0 %}
                             {% set hex = '555555' %}
-                          {% endif %}
-                          ha-card {
+                          {% endif %} ha-card {
                             overflow: hidden;
                             position: relative;
-                          }
-                          ha-card::before {
+                          } ha-card::before {
                             content: '';
                             position: absolute;
                             bottom: 0;
@@ -3868,8 +3921,7 @@ views:
                             height: 6px;
                             width: 100%;
                             background: rgba(255, 255, 255, 0.08);
-                          }
-                          ha-card::after {
+                          } ha-card::after {
                             content: '';
                             position: absolute;
                             bottom: 0;
@@ -3881,11 +3933,13 @@ views:
                             transition: width 1s ease;
                           }
                     - type: custom:mushroom-template-card
-                      primary: "Slot 4"
+                      primary: Slot 4
                       secondary: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS1_Slot4') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS1_Slot4') | list %} {% if match | length > 0
+                        %}
                           {% set s = match[0] %}
                           {% set f = s.filament if s.filament is mapping else {} %}
                           {% set rem = s.remaining_weight | default(0) | float %}
@@ -3894,22 +3948,28 @@ views:
                           {{ f.name | default('?') }} · {{ rem | round(0) }}g · {{ pct }}%
                         {% else %}Empty{% endif %}
                       icon: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS1_Slot4') | list %}
-                        {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS1_Slot4') | list %} {% if match | length > 0
+                        %}mdi:circle{% else %}mdi:tray-remove{% endif %}
                       icon_color: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS1_Slot4') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS1_Slot4') | list %} {% if match | length > 0
+                        %}
                           {% set f = match[0].filament if match[0].filament is mapping else {} %}
                           {% set hex = f.color_hex | default('333333') %}
                           {% if hex in ['unknown', 'unavailable', ''] %}#444444{% else %}#{{ hex }}{% endif %}
                         {% else %}disabled{% endif %}
                       badge_icon: mdi:numeric-4-circle
                       badge_color: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS1_Slot4') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS1_Slot4') | list %} {% if match | length > 0
+                        %}
                           {% set s = match[0] %}
                           {% set rem = s.remaining_weight | default(0) | float %}
                           {% set init = s.initial_weight | default(0) | float %}
@@ -3920,11 +3980,11 @@ views:
                         action: none
                       card_mod:
                         style: >
-                          {% set items = state_attr('sensor.spoolman_spool_list_data',
-                          'items') or [] %}
-                          {% set match = items | selectattr('location', 'eq',
-                          'AMS1_Slot4') | list %}
-                          {% if match | length > 0 %}
+                          {% set items =
+                          state_attr('sensor.spoolman_spool_list_data', 'items')
+                          or [] %} {% set match = items | selectattr('location',
+                          'eq', 'AMS1_Slot4') | list %} {% if match | length > 0
+                          %}
                             {% set s = match[0] %}
                             {% set rem = s.remaining_weight | default(0) | float %}
                             {% set init = s.initial_weight | default(0) | float %}
@@ -3935,12 +3995,10 @@ views:
                           {% else %}
                             {% set pct = 0 %}
                             {% set hex = '555555' %}
-                          {% endif %}
-                          ha-card {
+                          {% endif %} ha-card {
                             overflow: hidden;
                             position: relative;
-                          }
-                          ha-card::before {
+                          } ha-card::before {
                             content: '';
                             position: absolute;
                             bottom: 0;
@@ -3948,8 +4006,7 @@ views:
                             height: 6px;
                             width: 100%;
                             background: rgba(255, 255, 255, 0.08);
-                          }
-                          ha-card::after {
+                          } ha-card::after {
                             content: '';
                             position: absolute;
                             bottom: 0;
@@ -3961,11 +4018,13 @@ views:
                             transition: width 1s ease;
                           }
                     - type: custom:mushroom-template-card
-                      primary: "HT1"
+                      primary: HT1
                       secondary: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS128_Slot1') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS128_Slot1') | list %} {% if match | length > 0
+                        %}
                           {% set s = match[0] %}
                           {% set f = s.filament if s.filament is mapping else {} %}
                           {% set rem = s.remaining_weight | default(0) | float %}
@@ -3974,22 +4033,28 @@ views:
                           {{ f.name | default('?') }} · {{ rem | round(0) }}g · {{ pct }}%
                         {% else %}Empty{% endif %}
                       icon: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS128_Slot1') | list %}
-                        {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS128_Slot1') | list %} {% if match | length > 0
+                        %}mdi:circle{% else %}mdi:tray-remove{% endif %}
                       icon_color: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS128_Slot1') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS128_Slot1') | list %} {% if match | length > 0
+                        %}
                           {% set f = match[0].filament if match[0].filament is mapping else {} %}
                           {% set hex = f.color_hex | default('333333') %}
                           {% if hex in ['unknown', 'unavailable', ''] %}#444444{% else %}#{{ hex }}{% endif %}
                         {% else %}disabled{% endif %}
                       badge_icon: mdi:numeric-5-circle
                       badge_color: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS128_Slot1') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS128_Slot1') | list %} {% if match | length > 0
+                        %}
                           {% set s = match[0] %}
                           {% set rem = s.remaining_weight | default(0) | float %}
                           {% set init = s.initial_weight | default(0) | float %}
@@ -4000,11 +4065,11 @@ views:
                         action: none
                       card_mod:
                         style: >
-                          {% set items = state_attr('sensor.spoolman_spool_list_data',
-                          'items') or [] %}
-                          {% set match = items | selectattr('location', 'eq',
-                          'AMS128_Slot1') | list %}
-                          {% if match | length > 0 %}
+                          {% set items =
+                          state_attr('sensor.spoolman_spool_list_data', 'items')
+                          or [] %} {% set match = items | selectattr('location',
+                          'eq', 'AMS128_Slot1') | list %} {% if match | length >
+                          0 %}
                             {% set s = match[0] %}
                             {% set rem = s.remaining_weight | default(0) | float %}
                             {% set init = s.initial_weight | default(0) | float %}
@@ -4015,12 +4080,10 @@ views:
                           {% else %}
                             {% set pct = 0 %}
                             {% set hex = '555555' %}
-                          {% endif %}
-                          ha-card {
+                          {% endif %} ha-card {
                             overflow: hidden;
                             position: relative;
-                          }
-                          ha-card::before {
+                          } ha-card::before {
                             content: '';
                             position: absolute;
                             bottom: 0;
@@ -4028,8 +4091,7 @@ views:
                             height: 6px;
                             width: 100%;
                             background: rgba(255, 255, 255, 0.08);
-                          }
-                          ha-card::after {
+                          } ha-card::after {
                             content: '';
                             position: absolute;
                             bottom: 0;
@@ -4041,11 +4103,13 @@ views:
                             transition: width 1s ease;
                           }
                     - type: custom:mushroom-template-card
-                      primary: "HT2"
+                      primary: HT2
                       secondary: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS129_Slot1') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS129_Slot1') | list %} {% if match | length > 0
+                        %}
                           {% set s = match[0] %}
                           {% set f = s.filament if s.filament is mapping else {} %}
                           {% set rem = s.remaining_weight | default(0) | float %}
@@ -4054,22 +4118,28 @@ views:
                           {{ f.name | default('?') }} · {{ rem | round(0) }}g · {{ pct }}%
                         {% else %}Empty{% endif %}
                       icon: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS129_Slot1') | list %}
-                        {% if match | length > 0 %}mdi:circle{% else %}mdi:tray-remove{% endif %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS129_Slot1') | list %} {% if match | length > 0
+                        %}mdi:circle{% else %}mdi:tray-remove{% endif %}
                       icon_color: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS129_Slot1') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS129_Slot1') | list %} {% if match | length > 0
+                        %}
                           {% set f = match[0].filament if match[0].filament is mapping else {} %}
                           {% set hex = f.color_hex | default('333333') %}
                           {% if hex in ['unknown', 'unavailable', ''] %}#444444{% else %}#{{ hex }}{% endif %}
                         {% else %}disabled{% endif %}
                       badge_icon: mdi:numeric-6-circle
                       badge_color: >
-                        {% set items = state_attr('sensor.spoolman_spool_list_data', 'items') or [] %}
-                        {% set match = items | selectattr('location', 'eq', 'AMS129_Slot1') | list %}
-                        {% if match | length > 0 %}
+                        {% set items =
+                        state_attr('sensor.spoolman_spool_list_data', 'items')
+                        or [] %} {% set match = items | selectattr('location',
+                        'eq', 'AMS129_Slot1') | list %} {% if match | length > 0
+                        %}
                           {% set s = match[0] %}
                           {% set rem = s.remaining_weight | default(0) | float %}
                           {% set init = s.initial_weight | default(0) | float %}
@@ -4080,11 +4150,11 @@ views:
                         action: none
                       card_mod:
                         style: >
-                          {% set items = state_attr('sensor.spoolman_spool_list_data',
-                          'items') or [] %}
-                          {% set match = items | selectattr('location', 'eq',
-                          'AMS129_Slot1') | list %}
-                          {% if match | length > 0 %}
+                          {% set items =
+                          state_attr('sensor.spoolman_spool_list_data', 'items')
+                          or [] %} {% set match = items | selectattr('location',
+                          'eq', 'AMS129_Slot1') | list %} {% if match | length >
+                          0 %}
                             {% set s = match[0] %}
                             {% set rem = s.remaining_weight | default(0) | float %}
                             {% set init = s.initial_weight | default(0) | float %}
@@ -4095,12 +4165,10 @@ views:
                           {% else %}
                             {% set pct = 0 %}
                             {% set hex = '555555' %}
-                          {% endif %}
-                          ha-card {
+                          {% endif %} ha-card {
                             overflow: hidden;
                             position: relative;
-                          }
-                          ha-card::before {
+                          } ha-card::before {
                             content: '';
                             position: absolute;
                             bottom: 0;
@@ -4108,8 +4176,7 @@ views:
                             height: 6px;
                             width: 100%;
                             background: rgba(255, 255, 255, 0.08);
-                          }
-                          ha-card::after {
+                          } ha-card::after {
                             content: '';
                             position: absolute;
                             bottom: 0;
@@ -4205,7 +4272,6 @@ views:
 
                   lot.length > 16 ? (lot.substring(0, 8) + '…' +
                   lot.substring(lot.length - 4)) : lot
-          # --- Actions ---
           - type: custom:mod-card
             style: |
               ha-card {
@@ -4235,7 +4301,7 @@ views:
                           type: vertical-stack
                           cards:
                             - type: markdown
-                              content: "**Add Spool to Spoolman**"
+                              content: '**Add Spool to Spoolman**'
                             - type: entities
                               entities:
                                 - entity: input_select.spoolman_new_spool_filament
