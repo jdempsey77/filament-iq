@@ -96,6 +96,41 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._current_active_slot = None
         self._print_active = False
 
+        # Phase 1: Print start lifecycle (absorbs automations A, B, C)
+        self._lifecycle_phase1 = bool(self.args.get("lifecycle_phase1_enabled", False))
+        self._job_key = ""
+        self._start_snapshot = {}  # {slot_int: grams_float}
+        self._fuel_gauge_pattern = str(
+            self.args.get(
+                "fuel_gauge_pattern",
+                "sensor.p1s_tray_{slot}_fuel_gauge_remaining",
+            )
+        ).strip()
+        self._ams_remaining_pattern = str(
+            self.args.get(
+                "ams_remaining_pattern",
+                "sensor.ams_slot_{slot}_remaining_g",
+            )
+        ).strip()
+        self._print_active_entity = str(
+            self.args.get(
+                "print_active_entity",
+                "input_boolean.filament_iq_print_active",
+            )
+        ).strip()
+        self._job_key_entity = str(
+            self.args.get(
+                "job_key_entity",
+                "input_text.filament_iq_active_job_key",
+            )
+        ).strip()
+        self._start_json_entity = str(
+            self.args.get(
+                "start_json_entity",
+                "input_text.filament_iq_start_json",
+            )
+        ).strip()
+
         # 3MF parsing config
         self.printer_ip = str(self.args.get("printer_ip", ""))
         self.printer_ftps_port = int(self.args.get("printer_ftps_port", 990))
@@ -506,6 +541,8 @@ class AmsPrintUsageSync(FilamentIQBase):
             )
             if self.threemf_enabled:
                 self.run_in(self._fetch_3mf_background, 5)
+            if self._lifecycle_phase1:
+                self._on_print_start()
         elif old in ("running", "printing") and new not in ("running", "printing"):
             self._print_active = False
             if self._current_active_slot is not None:
@@ -528,6 +565,8 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"TRAY_TRACKING: Failed to update HA helper: {e}",
                     level="WARNING",
                 )
+            if self._lifecycle_phase1:
+                self._on_print_end()
 
     def _resolve_active_tray_slot(self):
         try:
@@ -571,6 +610,8 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._trays_used.add(slot)
         self._open_active_segment(slot)
         self._current_active_slot = slot
+        if self._lifecycle_phase1:
+            self._seed_slot_start_grams(slot)
         self.log(
             f"TRAY_TRACKING_ACTIVE slot={slot} trays_used={self._trays_used}",
             level="DEBUG",
@@ -588,6 +629,105 @@ class AmsPrintUsageSync(FilamentIQBase):
         segments = self._tray_active_times.get(slot, [])
         if segments and segments[-1].get("end") is None:
             segments[-1]["end"] = datetime.datetime.utcnow()
+
+    # ── Phase 1: print start lifecycle ──────────────────────────────
+
+    def _read_fuel_gauge(self, slot):
+        """Read fuel gauge for a slot, with ams_remaining fallback. Returns grams or -1."""
+        fg_entity = self._fuel_gauge_pattern.format(slot=slot)
+        try:
+            fg = float(self.get_state(fg_entity) or -1)
+        except (TypeError, ValueError):
+            fg = -1.0
+        if fg > 0:
+            return fg
+        ams_entity = self._ams_remaining_pattern.format(slot=slot)
+        try:
+            ams = float(self.get_state(ams_entity) or -1)
+        except (TypeError, ValueError):
+            ams = -1.0
+        return ams if ams > 0 else -1.0
+
+    def _build_start_snapshot(self):
+        """Read fuel gauge for all slots, return {slot_int: grams} for slots with valid readings."""
+        snapshot = {}
+        for slot in sorted(self._tray_entity_by_slot.keys()):
+            grams = self._read_fuel_gauge(slot)
+            if grams >= 0:
+                snapshot[slot] = max(0.0, round(grams, 1))
+        return snapshot
+
+    def _snapshot_to_json_dict(self, snapshot):
+        """Convert {slot_int: grams} to {slot_str: grams} matching automation D's start_json format."""
+        return {str(slot): grams for slot, grams in snapshot.items()}
+
+    def _write_start_json_helper(self):
+        """Write self._start_snapshot to the HA start_json helper (bridge for automation D)."""
+        try:
+            json_dict = self._snapshot_to_json_dict(self._start_snapshot)
+            self.call_service(
+                "input_text/set_value",
+                entity_id=self._start_json_entity,
+                value=json.dumps(json_dict),
+            )
+        except Exception as e:
+            self.log(f"LIFECYCLE: Failed to write start_json helper: {e}", level="WARNING")
+
+    def _on_print_start(self):
+        """Phase 1 print start handler: job key, start snapshot, HA helpers."""
+        task_name = str(self.get_state(self._task_name_entity) or "")
+        self._job_key = task_name.replace(" ", "_")
+        self._start_snapshot = self._build_start_snapshot()
+
+        # Write HA helpers (bridge for automation D)
+        try:
+            self.call_service(
+                "input_boolean/turn_on",
+                entity_id=self._print_active_entity,
+            )
+        except Exception as e:
+            self.log(f"LIFECYCLE: Failed to set print_active: {e}", level="WARNING")
+        try:
+            self.call_service(
+                "input_text/set_value",
+                entity_id=self._job_key_entity,
+                value=self._job_key,
+            )
+        except Exception as e:
+            self.log(f"LIFECYCLE: Failed to write job_key helper: {e}", level="WARNING")
+        self._write_start_json_helper()
+
+        self.log(
+            f"PRINT_START_CAPTURED job_key={self._job_key} "
+            f"start_snapshot={self._start_snapshot}",
+            level="INFO",
+        )
+
+    def _seed_slot_start_grams(self, slot):
+        """Write-once: seed start grams for a newly-active slot during print."""
+        if slot in self._start_snapshot and self._start_snapshot[slot] > 0:
+            return  # already seeded
+        grams = self._read_fuel_gauge(slot)
+        if grams < 0:
+            return
+        self._start_snapshot[slot] = max(0.0, round(grams, 1))
+        self._write_start_json_helper()
+        self.log(
+            f"TRAY_START_SEEDED slot={slot} grams={self._start_snapshot[slot]}",
+            level="INFO",
+        )
+
+    def _on_print_end(self):
+        """Phase 1 print end handler: clear snapshot, set print_active off."""
+        self._start_snapshot = {}
+        self._job_key = ""
+        try:
+            self.call_service(
+                "input_boolean/turn_off",
+                entity_id=self._print_active_entity,
+            )
+        except Exception as e:
+            self.log(f"LIFECYCLE: Failed to clear print_active: {e}", level="WARNING")
 
     def _summarize_tray_times(self):
         result = {}

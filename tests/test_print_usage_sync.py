@@ -445,3 +445,179 @@ class TestRfidCap:
         nonrfid_pool = max(0.0, print_weight - capped)
         assert capped == 20.0
         assert nonrfid_pool == 0.0
+
+
+# ── Phase 1: Print Start Lifecycle ──
+
+
+def generate_job_key(task_name):
+    """Simulate job key generation from task name."""
+    return task_name.replace(" ", "_")
+
+
+def read_fuel_gauge(slot, fuel_gauges, ams_remaining):
+    """Simulate _read_fuel_gauge: fuel gauge first, ams fallback, else -1."""
+    fg = fuel_gauges.get(slot, -1.0)
+    if fg > 0:
+        return fg
+    ams = ams_remaining.get(slot, -1.0)
+    return ams if ams > 0 else -1.0
+
+
+def build_start_snapshot(slots, fuel_gauges, ams_remaining):
+    """Simulate _build_start_snapshot."""
+    snapshot = {}
+    for slot in sorted(slots):
+        grams = read_fuel_gauge(slot, fuel_gauges, ams_remaining)
+        if grams >= 0:
+            snapshot[slot] = max(0.0, round(grams, 1))
+    return snapshot
+
+
+def snapshot_to_json_dict(snapshot):
+    """Convert {slot_int: grams} to {slot_str: grams}."""
+    return {str(slot): grams for slot, grams in snapshot.items()}
+
+
+def seed_slot_start_grams(snapshot, slot, fuel_gauges, ams_remaining):
+    """Simulate write-once seeding. Returns updated snapshot."""
+    if slot in snapshot and snapshot[slot] > 0:
+        return snapshot  # already seeded
+    grams = read_fuel_gauge(slot, fuel_gauges, ams_remaining)
+    if grams < 0:
+        return snapshot
+    snapshot[slot] = max(0.0, round(grams, 1))
+    return snapshot
+
+
+class TestJobKeyGeneration:
+    def test_simple_name(self):
+        assert generate_job_key("benchy") == "benchy"
+
+    def test_spaces_replaced(self):
+        assert generate_job_key("miriam Plate 1") == "miriam_Plate_1"
+
+    def test_already_underscored(self):
+        assert generate_job_key("my_print_v2") == "my_print_v2"
+
+    def test_multiple_spaces(self):
+        assert generate_job_key("test  double  space") == "test__double__space"
+
+    def test_empty_name(self):
+        assert generate_job_key("") == ""
+
+    def test_with_3mf_extension(self):
+        assert generate_job_key("box lid v3.gcode.3mf") == "box_lid_v3.gcode.3mf"
+
+
+class TestFuelGaugeReading:
+    def test_fuel_gauge_preferred(self):
+        fg = {1: 800.0}
+        ams = {1: 750.0}
+        assert read_fuel_gauge(1, fg, ams) == 800.0
+
+    def test_ams_fallback_when_fg_zero(self):
+        fg = {1: 0.0}
+        ams = {1: 750.0}
+        assert read_fuel_gauge(1, fg, ams) == 750.0
+
+    def test_ams_fallback_when_fg_negative(self):
+        fg = {1: -1.0}
+        ams = {1: 750.0}
+        assert read_fuel_gauge(1, fg, ams) == 750.0
+
+    def test_ams_fallback_when_fg_missing(self):
+        fg = {}
+        ams = {1: 750.0}
+        assert read_fuel_gauge(1, fg, ams) == 750.0
+
+    def test_returns_negative_when_both_unavailable(self):
+        assert read_fuel_gauge(1, {}, {}) == -1.0
+
+    def test_returns_negative_when_both_zero(self):
+        assert read_fuel_gauge(1, {1: 0.0}, {1: 0.0}) == -1.0
+
+
+class TestBuildStartSnapshot:
+    def test_all_slots_have_fuel_gauge(self):
+        fg = {1: 800.0, 2: 950.0, 3: 400.0, 4: 100.0}
+        result = build_start_snapshot([1, 2, 3, 4], fg, {})
+        assert result == {1: 800.0, 2: 950.0, 3: 400.0, 4: 100.0}
+
+    def test_mixed_fuel_gauge_and_ams(self):
+        fg = {1: 800.0, 2: -1.0}
+        ams = {2: 500.0, 3: -1.0}
+        result = build_start_snapshot([1, 2, 3], fg, ams)
+        assert result == {1: 800.0, 2: 500.0}
+
+    def test_no_readings_for_any_slot(self):
+        result = build_start_snapshot([1, 2, 3], {}, {})
+        assert result == {}
+
+    def test_zero_grams_clamped(self):
+        fg = {1: 0.0}
+        ams = {1: 0.0}
+        result = build_start_snapshot([1], fg, ams)
+        assert result == {}
+
+    def test_six_slot_mixed(self):
+        """Real scenario: slots 1-4 RFID (fuel gauge), 5-6 non-RFID (ams only)."""
+        fg = {1: 800.0, 2: 950.0, 3: 400.0, 4: 100.0, 5: -1.0, 6: -1.0}
+        ams = {5: 500.0, 6: 200.0}
+        result = build_start_snapshot([1, 2, 3, 4, 5, 6], fg, ams)
+        assert result == {1: 800.0, 2: 950.0, 3: 400.0, 4: 100.0, 5: 500.0, 6: 200.0}
+
+
+class TestSnapshotToJsonDict:
+    def test_converts_int_keys_to_strings(self):
+        snapshot = {1: 800.0, 3: 400.0}
+        result = snapshot_to_json_dict(snapshot)
+        assert result == {"1": 800.0, "3": 400.0}
+
+    def test_empty_snapshot(self):
+        assert snapshot_to_json_dict({}) == {}
+
+    def test_format_matches_automation_d(self):
+        """Verify output matches what automation D passes as start_json in the event."""
+        snapshot = {1: 800.0, 2: 950.0, 5: 500.0}
+        result = snapshot_to_json_dict(snapshot)
+        # automation D reads: states('input_text.filament_iq_start_json')
+        # which is JSON like {"1": 800.0, "2": 950.0, "5": 500.0}
+        import json
+        serialized = json.dumps(result)
+        parsed = json.loads(serialized)
+        assert parsed == {"1": 800.0, "2": 950.0, "5": 500.0}
+        # Keys must be strings for _coerce_json_field to work
+        assert all(isinstance(k, str) for k in parsed.keys())
+
+
+class TestSeedSlotStartGrams:
+    def test_seeds_new_slot(self):
+        snapshot = {1: 800.0}
+        fg = {2: 950.0}
+        result = seed_slot_start_grams(snapshot, 2, fg, {})
+        assert result == {1: 800.0, 2: 950.0}
+
+    def test_write_once_skips_existing(self):
+        snapshot = {1: 800.0}
+        fg = {1: 900.0}  # different value
+        result = seed_slot_start_grams(snapshot, 1, fg, {})
+        assert result[1] == 800.0  # original value preserved
+
+    def test_write_once_allows_zero_override(self):
+        """Slot with 0 grams should be overwritable (not a real reading)."""
+        snapshot = {1: 0.0}
+        fg = {1: 800.0}
+        result = seed_slot_start_grams(snapshot, 1, fg, {})
+        assert result[1] == 800.0
+
+    def test_skips_when_no_reading(self):
+        snapshot = {1: 800.0}
+        result = seed_slot_start_grams(snapshot, 2, {}, {})
+        assert 2 not in result
+
+    def test_uses_ams_fallback(self):
+        snapshot = {}
+        ams = {3: 500.0}
+        result = seed_slot_start_grams(snapshot, 3, {}, ams)
+        assert result == {3: 500.0}
