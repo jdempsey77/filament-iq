@@ -286,7 +286,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         if self._threemf_data and self.threemf_enabled:
             slot_data = self._build_slot_data()
             matches, unmatched_fils = match_filaments_to_slots(
-                self._threemf_data, slot_data, trays_used_set or None
+                self._threemf_data, slot_data, trays_used=None
             )
             if matches:
                 threemf_used = True

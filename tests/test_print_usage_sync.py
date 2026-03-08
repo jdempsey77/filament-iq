@@ -766,6 +766,59 @@ class TestLotNrColorMatching:
         assert matches[0]["method"] == "exact_color_material"
 
 
+# ── Test: 3MF matching ignores trays_used restriction ──
+
+
+class Test3mfMatchingAllBoundSlots:
+    def test_all_4_filaments_match_without_trays_used_filter(self):
+        """
+        3MF has 4 filaments but trays_used only tracked 3 slots (1,2,4).
+        Slot 3 wasn't in trays_used but has a bound spool with matching color.
+        When trays_used=None (3MF is authoritative), all 4 should match.
+        """
+        filaments = [
+            {"index": 0, "used_g": 5.0, "color_hex": "ffffff", "material": "pla"},
+            {"index": 1, "used_g": 3.0, "color_hex": "ff0000", "material": "pla"},
+            {"index": 2, "used_g": 2.0, "color_hex": "00ae42", "material": "pla"},
+            {"index": 3, "used_g": 0.24, "color_hex": "161616", "material": "pla"},
+        ]
+        slot_data = {
+            1: {"color_hex": "ffffff", "material": "pla", "spool_id": 41},
+            2: {"color_hex": "ff0000", "material": "pla", "spool_id": 42},
+            3: {"color_hex": "161616", "material": "pla", "spool_id": 52},
+            4: {"color_hex": "00ae42", "material": "pla", "spool_id": 51},
+        }
+        # trays_used=None → all bound slots are candidates (3MF authoritative)
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data, trays_used=None)
+        assert len(matches) == 4
+        assert len(unmatched) == 0
+        slot_map = {m["slot"]: m for m in matches}
+        assert slot_map[1]["used_g"] == 5.0
+        assert slot_map[2]["used_g"] == 3.0
+        assert slot_map[3]["used_g"] == 0.24
+        assert slot_map[4]["used_g"] == 2.0
+
+    def test_trays_used_filter_would_miss_slot(self):
+        """Confirm that passing trays_used={1,2,4} excludes slot 3 (the bug)."""
+        filaments = [
+            {"index": 0, "used_g": 5.0, "color_hex": "ffffff", "material": "pla"},
+            {"index": 1, "used_g": 3.0, "color_hex": "ff0000", "material": "pla"},
+            {"index": 2, "used_g": 2.0, "color_hex": "00ae42", "material": "pla"},
+            {"index": 3, "used_g": 0.24, "color_hex": "161616", "material": "pla"},
+        ]
+        slot_data = {
+            1: {"color_hex": "ffffff", "material": "pla", "spool_id": 41},
+            2: {"color_hex": "ff0000", "material": "pla", "spool_id": 42},
+            3: {"color_hex": "161616", "material": "pla", "spool_id": 52},
+            4: {"color_hex": "00ae42", "material": "pla", "spool_id": 51},
+        }
+        # With trays_used={1,2,4}, slot 3 is excluded → filament 3 unmatched
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data, trays_used={1, 2, 4})
+        assert len(matches) == 3
+        assert len(unmatched) == 1
+        assert unmatched[0]["color_hex"] == "161616"
+
+
 # ── Test: Unmatched 3MF consumption pooling ──
 
 
