@@ -1250,3 +1250,201 @@ class TestRehydration:
         assert active is True
         assert recovered is False
         assert snapshot == {}
+
+
+# ── Sync Color on Bind ──
+
+
+def read_tray_color_hex(raw_color):
+    """Simulate _read_tray_color_hex normalization."""
+    if not raw_color:
+        return None
+    raw = str(raw_color).strip().lstrip("#")
+    if len(raw) == 8:
+        raw = raw[:6]
+    if len(raw) != 6:
+        return None
+    return raw.upper()
+
+
+def should_sync_color(existing_color, target_color):
+    """Simulate _sync_filament_color_on_bind color comparison."""
+    existing = str(existing_color or "").strip().lstrip("#").upper()
+    if len(existing) == 8:
+        existing = existing[:6]
+    return existing != target_color
+
+
+def resolve_sync_mode(sync_mode, tray_color):
+    """Simulate sync_mode resolution. Returns target color or None."""
+    if not sync_mode:
+        return None
+    if sync_mode == "auto":
+        return tray_color
+    if len(sync_mode) == 6 and all(c in "0123456789abcdefABCDEF" for c in sync_mode):
+        return sync_mode.upper()
+    return None
+
+
+def is_rfid_lot_nr(lot_nr):
+    """Check if lot_nr is RFID (32-char hex UUID)."""
+    if not lot_nr or len(lot_nr) != 32:
+        return False
+    return all(c in "0123456789abcdefABCDEF" for c in lot_nr)
+
+
+class TestReadTrayColorHex:
+    def test_8char_with_hash_and_alpha(self):
+        assert read_tray_color_hex("#161616FF") == "161616"
+
+    def test_8char_no_hash(self):
+        assert read_tray_color_hex("000000FF") == "000000"
+
+    def test_6char_with_hash(self):
+        assert read_tray_color_hex("#FF00AA") == "FF00AA"
+
+    def test_6char_no_hash(self):
+        assert read_tray_color_hex("00ae42") == "00AE42"
+
+    def test_empty_string(self):
+        assert read_tray_color_hex("") is None
+
+    def test_none(self):
+        assert read_tray_color_hex(None) is None
+
+    def test_short_string(self):
+        assert read_tray_color_hex("FFF") is None
+
+    def test_unavailable(self):
+        assert read_tray_color_hex("unavailable") is None
+
+
+class TestSyncColorOnBind:
+    def test_auto_mode_resolves_tray_color(self):
+        target = resolve_sync_mode("auto", "161616")
+        assert target == "161616"
+
+    def test_auto_mode_no_tray_color(self):
+        target = resolve_sync_mode("auto", None)
+        assert target is None
+
+    def test_explicit_hex_mode(self):
+        target = resolve_sync_mode("FF00AA", None)
+        assert target == "FF00AA"
+
+    def test_explicit_hex_lowercase(self):
+        target = resolve_sync_mode("ff00aa", None)
+        assert target == "FF00AA"
+
+    def test_empty_mode_no_sync(self):
+        target = resolve_sync_mode("", None)
+        assert target is None
+
+    def test_invalid_mode_returns_none(self):
+        target = resolve_sync_mode("invalid", None)
+        assert target is None
+
+    def test_colors_differ_should_patch(self):
+        assert should_sync_color("000000", "161616") is True
+
+    def test_colors_match_should_skip(self):
+        assert should_sync_color("161616", "161616") is False
+
+    def test_existing_with_alpha_stripped(self):
+        assert should_sync_color("161616FF", "161616") is False
+
+    def test_existing_with_hash_stripped(self):
+        assert should_sync_color("#161616", "161616") is False
+
+
+class TestEnrollLotNrForce:
+    def _simulate_enroll(self, existing_lot_nr, new_lot_nr, force=False):
+        """Simulate _enroll_lot_nr logic. Returns (action, reason)."""
+        if not new_lot_nr:
+            return "skip", "empty"
+        if existing_lot_nr == new_lot_nr:
+            return "skip", "already_set"
+        if existing_lot_nr and existing_lot_nr != new_lot_nr:
+            if force:
+                return "overwrite", "color_sync_re_enrollment"
+            return "refuse", "conflict"
+        return "write", "new"
+
+    def test_force_false_refuses_overwrite(self):
+        action, reason = self._simulate_enroll("pla|gfl99|000000", "pla|gfl99|161616", force=False)
+        assert action == "refuse"
+        assert reason == "conflict"
+
+    def test_force_true_allows_overwrite(self):
+        action, reason = self._simulate_enroll("pla|gfl99|000000", "pla|gfl99|161616", force=True)
+        assert action == "overwrite"
+        assert reason == "color_sync_re_enrollment"
+
+    def test_same_value_skips_regardless_of_force(self):
+        action, _ = self._simulate_enroll("pla|gfl99|161616", "pla|gfl99|161616", force=True)
+        assert action == "skip"
+
+    def test_empty_existing_writes_normally(self):
+        action, reason = self._simulate_enroll("", "pla|gfl99|161616", force=False)
+        assert action == "write"
+        assert reason == "new"
+
+
+class TestRfidGuard:
+    def test_rfid_uuid_skips_sync(self):
+        assert is_rfid_lot_nr("A1B2C3D4E5F6A1B2C3D4E5F6A1B2C3D4") is True
+
+    def test_rfid_lowercase_uuid(self):
+        assert is_rfid_lot_nr("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4") is True
+
+    def test_non_rfid_pipe_sig(self):
+        assert is_rfid_lot_nr("pla|gfl99|161616") is False
+
+    def test_empty_lot_nr(self):
+        assert is_rfid_lot_nr("") is False
+
+    def test_none_lot_nr(self):
+        assert is_rfid_lot_nr(None) is False
+
+    def test_short_hex(self):
+        assert is_rfid_lot_nr("A1B2C3D4") is False
+
+
+class TestSyncColorFullFlow:
+    def test_assign_with_auto_sync_patches_and_re_enrolls(self):
+        """Full flow: tray color differs from Spoolman → PATCH filament, force re-enroll."""
+        tray_color = read_tray_color_hex("#161616FF")
+        assert tray_color == "161616"
+
+        target = resolve_sync_mode("auto", tray_color)
+        assert target == "161616"
+
+        existing_filament_color = "000000"
+        needs_patch = should_sync_color(existing_filament_color, target)
+        assert needs_patch is True
+
+        # After PATCH, lot_sig would be rebuilt with new color
+        old_lot_sig = "pla|gfl99|000000"
+        new_lot_sig = "pla|gfl99|161616"
+
+        # Force re-enroll with corrected sig
+        action, reason = TestEnrollLotNrForce()._simulate_enroll(old_lot_sig, new_lot_sig, force=True)
+        assert action == "overwrite"
+
+    def test_assign_with_matching_colors_skips_sync(self):
+        """Colors already match → no PATCH, no force re-enroll needed."""
+        tray_color = read_tray_color_hex("#161616FF")
+        target = resolve_sync_mode("auto", tray_color)
+        needs_patch = should_sync_color("161616", target)
+        assert needs_patch is False
+
+    def test_assign_rfid_spool_skips_sync(self):
+        """RFID spool → skip color sync entirely."""
+        lot_nr = "A1B2C3D4E5F6A1B2C3D4E5F6A1B2C3D4"
+        assert is_rfid_lot_nr(lot_nr) is True
+        # Sync should not proceed
+
+    def test_assign_with_empty_sync_mode_no_sync(self):
+        """Empty sync_color_hex → backwards compatible, no sync."""
+        target = resolve_sync_mode("", None)
+        assert target is None

@@ -596,6 +596,14 @@ ams_slot_assign_and_update:
     slot:
       description: "Slot number (1-6)"
       example: "1"
+    sync_color_hex:
+      description: >
+        Color sync mode. "auto" = sync Spoolman filament color to match AMS
+        tray color on bind. 6-char hex = use explicit color. Empty = no sync.
+      required: false
+      default: "auto"
+      selector:
+        text:
   sequence:
     - variables:
         selected: "{{ states('input_select.ams_slot_' ~ slot ~ '_select_spool') }}"
@@ -663,6 +671,7 @@ ams_slot_assign_and_update:
               event_data:
                 slot: "{{ slot | int }}"
                 spool_id: "{{ final_spool_id }}"
+                sync_color_hex: "{{ sync_color_hex | default('auto') }}"
             - service: input_text.set_value
               target:
                 entity_id: "input_text.ams_slot_{{ slot }}_unbound_reason"
