@@ -376,6 +376,7 @@
   mode: single
 
 - id: p1s_capture_active_tray_entity
+  enabled: false  # Replaced by Filament IQ AppDaemon lifecycle (Phases 1-3)
   alias: P1S – capture active tray entity during print
   description: When print starts, clear trays-used list, wait until any tray reports active=true then store that tray entity for subtract-after-print.
   trigger:
@@ -487,6 +488,7 @@
 
 # While print is running, append any tray that becomes active to the "trays used" list (for multi-color subtract).
 - id: p1s_remaining_snapshot_init
+  enabled: false  # Replaced by Filament IQ AppDaemon lifecycle (Phases 1-3)
   alias: P1S – init remaining filament snapshots
   description: Clear snapshot JSON helpers when print starts, then seed with currently-active trays
   trigger:
@@ -660,6 +662,7 @@
   mode: single
 
 - id: p1s_remaining_snapshot_on_tray_first_active
+  enabled: false  # Replaced by Filament IQ AppDaemon lifecycle (Phases 1-3)
   alias: P1S – seed start grams on tray first active
   description: Record start grams when tray becomes active during print (merge-only, write-once per slot)
   trigger:
@@ -721,6 +724,7 @@
 
 # DEBUG: Record every print_status change to helper (when filament_debug_mode ON)
 - id: p1s_debug_print_status_transition
+  enabled: false  # Replaced by Filament IQ AppDaemon lifecycle (Phases 1-3)
   alias: P1S – DEBUG record print_status transitions
   description: "When filament_debug_mode ON: record print_status from→to to p1s_last_print_status_transition."
   trigger:
@@ -739,6 +743,7 @@
   mode: single
 
 - id: p1s_remaining_snapshot_on_finish
+  enabled: false  # Replaced by Filament IQ AppDaemon lifecycle (Phases 1-3)
   alias: P1S – snapshot remaining on print finish
   description: Record tray remaining_filament at print finish and notify with start→end delta (NO JSON PARSING)
   trigger:
@@ -882,6 +887,7 @@
 
 # Detect mid-print spool mapping changes → set reconcile flag
 - id: p1s_detect_spool_swap_during_print
+  enabled: false  # Replaced by Filament IQ AppDaemon lifecycle (Phases 1-3)
   alias: P1S – detect spool swap during print
   description: When spool assignment changes while print is active, set reconcile flag and notify
   trigger:
@@ -1095,6 +1101,7 @@
 
 # Rehydrate print active mutex after HA restart if print is still running
 - id: p1s_rehydrate_mutex_on_restart
+  enabled: false  # Replaced by Filament IQ AppDaemon lifecycle (Phases 1-3)
   alias: P1S – rehydrate print active mutex on HA restart
   description: If HA restarts while print is active, restore mutex to ON to prevent manual slot mapping changes
   trigger:
