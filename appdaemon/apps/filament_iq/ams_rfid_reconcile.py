@@ -605,6 +605,8 @@ class AmsRfidReconcile(FilamentIQBase):
         if slot not in self._tray_entity_by_slot or spool_id <= 0:
             return
 
+        self._suppress_helper_change_until[slot] = datetime.datetime.utcnow() + datetime.timedelta(seconds=10)
+
         # Read tray attributes
         tray = self.get_state(self._tray_entity_by_slot[slot], attribute="all") or {}
         attrs = tray.get("attributes", {}) if isinstance(tray, dict) else {}
