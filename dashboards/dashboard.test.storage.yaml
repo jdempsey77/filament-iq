@@ -1679,7 +1679,9 @@ views:
                           card_mod:
                             style: |
                               :host {
-                                width: 680px;
+                                min-width: 600px;
+                                width: 90vw;
+                                max-width: 800px;
                               }
                           cards:
                             - type: markdown
@@ -1880,7 +1882,9 @@ views:
                           card_mod:
                             style: |
                               :host {
-                                width: 680px;
+                                min-width: 600px;
+                                width: 90vw;
+                                max-width: 800px;
                               }
                           cards:
                             - type: markdown
@@ -2081,7 +2085,9 @@ views:
                           card_mod:
                             style: |
                               :host {
-                                width: 680px;
+                                min-width: 600px;
+                                width: 90vw;
+                                max-width: 800px;
                               }
                           cards:
                             - type: markdown
@@ -2282,7 +2288,9 @@ views:
                           card_mod:
                             style: |
                               :host {
-                                width: 680px;
+                                min-width: 600px;
+                                width: 90vw;
+                                max-width: 800px;
                               }
                           cards:
                             - type: markdown
@@ -2557,7 +2565,9 @@ views:
                           card_mod:
                             style: |
                               :host {
-                                width: 680px;
+                                min-width: 600px;
+                                width: 90vw;
+                                max-width: 800px;
                               }
                           cards:
                             - type: markdown
@@ -2832,7 +2842,9 @@ views:
                           card_mod:
                             style: |
                               :host {
-                                width: 680px;
+                                min-width: 600px;
+                                width: 90vw;
+                                max-width: 800px;
                               }
                           cards:
                             - type: markdown
