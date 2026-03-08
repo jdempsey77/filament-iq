@@ -1,5 +1,8 @@
 """AMS Print Usage Sync — writes filament consumption to Spoolman after each print.
 
+Entity naming: sensor.{prefix}_{sensor_name} where prefix = _build_entity_prefix().
+See base.py for the pattern (printer_model + printer_serial lowercased).
+
 Triggered by custom HA event P1S_PRINT_USAGE_READY fired by the
 p1s_remaining_snapshot_on_finish automation.
 
@@ -9,7 +12,7 @@ Non-RFID slots: time-weighted by tray active duration, or equal split fallback.
 Tray tracking:  AppDaemon listens to tray active attribute; replaces HA automation
 p1s_record_trays_used_during_print (avoids mode:restart race conditions).
 
-Slot-to-spool mapping: input_text.ams_slot_{1-6}_spool_id (reconciler-owned, read-only).
+Slot-to-spool mapping: input_text.ams_slot_{slot}_spool_id (reconciler-owned, read-only).
 Spoolman write:         PUT /api/v1/spool/{id}/use {"use_weight": grams}
 Dedup:                  job_key set persisted to disk (capped at 50 entries).
 """
@@ -25,8 +28,10 @@ from collections import OrderedDict
 
 import hassapi as hass
 
+from .base import FilamentIQBase, build_slot_mappings
+
 try:
-    from threemf_parser import (
+    from .threemf_parser import (
         ftps_download_3mf,
         ftps_list_cache,
         find_best_3mf,
@@ -43,42 +48,21 @@ except ImportError:
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
 SEEN_JOBS_PATH = os.path.join(_APP_DIR, "data", "seen_job_keys.json")
 
-# TODO: Substitute YOUR_PRINTER_SERIAL with your Bambu printer's device serial (e.g. from MQTT entity IDs).
-TRAY_ENTITY_BY_SLOT = {
-    1: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_1",
-    2: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_2",
-    3: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_3",
-    4: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_4",
-    5: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1",
-    6: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_129_tray_1",
-}
-SLOT_BY_TRAY_ENTITY = {v: k for k, v in TRAY_ENTITY_BY_SLOT.items()}
-
-ACTIVE_TRAY_ENTITY = "sensor.p1s_YOUR_PRINTER_SERIAL_active_tray"
-
-# Map (ams_index, tray_index) from active_tray sensor → slot number.
-# ams_index 0 = AMS Pro (4 trays), 128 = HT slot 1, 129 = HT slot 2.
-_AMS_TRAY_TO_SLOT = {
-    (0, 0): 1,
-    (0, 1): 2,
-    (0, 2): 3,
-    (0, 3): 4,
-    (128, 0): 5,
-    (129, 0): 6,
-}
-
 MAX_SEEN_JOBS = 50
 
 # tag_uid values that indicate non-RFID (no chip or empty)
 _INVALID_TAG_UIDS = frozenset({"", "0000000000000000", "unknown", "unavailable"})
 
 
-class AmsPrintUsageSync(hass.Hass):
+class AmsPrintUsageSync(FilamentIQBase):
 
     def initialize(self):
+        # Validate required config first
+        self._validate_config(["spoolman_url", "printer_serial"])
+
         self.enabled = bool(self.args.get("enabled", True))
         self.spoolman_base_url = str(
-            self.args.get("spoolman_base_url", "")
+            self.args.get("spoolman_url", self.args.get("spoolman_base_url", ""))
         ).rstrip("/")
         self.dry_run = bool(self.args.get("dry_run", False))
         self.min_consumption_g = float(self.args.get("min_consumption_g", 2))
@@ -86,15 +70,34 @@ class AmsPrintUsageSync(hass.Hass):
         self._seen_job_keys = self._load_seen_job_keys()
         self._ensure_data_dir()
 
+        # Slot mappings from config (printer_model, printer_serial, ams_units)
+        prefix = self._build_entity_prefix()
+        ams_units = self.args.get("ams_units")
+        (
+            self._tray_entity_by_slot,
+            self._slot_by_tray_entity,
+            self._ams_tray_to_slot,
+            _,
+        ) = build_slot_mappings(prefix, ams_units)
+
+        self._active_tray_entity = f"sensor.{prefix}_active_tray"
+        self._print_status_entity = f"sensor.{prefix}_print_status"
+        self._task_name_entity = f"sensor.{prefix}_task_name"
+        self._trays_used_entity = str(
+            self.args.get(
+                "trays_used_entity",
+                "input_text.filament_iq_trays_used_this_print",
+            )
+        ).strip()
+
         # Tray activity tracking (replaces HA automation p1s_record_trays_used_during_print)
         self._trays_used = set()
-        self._tray_active_times = {}  # {slot: [{'start': timestamp, 'end': timestamp}, ...]}
+        self._tray_active_times = {}
         self._current_active_slot = None
         self._print_active = False
 
         # 3MF parsing config
-        # TODO: Substitute YOUR_PRINTER_IP with your Bambu printer's LAN IP address.
-        self.printer_ip = str(self.args.get("printer_ip", "YOUR_PRINTER_IP"))
+        self.printer_ip = str(self.args.get("printer_ip", ""))
         self.printer_ftps_port = int(self.args.get("printer_ftps_port", 990))
         self.access_code_entity = str(
             self.args.get(
@@ -104,6 +107,9 @@ class AmsPrintUsageSync(hass.Hass):
         self.threemf_enabled = (
             bool(self.args.get("threemf_enabled", True)) and THREEMF_AVAILABLE
         )
+        self.spoolman_sensor_prefix = str(
+            self.args.get("spoolman_sensor_prefix", "sensor.spoolman_spool_")
+        ).strip()
         self._threemf_data = None
         self._threemf_filename = None
 
@@ -121,17 +127,14 @@ class AmsPrintUsageSync(hass.Hass):
 
         self.listen_event(self._handle_usage_event, "P1S_PRINT_USAGE_READY")
 
-        # Listen for active tray changes (single sensor covers all slots
-        # including HT slots 5-6 which don't reliably fire per-tray active)
         self.listen_state(
             self._on_active_tray_change,
-            ACTIVE_TRAY_ENTITY,
+            self._active_tray_entity,
         )
 
-        # Listen for print status to know when to start/stop tracking
         self.listen_state(
             self._on_print_status_change,
-            "sensor.p1s_YOUR_PRINTER_SERIAL_print_status",
+            self._print_status_entity,
         )
 
         self.log(
@@ -140,6 +143,10 @@ class AmsPrintUsageSync(hass.Hass):
             f"spoolman={self.spoolman_base_url}",
             level="INFO",
         )
+
+    def _get_max_slot(self):
+        """Max slot number for validation (1..slot_count)."""
+        return max(self._tray_entity_by_slot.keys()) if self._tray_entity_by_slot else 6
 
     # ── event handler ────────────────────────────────────────────────
 
@@ -153,18 +160,17 @@ class AmsPrintUsageSync(hass.Hass):
         except (TypeError, ValueError):
             print_weight_g = 0.0
 
-        # Use internally-tracked trays_used (from tray active listeners)
-        # Fall back to event data if internal tracking is empty (e.g. AppDaemon restarted mid-print)
         if self._trays_used:
             trays_used_set = set(self._trays_used)
         else:
             trays_used_raw = str(data.get("trays_used", "")).strip()
             trays_used_set = set()
+            max_slot = self._get_max_slot()
             if trays_used_raw:
                 for part in trays_used_raw.replace(" ", "").split(","):
                     try:
                         slot_int = int(part)
-                        if 1 <= slot_int <= 6:
+                        if 1 <= slot_int <= max_slot:
                             trays_used_set.add(slot_int)
                     except (TypeError, ValueError):
                         pass
@@ -174,18 +180,15 @@ class AmsPrintUsageSync(hass.Hass):
                     level="WARNING",
                 )
 
-        # ── dedup ────────────────────────────────────────────────────
         if job_key and job_key in self._seen_job_keys:
             self.log(f"DEDUP_SKIP job_key={job_key}", level="INFO")
             return
 
-        # ── parse JSON payloads (HA native types may pass dicts) ─────
         start_map = self._coerce_json_field(data, "start_json")
         end_map = self._coerce_json_field(data, "end_json")
         if start_map is None or end_map is None:
             return
 
-        # ── guard: no start data = cancelled before print ────────────
         if not start_map:
             self.log(
                 f"USAGE_SKIP reason=NO_START_SNAPSHOT job_key={job_key}",
@@ -193,13 +196,13 @@ class AmsPrintUsageSync(hass.Hass):
             )
             return
 
-        # ── build slot list: trays_used primary, fallback to start_map ──
         if trays_used_set:
             active_slots = sorted(trays_used_set)
         else:
+            max_slot = self._get_max_slot()
             active_slots = sorted(
                 int(k) for k in start_map
-                if k.isdigit() and 1 <= int(k) <= 6
+                if k.isdigit() and 1 <= int(k) <= max_slot
             )
             if active_slots:
                 self.log(
@@ -208,7 +211,6 @@ class AmsPrintUsageSync(hass.Hass):
                     level="WARNING",
                 )
 
-        # ── Tier 1: 3MF allocation ────────────────────────────────────
         threemf_matched_slots = {}
         threemf_used = False
         all_results = []
@@ -240,7 +242,6 @@ class AmsPrintUsageSync(hass.Hass):
                     level="WARNING",
                 )
 
-        # ── Assign consumption per slot (Tier 2: RFID, Tier 3: time-weighted) ─
         rfid_total_g = 0.0
         remaining_nonrfid_slots = []
 
@@ -253,7 +254,6 @@ class AmsPrintUsageSync(hass.Hass):
                 skipped += 1
                 continue
 
-            # Tier 1: 3MF match for this slot
             if slot in threemf_matched_slots:
                 consumption_g = threemf_matched_slots[slot]
                 all_results.append((slot, spool_id, consumption_g, "3mf"))
@@ -264,7 +264,6 @@ class AmsPrintUsageSync(hass.Hass):
                 )
                 continue
 
-            # Tier 2: RFID fuel gauge delta
             is_rfid = self._is_rfid_slot(slot)
             start_g = float(start_map.get(str(slot), 0))
             end_g = float(end_map.get(str(slot), 0))
@@ -280,7 +279,6 @@ class AmsPrintUsageSync(hass.Hass):
                 )
                 continue
 
-            # Tier 3: needs time-weighted estimation
             remaining_nonrfid_slots.append((slot, spool_id))
             self.log(
                 f"USAGE_NONRFID_SLOT slot={slot} spool_id={spool_id} "
@@ -288,7 +286,6 @@ class AmsPrintUsageSync(hass.Hass):
                 level="INFO",
             )
 
-        # Cap RFID total to print weight (fuel gauge coarse resolution)
         if rfid_total_g > print_weight_g and print_weight_g > 0:
             self.log(
                 f"USAGE_RFID_CAP rfid_total={rfid_total_g:.1f} > "
@@ -297,7 +294,6 @@ class AmsPrintUsageSync(hass.Hass):
             )
             rfid_total_g = print_weight_g
 
-        # ── Tier 3: Time-weighted non-RFID allocation ──────────────────
         if remaining_nonrfid_slots:
             threemf_total = sum(
                 c for s, _, c, m in all_results if m == "3mf"
@@ -340,11 +336,9 @@ class AmsPrintUsageSync(hass.Hass):
                     level="INFO",
                 )
 
-        # ── write to Spoolman ────────────────────────────────────────
         patched = 0
 
         for slot, spool_id, consumption_g, method in all_results:
-            # Sanity cap: refuse to log unreasonably large consumption
             if consumption_g > self.max_consumption_g:
                 self.log(
                     f"USAGE_SANITY_CAP slot={slot} consumption_g={consumption_g:.1f} "
@@ -382,7 +376,6 @@ class AmsPrintUsageSync(hass.Hass):
                     level="INFO",
                 )
                 patched += 1
-                # Check if spool is now depleted — move to Empty and clear slot
                 try:
                     spool_data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
                     if spool_data and float(
@@ -412,14 +405,12 @@ class AmsPrintUsageSync(hass.Hass):
             else:
                 skipped += 1
 
-        # ── record job_key ───────────────────────────────────────────
         if job_key:
             self._seen_job_keys[job_key] = True
             while len(self._seen_job_keys) > MAX_SEEN_JOBS:
                 self._seen_job_keys.popitem(last=False)
             self._persist_seen_job_keys()
 
-        # ── summary ──────────────────────────────────────────────────
         total_consumed = sum(c for _, _, c, _ in all_results)
         threemf_count = sum(1 for _, _, _, m in all_results if m == "3mf")
         rfid_count = sum(1 for _, _, _, m in all_results if m == "rfid_delta")
@@ -440,7 +431,6 @@ class AmsPrintUsageSync(hass.Hass):
             level="INFO",
         )
 
-        # ── Notification (all slots, including below-min / above-cap) ───
         job_label = task_name.replace(".gcode.3mf", "").replace(".3mf", "").strip()
         lines = [f"Job: {job_label}", f"Status: {print_status}", ""]
         for slot, spool_id, consumption_g, method in all_results:
@@ -480,25 +470,31 @@ class AmsPrintUsageSync(hass.Hass):
         lines.append("")
         lines.append(f"Total: {total_consumed:.1f}g | Slicer estimate: {print_weight_g:.1f}g")
         notification_msg = "\n".join(lines)
+        notify_target = self.args.get("notify_target")
         try:
-            self.call_service(
-                "notify/persistent_notification",
-                title=f"P1S Filament Usage ({print_status})",
-                message=notification_msg,
-            )
+            if notify_target:
+                self.call_service(
+                    "notify/notify",
+                    target=notify_target,
+                    title=f"P1S Filament Usage ({print_status})",
+                    message=notification_msg,
+                )
+            else:
+                self.call_service(
+                    "notify/persistent_notification",
+                    title=f"P1S Filament Usage ({print_status})",
+                    message=notification_msg,
+                )
         except Exception as e:
             self.log(f"USAGE_NOTIFY_FAILED: {e}", level="WARNING")
 
-        # Clear 3MF data for next print
         self._threemf_data = None
         self._threemf_filename = None
 
     # ── tray activity tracking ────────────────────────────────────────
 
     def _on_print_status_change(self, entity, attribute, old, new, kwargs):
-        """Track print start/stop for tray activity recording."""
         if new in ("running", "printing") and old not in ("running", "printing"):
-            # Print started — clear tracking
             self._trays_used = set()
             self._tray_active_times = {}
             self._current_active_slot = None
@@ -511,7 +507,6 @@ class AmsPrintUsageSync(hass.Hass):
             if self.threemf_enabled:
                 self.run_in(self._fetch_3mf_background, 5)
         elif old in ("running", "printing") and new not in ("running", "printing"):
-            # Print ended — close any open time segment
             self._print_active = False
             if self._current_active_slot is not None:
                 self._close_active_segment(self._current_active_slot)
@@ -525,7 +520,7 @@ class AmsPrintUsageSync(hass.Hass):
                 trays_str = ",".join(str(s) for s in sorted(self._trays_used))
                 self.call_service(
                     "input_text/set_value",
-                    entity_id="input_text.filament_iq_trays_used_this_print",
+                    entity_id=self._trays_used_entity,
                     value=trays_str,
                 )
             except Exception as e:
@@ -535,19 +530,17 @@ class AmsPrintUsageSync(hass.Hass):
                 )
 
     def _resolve_active_tray_slot(self):
-        """Read active_tray sensor attributes and return the slot number, or None."""
         try:
-            ams_idx = self.get_state(ACTIVE_TRAY_ENTITY, attribute="ams_index")
-            tray_idx = self.get_state(ACTIVE_TRAY_ENTITY, attribute="tray_index")
+            ams_idx = self.get_state(self._active_tray_entity, attribute="ams_index")
+            tray_idx = self.get_state(self._active_tray_entity, attribute="tray_index")
             if ams_idx is None or tray_idx is None:
                 return None
-            return _AMS_TRAY_TO_SLOT.get((int(ams_idx), int(tray_idx)))
+            return self._ams_tray_to_slot.get((int(ams_idx), int(tray_idx)))
         except (TypeError, ValueError):
             return None
 
     def _seed_active_trays(self):
-        """Check active_tray sensor for currently active tray and seed tracking."""
-        state = self.get_state(ACTIVE_TRAY_ENTITY)
+        state = self.get_state(self._active_tray_entity)
         if not state or state in ("none", "unknown", "unavailable"):
             return
         slot = self._resolve_active_tray_slot()
@@ -561,20 +554,17 @@ class AmsPrintUsageSync(hass.Hass):
             )
 
     def _on_active_tray_change(self, entity, attribute, old, new, kwargs):
-        """Record when the active tray changes during a print."""
         if not self._print_active:
             return
 
         slot = self._resolve_active_tray_slot()
 
-        # Tray went inactive (state=none) or unknown slot
         if new in ("none", "unknown", "unavailable") or slot is None:
             if self._current_active_slot is not None:
                 self._close_active_segment(self._current_active_slot)
                 self._current_active_slot = None
             return
 
-        # New tray became active
         if self._current_active_slot is not None and self._current_active_slot != slot:
             self._close_active_segment(self._current_active_slot)
 
@@ -587,7 +577,6 @@ class AmsPrintUsageSync(hass.Hass):
         )
 
     def _open_active_segment(self, slot):
-        """Start a new time segment for a slot."""
         if slot not in self._tray_active_times:
             self._tray_active_times[slot] = []
         segments = self._tray_active_times[slot]
@@ -596,13 +585,11 @@ class AmsPrintUsageSync(hass.Hass):
         segments.append({"start": datetime.datetime.utcnow(), "end": None})
 
     def _close_active_segment(self, slot):
-        """Close the current time segment for a slot."""
         segments = self._tray_active_times.get(slot, [])
         if segments and segments[-1].get("end") is None:
             segments[-1]["end"] = datetime.datetime.utcnow()
 
     def _summarize_tray_times(self):
-        """Return dict of {slot: total_seconds_active}."""
         result = {}
         for slot, segments in self._tray_active_times.items():
             total = 0.0
@@ -616,9 +603,6 @@ class AmsPrintUsageSync(hass.Hass):
         return result
 
     def _get_time_weights(self):
-        """Return dict of {slot: proportion} based on active time.
-        Returns empty dict if no time data available (fallback to equal split).
-        """
         times = self._summarize_tray_times()
         total = sum(times.values())
         if total <= 0:
@@ -626,20 +610,26 @@ class AmsPrintUsageSync(hass.Hass):
         return {slot: round(t / total, 4) for slot, t in times.items()}
 
     def _get_access_code(self):
-        """Read printer access code from HA entity or config."""
         code = str(self.args.get("printer_access_code", "")).strip()
         if code:
             return code
         try:
             code = str(self.get_state(self.access_code_entity) or "").strip()
+            if code.lower() in ("unavailable", "unknown", "none", ""):
+                code = ""
         except Exception:
             code = ""
         return code if code else None
 
     def _fetch_3mf_background(self, kwargs):
-        """Fetch and parse the 3MF file from the printer (runs in background)."""
-        self._threemf_data = None
-        self._threemf_filename = None
+        """Fetch and parse a 3MF file from the printer with retry + multi-directory fallback."""
+        attempt = kwargs.get("attempt", 1)
+        max_attempts = 3
+        retry_delays = [10, 30]  # seconds between retries
+
+        if attempt == 1:
+            self._threemf_data = None
+            self._threemf_filename = None
 
         access_code = self._get_access_code()
         if not access_code:
@@ -647,15 +637,36 @@ class AmsPrintUsageSync(hass.Hass):
             return
 
         task_name = str(
-            self.get_state("sensor.p1s_YOUR_PRINTER_SERIAL_task_name") or ""
+            self.get_state(self._task_name_entity) or ""
         )
 
-        file_list = ftps_list_cache(
+        if not self.printer_ip:
+            self.log("3MF_FETCH: printer_ip not configured", level="WARNING")
+            return
+
+        self.log(
+            f"3MF_FETCH: attempt {attempt}/{max_attempts} for task={task_name}",
+            level="INFO",
+        )
+
+        file_list, found_dir = ftps_list_cache(
             self.printer_ip, access_code, self.printer_ftps_port
         )
         if not file_list:
+            if attempt < max_attempts:
+                delay = retry_delays[attempt - 1]
+                self.log(
+                    f"3MF_FETCH: No .3mf files found (attempt {attempt}), "
+                    f"retrying in {delay}s",
+                    level="WARNING",
+                )
+                self.run_in(
+                    self._fetch_3mf_background, delay, attempt=attempt + 1
+                )
+                return
             self.log(
-                "3MF_FETCH: No 3MF files found in /cache/", level="WARNING"
+                "3MF_FETCH: No .3mf files found after all retries",
+                level="WARNING",
             )
             return
 
@@ -667,6 +678,11 @@ class AmsPrintUsageSync(hass.Hass):
             )
             return
 
+        self.log(
+            f"3MF_FETCH: downloading {best_file} from {found_dir}",
+            level="INFO",
+        )
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             local_path = ftps_download_3mf(
                 self.printer_ip,
@@ -674,10 +690,22 @@ class AmsPrintUsageSync(hass.Hass):
                 best_file,
                 tmp_dir,
                 self.printer_ftps_port,
+                directory=found_dir,
             )
             if not local_path:
+                if attempt < max_attempts:
+                    delay = retry_delays[attempt - 1]
+                    self.log(
+                        f"3MF_FETCH: Download failed (attempt {attempt}), "
+                        f"retrying in {delay}s",
+                        level="WARNING",
+                    )
+                    self.run_in(
+                        self._fetch_3mf_background, delay, attempt=attempt + 1
+                    )
+                    return
                 self.log(
-                    f"3MF_FETCH: Download failed for {best_file}",
+                    f"3MF_FETCH: Download failed for {best_file} after all retries",
                     level="ERROR",
                 )
                 return
@@ -694,35 +722,28 @@ class AmsPrintUsageSync(hass.Hass):
         self._threemf_filename = best_file
         total_g = sum(f["used_g"] for f in filaments)
         self.log(
-            f"3MF_PARSED file={best_file} filaments={len(filaments)} "
+            f"3MF_PARSED file={best_file} dir={found_dir} filaments={len(filaments)} "
             f"total_g={total_g:.2f} "
             f"breakdown={[(f['index'], f['used_g'], f['color_hex'], f['material']) for f in filaments]}",
             level="INFO",
         )
 
     def _build_slot_data(self):
-        """Build slot color/material data for 3MF matching.
-
-        Priority: tray entity attributes (matches what printer/slicer sees).
-        Fallback: Spoolman spool data.
-        """
         slot_data = {}
-        for slot, entity in TRAY_ENTITY_BY_SLOT.items():
+        for slot, entity in self._tray_entity_by_slot.items():
             try:
                 spool_id = self._read_spool_id(slot)
 
-                # Read from tray entity (matches 3MF/slicer colors)
                 tray_color = self.get_state(entity, attribute="color") or ""
                 tray_type = self.get_state(entity, attribute="type") or ""
                 color = normalize_color(tray_color)
                 material = normalize_material(tray_type)
 
-                # Fallback to Spoolman if tray has no data
                 if not color and spool_id > 0:
                     try:
                         spoolman_color = (
                             self.get_state(
-                                f"sensor.spoolman_spool_{spool_id}",
+                                f"{self.spoolman_sensor_prefix}{spool_id}",
                                 attribute="color_hex",
                             )
                             or ""
@@ -734,7 +755,7 @@ class AmsPrintUsageSync(hass.Hass):
                     try:
                         spoolman_mat = (
                             self.get_state(
-                                f"sensor.spoolman_spool_{spool_id}",
+                                f"{self.spoolman_sensor_prefix}{spool_id}",
                                 attribute="material",
                             )
                             or ""
@@ -758,7 +779,6 @@ class AmsPrintUsageSync(hass.Hass):
     # ── dedup persistence ─────────────────────────────────────────────
 
     def _load_seen_job_keys(self):
-        """Load seen job_keys from disk. On missing/corrupt file, return empty OrderedDict."""
         try:
             with open(SEEN_JOBS_PATH, "r", encoding="utf-8") as f:
                 raw = json.load(f)
@@ -768,7 +788,6 @@ class AmsPrintUsageSync(hass.Hass):
                 keys = [str(k) for k in raw if k]
             else:
                 keys = []
-            # Keep at most MAX_SEEN_JOBS (most recent when order matters)
             if len(keys) > MAX_SEEN_JOBS:
                 keys = keys[-MAX_SEEN_JOBS:]
             return OrderedDict.fromkeys(keys, True)
@@ -782,7 +801,6 @@ class AmsPrintUsageSync(hass.Hass):
             return OrderedDict()
 
     def _ensure_data_dir(self):
-        """Create data directory and empty seen_job_keys.json if missing (so path exists before first print)."""
         try:
             dir_path = os.path.dirname(SEEN_JOBS_PATH)
             os.makedirs(dir_path, exist_ok=True)
@@ -796,7 +814,6 @@ class AmsPrintUsageSync(hass.Hass):
             )
 
     def _persist_seen_job_keys(self):
-        """Write current _seen_job_keys to disk. Creates directory if needed. On error, log and do not crash."""
         try:
             dir_path = os.path.dirname(SEEN_JOBS_PATH)
             os.makedirs(dir_path, exist_ok=True)
@@ -812,12 +829,6 @@ class AmsPrintUsageSync(hass.Hass):
     # ── helpers ───────────────────────────────────────────────────────
 
     def _coerce_json_field(self, data, field):
-        """Extract a dict from event data, handling HA native types.
-
-        HA may pass the value as a native dict (from template rendering) or
-        as a JSON string.  Returns a dict on success, or None on fatal error
-        (with a log line written).
-        """
         raw = data.get(field, {})
         if isinstance(raw, dict):
             return raw
@@ -843,8 +854,7 @@ class AmsPrintUsageSync(hass.Hass):
             return 0
 
     def _is_rfid_slot(self, slot):
-        """Check if a slot has a valid RFID tag (tag_uid present and not empty/zero)."""
-        entity = TRAY_ENTITY_BY_SLOT.get(slot)
+        entity = self._tray_entity_by_slot.get(slot)
         if not entity:
             return False
         try:
@@ -855,7 +865,6 @@ class AmsPrintUsageSync(hass.Hass):
             return False
 
     def _spoolman_get(self, path):
-        """GET from Spoolman API. Returns parsed JSON or None."""
         url = f"{self.spoolman_base_url}{path}"
         try:
             req = urllib.request.Request(url)
@@ -865,7 +874,6 @@ class AmsPrintUsageSync(hass.Hass):
             return None
 
     def _get_spool_display_name(self, spool_id):
-        """Get human-readable spool name from Spoolman."""
         try:
             data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
             if data:
@@ -883,7 +891,6 @@ class AmsPrintUsageSync(hass.Hass):
         return f"spool {spool_id}"
 
     def _get_spool_remaining(self, spool_id):
-        """Get remaining weight from Spoolman."""
         try:
             data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
             if data:
@@ -893,7 +900,6 @@ class AmsPrintUsageSync(hass.Hass):
         return 0.0
 
     def _spoolman_patch(self, spool_id, data):
-        """PATCH Spoolman spool with given fields. Returns parsed JSON or None."""
         url = f"{self.spoolman_base_url}/api/v1/spool/{spool_id}"
         try:
             payload = json.dumps(data).encode("utf-8")
@@ -909,7 +915,6 @@ class AmsPrintUsageSync(hass.Hass):
             return None
 
     def _spoolman_use(self, spool_id, use_weight_g):
-        """PUT /api/v1/spool/{id}/use  {"use_weight": grams}"""
         url = f"{self.spoolman_base_url}/api/v1/spool/{spool_id}/use"
         payload = json.dumps(
             {"use_weight": round(use_weight_g, 2)}

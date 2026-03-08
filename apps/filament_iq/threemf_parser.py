@@ -11,6 +11,8 @@ import logging
 import os
 import re
 import subprocess
+import unicodedata
+import urllib.parse
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -38,18 +40,30 @@ def normalize_material(raw):
 
 def normalize_task_name(name):
     """Normalize task/filename for matching:
+    - NFC unicode normalization (handles NFD decomposed umlauts etc.)
     - lowercase
     - strip extensions (.3mf, .gcode.3mf, .gcode)
-    - replace [ _-]+ with single space
+    - replace unicode dashes (en dash, em dash, etc.) with ASCII hyphen
+    - replace non-letter/non-digit/non-ASCII-punctuation with space
+      (strips symbols like ●★◉︎ but preserves umlauts, accented letters)
+    - collapse whitespace/underscores/hyphens to single space
     - strip
     """
     if not name:
         return ""
-    name = str(name).lower()
+    name = unicodedata.normalize("NFC", str(name)).lower()
     for ext in [".gcode.3mf", ".3mf", ".gcode"]:
         if name.endswith(ext):
             name = name[: -len(ext)]
-    name = re.sub(r"[_\- ]+", " ", name).strip()
+    # Replace unicode dashes (en dash, em dash, figure dash, horizontal bar,
+    # minus sign, etc.) with ASCII hyphen
+    name = re.sub(r"[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]", "-", name)
+    # Replace non-letter, non-digit, non-basic-punctuation characters with
+    # space. \w covers letters+digits+underscore in Unicode, so this keeps
+    # umlauts/accented chars. We also keep . , % ( ) for slicer suffixes.
+    name = re.sub(r"[^\w.,%()\-\s]", " ", name)
+    # Collapse runs of whitespace, underscores, and hyphens to single space
+    name = re.sub(r"[_\- \t]+", " ", name).strip()
     return name
 
 
@@ -79,11 +93,16 @@ def color_distance(hex1, hex2):
         return 999.0
 
 
-def ftps_list_cache(printer_ip, access_code, port=990, timeout=15):
-    """List .3mf files in the printer's /cache/ directory via FTPS.
-    Returns list of filenames (strings), newest first if MLSD available.
+FTPS_SEARCH_DIRS = ["/cache", "/model", "/sdcard"]
+
+
+def ftps_list_dir(printer_ip, access_code, directory="/cache", port=990, timeout=15):
+    """List .3mf files in a printer directory via FTPS.
+    Returns list of filenames (strings).
     """
-    url = f"ftps://{printer_ip}:{port}/cache/"
+    # Ensure directory has trailing slash for curl
+    dir_path = directory.rstrip("/") + "/"
+    url = f"ftps://{printer_ip}:{port}{dir_path}"
     cmd = [
         "curl",
         "--ssl-reqd",
@@ -98,8 +117,8 @@ def ftps_list_cache(printer_ip, access_code, port=990, timeout=15):
     try:
         result = subprocess.run(cmd, capture_output=True, timeout=timeout + 5)
         if result.returncode != 0:
-            logger.error(
-                f"FTPS list failed: {result.stderr.decode('utf-8', errors='replace')}"
+            logger.debug(
+                f"FTPS list {directory}: {result.stderr.decode('utf-8', errors='replace').strip()}"
             )
             return []
         lines = result.stdout.decode("utf-8", errors="replace").splitlines()
@@ -107,43 +126,57 @@ def ftps_list_cache(printer_ip, access_code, port=990, timeout=15):
         files = [f for f in files if f.lower().endswith(".3mf")]
         return files
     except subprocess.TimeoutExpired:
-        logger.error("FTPS list timed out")
+        logger.error(f"FTPS list timed out for {directory}")
         return []
     except FileNotFoundError:
         logger.error("curl not found — cannot fetch 3MF from printer")
         return []
 
 
+def ftps_list_cache(printer_ip, access_code, port=990, timeout=15):
+    """List .3mf files, searching multiple directories on the printer.
+    Tries /cache, /model, /sdcard in order. Returns (files, directory) tuple.
+    Falls back to ([], None) if nothing found anywhere.
+    """
+    for directory in FTPS_SEARCH_DIRS:
+        files = ftps_list_dir(printer_ip, access_code, directory, port, timeout)
+        if files:
+            logger.info(f"FTPS found {len(files)} .3mf file(s) in {directory}")
+            return files, directory
+    return [], None
+
+
 def ftps_download_3mf(
-    printer_ip, access_code, remote_filename, dest_dir, port=990, timeout=30
+    printer_ip, access_code, remote_filename, dest_dir, port=990, timeout=30,
+    directory="/cache",
 ):
-    """Download a 3MF file from the printer's /cache/ directory.
+    """Download a 3MF file from a printer directory via FTPS.
     Returns local file path on success, None on failure.
 
-    Uses curl CWD + RETR to avoid URL-encoding issues with spaces,
-    unicode, and emoji in filenames.
+    URL-encodes the filename and uses --globoff to handle spaces, unicode,
+    brackets, and other special characters in Bambu filenames.
     """
     local_path = os.path.join(dest_dir, remote_filename)
-    base_url = f"ftps://{printer_ip}:{port}/cache/"
+    dir_path = directory.rstrip("/")
+    encoded_name = urllib.parse.quote(remote_filename, safe="")
+    url = f"ftps://{printer_ip}:{port}{dir_path}/{encoded_name}"
 
     cmd = [
         "curl",
         "--ssl-reqd",
         "--insecure",
+        "--globoff",
         "--user",
         f"bblp:{access_code}",
         "--output",
         local_path,
         "--max-time",
         str(timeout),
-        "-Q",
-        f"CWD /cache",
-        "-Q",
-        f"RETR {remote_filename}",
-        base_url,
+        url,
     ]
     try:
         result = subprocess.run(cmd, capture_output=True, timeout=timeout + 5)
+        stderr_text = result.stderr.decode("utf-8", errors="replace").strip()
         if (
             result.returncode == 0
             and os.path.exists(local_path)
@@ -151,41 +184,16 @@ def ftps_download_3mf(
         ):
             return local_path
 
-        # Fallback: try with --globoff and raw URL (works for some curl versions)
-        url_raw = f"ftps://{printer_ip}:{port}/cache/{remote_filename}"
-        cmd_fallback = [
-            "curl",
-            "--ssl-reqd",
-            "--insecure",
-            "--globoff",
-            "--user",
-            f"bblp:{access_code}",
-            "--output",
-            local_path,
-            "--max-time",
-            str(timeout),
-            url_raw,
-        ]
-        result = subprocess.run(
-            cmd_fallback, capture_output=True, timeout=timeout + 5
-        )
-        if (
-            result.returncode == 0
-            and os.path.exists(local_path)
-            and os.path.getsize(local_path) > 0
-        ):
-            return local_path
-
-        logger.error(
-            f"FTPS download failed for '{remote_filename}': "
-            f"{result.stderr.decode('utf-8', errors='replace').strip()}"
+        logger.warning(
+            "FTPS_DOWNLOAD_FAILED file='%s' rc=%d stderr='%s'",
+            remote_filename, result.returncode, stderr_text,
         )
         return None
     except subprocess.TimeoutExpired:
-        logger.error(f"FTPS download timed out for '{remote_filename}'")
+        logger.warning("FTPS_DOWNLOAD_TIMEOUT file='%s'", remote_filename)
         return None
     except FileNotFoundError:
-        logger.error("curl not found — cannot fetch 3MF from printer")
+        logger.warning("FTPS_DOWNLOAD_NO_CURL curl not found")
         return None
 
 
