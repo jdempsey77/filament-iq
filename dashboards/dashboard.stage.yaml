@@ -1674,6 +1674,8 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 1
+                        style:
+                          --popup-min-width: 500px;
                         content:
                           type: vertical-stack
                           cards:
@@ -1870,6 +1872,8 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 2
+                        style:
+                          --popup-min-width: 500px;
                         content:
                           type: vertical-stack
                           cards:
@@ -2066,6 +2070,8 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 3
+                        style:
+                          --popup-min-width: 500px;
                         content:
                           type: vertical-stack
                           cards:
@@ -2262,6 +2268,8 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 4
+                        style:
+                          --popup-min-width: 500px;
                         content:
                           type: vertical-stack
                           cards:
@@ -2532,6 +2540,8 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 5
+                        style:
+                          --popup-min-width: 500px;
                         content:
                           type: vertical-stack
                           cards:
@@ -2802,6 +2812,8 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 6
+                        style:
+                          --popup-min-width: 500px;
                         content:
                           type: vertical-stack
                           cards:
