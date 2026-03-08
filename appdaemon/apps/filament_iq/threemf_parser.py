@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import subprocess
+import unicodedata
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -38,18 +39,30 @@ def normalize_material(raw):
 
 def normalize_task_name(name):
     """Normalize task/filename for matching:
+    - NFC unicode normalization (handles NFD decomposed umlauts etc.)
     - lowercase
     - strip extensions (.3mf, .gcode.3mf, .gcode)
-    - replace [ _-]+ with single space
+    - replace unicode dashes (en dash, em dash, etc.) with ASCII hyphen
+    - replace non-letter/non-digit/non-ASCII-punctuation with space
+      (strips symbols like ●★◉︎ but preserves umlauts, accented letters)
+    - collapse whitespace/underscores/hyphens to single space
     - strip
     """
     if not name:
         return ""
-    name = str(name).lower()
+    name = unicodedata.normalize("NFC", str(name)).lower()
     for ext in [".gcode.3mf", ".3mf", ".gcode"]:
         if name.endswith(ext):
             name = name[: -len(ext)]
-    name = re.sub(r"[_\- ]+", " ", name).strip()
+    # Replace unicode dashes (en dash, em dash, figure dash, horizontal bar,
+    # minus sign, etc.) with ASCII hyphen
+    name = re.sub(r"[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]", "-", name)
+    # Replace non-letter, non-digit, non-basic-punctuation characters with
+    # space. \w covers letters+digits+underscore in Unicode, so this keeps
+    # umlauts/accented chars. We also keep . , % ( ) for slicer suffixes.
+    name = re.sub(r"[^\w.,%()\-\s]", " ", name)
+    # Collapse runs of whitespace, underscores, and hyphens to single space
+    name = re.sub(r"[_\- \t]+", " ", name).strip()
     return name
 
 
