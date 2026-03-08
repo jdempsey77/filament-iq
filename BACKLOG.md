@@ -6,6 +6,7 @@
 ### High Priority
 - [ ] Sync Color on Bind — Update Spoolman filament color_hex to match AMS tray-reported color during manual bind/assign. Full spec in docs/sync_color_on_bind.md. Ship backend first (sync_color_hex event field + handler), dashboard UI later.
 - [ ] Investigate 3MF_UNMATCHED for slot 4 (color f330f9, PLA) — miriam print matched slot 3 via 3MF but slot 4 was unmatched despite spool 51 being enrolled with that color
+- [ ] Reference Filament IQ dashboard — ship a ready-to-import Lovelace dashboard with the filament_iq package. Include: AMS slot cards (color chip, progress bar, active slot indicator, bind/assign UI), Filament Library page (browse/search Spoolman filaments), Spool Inventory page (browse/search spools with remaining weight, location, lot_nr status), Printer status card (conditional on printing: task name, progress, layer count, ETA). Should work out of the box with minimal config (just printer serial and Spoolman URL). Currently Jerry's dashboard is hand-built in his HA config — extract the reusable parts into a reference YAML that ships with the package.
 
 ### Low Priority
 - [ ] Rename SLOT_ASSIGNED_NO_LOT_SIG log message to SLOT_ASSIGNED_LOT_SIG_EXISTS when spool already has a lot_nr
