@@ -5,6 +5,7 @@ Run: python3 -m pytest tests/test_threemf_parser.py -v
 import os
 import sys
 import tempfile
+import unicodedata
 import zipfile
 
 import pytest
@@ -117,6 +118,49 @@ class TestNormalizeTaskName:
         """Unicode/emoji in filename is normalized for matching."""
         result = normalize_task_name("● 5x6 Drawer Set.3mf")
         assert "5x6 drawer set" in result
+
+    def test_nfc_vs_nfd_umlaut(self):
+        """NFC ö (U+00F6) and NFD o+combining-umlaut (U+006F U+0308) must match."""
+        nfc = "Gehäuse-Deckel.3mf"  # ä as single codepoint
+        nfd = unicodedata.normalize("NFD", "Gehäuse-Deckel.3mf")  # ä decomposed
+        assert normalize_task_name(nfc) == normalize_task_name(nfd)
+
+    def test_en_dash_vs_hyphen(self):
+        """En dash (U+2013) and ASCII hyphen must normalize identically."""
+        with_en_dash = "Part A\u2013Part B.3mf"
+        with_hyphen = "Part A-Part B.3mf"
+        assert normalize_task_name(with_en_dash) == normalize_task_name(with_hyphen)
+
+    def test_em_dash_vs_hyphen(self):
+        """Em dash (U+2014) and ASCII hyphen must normalize identically."""
+        with_em_dash = "Part A\u2014Part B.3mf"
+        with_hyphen = "Part A-Part B.3mf"
+        assert normalize_task_name(with_em_dash) == normalize_task_name(with_hyphen)
+
+    def test_unicode_symbols_stripped(self):
+        """Unicode symbols ●★◉ are stripped but letters preserved."""
+        result = normalize_task_name("●● 4x6 Double Height Drawer Set.3mf")
+        assert result == "4x6 double height drawer set"
+
+    def test_unicode_star_stripped(self):
+        result = normalize_task_name("★ Special Print ◉.3mf")
+        assert result == "special print"
+
+    def test_clean_ascii(self):
+        assert normalize_task_name("5x4x9U Box.3mf") == "5x4x9u box"
+
+    def test_umlauts_preserved(self):
+        """German umlauts should survive normalization."""
+        result = normalize_task_name("Düsenhalter_für_Büro.3mf")
+        assert "düsenhalter" in result
+        assert "für" in result
+        assert "büro" in result
+
+    def test_slicer_suffix_preserved(self):
+        """Slicer settings like 0.2mm, 15% should survive."""
+        result = normalize_task_name("Box_0.2mm_layer,_2_walls,_15%_infill.gcode.3mf")
+        assert "0.2mm" in result
+        assert "15%" in result
 
 
 # ── Color Distance ───────────────────────────────────────────────────
@@ -566,8 +610,9 @@ class TestFtpErrorHandling:
         from threemf_parser import ftps_list_cache
 
         # TODO: Use any unreachable IP for this test (expects empty list).
-        result = ftps_list_cache("192.0.2.254", "badcode", timeout=3)
-        assert result == []
+        files, directory = ftps_list_cache("192.0.2.254", "badcode", timeout=3)
+        assert files == []
+        assert directory is None
 
     def test_ftps_download_bad_ip(self):
         from threemf_parser import ftps_download_3mf
@@ -586,8 +631,9 @@ class TestFtpErrorHandling:
         from threemf_parser import ftps_list_cache
 
         # TODO: Substitute YOUR_PRINTER_IP for live test; 192.0.2.1 (TEST-NET) for CI.
-        result = ftps_list_cache("192.0.2.1", "", timeout=3)
-        assert isinstance(result, list)
+        files, directory = ftps_list_cache("192.0.2.1", "", timeout=3)
+        assert isinstance(files, list)
+        assert directory is None
 
     def test_ftps_download_nonexistent_file(self):
         from threemf_parser import ftps_download_3mf
