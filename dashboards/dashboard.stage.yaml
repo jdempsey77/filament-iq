@@ -1723,53 +1723,20 @@ views:
                             - type: entities
                               entities:
                                 - entity: input_select.ams_slot_1_select_spool
-                            - type: grid
-                              columns: 3
-                              square: false
-                              cards:
-                                - type: custom:mushroom-template-card
-                                  primary: Assign & Bind
-                                  icon: mdi:link-variant
-                                  icon_color: blue
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: script.ams_slot_assign_and_update
-                                    data:
-                                      slot: '1'
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
-                                - type: custom:mushroom-template-card
-                                  primary: Reconcile
-                                  icon: mdi:sync
-                                  icon_color: cyan
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: script.reconcile_all_ams_slots
-                                    data: {}
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
-                                - type: custom:mushroom-template-card
-                                  primary: Force Accept
-                                  icon: mdi:check-circle-outline
-                                  icon_color: green
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: input_text.set_value
-                                    target:
-                                      entity_id: input_text.ams_slot_1_unbound_reason
-                                    data:
-                                      value: FORCE_ACCEPTED
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
+                            - type: custom:mushroom-template-card
+                              primary: Assign & Bind
+                              icon: mdi:link-variant
+                              icon_color: blue
+                              layout: horizontal
+                              tap_action:
+                                action: call-service
+                                service: script.ams_slot_assign_and_update
+                                data:
+                                  slot: '1'
+                              card_mod:
+                                style: |
+                                  ha-card { --ha-card-padding: 4px; }
+                                  mushroom-shape-icon { --icon-size: 24px; }
                   card_mod:
                     style: |
                       ha-card {
@@ -1952,53 +1919,20 @@ views:
                             - type: entities
                               entities:
                                 - entity: input_select.ams_slot_2_select_spool
-                            - type: grid
-                              columns: 3
-                              square: false
-                              cards:
-                                - type: custom:mushroom-template-card
-                                  primary: Assign & Bind
-                                  icon: mdi:link-variant
-                                  icon_color: blue
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: script.ams_slot_assign_and_update
-                                    data:
-                                      slot: '2'
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
-                                - type: custom:mushroom-template-card
-                                  primary: Reconcile
-                                  icon: mdi:sync
-                                  icon_color: cyan
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: script.reconcile_all_ams_slots
-                                    data: {}
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
-                                - type: custom:mushroom-template-card
-                                  primary: Force Accept
-                                  icon: mdi:check-circle-outline
-                                  icon_color: green
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: input_text.set_value
-                                    target:
-                                      entity_id: input_text.ams_slot_2_unbound_reason
-                                    data:
-                                      value: FORCE_ACCEPTED
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
+                            - type: custom:mushroom-template-card
+                              primary: Assign & Bind
+                              icon: mdi:link-variant
+                              icon_color: blue
+                              layout: horizontal
+                              tap_action:
+                                action: call-service
+                                service: script.ams_slot_assign_and_update
+                                data:
+                                  slot: '2'
+                              card_mod:
+                                style: |
+                                  ha-card { --ha-card-padding: 4px; }
+                                  mushroom-shape-icon { --icon-size: 24px; }
                   card_mod:
                     style: |
                       ha-card {
@@ -2181,53 +2115,20 @@ views:
                             - type: entities
                               entities:
                                 - entity: input_select.ams_slot_3_select_spool
-                            - type: grid
-                              columns: 3
-                              square: false
-                              cards:
-                                - type: custom:mushroom-template-card
-                                  primary: Assign & Bind
-                                  icon: mdi:link-variant
-                                  icon_color: blue
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: script.ams_slot_assign_and_update
-                                    data:
-                                      slot: '3'
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
-                                - type: custom:mushroom-template-card
-                                  primary: Reconcile
-                                  icon: mdi:sync
-                                  icon_color: cyan
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: script.reconcile_all_ams_slots
-                                    data: {}
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
-                                - type: custom:mushroom-template-card
-                                  primary: Force Accept
-                                  icon: mdi:check-circle-outline
-                                  icon_color: green
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: input_text.set_value
-                                    target:
-                                      entity_id: input_text.ams_slot_3_unbound_reason
-                                    data:
-                                      value: FORCE_ACCEPTED
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
+                            - type: custom:mushroom-template-card
+                              primary: Assign & Bind
+                              icon: mdi:link-variant
+                              icon_color: blue
+                              layout: horizontal
+                              tap_action:
+                                action: call-service
+                                service: script.ams_slot_assign_and_update
+                                data:
+                                  slot: '3'
+                              card_mod:
+                                style: |
+                                  ha-card { --ha-card-padding: 4px; }
+                                  mushroom-shape-icon { --icon-size: 24px; }
                   card_mod:
                     style: |
                       ha-card {
@@ -2410,53 +2311,20 @@ views:
                             - type: entities
                               entities:
                                 - entity: input_select.ams_slot_4_select_spool
-                            - type: grid
-                              columns: 3
-                              square: false
-                              cards:
-                                - type: custom:mushroom-template-card
-                                  primary: Assign & Bind
-                                  icon: mdi:link-variant
-                                  icon_color: blue
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: script.ams_slot_assign_and_update
-                                    data:
-                                      slot: '4'
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
-                                - type: custom:mushroom-template-card
-                                  primary: Reconcile
-                                  icon: mdi:sync
-                                  icon_color: cyan
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: script.reconcile_all_ams_slots
-                                    data: {}
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
-                                - type: custom:mushroom-template-card
-                                  primary: Force Accept
-                                  icon: mdi:check-circle-outline
-                                  icon_color: green
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: input_text.set_value
-                                    target:
-                                      entity_id: input_text.ams_slot_4_unbound_reason
-                                    data:
-                                      value: FORCE_ACCEPTED
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
+                            - type: custom:mushroom-template-card
+                              primary: Assign & Bind
+                              icon: mdi:link-variant
+                              icon_color: blue
+                              layout: horizontal
+                              tap_action:
+                                action: call-service
+                                service: script.ams_slot_assign_and_update
+                                data:
+                                  slot: '4'
+                              card_mod:
+                                style: |
+                                  ha-card { --ha-card-padding: 4px; }
+                                  mushroom-shape-icon { --icon-size: 24px; }
                   card_mod:
                     style: |
                       ha-card {
@@ -2713,53 +2581,20 @@ views:
                             - type: entities
                               entities:
                                 - entity: input_select.ams_slot_5_select_spool
-                            - type: grid
-                              columns: 3
-                              square: false
-                              cards:
-                                - type: custom:mushroom-template-card
-                                  primary: Assign & Bind
-                                  icon: mdi:link-variant
-                                  icon_color: blue
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: script.ams_slot_assign_and_update
-                                    data:
-                                      slot: '5'
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
-                                - type: custom:mushroom-template-card
-                                  primary: Reconcile
-                                  icon: mdi:sync
-                                  icon_color: cyan
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: script.reconcile_all_ams_slots
-                                    data: {}
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
-                                - type: custom:mushroom-template-card
-                                  primary: Force Accept
-                                  icon: mdi:check-circle-outline
-                                  icon_color: green
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: input_text.set_value
-                                    target:
-                                      entity_id: input_text.ams_slot_5_unbound_reason
-                                    data:
-                                      value: FORCE_ACCEPTED
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
+                            - type: custom:mushroom-template-card
+                              primary: Assign & Bind
+                              icon: mdi:link-variant
+                              icon_color: blue
+                              layout: horizontal
+                              tap_action:
+                                action: call-service
+                                service: script.ams_slot_assign_and_update
+                                data:
+                                  slot: '5'
+                              card_mod:
+                                style: |
+                                  ha-card { --ha-card-padding: 4px; }
+                                  mushroom-shape-icon { --icon-size: 24px; }
                   card_mod:
                     style: |
                       ha-card {
@@ -3016,53 +2851,20 @@ views:
                             - type: entities
                               entities:
                                 - entity: input_select.ams_slot_6_select_spool
-                            - type: grid
-                              columns: 3
-                              square: false
-                              cards:
-                                - type: custom:mushroom-template-card
-                                  primary: Assign & Bind
-                                  icon: mdi:link-variant
-                                  icon_color: blue
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: script.ams_slot_assign_and_update
-                                    data:
-                                      slot: '6'
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
-                                - type: custom:mushroom-template-card
-                                  primary: Reconcile
-                                  icon: mdi:sync
-                                  icon_color: cyan
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: script.reconcile_all_ams_slots
-                                    data: {}
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
-                                - type: custom:mushroom-template-card
-                                  primary: Force Accept
-                                  icon: mdi:check-circle-outline
-                                  icon_color: green
-                                  layout: horizontal
-                                  tap_action:
-                                    action: call-service
-                                    service: input_text.set_value
-                                    target:
-                                      entity_id: input_text.ams_slot_6_unbound_reason
-                                    data:
-                                      value: FORCE_ACCEPTED
-                                  card_mod:
-                                    style: |
-                                      ha-card { --ha-card-padding: 4px; }
-                                      mushroom-shape-icon { --icon-size: 24px; }
+                            - type: custom:mushroom-template-card
+                              primary: Assign & Bind
+                              icon: mdi:link-variant
+                              icon_color: blue
+                              layout: horizontal
+                              tap_action:
+                                action: call-service
+                                service: script.ams_slot_assign_and_update
+                                data:
+                                  slot: '6'
+                              card_mod:
+                                style: |
+                                  ha-card { --ha-card-padding: 4px; }
+                                  mushroom-shape-icon { --icon-size: 24px; }
                   card_mod:
                     style: |
                       ha-card {
