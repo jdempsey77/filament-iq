@@ -504,7 +504,7 @@
       target:
         entity_id: input_text.filament_iq_active_job_key
       data:
-        value: "{{ now().timestamp() | string }}_{{ states('sensor.p1s_01p00c5a3101668_task_name') | replace(' ', '_') }}"
+        value: "{{ states('sensor.p1s_01p00c5a3101668_task_name') | replace(' ', '_') }}"
     - service: input_boolean.turn_off
       target:
         entity_id: input_boolean.filament_iq_needs_reconcile
@@ -750,7 +750,6 @@
         - pause
         - paused
       to:
-        - idle
         - finish
         - finished
         - completed
