@@ -659,6 +659,10 @@ ams_slot_assign_and_update:
                       event_data:
                         slot: "{{ slot | int }}"
                         spool_id: "{{ final_spool_id }}"
+            - event: FILAMENT_IQ_SLOT_ASSIGNED
+              event_data:
+                slot: "{{ slot | int }}"
+                spool_id: "{{ final_spool_id }}"
             - service: input_text.set_value
               target:
                 entity_id: "input_text.ams_slot_{{ slot }}_unbound_reason"
