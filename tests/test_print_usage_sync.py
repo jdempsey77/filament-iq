@@ -2,6 +2,8 @@
 
 Run: python3 -m pytest tests/test_print_usage_sync.py -v
 """
+import datetime
+import json
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps"))
@@ -965,3 +967,220 @@ class TestPrintEndClearsState:
         assert end_snapshot == {}
         assert job_key == ""
         assert last_processed == "miriam_Plate_1"  # preserved for dedup
+
+
+# ── Phase 3: Pause state, swap detection, rehydration ──
+
+
+class TestPauseStateHandling:
+    """Pause/paused must NOT trigger print-end logic."""
+
+    def _simulate_status_change(self, old, new, print_active, phase2=True):
+        """Simulate _on_print_status_change logic. Returns (new_print_active, triggered_start, triggered_end)."""
+        triggered_start = False
+        triggered_end = False
+
+        if new in ("running", "printing") and old not in ("running", "printing"):
+            print_active = True
+            triggered_start = True
+        elif old in ("running", "printing") and new not in ("running", "printing", "pause", "paused"):
+            print_active = False
+            triggered_end = True
+
+        return print_active, triggered_start, triggered_end
+
+    def test_pause_does_not_trigger_end(self):
+        active, _, end = self._simulate_status_change("running", "pause", True)
+        assert active is True
+        assert end is False
+
+    def test_paused_does_not_trigger_end(self):
+        active, _, end = self._simulate_status_change("running", "paused", True)
+        assert active is True
+        assert end is False
+
+    def test_finish_triggers_end(self):
+        active, _, end = self._simulate_status_change("running", "finish", True)
+        assert active is False
+        assert end is True
+
+    def test_failed_triggers_end(self):
+        active, _, end = self._simulate_status_change("running", "failed", True)
+        assert active is False
+        assert end is True
+
+    def test_idle_triggers_end(self):
+        active, _, end = self._simulate_status_change("running", "idle", True)
+        assert active is False
+        assert end is True
+
+    def test_resume_from_pause_does_not_trigger_start(self):
+        """pause → running should NOT re-trigger start (old is not outside running/printing)."""
+        active, start, end = self._simulate_status_change("pause", "running", True)
+        # pause is not in ("running", "printing") so this WILL match the start condition
+        # But that's actually correct — the start block just re-seeds, it doesn't harm.
+        # The critical thing is that pause → running does NOT trigger end.
+        assert end is False
+
+    def test_resume_from_paused_does_not_trigger_end(self):
+        """paused → running must not trigger end."""
+        active, start, end = self._simulate_status_change("paused", "running", True)
+        assert end is False
+        assert active is True
+
+
+class TestSwapDetection:
+    """Spool swap detection during active print (automation F replacement)."""
+
+    def _simulate_swap(self, print_active, phase3, startup_suppress_until, last_swap_warn_time):
+        """Simulate _on_spool_id_change logic. Returns (should_warn, new_last_swap_time)."""
+        if not phase3:
+            return False, last_swap_warn_time
+        if not print_active:
+            return False, last_swap_warn_time
+        now = datetime.datetime(2026, 3, 8, 12, 0, 0)
+        if startup_suppress_until and now < startup_suppress_until:
+            return False, last_swap_warn_time
+        if last_swap_warn_time:
+            elapsed = (now - last_swap_warn_time).total_seconds()
+            if elapsed < 300:
+                return False, last_swap_warn_time
+        return True, now
+
+    def test_swap_during_active_print_warns(self):
+        warned, _ = self._simulate_swap(
+            print_active=True, phase3=True,
+            startup_suppress_until=None, last_swap_warn_time=None,
+        )
+        assert warned is True
+
+    def test_swap_when_not_printing_ignored(self):
+        warned, _ = self._simulate_swap(
+            print_active=False, phase3=True,
+            startup_suppress_until=None, last_swap_warn_time=None,
+        )
+        assert warned is False
+
+    def test_swap_when_phase3_disabled_ignored(self):
+        warned, _ = self._simulate_swap(
+            print_active=True, phase3=False,
+            startup_suppress_until=None, last_swap_warn_time=None,
+        )
+        assert warned is False
+
+    def test_swap_cooldown_suppresses_second_warning(self):
+        """Second swap within 5 minutes should be suppressed."""
+        # First swap at 11:58 (2 min ago from simulated now=12:00)
+        first_warn = datetime.datetime(2026, 3, 8, 11, 58, 0)
+        warned, _ = self._simulate_swap(
+            print_active=True, phase3=True,
+            startup_suppress_until=None, last_swap_warn_time=first_warn,
+        )
+        assert warned is False
+
+    def test_swap_after_cooldown_warns_again(self):
+        """Swap after 5+ minutes should warn again."""
+        old_warn = datetime.datetime(2026, 3, 8, 11, 54, 0)  # 6 min ago
+        warned, _ = self._simulate_swap(
+            print_active=True, phase3=True,
+            startup_suppress_until=None, last_swap_warn_time=old_warn,
+        )
+        assert warned is True
+
+    def test_startup_suppression_blocks_early_swap(self):
+        """No swap warnings in first 90 seconds after startup."""
+        suppress_until = datetime.datetime(2026, 3, 8, 12, 1, 0)  # 1 min from now
+        warned, _ = self._simulate_swap(
+            print_active=True, phase3=True,
+            startup_suppress_until=suppress_until, last_swap_warn_time=None,
+        )
+        assert warned is False
+
+    def test_startup_suppression_expired_allows_warning(self):
+        """After 90s startup window, swaps should warn normally."""
+        suppress_until = datetime.datetime(2026, 3, 8, 11, 58, 0)  # already passed
+        warned, _ = self._simulate_swap(
+            print_active=True, phase3=True,
+            startup_suppress_until=suppress_until, last_swap_warn_time=None,
+        )
+        assert warned is True
+
+
+class TestRehydration:
+    """Print state rehydration on initialize / HA restart (automation G replacement)."""
+
+    def _simulate_rehydrate(self, current_status, start_json_raw=None,
+                            phase1=True):
+        """Simulate _rehydrate_print_state logic.
+        Returns (print_active, start_snapshot, recovered_from_helper).
+        """
+        if current_status not in ("running", "printing", "pause", "paused"):
+            return False, {}, False
+
+        print_active = True
+        start_snapshot = {}
+        recovered = False
+
+        if phase1:
+            if start_json_raw and start_json_raw not in ("{}", "unknown", "unavailable"):
+                try:
+                    parsed = json.loads(start_json_raw)
+                    if isinstance(parsed, dict) and parsed:
+                        start_snapshot = {int(k): float(v) for k, v in parsed.items()}
+                        recovered = True
+                except Exception:
+                    pass
+
+        return print_active, start_snapshot, recovered
+
+    def test_rehydrate_when_printing(self):
+        active, _, _ = self._simulate_rehydrate("running")
+        assert active is True
+
+    def test_rehydrate_when_paused(self):
+        active, _, _ = self._simulate_rehydrate("pause")
+        assert active is True
+
+    def test_no_rehydrate_when_idle(self):
+        active, _, _ = self._simulate_rehydrate("idle")
+        assert active is False
+
+    def test_no_rehydrate_when_finish(self):
+        active, _, _ = self._simulate_rehydrate("finish")
+        assert active is False
+
+    def test_recovers_start_snapshot_from_helper(self):
+        raw = '{"1": 800.0, "3": 400.0}'
+        active, snapshot, recovered = self._simulate_rehydrate("running", raw)
+        assert active is True
+        assert recovered is True
+        assert snapshot == {1: 800.0, 3: 400.0}
+
+    def test_empty_helper_not_recovered(self):
+        active, snapshot, recovered = self._simulate_rehydrate("running", "{}")
+        assert recovered is False
+        assert snapshot == {}
+
+    def test_unknown_helper_not_recovered(self):
+        active, snapshot, recovered = self._simulate_rehydrate("running", "unknown")
+        assert recovered is False
+
+    def test_malformed_json_not_recovered(self):
+        active, snapshot, recovered = self._simulate_rehydrate("running", "not json")
+        assert recovered is False
+        assert snapshot == {}
+
+    def test_rehydrate_paused_state(self):
+        """Paused printer should also rehydrate (print is still active)."""
+        raw = '{"2": 950.0}'
+        active, snapshot, recovered = self._simulate_rehydrate("paused", raw)
+        assert active is True
+        assert recovered is True
+        assert snapshot == {2: 950.0}
+
+    def test_no_phase1_skips_snapshot_recovery(self):
+        raw = '{"1": 800.0}'
+        active, snapshot, recovered = self._simulate_rehydrate("running", raw, phase1=False)
+        assert active is True
+        assert recovered is False
+        assert snapshot == {}

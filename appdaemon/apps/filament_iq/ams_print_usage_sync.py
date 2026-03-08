@@ -137,7 +137,20 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._lifecycle_phase2 = bool(self.args.get("lifecycle_phase2_enabled", False))
         self._last_processed_job_key = ""
         self._end_snapshot = {}  # {slot_int: grams_float}
-        self._print_weight_entity = None  # set after prefix is built
+
+        # Phase 3: Debug logging, swap detection, rehydrate (absorbs automations E, F, G)
+        self._lifecycle_phase3 = bool(self.args.get("lifecycle_phase3_enabled", False))
+        self._last_swap_warn_time = None
+        self._startup_suppress_until = (
+            datetime.datetime.utcnow() + datetime.timedelta(seconds=90)
+            if self.args.get("lifecycle_phase3_enabled", False) else None
+        )
+        self._needs_reconcile_entity = str(
+            self.args.get(
+                "needs_reconcile_entity",
+                "input_boolean.filament_iq_needs_reconcile",
+            )
+        ).strip()
 
         # 3MF parsing config
         self.printer_ip = str(self.args.get("printer_ip", ""))
@@ -179,6 +192,16 @@ class AmsPrintUsageSync(FilamentIQBase):
             self._on_print_status_change,
             self._print_status_entity,
         )
+
+        # Phase 3: swap detection listeners + rehydration
+        if self._lifecycle_phase3:
+            for slot in sorted(self._tray_entity_by_slot.keys()):
+                self.listen_state(
+                    self._on_spool_id_change,
+                    f"input_text.ams_slot_{slot}_spool_id",
+                )
+            self.listen_event(self._on_ha_start, "homeassistant_started")
+            self._rehydrate_print_state()
 
         self.log(
             f"AmsPrintUsageSync initialized  dry_run={self.dry_run}  "
@@ -554,7 +577,12 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     # ── tray activity tracking ────────────────────────────────────────
 
+    _PAUSE_STATES = frozenset({"pause", "paused"})
+
     def _on_print_status_change(self, entity, attribute, old, new, kwargs):
+        # Debug logging (replaces automation E)
+        self.log(f"PRINT_STATUS_TRANSITION from={old} to={new}", level="DEBUG")
+
         if new in ("running", "printing") and old not in ("running", "printing"):
             self._trays_used = set()
             self._tray_active_times = {}
@@ -569,7 +597,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 self.run_in(self._fetch_3mf_background, 5)
             if self._lifecycle_phase1:
                 self._on_print_start()
-        elif old in ("running", "printing") and new not in ("running", "printing"):
+        elif old in ("running", "printing") and new not in ("running", "printing", "pause", "paused"):
             self._print_active = False
             if self._current_active_slot is not None:
                 self._close_active_segment(self._current_active_slot)
@@ -837,6 +865,101 @@ class AmsPrintUsageSync(FilamentIQBase):
         # Clean up (includes setting print_active off)
         self._end_snapshot = {}
         self._on_print_end()
+
+    # ── Phase 3: debug logging, swap detection, rehydrate ──────────
+
+    def _on_spool_id_change(self, entity, attribute, old, new, kwargs):
+        """Detect spool mapping changes during active print (replaces automation F)."""
+        if not self._lifecycle_phase3:
+            return
+        if not self._print_active:
+            return
+        # Startup suppression
+        if self._startup_suppress_until and datetime.datetime.utcnow() < self._startup_suppress_until:
+            return
+        # Cooldown (5 minutes between warnings)
+        now = datetime.datetime.utcnow()
+        if self._last_swap_warn_time:
+            elapsed = (now - self._last_swap_warn_time).total_seconds()
+            if elapsed < 300:
+                return
+        self._last_swap_warn_time = now
+        self.log(
+            f"SPOOL_SWAP_DURING_PRINT entity={entity} old={old} new={new}",
+            level="WARNING",
+        )
+        try:
+            self.call_service(
+                "input_boolean/turn_on",
+                entity_id=self._needs_reconcile_entity,
+            )
+        except Exception as e:
+            self.log(f"SWAP_DETECT: Failed to set needs_reconcile: {e}", level="WARNING")
+        try:
+            self.call_service(
+                "notify/persistent_notification",
+                title="P1S Spool Swap During Print Detected",
+                message=f"{entity} changed from {old} to {new} while print active. "
+                        f"Manual reconciliation may be required.",
+            )
+        except Exception as e:
+            self.log(f"SWAP_DETECT: Failed to notify: {e}", level="WARNING")
+
+    def _rehydrate_print_state(self):
+        """Restore print-active state if printer is mid-print (replaces automation G)."""
+        try:
+            current_status = str(self.get_state(self._print_status_entity) or "").strip().lower()
+        except Exception:
+            return
+        if current_status not in ("running", "printing", "pause", "paused"):
+            return
+        self._print_active = True
+        self.log(f"REHYDRATE_PRINT_ACTIVE status={current_status}", level="INFO")
+        try:
+            self.call_service(
+                "input_boolean/turn_on",
+                entity_id=self._print_active_entity,
+            )
+        except Exception as e:
+            self.log(f"REHYDRATE: Failed to set print_active: {e}", level="WARNING")
+        # Phase 1: rebuild start snapshot
+        if self._lifecycle_phase1:
+            # Try to recover from HA helper first
+            recovered = False
+            try:
+                raw = str(self.get_state(self._start_json_entity) or "").strip()
+                if raw and raw not in ("{}", "unknown", "unavailable"):
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, dict) and parsed:
+                        self._start_snapshot = {int(k): float(v) for k, v in parsed.items()}
+                        recovered = True
+                        self.log(
+                            f"REHYDRATE_START_SNAPSHOT_RECOVERED from helper: {self._start_snapshot}",
+                            level="INFO",
+                        )
+            except Exception as e:
+                self.log(f"REHYDRATE: Failed to recover start_json: {e}", level="WARNING")
+            if not recovered:
+                self._start_snapshot = self._build_start_snapshot()
+                self._write_start_json_helper()
+                self.log(
+                    f"REHYDRATE_START_SNAPSHOT_REBUILT from fuel gauges: {self._start_snapshot}",
+                    level="INFO",
+                )
+            task_name = str(self.get_state(self._task_name_entity) or "")
+            self._job_key = task_name.replace(" ", "_")
+            try:
+                self.call_service(
+                    "input_text/set_value",
+                    entity_id=self._job_key_entity,
+                    value=self._job_key,
+                )
+            except Exception:
+                pass
+
+    def _on_ha_start(self, event_name, data, kwargs):
+        """Handle HA restart while AppDaemon is running (replaces automation G)."""
+        self._rehydrate_print_state()
 
     def _summarize_tray_times(self):
         result = {}
