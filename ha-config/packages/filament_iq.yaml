@@ -7,6 +7,9 @@ input_text:
   filament_iq_active_job_key:
     name: Filament IQ Print Job Key (mutex)
     max: 255
+  filament_iq_last_processed_job_key:
+    name: Filament IQ Last Processed Job Key (dedup)
+    max: 255
   filament_iq_last_active_tray:
     name: P1S Last Active Tray
     max: 255

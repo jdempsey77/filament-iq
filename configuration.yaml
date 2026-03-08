@@ -143,6 +143,9 @@ input_text:
   filament_iq_active_job_key:
     name: Filament IQ Print Job Key (mutex)
     max: 255
+  filament_iq_last_processed_job_key:
+    name: Filament IQ Last Processed Job Key (dedup)
+    max: 255
   # AMS UI / mapping helpers (managed)
   ams_slot_1_expected_spool_id:
     name: AMS Slot 1 – Expected Spool ID

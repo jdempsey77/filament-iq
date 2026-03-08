@@ -749,6 +749,13 @@
         - printing
         - pause
         - paused
+      to:
+        - idle
+        - finish
+        - finished
+        - completed
+        - failed
+        - error
     - platform: state
       entity_id: input_boolean.filament_iq_debug_finish_trigger
       to: "on"
@@ -759,15 +766,25 @@
     is_failed: "{{ trigger_state in ['failed', 'error', 'canceled'] }}"
     should_decrement: "{{ not is_failed or states('input_boolean.filament_iq_decrement_on_failed') == 'on' }}"
   action:
-    # 0. Guard: skip if we already processed this job (duplicate finish+offline trigger)
+    # 0. Guard: skip if we already processed this job (duplicate trigger or reboot)
     - choose:
+        # 0a. Job-key dedup: skip if active_job_key matches last processed job key
+        - conditions:
+            - condition: template
+              value_template: >
+                {{ states('input_text.filament_iq_active_job_key') not in ['', 'unknown', 'unavailable']
+                   and states('input_text.filament_iq_active_job_key')
+                      == states('input_text.filament_iq_last_processed_job_key') }}
+          sequence:
+            - stop: "Already processed this job key (duplicate trigger)"
+        # 0b. Time-based fallback: skip if checkpoint is 'complete' within 120s
         - conditions:
             - condition: template
               value_template: >
                 {{ states('input_text.filament_iq_finish_automation_checkpoint') == 'complete'
                    and (as_timestamp(now()) - as_timestamp(states.input_text.filament_iq_finish_automation_checkpoint.last_changed | default(now()))) < 120 }}
           sequence:
-            - stop: "Already processed this print (duplicate trigger)"
+            - stop: "Already processed this print (duplicate trigger within 120s)"
 
     # 1. Checkpoint
     - service: input_text.set_value
@@ -840,16 +857,23 @@
         end_json: "{{ end_json_built | to_json }}"
         print_status: "{{ trigger_state }}"
 
-    # 7. Checkpoint complete
+    # 7. Stamp last processed job key (dedup guard)
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.filament_iq_last_processed_job_key
+      data:
+        value: "{{ states('input_text.filament_iq_active_job_key') }}"
+
+    # 8. Checkpoint complete
     - service: input_text.set_value
       target:
         entity_id: input_text.filament_iq_finish_automation_checkpoint
       data:
         value: "event_fired"
 
-    # 8. Notification — handled by AppDaemon ams_print_usage_sync
+    # 9. Notification — handled by AppDaemon ams_print_usage_sync
 
-    # 9. Final checkpoint
+    # 10. Final checkpoint
     - service: input_text.set_value
       target:
         entity_id: input_text.filament_iq_finish_automation_checkpoint
