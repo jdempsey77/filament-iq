@@ -39,6 +39,7 @@ try:
         normalize_color,
         normalize_material,
         parse_3mf_filaments,
+        parse_lot_nr_color,
     )
     THREEMF_AVAILABLE = True
 except ImportError:
@@ -248,6 +249,7 @@ class AmsPrintUsageSync(FilamentIQBase):
 
         threemf_matched_slots = {}
         threemf_used = False
+        threemf_has_unmatched = False
         all_results = []
         skipped = 0
 
@@ -266,9 +268,13 @@ class AmsPrintUsageSync(FilamentIQBase):
                         level="INFO",
                     )
                 if unmatched_fils:
+                    threemf_has_unmatched = True
+                    unmatched_total = sum(f["used_g"] for f in unmatched_fils)
                     self.log(
                         f"3MF_UNMATCHED filaments="
-                        f"{[(f['index'], f['used_g'], f['color_hex']) for f in unmatched_fils]}",
+                        f"{[(f['index'], f['used_g'], f['color_hex']) for f in unmatched_fils]} "
+                        f"unmatched_total_g={unmatched_total:.2f} "
+                        f"(will flow to time_weighted/equal_split pool)",
                         level="WARNING",
                     )
             else:
@@ -302,6 +308,19 @@ class AmsPrintUsageSync(FilamentIQBase):
             is_rfid = self._is_rfid_slot(slot)
             start_g = float(start_map.get(str(slot), 0))
             end_g = float(end_map.get(str(slot), 0))
+
+            # When 3MF had unmatched filaments, route unmatched slots to
+            # pool-based estimation instead of rfid_delta (which may be 0g
+            # due to fuel gauge inaccuracy). The unmatched 3MF consumption
+            # is already in the pool (print_weight - matched_3mf).
+            if threemf_has_unmatched:
+                remaining_nonrfid_slots.append((slot, spool_id))
+                self.log(
+                    f"USAGE_3MF_UNMATCHED_POOL slot={slot} spool_id={spool_id} "
+                    f"is_rfid={is_rfid} (routed to pool due to unmatched 3MF filaments)",
+                    level="INFO",
+                )
+                continue
 
             if is_rfid and start_g > 0 and end_g > 0:
                 consumption_g = max(0.0, start_g - end_g)
@@ -904,10 +923,22 @@ class AmsPrintUsageSync(FilamentIQBase):
                     except Exception:
                         pass
 
+                # Extract lot_nr color for fallback matching
+                lot_nr_color = ""
+                if spool_id > 0:
+                    try:
+                        spool_data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+                        if spool_data:
+                            lot_nr = str(spool_data.get("lot_nr", "") or "")
+                            lot_nr_color = parse_lot_nr_color(lot_nr)
+                    except Exception:
+                        pass
+
                 slot_data[slot] = {
                     "color_hex": color,
                     "material": material,
                     "spool_id": spool_id,
+                    "lot_nr_color": lot_nr_color,
                 }
             except Exception as e:
                 self.log(

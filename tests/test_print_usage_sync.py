@@ -2,7 +2,12 @@
 
 Run: python3 -m pytest tests/test_print_usage_sync.py -v
 """
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps"))
+
 import pytest
+from filament_iq.threemf_parser import match_filaments_to_slots, parse_lot_nr_color
 
 
 # ── Helpers to simulate the classification logic ──
@@ -621,3 +626,180 @@ class TestSeedSlotStartGrams:
         ams = {3: 500.0}
         result = seed_slot_start_grams(snapshot, 3, {}, ams)
         assert result == {3: 500.0}
+
+
+# ── Test: lot_nr color extraction ──
+
+
+class TestParseLotNrColor:
+    def test_non_rfid_signature(self):
+        assert parse_lot_nr_color("pla|gfl99|161616") == "161616"
+
+    def test_non_rfid_uppercase_color(self):
+        assert parse_lot_nr_color("pla|gfl99|FF00AA") == "ff00aa"
+
+    def test_rfid_32char_uuid(self):
+        """32-char hex UUID (tray_uuid) should return empty — no color."""
+        assert parse_lot_nr_color("A1B2C3D4E5F6A1B2C3D4E5F6A1B2C3D4") == ""
+
+    def test_rfid_lowercase_uuid(self):
+        assert parse_lot_nr_color("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4") == ""
+
+    def test_empty_string(self):
+        assert parse_lot_nr_color("") == ""
+
+    def test_none(self):
+        assert parse_lot_nr_color(None) == ""
+
+    def test_malformed_no_pipes(self):
+        assert parse_lot_nr_color("just_a_string") == ""
+
+    def test_two_pipes_only(self):
+        assert parse_lot_nr_color("pla|gfl99") == ""
+
+    def test_color_with_alpha(self):
+        """8-char color in lot_nr should be trimmed to 6."""
+        assert parse_lot_nr_color("pla|gfl99|161616FF") == "161616"
+
+    def test_petg_signature(self):
+        assert parse_lot_nr_color("petg|42|00ae42") == "00ae42"
+
+
+# ── Test: lot_nr color matching in match_filaments_to_slots ──
+
+
+class TestLotNrColorMatching:
+    def test_lot_nr_color_matches_when_spoolman_color_differs(self):
+        """Slot has Spoolman color 000000 but lot_nr has 161616. 3MF says 161616."""
+        filaments = [
+            {"index": 0, "used_g": 5.0, "color_hex": "161616", "material": "pla"},
+        ]
+        slot_data = {
+            3: {"color_hex": "000000", "material": "pla", "spool_id": 52, "lot_nr_color": "161616"},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data)
+        assert len(matches) == 1
+        assert matches[0]["slot"] == 3
+        assert matches[0]["method"] == "lot_nr_color_material"
+        assert len(unmatched) == 0
+
+    def test_exact_color_preferred_over_lot_nr(self):
+        """When exact color matches, lot_nr should not be used."""
+        filaments = [
+            {"index": 0, "used_g": 5.0, "color_hex": "161616", "material": "pla"},
+        ]
+        slot_data = {
+            3: {"color_hex": "161616", "material": "pla", "spool_id": 52, "lot_nr_color": "161616"},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data)
+        assert len(matches) == 1
+        assert matches[0]["method"] == "exact_color_material"
+
+    def test_close_color_preferred_over_lot_nr(self):
+        """Close color (dist < 30) should match before lot_nr fallback."""
+        filaments = [
+            {"index": 0, "used_g": 5.0, "color_hex": "161616", "material": "pla"},
+        ]
+        # 141414 → dist = sqrt(2² + 2² + 2²) ≈ 3.5
+        slot_data = {
+            3: {"color_hex": "141414", "material": "pla", "spool_id": 52, "lot_nr_color": "161616"},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data)
+        assert len(matches) == 1
+        assert "close_color" in matches[0]["method"]
+
+    def test_lot_nr_color_not_used_for_wrong_material(self):
+        """lot_nr color matches but material differs — should not match."""
+        filaments = [
+            {"index": 0, "used_g": 5.0, "color_hex": "161616", "material": "petg"},
+        ]
+        slot_data = {
+            3: {"color_hex": "000000", "material": "pla", "spool_id": 52, "lot_nr_color": "161616"},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data)
+        assert len(matches) == 0
+        assert len(unmatched) == 1
+
+    def test_no_lot_nr_color_falls_through(self):
+        """Slot has no lot_nr_color — should fall through to material-only."""
+        filaments = [
+            {"index": 0, "used_g": 5.0, "color_hex": "161616", "material": "petg"},
+        ]
+        # Only one PETG slot in system → material_only_single
+        slot_data = {
+            3: {"color_hex": "000000", "material": "petg", "spool_id": 52, "lot_nr_color": ""},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data)
+        assert len(matches) == 1
+        assert matches[0]["method"] == "material_only_single"
+
+    def test_multi_slot_lot_nr_color_picks_correct_slot(self):
+        """Two PLA slots with different lot_nr colors. 3MF should match each correctly."""
+        filaments = [
+            {"index": 0, "used_g": 5.0, "color_hex": "161616", "material": "pla"},
+            {"index": 1, "used_g": 3.0, "color_hex": "f330f9", "material": "pla"},
+        ]
+        slot_data = {
+            3: {"color_hex": "000000", "material": "pla", "spool_id": 52, "lot_nr_color": "161616"},
+            4: {"color_hex": "000000", "material": "pla", "spool_id": 51, "lot_nr_color": "f330f9"},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data)
+        assert len(matches) == 2
+        assert len(unmatched) == 0
+        slot_map = {m["slot"]: m for m in matches}
+        assert slot_map[3]["used_g"] == 5.0
+        assert slot_map[4]["used_g"] == 3.0
+
+    def test_backward_compatible_without_lot_nr_color_key(self):
+        """slot_data without lot_nr_color key should still work (graceful fallback)."""
+        filaments = [
+            {"index": 0, "used_g": 5.0, "color_hex": "161616", "material": "pla"},
+        ]
+        # No lot_nr_color key at all
+        slot_data = {
+            3: {"color_hex": "161616", "material": "pla", "spool_id": 52},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data)
+        assert len(matches) == 1
+        assert matches[0]["method"] == "exact_color_material"
+
+
+# ── Test: Unmatched 3MF consumption pooling ──
+
+
+class TestUnmatched3mfPooling:
+    def test_unmatched_consumption_stays_in_pool(self):
+        """
+        4 filaments in 3MF, 2 matched, 2 unmatched.
+        Pool should be print_weight - matched_total (unmatched stays in pool).
+        """
+        matched_total = 9.1  # 2 matched filaments
+        print_weight = 17.3
+        rfid_total = 0.0
+        pool = max(0.0, print_weight - matched_total - rfid_total)
+        assert abs(pool - 8.2) < 0.01  # unmatched 8.2g is in the pool
+
+    def test_unmatched_slots_get_pool_share(self):
+        """Unmatched slots should receive time-weighted share of pool."""
+        pool_g = 8.2
+        time_weights = {3: 0.6, 4: 0.4}  # slot 3: 60%, slot 4: 40%
+        slot_3_share = pool_g * time_weights[3]
+        slot_4_share = pool_g * time_weights[4]
+        assert abs(slot_3_share - 4.92) < 0.01
+        assert abs(slot_4_share - 3.28) < 0.01
+        assert abs(slot_3_share + slot_4_share - pool_g) < 0.01
+
+    def test_rfid_slots_routed_to_pool_when_3mf_unmatched(self):
+        """
+        When 3MF has unmatched filaments, RFID slots not matched by 3MF
+        should be routed to pool instead of using rfid_delta.
+        This prevents losing consumption when fuel gauge shows 0g.
+        """
+        # Simulate: slot 1 matched by 3MF (5g), slot 3 unmatched
+        # Slot 3 is RFID with fuel gauge showing 0g delta
+        # Without fix: slot 3 gets rfid_delta=0. With fix: slot 3 gets pool share.
+        threemf_matched_total = 5.0
+        rfid_total = 0.0  # slot 3 routed to pool, not rfid_delta
+        print_weight = 10.0
+        pool = max(0.0, print_weight - threemf_matched_total - rfid_total)
+        assert pool == 5.0  # full unmatched amount available for pool

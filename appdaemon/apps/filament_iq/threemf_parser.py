@@ -67,6 +67,23 @@ def normalize_task_name(name):
     return name
 
 
+def parse_lot_nr_color(lot_nr):
+    """Extract color_hex from a non-RFID lot_nr signature (type|filament_id|color_hex).
+    Returns normalized 6-char lowercase hex, or '' if not a valid signature.
+    RFID lot_nr values (32-char hex UUIDs like tray_uuid) are skipped.
+    """
+    if not lot_nr:
+        return ""
+    lot_nr = str(lot_nr).strip()
+    # RFID: 32-char hex UUID (tray_uuid) — no color to extract
+    if len(lot_nr) == 32 and all(c in "0123456789abcdefABCDEF" for c in lot_nr):
+        return ""
+    parts = lot_nr.split("|")
+    if len(parts) >= 3:
+        return normalize_color(parts[2])
+    return ""
+
+
 def _materials_match(mat1, mat2):
     """Fuzzy material matching. PLA+ matches PLA, PETG-CF matches PETG, etc."""
     if not mat1 or not mat2:
@@ -310,6 +327,7 @@ def match_filaments_to_slots(filaments, slot_data, trays_used=None):
     Matching strategy:
     1. Exact color + material match
     2. Close color (distance < 30) + material match
+    2.5. Exact lot_nr_color + material match (fallback when tray/Spoolman color differs)
     3. Material-only match (if only one candidate)
     Each slot can only be matched once.
     """
@@ -355,6 +373,18 @@ def match_filaments_to_slots(filaments, slot_data, trays_used=None):
                     best_slot = slot
                     best_method = f"close_color_material(dist={dist:.1f})"
                     best_distance = dist
+
+        # Tier 2.5: exact lot_nr_color + material match
+        if best_slot is None:
+            for slot, data in available_slots.items():
+                if slot in used_slots:
+                    continue
+                lot_color = data.get("lot_nr_color", "")
+                if lot_color and _materials_match(data["material"], fil_material) and lot_color == fil_color:
+                    best_slot = slot
+                    best_method = "lot_nr_color_material"
+                    best_distance = 0.0
+                    break
 
         if best_slot is None:
             material_candidates = [
