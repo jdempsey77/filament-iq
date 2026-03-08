@@ -1674,10 +1674,13 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 1
-                        style:
-                          --popup-min-width: 680px;
                         content:
                           type: vertical-stack
+                          card_mod:
+                            style: |
+                              :host {
+                                width: 680px;
+                              }
                           cards:
                             - type: markdown
                               content: >-
@@ -1872,10 +1875,13 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 2
-                        style:
-                          --popup-min-width: 680px;
                         content:
                           type: vertical-stack
+                          card_mod:
+                            style: |
+                              :host {
+                                width: 680px;
+                              }
                           cards:
                             - type: markdown
                               content: >-
@@ -2070,10 +2076,13 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 3
-                        style:
-                          --popup-min-width: 680px;
                         content:
                           type: vertical-stack
+                          card_mod:
+                            style: |
+                              :host {
+                                width: 680px;
+                              }
                           cards:
                             - type: markdown
                               content: >-
@@ -2268,10 +2277,13 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 4
-                        style:
-                          --popup-min-width: 680px;
                         content:
                           type: vertical-stack
+                          card_mod:
+                            style: |
+                              :host {
+                                width: 680px;
+                              }
                           cards:
                             - type: markdown
                               content: >-
@@ -2540,10 +2552,13 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 5
-                        style:
-                          --popup-min-width: 680px;
                         content:
                           type: vertical-stack
+                          card_mod:
+                            style: |
+                              :host {
+                                width: 680px;
+                              }
                           cards:
                             - type: markdown
                               content: >-
@@ -2812,10 +2827,13 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 6
-                        style:
-                          --popup-min-width: 680px;
                         content:
                           type: vertical-stack
+                          card_mod:
+                            style: |
+                              :host {
+                                width: 680px;
+                              }
                           cards:
                             - type: markdown
                               content: >-
