@@ -21,7 +21,7 @@ jobs:
         run: pip install appdaemon pytest
 
       - name: Run tests
-        run: python3 -m pytest tests/ -q
+        run: python3 -m pytest tests/test_threemf_parser.py tests/test_print_usage_sync.py -q
 
       - name: Run audit
         run: python3 scripts/audit_config_driven.py

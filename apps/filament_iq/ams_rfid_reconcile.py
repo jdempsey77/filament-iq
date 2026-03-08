@@ -29,6 +29,8 @@ from pathlib import Path
 
 import hassapi as hass
 
+from .base import FilamentIQBase, build_slot_mappings
+
 # v4: canonicalizer retired (moved to _retired/). These symbols are set to None so
 # existing fallback guards (`if _canon_rfid is not None`) degrade gracefully.
 _canonicalize_extra_scalar = None
@@ -43,27 +45,7 @@ try:
 except ImportError:
     DomainException = None  # running outside AppDaemon (e.g. unit tests)
 
-# AMS slots 1–4 (AMS1), 5–6 (AMS_128 / AMS_129 HT). All have tray hardware; reconcile and location writes for all.
-PHYSICAL_AMS_SLOTS = (1, 2, 3, 4, 5, 6)
-
-# TODO: Substitute YOUR_PRINTER_SERIAL with your Bambu printer's device serial (e.g. from MQTT entity IDs).
-TRAY_ENTITY_BY_SLOT = {
-    1: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_1",
-    2: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_2",
-    3: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_3",
-    4: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_4",
-    5: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_128_tray_1",
-    6: "sensor.p1s_YOUR_PRINTER_SERIAL_ams_129_tray_1",
-}
-
-CANONICAL_LOCATION_BY_SLOT = {
-    1: "AMS1_Slot1",
-    2: "AMS1_Slot2",
-    3: "AMS1_Slot3",
-    4: "AMS1_Slot4",
-    5: "AMS128_Slot1",
-    6: "AMS129_Slot1",
-}
+# Slot mappings built from config in initialize() — see _tray_entity_by_slot, _canonical_location_by_slot, _physical_ams_slots.
 
 # Location used when clearing a spool from an AMS slot (one spool per location invariant).
 LOCATION_NOT_IN_AMS = "Shelf"
@@ -351,16 +333,35 @@ TRAY_HEX_NON_AUTHORITATIVE = frozenset({"", "000000", "00000000", "none", "unkno
 TRAY_HEX_VALID_PATTERN = re.compile(r"^[0-9a-f]{6}$")
 
 
-class AmsRfidReconcile(hass.Hass):
+class AmsRfidReconcile(FilamentIQBase):
     def initialize(self):
+        self._validate_config(["spoolman_url", "printer_serial"])
+
         self.log("ams_rfid_reconcile VERSION=2026-02-18 flow-b-ha-sig", level="INFO")
         self.enabled = bool(self.args.get("enabled", True))
         if not self.enabled:
             self.log("AMS RFID reconcile disabled by config (enabled=false).")
             return
 
-        # TODO: Substitute YOUR_SPOOLMAN_IP with your Spoolman server IP. Port 7912 is Spoolman default.
-        self.spoolman_url = str(self.args.get("spoolman_url", "http://YOUR_SPOOLMAN_IP:7912")).rstrip("/")
+        self._prefix = self._build_entity_prefix()
+        ams_units = self.args.get("ams_units")
+        (
+            self._tray_entity_by_slot,
+            self._slot_by_tray_entity,
+            _,
+            self._canonical_location_by_slot,
+        ) = build_slot_mappings(self._prefix, ams_units)
+        self._physical_ams_slots = tuple(sorted(self._tray_entity_by_slot.keys()))
+        self._last_mapping_json_entity = str(
+            self.args.get(
+                "last_mapping_json_entity",
+                "input_text.filament_iq_last_mapping_json",
+            )
+        ).strip()
+
+        self.spoolman_url = str(
+            self.args.get("spoolman_url", self.args.get("spoolman_base_url", ""))
+        ).rstrip("/")
         self.startup_delay_seconds = int(self.args.get("startup_delay_seconds", 60))
         self.startup_wait_helpers_seconds = int(self.args.get("startup_wait_helpers_seconds", 420))
         self.startup_wait_retry_initial_seconds = int(self.args.get("startup_wait_retry_initial_seconds", 2))
@@ -373,7 +374,6 @@ class AmsRfidReconcile(hass.Hass):
         self.debug_logs = bool(self.args.get("debug_logs", False))
         self.strict_mode_reregister = bool(self.args.get("strict_mode_reregister", False))
         self._color_distance_threshold = int(self.args.get("color_distance_threshold", COLOR_DISTANCE_THRESHOLD))
-        # TODO: Substitute with a writable path on your HA host (e.g. /config/ or addon_config path).
         self.evidence_log_path = str(self.args.get("evidence_log_path", "/config/ams_rfid_reconcile_evidence.log"))
         self.evidence_log_enabled = True
         self.last_slot_status = {}
@@ -392,19 +392,35 @@ class AmsRfidReconcile(hass.Hass):
                 level="INFO",
             )
 
-        for slot, entity_id in TRAY_ENTITY_BY_SLOT.items():
+        for slot, entity_id in self._tray_entity_by_slot.items():
             self.listen_state(self._on_tray_state_change, entity_id, attribute="all")
             self.log(f"AMS RFID reconcile listening: slot={slot} entity={entity_id}")
 
-        for slot in PHYSICAL_AMS_SLOTS:
+        for slot in self._physical_ams_slots:
             helper_entity = f"input_text.ams_slot_{slot}_spool_id"
             self.listen_state(self._on_helper_spool_id_change, helper_entity)
             self.log(f"AMS RFID reconcile listening helper: slot={slot} entity={helper_entity}")
 
         self.listen_event(self._on_reconcile_event, "bambu_rfid_reconcile_now")
         self.listen_event(self._on_reconcile_all_event, "AMS_RECONCILE_ALL")
-        self.listen_state(self._on_manual_reconcile_button, "input_button.filament_iq_reconcile_now")
+        self._reconcile_button_entity = str(
+            self.args.get(
+                "reconcile_button_entity",
+                "input_button.filament_iq_reconcile_now",
+            )
+        ).strip()
+        self._startup_suppress_entity = str(
+            self.args.get(
+                "startup_suppress_swap_entity",
+                "input_boolean.filament_iq_startup_suppress_swap",
+            )
+        ).strip()
+        self.listen_state(
+            self._on_manual_reconcile_button,
+            self._reconcile_button_entity,
+        )
         self.listen_event(self._on_manual_enroll_event, "bambu_rfid_manual_enroll_tag_to_spool")
+        self.listen_event(self._on_slot_assigned, "FILAMENT_IQ_SLOT_ASSIGNED")
         self.listen_event(self._on_validate_event, "AMS_RFID_VALIDATE")
         self.listen_event(self._on_homeassistant_start, "homeassistant_started")
 
@@ -424,10 +440,10 @@ class AmsRfidReconcile(hass.Hass):
         try:
             self.call_service(
                 "input_boolean/turn_on",
-                entity_id="input_boolean.filament_iq_startup_suppress_swap",
+                entity_id=self._startup_suppress_entity,
             )
         except Exception as e:
-            self.log("Failed to set appdaemon_startup_suppress_swap on: %s" % (e,), level="WARNING")
+            self.log("Failed to set filament_iq_startup_suppress_swap on: %s" % (e,), level="WARNING")
         if DomainException is None:
             self._clear_legacy_signatures()
             self._run_reconcile("startup_delay")
@@ -511,7 +527,7 @@ class AmsRfidReconcile(hass.Hass):
         self._schedule_reconcile(reason)
 
     def _on_manual_reconcile_button(self, entity, attribute, old, new, kwargs):
-        """Trigger full reconcile when input_button.filament_iq_reconcile_now state (ISO timestamp) changes. Same path as periodic/tray-trigger."""
+        """Trigger full reconcile when reconcile button state (ISO timestamp) changes."""
         if not new or new == old:
             return
         if self._active_run is not None:
@@ -533,7 +549,7 @@ class AmsRfidReconcile(hass.Hass):
         self._run_reconcile(reason, status_only=status_only)
 
     def _on_tray_state_change(self, entity, attribute, old, new, kwargs):
-        slot = next((s for s, e in TRAY_ENTITY_BY_SLOT.items() if e == entity), None)
+        slot = next((s for s, e in self._tray_entity_by_slot.items() if e == entity), None)
         if slot is not None:
             until_utc = datetime.datetime.utcnow() + datetime.timedelta(seconds=RFID_PENDING_SECONDS)
             self._set_rfid_pending_until(slot, until_utc)
@@ -545,7 +561,7 @@ class AmsRfidReconcile(hass.Hass):
         if new_val == old_val:
             return
         slot = next(
-            (s for s in PHYSICAL_AMS_SLOTS if f"input_text.ams_slot_{s}_spool_id" == entity),
+            (s for s in self._physical_ams_slots if f"input_text.ams_slot_{s}_spool_id" == entity),
             None,
         )
         if slot is None:
@@ -563,7 +579,7 @@ class AmsRfidReconcile(hass.Hass):
         payload = data or {}
         slot = self._safe_int(payload.get("slot"), 0)
         spool_id = self._safe_int(payload.get("spool_id"), 0)
-        if slot not in TRAY_ENTITY_BY_SLOT or spool_id <= 0:
+        if slot not in self._tray_entity_by_slot or spool_id <= 0:
             self._notify(
                 "RFID Manual Enroll Failed",
                 f"Invalid inputs slot={slot} spool_id={spool_id}.",
@@ -581,12 +597,60 @@ class AmsRfidReconcile(hass.Hass):
                 notification_id=f"rfid_manual_enroll_error_slot_{slot}",
             )
 
+    def _on_slot_assigned(self, event_name, data, kwargs):
+        """Handle FILAMENT_IQ_SLOT_ASSIGNED: enroll lot_sig for non-RFID trays and reconcile the slot."""
+        payload = data or {}
+        slot = self._safe_int(payload.get("slot"), 0)
+        spool_id = self._safe_int(payload.get("spool_id"), 0)
+        if slot not in self._tray_entity_by_slot or spool_id <= 0:
+            return
+
+        # Read tray attributes
+        tray = self.get_state(self._tray_entity_by_slot[slot], attribute="all") or {}
+        attrs = tray.get("attributes", {}) if isinstance(tray, dict) else {}
+        tag_uid = str(attrs.get("tag_uid") or "").strip()
+        tray_uuid = str(attrs.get("tray_uuid") or "").strip()
+
+        # Skip RFID trays — already handled by bambu_rfid_manual_enroll_tag_to_spool
+        if not self._is_all_zero_identity(tag_uid, tray_uuid):
+            self.log(
+                f"SLOT_ASSIGNED_RFID slot={slot} spool_id={spool_id} — skipping (RFID enroll handles this)",
+                level="DEBUG",
+            )
+            self._run_reconcile(f"slot_assigned_slot_{slot}", slots_filter=[slot])
+            return
+
+        # Non-RFID: build lot_sig and enroll
+        state_str = str(tray.get("state", "")) if isinstance(tray, dict) else ""
+        tray_meta = self._tray_meta(attrs, state_str)
+        lot_sig = self._build_lot_sig(tray_meta)
+
+        if lot_sig:
+            spools = self._spoolman_get("/api/v1/spool?limit=1000")
+            if isinstance(spools, dict) and "items" in spools:
+                spools = spools.get("items", [])
+            spool_index = {self._safe_int(s.get("id"), 0): s for s in (spools if isinstance(spools, list) else [])}
+
+            self._enroll_lot_nr(spool_id, lot_sig, spool_index, reason=f"manual_assign_slot_{slot}")
+            self.log(
+                f"SLOT_ASSIGNED_LOT_SIG_ENROLLED slot={slot} spool_id={spool_id} lot_sig={lot_sig}",
+                level="INFO",
+            )
+        else:
+            self.log(
+                f"SLOT_ASSIGNED_NO_LOT_SIG slot={slot} spool_id={spool_id} tray_meta={tray_meta}",
+                level="WARNING",
+            )
+
+        # Single-slot reconcile
+        self._run_reconcile(f"slot_assigned_slot_{slot}", slots_filter=[slot])
+
     def _on_validate_event(self, event_name, data, kwargs):
         """Field validation runner: reconcile single slot and log compact transcript."""
         payload = data or {}
         slot = self._safe_int(payload.get("slot"), 0)
         mode = str(payload.get("mode", "reinsert")).strip()
-        if slot not in TRAY_ENTITY_BY_SLOT:
+        if slot not in self._tray_entity_by_slot:
             self._notify(
                 "RFID Validate Failed",
                 f"Invalid slot={slot}. Expected 1..6 (AMS1 + AMS_128/AMS_129).",
@@ -622,11 +686,11 @@ class AmsRfidReconcile(hass.Hass):
         }
         if slots_filter is not None:
             raw = slots_filter if isinstance(slots_filter, (list, tuple)) else [slots_filter]
-            slots_to_process = [self._safe_int(s, 0) for s in raw if self._safe_int(s, 0) in TRAY_ENTITY_BY_SLOT]
+            slots_to_process = [self._safe_int(s, 0) for s in raw if self._safe_int(s, 0) in self._tray_entity_by_slot]
         else:
-            slots_to_process = list(TRAY_ENTITY_BY_SLOT.keys())
+            slots_to_process = list(self._tray_entity_by_slot.keys())
         before_slots = {}
-        for slot, entity_id in TRAY_ENTITY_BY_SLOT.items():
+        for slot, entity_id in self._tray_entity_by_slot.items():
             if slot in slots_to_process:
                 before_slots[str(slot)] = self._snapshot_slot(slot, entity_id)
 
@@ -676,7 +740,7 @@ class AmsRfidReconcile(hass.Hass):
         conflict = 0
         mismatch = 0
 
-        for slot, entity_id in TRAY_ENTITY_BY_SLOT.items():
+        for slot, entity_id in self._tray_entity_by_slot.items():
             if slot not in slots_to_process:
                 continue
             writes_before_slot = len(self._active_run["writes"])
@@ -793,7 +857,7 @@ class AmsRfidReconcile(hass.Hass):
                 t["decision"], t["reason"], t["action"] = "FORCE_ACCEPTED", "user_force_accepted", "preserve_binding"
                 t["final_spool_id"] = helper_spool_id
                 t["final_slot_status"] = status
-                t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                 self._active_run["validation_transcripts"].append(t)
                 if validation_mode:
                     self._log_validation_transcript(t)
@@ -821,7 +885,7 @@ class AmsRfidReconcile(hass.Hass):
                 ok += 1
                 t["final_slot_status"] = status
                 t["final_spool_id"] = helper_spool_id
-                t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                 fid = helper_spool_id
                 # v4: lot_nr convergence handled centrally at end of slot loop
                 self._active_run["validation_transcripts"].append(t)
@@ -861,7 +925,7 @@ class AmsRfidReconcile(hass.Hass):
                 ok += 1
                 t["final_slot_status"] = status
                 t["final_spool_id"] = helper_spool_id
-                t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                 fid = helper_spool_id
                 # v4: lot_nr convergence handled centrally at end of slot loop
                 self._active_run["validation_transcripts"].append(t)
@@ -888,7 +952,13 @@ class AmsRfidReconcile(hass.Hass):
             # Non-RFID override: run before tag_uid-based branching so normalized "" or literal 000...0 all hit this path
             raw_tag_uid_ht = attrs.get("tag_uid") if attrs.get("tag_uid") is not None else ""
             raw_tray_uuid_ht = attrs.get("tray_uuid") if attrs.get("tray_uuid") is not None else ""
-            nonrfid_enabled = (self.get_state("input_boolean.filament_iq_nonrfid_enabled") or "").strip().lower() == "on"
+            nonrfid_entity = str(
+                self.args.get(
+                    "nonrfid_enabled_entity",
+                    "input_boolean.filament_iq_nonrfid_enabled",
+                )
+            ).strip()
+            nonrfid_enabled = (self.get_state(nonrfid_entity) or "").strip().lower() == "on"
             if nonrfid_enabled and self._is_all_zero_identity(raw_tag_uid_ht, raw_tray_uuid_ht):
                 helper_entity = f"input_text.ams_slot_{slot}_spool_id"
                 raw = self.get_state(helper_entity)
@@ -1063,7 +1133,7 @@ class AmsRfidReconcile(hass.Hass):
                     t["decision"], t["reason"], t["action"] = "NON_RFID", "nonrfid_present", "nonrfid_registered"
                     t["final_spool_id"], t["selected_spool_id"] = helper_spool_id, helper_spool_id
                     t["final_slot_status"] = status
-                    t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                    t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                     self.log(f"NONRFID_REGISTERED slot={slot} helper_spool_id={helper_spool_id}", level="DEBUG")
                     self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                     self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
@@ -1129,7 +1199,7 @@ class AmsRfidReconcile(hass.Hass):
                         t["decision"], t["reason"], t["action"] = "NON_RFID", "lot_nr_match", "nonrfid_auto_match"
                         t["final_spool_id"], t["selected_spool_id"] = resolved, resolved
                         t["final_slot_status"] = status
-                        t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                        t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                         self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
                         self._log_slot_status_change(slot, status, "", resolved, tray_meta)
@@ -1140,7 +1210,7 @@ class AmsRfidReconcile(hass.Hass):
                         continue
                     elif len(all_nonrfid_ids) > 1:
                         # Tiebreak: filter to spools available for this slot, pick lowest remaining_weight
-                        current_slot_loc = self._normalize_location(CANONICAL_LOCATION_BY_SLOT.get(slot, ""))
+                        current_slot_loc = self._normalize_location(self._canonical_location_by_slot.get(slot, ""))
                         available = []
                         for cid in all_nonrfid_ids:
                             cs = spool_index.get(cid)
@@ -1198,7 +1268,7 @@ class AmsRfidReconcile(hass.Hass):
                                 t["decision"], t["reason"], t["action"] = "NON_RFID", "lot_nr_tiebreak", "nonrfid_auto_match"
                                 t["final_spool_id"], t["selected_spool_id"] = resolved, resolved
                                 t["final_slot_status"] = status
-                                t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                                t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                                 self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                                 self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
                                 self._log_slot_status_change(slot, status, "", resolved, tray_meta)
@@ -1251,7 +1321,7 @@ class AmsRfidReconcile(hass.Hass):
                         t["decision"], t["reason"], t["action"] = "NON_RFID", "generic_sentinel_manual_preserved", "nonrfid_registered"
                         t["final_spool_id"] = helper_spool_id
                         t["final_slot_status"] = status
-                        t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                        t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                         self._active_run["validation_transcripts"].append(t)
                         if validation_mode:
                             self._log_validation_transcript(t)
@@ -1299,7 +1369,7 @@ class AmsRfidReconcile(hass.Hass):
                                     t["decision"], t["reason"], t["action"] = "NON_RFID", "comment_migration", "nonrfid_comment_migration"
                                     t["final_spool_id"], t["selected_spool_id"] = resolved, resolved
                                     t["final_slot_status"] = status
-                                    t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                                    t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                                     self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                                     self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
                                     self._log_slot_status_change(slot, status, "", resolved, tray_meta)
@@ -1338,7 +1408,7 @@ class AmsRfidReconcile(hass.Hass):
                         t["decision"], t["reason"], t["action"] = "NON_RFID", "nonrfid_auto_match", "nonrfid_auto_match"
                         t["final_spool_id"], t["selected_spool_id"] = resolved, resolved
                         t["final_slot_status"] = status
-                        t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                        t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                         self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
                         self._log_slot_status_change(slot, status, "", resolved, tray_meta)
@@ -1398,9 +1468,9 @@ class AmsRfidReconcile(hass.Hass):
                 self._clear_expected_for_slot(slot, "tray_empty")
 
             # Defensive: slot must have a canonical location or we can never persist OK
-            if slot not in CANONICAL_LOCATION_BY_SLOT:
+            if slot not in self._canonical_location_by_slot:
                 self.log(
-                    f"slot={slot} is in TRAY_ENTITY_BY_SLOT but missing from CANONICAL_LOCATION_BY_SLOT; cannot persist (missing_canonical_location)",
+                    f"slot={slot} is in self._tray_entity_by_slot but missing from self._canonical_location_by_slot; cannot persist (missing_canonical_location)",
                     level="ERROR",
                 )
                 status = STATUS_CONFLICT_MISSING_CANONICAL
@@ -1440,7 +1510,7 @@ class AmsRfidReconcile(hass.Hass):
                         ok += 1
                         t["final_slot_status"] = status
                         t["final_spool_id"] = helper_spool_id
-                        t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                        t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                         fid = helper_spool_id
                         # v4: lot_nr convergence handled centrally at end of slot loop; but this path continues
                         lot_sig_conv = self._build_lot_sig(tray_meta)
@@ -1453,7 +1523,13 @@ class AmsRfidReconcile(hass.Hass):
                 status = STATUS_UNBOUND_NO_TAG
                 t["decision"], t["reason"], t["action"] = "UNBOUND", "no_tag", "unbound_no_tag"
                 self._record_no_write(slot, "no_tag_uid")
-                nonrfid_enabled = (self.get_state("input_boolean.filament_iq_nonrfid_enabled") or "").strip().lower() == "on"
+                nonrfid_entity = str(
+                    self.args.get(
+                        "nonrfid_enabled_entity",
+                        "input_boolean.filament_iq_nonrfid_enabled",
+                    )
+                ).strip()
+                nonrfid_enabled = (self.get_state(nonrfid_entity) or "").strip().lower() == "on"
                 if nonrfid_enabled and not tray_empty:
                     # PHASE_2_6: Non-RFID deterministic matching (Shelf-first, controlled New fallback). HT all-zero case handled earlier.
                     shelf_ids, _ = self._find_deterministic_candidates(spools, tray_meta, slot)
@@ -1474,7 +1550,7 @@ class AmsRfidReconcile(hass.Hass):
                         t["decision"], t["reason"], t["action"] = "NON_RFID", "shelf_match", "nonrfid_shelf_bind"
                         t["final_spool_id"], t["selected_spool_id"] = resolved_spool_id, resolved_spool_id
                         t["final_slot_status"] = status
-                        t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                        t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                         self._log_slot_status_change(slot, status, "", resolved_spool_id, tray_meta)
                         self._record_decision(slot, "nonrfid_shelf_match", {"resolved_spool_id": resolved_spool_id})
@@ -1508,7 +1584,7 @@ class AmsRfidReconcile(hass.Hass):
                             t["decision"], t["reason"], t["action"] = "NON_RFID", "shelf_tiebreak", "nonrfid_shelf_bind"
                             t["final_spool_id"], t["selected_spool_id"] = resolved_spool_id, resolved_spool_id
                             t["final_slot_status"] = status
-                            t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                            t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                             self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                             self._log_slot_status_change(slot, status, "", resolved_spool_id, tray_meta)
                             self._record_decision(slot, "nonrfid_shelf_tiebreak", {"resolved_spool_id": resolved_spool_id})
@@ -1548,7 +1624,7 @@ class AmsRfidReconcile(hass.Hass):
                         t["decision"], t["reason"], t["action"] = "NON_RFID", "new_fallback", "nonrfid_new_fallback_bind"
                         t["final_spool_id"], t["selected_spool_id"] = resolved_spool_id, resolved_spool_id
                         t["final_slot_status"] = status
-                        t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                        t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                         self._log_slot_status_change(slot, status, "", resolved_spool_id, tray_meta)
                         self._record_decision(slot, "nonrfid_new_fallback", {"resolved_spool_id": resolved_spool_id})
@@ -1643,7 +1719,7 @@ class AmsRfidReconcile(hass.Hass):
                             ok += 1
                             t["decision"], t["reason"], t["action"] = "OK", "FIXED_EXPECTED", "expected_autofix"
                             t["uid_lookup_count"], t["final_spool_id"], t["selected_spool_id"] = 1, resolved_spool_id, resolved_spool_id
-                            t["final_location"] = CANONICAL_LOCATION_BY_SLOT[slot]
+                            t["final_location"] = self._canonical_location_by_slot[slot]
                             self._record_decision(
                                 slot,
                                 "expected_autofix",
@@ -1689,7 +1765,7 @@ class AmsRfidReconcile(hass.Hass):
                         ok += 1
                         t["decision"], t["reason"], t["action"] = "OK", "known_binding", "known_uid_bind"
                         t["uid_lookup_count"], t["final_spool_id"], t["selected_spool_id"] = 1, resolved_spool_id, resolved_spool_id
-                        t["final_location"] = CANONICAL_LOCATION_BY_SLOT[slot]
+                        t["final_location"] = self._canonical_location_by_slot[slot]
                         self._record_decision(
                             slot,
                             "known_binding",
@@ -1711,7 +1787,7 @@ class AmsRfidReconcile(hass.Hass):
                         resolved_spool_id = winner_id
                         t["uid_lookup_count"], t["metadata_candidate_ids"] = len(mapped_ids), mapped_ids
                         t["decision"], t["reason"], t["action"] = "OK", "rfid_shelf_tiebreak_least_remaining", "rfid_shelf_tiebreak"
-                        t["final_spool_id"], t["selected_spool_id"], t["final_location"] = resolved_spool_id, resolved_spool_id, CANONICAL_LOCATION_BY_SLOT[slot]
+                        t["final_spool_id"], t["selected_spool_id"], t["final_location"] = resolved_spool_id, resolved_spool_id, self._canonical_location_by_slot[slot]
                         if not status_only:
                             if self._may_stick_override(slot, resolved_spool_id, helper_spool_id, tag_uid, spool_index, current_tray_sig, stored_tray_sig):
                                 resolved_spool_id = helper_spool_id
@@ -1754,7 +1830,7 @@ class AmsRfidReconcile(hass.Hass):
                             resolved_spool_id = winner_id or 0
                         if resolved_spool_id > 0:
                             old_loc = str(tier2_candidates[0].get("location", ""))
-                            new_loc = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                            new_loc = self._canonical_location_by_slot.get(slot, "")
                             self.log(
                                 f"TIER2_MATCH slot={slot} spool_id={resolved_spool_id} tag_uid={tag_uid}",
                                 level="INFO",
@@ -1840,7 +1916,7 @@ class AmsRfidReconcile(hass.Hass):
                         ok += 1
                         t["decision"], t["reason"], t["action"] = "OK", "rfid_auto_enrolled", "rfid_auto_enrolled"
                         t["uid_lookup_count"], t["final_spool_id"], t["selected_spool_id"] = 1, resolved_spool_id, resolved_spool_id
-                        t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+                        t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                         self._log_slot_status_change(slot, status, tag_uid, resolved_spool_id, tray_meta)
                         t["final_slot_status"] = status
@@ -1967,11 +2043,11 @@ class AmsRfidReconcile(hass.Hass):
 
         timestamp = datetime.datetime.utcnow().isoformat() + "Z"
         after_slots = {}
-        for slot, entity_id in TRAY_ENTITY_BY_SLOT.items():
+        for slot, entity_id in self._tray_entity_by_slot.items():
             if slot in slots_to_process:
                 after_slots[str(slot)] = self._snapshot_slot(slot, entity_id)
         mapping = {}
-        for slot in TRAY_ENTITY_BY_SLOT:
+        for slot in self._tray_entity_by_slot:
             sid = self._safe_int(self._get_helper_state(f"input_text.ams_slot_{slot}_expected_spool_id"), 0)
             mapping[str(slot)] = sid
         self.write_last_mapping_json(reason, mapping)
@@ -1999,7 +2075,7 @@ class AmsRfidReconcile(hass.Hass):
         )
         if status_only and reason == "safety_poll" and (unbound > 0 or conflict > 0 or mismatch > 0):
             self.log(
-                "SAFETY_POLL_DRIFT detected: one or more slots not OK. Trigger manual reconcile (input_button.filament_iq_reconcile_now) to correct.",
+                f"SAFETY_POLL_DRIFT detected: one or more slots not OK. Trigger manual reconcile ({self._reconcile_button_entity}) to correct.",
                 level="WARNING",
             )
         if status_only:
@@ -2039,10 +2115,10 @@ class AmsRfidReconcile(hass.Hass):
         """True if spool_id is the current spool_id helper of any slot (other than current_slot) whose tray is not empty."""
         if spool_id <= 0:
             return False
-        for other_slot in PHYSICAL_AMS_SLOTS:
+        for other_slot in self._physical_ams_slots:
             if other_slot == current_slot:
                 continue
-            ot_entity = TRAY_ENTITY_BY_SLOT.get(other_slot)
+            ot_entity = self._tray_entity_by_slot.get(other_slot)
             if not ot_entity:
                 continue
             ot_tray = self.get_state(ot_entity, attribute="all") or {}
@@ -2068,7 +2144,7 @@ class AmsRfidReconcile(hass.Hass):
         cannot cause missed moves (the key invariant: when spool X is bound to
         slot N, ALL other spools at that location must be relocated).
         """
-        slot_loc = CANONICAL_LOCATION_BY_SLOT.get(slot)
+        slot_loc = self._canonical_location_by_slot.get(slot)
         if not slot_loc:
             return
         norm_slot_loc = self._normalize_location(slot_loc)
@@ -2116,7 +2192,7 @@ class AmsRfidReconcile(hass.Hass):
             )
 
     def _force_location_and_helpers(self, slot, spool_id, tag_uid, source, tray_meta=None, tray_state="", tray_identity=None, previous_helper_spool_id=0, spool_index=None, t=None, tray_empty=False, tray_state_str="", tray_uuid=""):
-        slot_loc = CANONICAL_LOCATION_BY_SLOT.get(slot)
+        slot_loc = self._canonical_location_by_slot.get(slot)
         if not slot_loc:
             return
         slot_loc = self._normalize_location(slot_loc)
@@ -2240,7 +2316,7 @@ class AmsRfidReconcile(hass.Hass):
 
     def _manual_enroll(self, slot, spool_id):
         """v4: manual enrollment writes tray_uuid to lot_nr + moves location."""
-        tray = self.get_state(TRAY_ENTITY_BY_SLOT[slot], attribute="all") or {}
+        tray = self.get_state(self._tray_entity_by_slot[slot], attribute="all") or {}
         attrs = tray.get("attributes", {}) if isinstance(tray, dict) else {}
         raw_tag = attrs.get("tag_uid")
         tag_uid = self._canonicalize_tag_uid(raw_tag)
@@ -2272,7 +2348,7 @@ class AmsRfidReconcile(hass.Hass):
         self._enroll_lot_nr(spool_id, enroll_tray_uuid, spool_index, reason="manual_enroll")
         self._pending_lot_nr_writes[spool_id] = enroll_tray_uuid
         self._clear_previous_occupant_guarded(slot, spool_id, spool_index)
-        self._patch_spool_fields(spool_id, {"location": CANONICAL_LOCATION_BY_SLOT[slot]})
+        self._patch_spool_fields(spool_id, {"location": self._canonical_location_by_slot[slot]})
         self.log(
             f"MANUAL_ENROLL_LOT_NR_WRITTEN slot={slot} spool_id={spool_id} tray_uuid={enroll_tray_uuid}",
             level="INFO",
@@ -2334,7 +2410,7 @@ class AmsRfidReconcile(hass.Hass):
             )
         t["decision"], t["reason"], t["action"] = "NON_RFID", "nonrfid_filament_id_match", "nonrfid_filament_id_match"
         t["final_spool_id"], t["selected_spool_id"] = resolved, resolved
-        t["final_location"] = CANONICAL_LOCATION_BY_SLOT.get(slot, "")
+        t["final_location"] = self._canonical_location_by_slot.get(slot, "")
         self._set_helper(f"input_text.ams_slot_{slot}_status", STATUS_OK_NONRFID)
         self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
         self._log_slot_status_change(slot, STATUS_OK_NONRFID, "", resolved, tray_meta)
@@ -2355,10 +2431,10 @@ class AmsRfidReconcile(hass.Hass):
         slot_tag = _normalize_rfid_tag_uid(tag_uid)
 
         candidates = []
-        for other_slot, other_loc in CANONICAL_LOCATION_BY_SLOT.items():
+        for other_slot, other_loc in self._canonical_location_by_slot.items():
             if other_slot == slot:
                 continue
-            other_entity = TRAY_ENTITY_BY_SLOT.get(other_slot)
+            other_entity = self._tray_entity_by_slot.get(other_slot)
             if not other_entity:
                 continue
             other_tray = self.get_state(other_entity, attribute="all") or {}
@@ -2397,7 +2473,7 @@ class AmsRfidReconcile(hass.Hass):
             for other_slot in range(1, 7):
                 if other_slot == slot:
                     continue
-                ot_entity = TRAY_ENTITY_BY_SLOT[other_slot]
+                ot_entity = self._tray_entity_by_slot[other_slot]
                 ot_tray = self.get_state(ot_entity, attribute="all") or {}
                 ot_state = str(ot_tray.get("state", "") if isinstance(ot_tray, dict) else ot_tray or "").strip().lower()
                 if ot_state != "empty":
@@ -2706,8 +2782,8 @@ class AmsRfidReconcile(hass.Hass):
             f"color_hex={tray_meta.get('color_hex','')}\n"
             f"name={tray_meta.get('name','')}\n\n"
             "No spool at eligible location (Shelf or AMS slot) with this RFID UID. ACTION REQUIRED:\n"
-            "1) Run script.p1s_rfid_manual_enroll_tag_to_spool with slot + spool_id (spool at Shelf or AMS), OR\n"
-            "2) Create spool in Spoolman and enroll, then press input_button.filament_iq_reconcile_now."
+            "1) Run script.filament_iq_rfid_manual_enroll_tag_to_spool with slot + spool_id (spool at Shelf or AMS), OR\n"
+            f"2) Create spool in Spoolman and enroll, then press {self._reconcile_button_entity}."
         )
         self._notify(
             f"RFID NEEDS_ACTION Slot {slot} (no eligible match)",
@@ -2755,8 +2831,8 @@ class AmsRfidReconcile(hass.Hass):
             f"filament_id={tray_meta.get('filament_id','')}\n"
             f"deterministic_candidates={','.join(str(x) for x in candidate_ids) if candidate_ids else 'none'}\n\n"
             "No deterministic match. ACTION REQUIRED:\n"
-            "1) Run script.p1s_rfid_manual_enroll_tag_to_spool with slot + spool_id, OR\n"
-            "2) Press input_button.filament_iq_reconcile_now."
+            "1) Run script.filament_iq_rfid_manual_enroll_tag_to_spool with slot + spool_id, OR\n"
+            f"2) Press {self._reconcile_button_entity}."
         )
         self._notify(
             f"RFID UNBOUND Slot {slot}",
@@ -2787,7 +2863,7 @@ class AmsRfidReconcile(hass.Hass):
 
     def _clear_legacy_signatures(self):
         """One-time cleanup of stored NONRFID| format tray signatures from pre-v3 runs."""
-        for slot in PHYSICAL_AMS_SLOTS:
+        for slot in self._physical_ams_slots:
             entity_id = f"input_text.ams_slot_{slot}_tray_signature"
             try:
                 val = self.get_state(entity_id) or ""
@@ -3451,20 +3527,24 @@ class AmsRfidReconcile(hass.Hass):
             return
         raise ValueError(f"_set_helper: unsupported entity domain for entity_id={entity_id}")
 
-    _LAST_MAPPING_JSON_PATH = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "data", "filament_iq_last_mapping.json"
-    )
+    _LAST_MAPPING_JSON_MAX = 255
 
     def write_last_mapping_json(self, reason, mapping):
-        """Write mapping JSON to file (read by HA command_line sensor)."""
+        """Write compact JSON to last_mapping_json_entity. Always <= 255 chars."""
         ts = datetime.datetime.now().isoformat()[:19]
         out = json.dumps({"ts": ts, "reason": reason, "mapping": mapping}, separators=(",", ":"))
-        try:
-            os.makedirs(os.path.dirname(self._LAST_MAPPING_JSON_PATH), exist_ok=True)
-            with open(self._LAST_MAPPING_JSON_PATH, "w") as f:
-                f.write(out)
-        except OSError as e:
-            self.log(f"write_last_mapping_json: could not write {self._LAST_MAPPING_JSON_PATH}: {e}", level="WARNING")
+        if len(out) <= self._LAST_MAPPING_JSON_MAX:
+            self._set_helper(self._last_mapping_json_entity, out)
+            return
+        out = json.dumps({"reason": reason[:32], "mapping": mapping}, separators=(",", ":"))
+        if len(out) <= self._LAST_MAPPING_JSON_MAX:
+            self._set_helper(self._last_mapping_json_entity, out)
+            return
+        out = json.dumps({"mapping": mapping}, separators=(",", ":"))
+        if len(out) <= self._LAST_MAPPING_JSON_MAX:
+            self._set_helper(self._last_mapping_json_entity, out)
+            return
+        self._set_helper(self._last_mapping_json_entity, out[:self._LAST_MAPPING_JSON_MAX])
 
     def _apply_unbound_reason(self, slot, t, tray_meta, tag_uid, tray_empty, tray_state_str):
         """Set t[\"unbound_reason\"] and t[\"unbound_detail\"], log one INFO line, and write reason to helper."""
@@ -3666,11 +3746,10 @@ class AmsRfidReconcile(hass.Hass):
 
     def _ensure_evidence_path_writable(self):
         configured_path = self.evidence_log_path
-        # TODO: /config/ is HA default; addon path varies by installation. Add your writable path if needed.
         candidates = [
             configured_path,
             "/config/ams_rfid_reconcile_evidence.log",
-            "/addon_configs/appdaemon/apps/ams_rfid_reconcile_evidence.log",
+            "/addon_configs/a0d7b954_appdaemon/apps/ams_rfid_reconcile_evidence.log",
             "/tmp/ams_rfid_reconcile_evidence.log",
         ]
         seen = set()
