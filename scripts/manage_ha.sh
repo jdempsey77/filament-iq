@@ -320,12 +320,24 @@ deploy_appdaemon() {
   local slug="${APPDAEMON_ADDON_SLUG:-a0d7b954_appdaemon}"
   local remote_dir="/addon_configs/${slug}/apps"
   local opts="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
-  if ! ssh $opts "$AD_SSH_TARGET" "mkdir -p $remote_dir"; then
+  if ! ssh $opts "$AD_SSH_TARGET" "mkdir -p $remote_dir/filament_iq"; then
     echo "Error: could not create remote dir $remote_dir on host." >&2
     return 1
   fi
-  if ! scp $opts -r "$apps_dir"/* "$AD_SSH_TARGET:$remote_dir/"; then
-    echo "Error: scp failed." >&2
+  # Deploy only: apps.yaml config + filament_iq/ package (source of truth)
+  echo "Deploying apps.yaml to $AD_SSH_TARGET:$remote_dir/"
+  if ! scp $opts "$apps_dir/apps.yaml" "$AD_SSH_TARGET:$remote_dir/apps.yaml"; then
+    echo "Error: scp apps.yaml failed." >&2
+    return 1
+  fi
+  echo "Deploying filament_iq/ package to $AD_SSH_TARGET:$remote_dir/"
+  if ! scp $opts -r "$apps_dir/filament_iq" "$AD_SSH_TARGET:$remote_dir/"; then
+    echo "Error: scp filament_iq/ failed." >&2
+    return 1
+  fi
+  # Verify package landed
+  if ! ssh $opts "$AD_SSH_TARGET" "test -f $remote_dir/filament_iq/__init__.py"; then
+    echo "Error: filament_iq/__init__.py missing on remote after deploy." >&2
     return 1
   fi
   if ! ssh $opts "$AD_SSH_TARGET" "ha apps restart '${slug}'"; then

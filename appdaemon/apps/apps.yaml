@@ -6,7 +6,7 @@ ams_rfid_reconcile:
   # - Legacy YAML RFID writers are disabled fail-closed in automations.yaml.
   # Disable app only via this flag.
   enabled: true
-  module: ams_rfid_reconcile
+  module: filament_iq.ams_rfid_reconcile
   class: AmsRfidReconcile
   spoolman_url: http://192.168.4.124:7912
   startup_delay_seconds: 8
@@ -18,7 +18,7 @@ ams_rfid_reconcile:
   debug_logs: false
 
 ams_rfid_guard:
-  module: ams_rfid_guard
+  module: filament_iq.ams_rfid_guard
   class: AmsRfidGuard
   enabled: true
   spoolman_base_url: http://192.168.4.124:7912
@@ -35,7 +35,7 @@ ams_rfid_guard:
 
 # Populates input_select.spoolman_new_spool_filament from Spoolman /api/v1/filament (no trailing slash on base).
 spoolman_dropdown_sync:
-  module: spoolman_dropdown_sync
+  module: filament_iq.spoolman_dropdown_sync
   class: SpoolmanDropdownSync
   enabled: true
   spoolman_base_url: http://192.168.4.124:7912
@@ -43,7 +43,7 @@ spoolman_dropdown_sync:
 # Writes filament consumption to Spoolman after each print via P1S_PRINT_USAGE_READY event.
 # Reads input_text.ams_slot_{1..6}_spool_id (reconciler-owned, read-only).
 ams_print_usage_sync:
-  module: ams_print_usage_sync
+  module: filament_iq.ams_print_usage_sync
   class: AmsPrintUsageSync
   enabled: true
   spoolman_base_url: http://192.168.4.124:7912
@@ -57,7 +57,7 @@ ams_print_usage_sync:
   access_code_entity: "input_text.filament_iq_printer_access_code"
 
 filament_weight_tracker:
-  module: filament_weight_tracker
+  module: filament_iq.filament_weight_tracker
   class: FilamentWeightTracker
   spoolman_url: "http://192.168.4.124:7912"
   report_path: "/config/filament_weight_reports.log"
