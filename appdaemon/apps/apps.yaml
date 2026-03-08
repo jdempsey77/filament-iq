@@ -62,6 +62,8 @@ ams_print_usage_sync:
   printer_ftps_port: 990
   access_code_entity: "input_text.filament_iq_printer_access_code"
   lifecycle_phase1_enabled: true
+  lifecycle_phase2_enabled: true
+  lifecycle_phase3_enabled: true
 
 filament_weight_tracker:
   module: filament_iq.filament_weight_tracker
