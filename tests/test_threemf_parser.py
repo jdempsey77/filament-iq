@@ -564,8 +564,9 @@ class TestFtpErrorHandling:
     def test_ftps_list_bad_ip(self):
         from filament_iq.threemf_parser import ftps_list_cache
 
-        result = ftps_list_cache("192.0.2.1", "badcode", timeout=3)
-        assert result == []
+        files, directory = ftps_list_cache("192.0.2.1", "badcode", timeout=3)
+        assert files == []
+        assert directory is None
 
     def test_ftps_download_bad_ip(self):
         from filament_iq.threemf_parser import ftps_download_3mf
@@ -582,8 +583,9 @@ class TestFtpErrorHandling:
     def test_ftps_list_empty_code(self):
         from filament_iq.threemf_parser import ftps_list_cache
 
-        result = ftps_list_cache("192.0.2.254", "", timeout=3)
-        assert isinstance(result, list)
+        files, directory = ftps_list_cache("192.0.2.254", "", timeout=3)
+        assert isinstance(files, list)
+        assert directory is None
 
     def test_ftps_download_nonexistent_file(self):
         from filament_iq.threemf_parser import ftps_download_3mf
