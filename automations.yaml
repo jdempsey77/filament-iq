@@ -1378,7 +1378,7 @@
         data:
           tag: ams_print_unbound_warning
           importance: high
-          channel: alarm_stream
+          channel: default
   mode: single
 - id: spoolman_edit_prefill_location
   alias: "Spoolman edit – prefill on spool select, reset on clear"
