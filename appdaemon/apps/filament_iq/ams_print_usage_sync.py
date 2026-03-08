@@ -313,6 +313,9 @@ class AmsPrintUsageSync(FilamentIQBase):
                     level="WARNING",
                 )
 
+        if threemf_matched_slots:
+            active_slots = sorted(set(active_slots) | set(threemf_matched_slots.keys()))
+
         rfid_total_g = 0.0
         remaining_nonrfid_slots = []
 

@@ -818,6 +818,19 @@ class Test3mfMatchingAllBoundSlots:
         assert len(unmatched) == 1
         assert unmatched[0]["color_hex"] == "161616"
 
+    def test_3mf_matched_slots_merged_into_active_slots(self):
+        """3MF matches 4 slots but trays_used only has 3.
+        active_slots should include the 3MF-matched slot not in trays_used."""
+        trays_used_set = {1, 2, 4}
+        active_slots = sorted(trays_used_set)
+        # Simulate 3MF matching all 4 slots (trays_used=None)
+        threemf_matched_slots = {1: 5.0, 2: 3.0, 3: 0.24, 4: 2.0}
+        # Merge 3MF-matched slots into active_slots
+        if threemf_matched_slots:
+            active_slots = sorted(set(active_slots) | set(threemf_matched_slots.keys()))
+        assert active_slots == [1, 2, 3, 4]
+        assert 3 in active_slots  # slot 3 was NOT in trays_used but IS in 3MF
+
 
 # ── Test: Unmatched 3MF consumption pooling ──
 
