@@ -1,6 +1,6 @@
 # Non-RFID System
 Feature flag controlled:
-`input_boolean.p1s_nonrfid_enabled`
+`input_boolean.filament_iq_nonrfid_enabled`
 
 Slots with:
 - `tag_uid == "0000000000000000"` AND

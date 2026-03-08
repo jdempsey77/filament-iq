@@ -1115,6 +1115,21 @@
         entity_id: input_boolean.filament_iq_print_active
   mode: single
 
+- id: filament_iq_set_access_code_on_startup
+  alias: "Filament IQ: Set printer access code on startup"
+  description: Populate printer access code from secrets on every boot so the helper survives state loss
+  trigger:
+    - platform: homeassistant
+      event: start
+  condition: []
+  action:
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.filament_iq_printer_access_code
+      data:
+        value: !secret bambu_printer_access_code
+  mode: single
+
 # Auto-detect AMS tray changes and try to match to Spoolman spools on Shelf. If exactly one match, auto-assign; otherwise notify for manual assignment.
 - id: ams_tray_auto_detect_and_assign
   alias: AMS – auto-detect tray change and assign Spoolman spool
