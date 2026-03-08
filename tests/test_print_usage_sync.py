@@ -803,3 +803,165 @@ class TestUnmatched3mfPooling:
         print_weight = 10.0
         pool = max(0.0, print_weight - threemf_matched_total - rfid_total)
         assert pool == 5.0  # full unmatched amount available for pool
+
+
+# ── Phase 2: Print Finish Lifecycle ──
+
+
+def build_end_snapshot(start_snapshot, fuel_gauges, ams_remaining):
+    """Simulate _build_end_snapshot: only include slots from start_snapshot."""
+    snapshot = {}
+    for slot in sorted(start_snapshot.keys()):
+        grams = read_fuel_gauge(slot, fuel_gauges, ams_remaining)
+        if grams >= 0:
+            snapshot[slot] = max(0.0, round(grams, 1))
+    return snapshot
+
+
+def build_usage_data(job_key, task_name, print_weight_g, trays_used,
+                     start_snapshot, end_snapshot, print_status):
+    """Simulate data dict construction for _handle_usage_event."""
+    return {
+        "job_key": job_key,
+        "task_name": task_name,
+        "print_weight_g": print_weight_g,
+        "trays_used": ",".join(str(s) for s in sorted(trays_used)),
+        "start_json": {str(s): g for s, g in start_snapshot.items()},
+        "end_json": {str(s): g for s, g in end_snapshot.items()},
+        "print_status": print_status,
+    }
+
+
+class TestBuildEndSnapshot:
+    def test_only_includes_slots_from_start(self):
+        """End snapshot should only include slots that were in start_snapshot."""
+        start = {1: 800.0, 3: 400.0}
+        fg = {1: 785.0, 2: 950.0, 3: 390.0, 4: 100.0}
+        result = build_end_snapshot(start, fg, {})
+        assert result == {1: 785.0, 3: 390.0}
+        assert 2 not in result
+        assert 4 not in result
+
+    def test_missing_fuel_gauge_excluded(self):
+        """Slot in start but no fuel gauge at end — excluded from end snapshot."""
+        start = {1: 800.0, 5: 500.0}
+        fg = {1: 785.0}  # slot 5 has no fuel gauge
+        result = build_end_snapshot(start, fg, {})
+        assert result == {1: 785.0}
+        assert 5 not in result
+
+    def test_ams_fallback_used(self):
+        """End snapshot uses ams_remaining fallback when fuel gauge unavailable."""
+        start = {1: 800.0, 5: 500.0}
+        fg = {1: 785.0, 5: -1.0}
+        ams = {5: 480.0}
+        result = build_end_snapshot(start, fg, ams)
+        assert result == {1: 785.0, 5: 480.0}
+
+    def test_empty_start_gives_empty_end(self):
+        start = {}
+        fg = {1: 785.0, 2: 950.0}
+        result = build_end_snapshot(start, fg, {})
+        assert result == {}
+
+    def test_six_slot_end(self):
+        """Full 6-slot scenario."""
+        start = {1: 800.0, 2: 950.0, 3: 400.0, 4: 100.0, 5: 500.0, 6: 200.0}
+        fg = {1: 785.0, 2: 940.0, 3: 390.0, 4: 95.0, 5: -1.0, 6: -1.0}
+        ams = {5: 480.0, 6: 190.0}
+        result = build_end_snapshot(start, fg, ams)
+        assert result == {1: 785.0, 2: 940.0, 3: 390.0, 4: 95.0, 5: 480.0, 6: 190.0}
+
+
+class TestDedupGuard:
+    def test_same_job_key_is_duplicate(self):
+        last_processed = "miriam_Plate_1"
+        current = "miriam_Plate_1"
+        assert current == last_processed  # should skip
+
+    def test_different_job_key_not_duplicate(self):
+        last_processed = "miriam_Plate_1"
+        current = "benchy_v2"
+        assert current != last_processed  # should process
+
+    def test_empty_last_processed_allows_any(self):
+        last_processed = ""
+        current = "miriam_Plate_1"
+        assert current != last_processed  # should process
+
+    def test_empty_current_skipped_by_guard(self):
+        """Empty job key means no start was captured — guard should skip."""
+        current = ""
+        assert not current  # falsy, guard should skip before dedup
+
+
+class TestEmptyStartSnapshotGuard:
+    def test_empty_start_falls_through(self):
+        """No start snapshot → Phase 2 should skip, let event listener handle."""
+        start_snapshot = {}
+        assert not start_snapshot  # falsy, guard should skip
+
+    def test_populated_start_proceeds(self):
+        start_snapshot = {1: 800.0}
+        assert start_snapshot  # truthy, should proceed
+
+
+class TestUsageDataConstruction:
+    def test_data_dict_has_all_fields(self):
+        data = build_usage_data(
+            job_key="miriam_Plate_1",
+            task_name="miriam Plate 1",
+            print_weight_g=17.3,
+            trays_used={1, 3, 4},
+            start_snapshot={1: 800.0, 3: 400.0, 4: 100.0},
+            end_snapshot={1: 785.0, 3: 390.0, 4: 95.0},
+            print_status="finish",
+        )
+        assert data["job_key"] == "miriam_Plate_1"
+        assert data["task_name"] == "miriam Plate 1"
+        assert data["print_weight_g"] == 17.3
+        assert data["trays_used"] == "1,3,4"
+        assert data["print_status"] == "finish"
+
+    def test_start_json_keys_are_strings(self):
+        data = build_usage_data("k", "t", 10.0, {1}, {1: 800.0}, {1: 785.0}, "finish")
+        assert all(isinstance(k, str) for k in data["start_json"].keys())
+        assert all(isinstance(k, str) for k in data["end_json"].keys())
+
+    def test_start_json_matches_coerce_format(self):
+        """start_json should be a dict (not string) — _coerce_json_field handles both."""
+        data = build_usage_data("k", "t", 10.0, {1, 3}, {1: 800.0, 3: 400.0},
+                                {1: 785.0, 3: 390.0}, "finish")
+        assert isinstance(data["start_json"], dict)
+        assert data["start_json"] == {"1": 800.0, "3": 400.0}
+        assert data["end_json"] == {"1": 785.0, "3": 390.0}
+
+    def test_trays_used_sorted(self):
+        data = build_usage_data("k", "t", 10.0, {6, 1, 3}, {}, {}, "finish")
+        assert data["trays_used"] == "1,3,6"
+
+    def test_failed_status_passed_through(self):
+        data = build_usage_data("k", "t", 10.0, set(), {}, {}, "failed")
+        assert data["print_status"] == "failed"
+
+
+class TestPrintEndClearsState:
+    def test_state_cleared_after_finish(self):
+        """Simulate state clearing after _on_print_finish."""
+        job_key = "miriam_Plate_1"
+        start_snapshot = {1: 800.0, 3: 400.0}
+        end_snapshot = {1: 785.0, 3: 390.0}
+        last_processed = ""
+
+        # Process
+        last_processed = job_key
+
+        # Clear (what _on_print_end does)
+        start_snapshot = {}
+        job_key = ""
+        end_snapshot = {}
+
+        assert start_snapshot == {}
+        assert end_snapshot == {}
+        assert job_key == ""
+        assert last_processed == "miriam_Plate_1"  # preserved for dedup

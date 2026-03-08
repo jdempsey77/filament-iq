@@ -84,6 +84,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._active_tray_entity = f"sensor.{prefix}_active_tray"
         self._print_status_entity = f"sensor.{prefix}_print_status"
         self._task_name_entity = f"sensor.{prefix}_task_name"
+        self._print_weight_entity = f"sensor.{prefix}_print_weight"
         self._trays_used_entity = str(
             self.args.get(
                 "trays_used_entity",
@@ -131,6 +132,12 @@ class AmsPrintUsageSync(FilamentIQBase):
                 "input_text.filament_iq_start_json",
             )
         ).strip()
+
+        # Phase 2: Print finish lifecycle (absorbs automation D)
+        self._lifecycle_phase2 = bool(self.args.get("lifecycle_phase2_enabled", False))
+        self._last_processed_job_key = ""
+        self._end_snapshot = {}  # {slot_int: grams_float}
+        self._print_weight_entity = None  # set after prefix is built
 
         # 3MF parsing config
         self.printer_ip = str(self.args.get("printer_ip", ""))
@@ -584,7 +591,9 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"TRAY_TRACKING: Failed to update HA helper: {e}",
                     level="WARNING",
                 )
-            if self._lifecycle_phase1:
+            if self._lifecycle_phase2:
+                self._on_print_finish(new)
+            elif self._lifecycle_phase1:
                 self._on_print_end()
 
     def _resolve_active_tray_slot(self):
@@ -747,6 +756,87 @@ class AmsPrintUsageSync(FilamentIQBase):
             )
         except Exception as e:
             self.log(f"LIFECYCLE: Failed to clear print_active: {e}", level="WARNING")
+
+    # ── Phase 2: print finish lifecycle ──────────────────────────────
+
+    _TERMINAL_STATES = frozenset({"finish", "finished", "completed", "failed", "error"})
+    _FAILED_STATES = frozenset({"failed", "error", "canceled"})
+
+    def _build_end_snapshot(self):
+        """Read fuel gauge for slots present in start_snapshot. Returns {slot_int: grams}."""
+        snapshot = {}
+        for slot in sorted(self._start_snapshot.keys()):
+            grams = self._read_fuel_gauge(slot)
+            if grams >= 0:
+                snapshot[slot] = max(0.0, round(grams, 1))
+        return snapshot
+
+    def _on_print_finish(self, new_status):
+        """Phase 2 print finish handler: build end snapshot, call usage handler, clean up."""
+        status = str(new_status).strip().lower()
+
+        # Guard: no start data — let event listener handle as fallback
+        if not self._job_key:
+            self.log(
+                "PRINT_FINISH_SKIP reason=no_job_key (AppDaemon restart mid-print?)",
+                level="WARNING",
+            )
+            self._on_print_end()
+            return
+        if not self._start_snapshot:
+            self.log(
+                f"PRINT_FINISH_SKIP reason=no_start_snapshot job_key={self._job_key}",
+                level="WARNING",
+            )
+            self._on_print_end()
+            return
+
+        # Dedup guard
+        if self._job_key == self._last_processed_job_key:
+            self.log(
+                f"PRINT_FINISH_DEDUP_SKIP job_key={self._job_key}",
+                level="INFO",
+            )
+            self._on_print_end()
+            return
+
+        # Build end snapshot
+        self._end_snapshot = self._build_end_snapshot()
+
+        # Read print weight
+        try:
+            print_weight_g = float(self.get_state(self._print_weight_entity) or 0)
+        except (TypeError, ValueError):
+            print_weight_g = 0.0
+
+        task_name = str(self.get_state(self._task_name_entity) or "")
+
+        # Build data dict matching _handle_usage_event expectations
+        data = {
+            "job_key": self._job_key,
+            "task_name": task_name,
+            "print_weight_g": print_weight_g,
+            "trays_used": ",".join(str(s) for s in sorted(self._trays_used)),
+            "start_json": self._snapshot_to_json_dict(self._start_snapshot),
+            "end_json": self._snapshot_to_json_dict(self._end_snapshot),
+            "print_status": status,
+        }
+
+        self.log(
+            f"PRINT_FINISH_CAPTURED job_key={self._job_key} "
+            f"end_snapshot={self._end_snapshot} status={status}",
+            level="INFO",
+        )
+
+        # Call usage handler directly (no event roundtrip)
+        self._handle_usage_event(None, data, {})
+
+        # Stamp dedup
+        self._last_processed_job_key = self._job_key
+
+        # Clean up (includes setting print_active off)
+        self._end_snapshot = {}
+        self._on_print_end()
 
     def _summarize_tray_times(self):
         result = {}
