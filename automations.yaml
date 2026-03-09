@@ -1021,23 +1021,32 @@
       data:
         options: "{{ ['— Select spool —'] + (state_attr('sensor.ams_spool_list_options', 'options') or []) }}"
     # After populating options, sync each dropdown to its currently bound spool.
-    # Use the sensor options directly (not state_attr on input_select) to avoid
-    # race condition where set_options hasn't propagated to all dropdowns yet.
+    # Read options from the sensor directly (not from the input_select which may
+    # not have propagated yet). Inline the sensor read in each match template to
+    # avoid variable scoping issues with repeat blocks.
     - delay:
         seconds: 1
-    - variables:
-        all_options: "{{ ['— Select spool —'] + (state_attr('sensor.ams_spool_list_options', 'options') or []) }}"
     - repeat:
         count: 6
         sequence:
           - variables:
               slot: "{{ repeat.index }}"
               spool_id: "{{ states('input_text.ams_slot_' ~ repeat.index ~ '_spool_id') | int(0) }}"
-              match: "{% set ns = namespace(match='') %}{% for opt in all_options %}{% if ('(' ~ spool_id | string ~ ')') in opt %}{% set ns.match = opt %}{% endif %}{% endfor %}{{ ns.match }}"
+              match: >-
+                {% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}
+                {% set sid = states('input_text.ams_slot_' ~ repeat.index ~ '_spool_id') | int(0) %}
+                {% set target = '(' ~ sid | string ~ ')' %}
+                {% set ns = namespace(match='') %}
+                {% for opt in opts %}
+                  {% if opt.endswith(target) %}
+                    {% set ns.match = opt %}
+                  {% endif %}
+                {% endfor %}
+                {{ ns.match }}
           - choose:
               - conditions:
                   - condition: template
-                    value_template: "{{ spool_id > 0 and match | trim | length > 0 }}"
+                    value_template: "{{ spool_id | int > 0 and match | trim | length > 0 }}"
                 sequence:
                   - action: input_select.select_option
                     target:
