@@ -1020,6 +1020,24 @@
           - input_select.ams_slot_6_select_spool
       data:
         options: "{{ ['— Select spool —'] + (state_attr('sensor.ams_spool_list_options', 'options') or []) }}"
+    # After populating options, sync each dropdown to its currently bound spool
+    - repeat:
+        count: 6
+        sequence:
+          - variables:
+              slot: "{{ repeat.index }}"
+              spool_id: "{{ states('input_text.ams_slot_' ~ repeat.index ~ '_spool_id') | int(0) }}"
+              match: "{% set ns = namespace(match='') %}{% for opt in state_attr('input_select.ams_slot_' ~ slot ~ '_select_spool', 'options') or [] %}{% if ('(' ~ spool_id | string ~ ')') in opt %}{% set ns.match = opt %}{% endif %}{% endfor %}{{ ns.match }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ spool_id > 0 and match | trim | length > 0 }}"
+                sequence:
+                  - action: input_select.select_option
+                    target:
+                      entity_id: "input_select.ams_slot_{{ slot }}_select_spool"
+                    data:
+                      option: "{{ match | trim }}"
   mode: single
 
 # When user selects a spool from "Assign from warehouse" dropdown, set the numeric ID for scripts.
