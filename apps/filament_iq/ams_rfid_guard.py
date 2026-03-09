@@ -1,17 +1,7 @@
 """
 RFID Guard — AppDaemon auditor enforcing RFID determinism invariants.
 
-Scans Spoolman spools periodically, detects policy violations, quarantines violating
-spools, and emits notifications. Does NOT modify existing AMS reconcile logic.
-
-POLICY: RFID spools must have BOTH extra.rfid_tag_uid AND extra.ha_spool_uuid (normalized non-empty).
-
-Invariants:
-  A) Spool with extra.rfid_tag_uid (non-empty) MUST have extra.ha_spool_uuid (non-empty).
-  B) Spool with RFID-managed filament MUST have extra.ha_spool_uuid (non-empty).
-  C) Skip if spool.location == "QUARANTINE" (idempotent).
-
-Quarantine: PATCH only location="QUARANTINE" (Spoolman extra allowlist may reject unknown fields).
+All config from self.args. No hardcoded instance-specific values.
 """
 
 import datetime
@@ -23,17 +13,15 @@ import urllib.request
 
 import hassapi as hass
 
+from .base import FilamentIQBase
 
 BAMBU_VENDOR_NAMES = ("bambu", "bambu lab")
 _AMS_LOC_RE = re.compile(r"^AMS\d+_Slot\d+$", re.IGNORECASE)
 
 
 class ReasonCode:
-    """Enum of quarantine reason codes. Use for consistent notifications."""
-
     RFID_TAG_MANUAL = "RFID_TAG_MANUAL"
     RFID_FILAMENT_MANUAL = "RFID_FILAMENT_MANUAL"
-
     ALL = (RFID_TAG_MANUAL, RFID_FILAMENT_MANUAL)
 
     @classmethod
@@ -41,30 +29,37 @@ class ReasonCode:
         return value if value in cls.ALL else "UNKNOWN"
 
 
-class AmsRfidGuard(hass.Hass):
+class AmsRfidGuard(FilamentIQBase):
     def initialize(self):
+        self._validate_config(["spoolman_url"])
+
         self.log("ams_rfid_guard VERSION=2026-02-18", level="INFO")
         self.enabled = bool(self.args.get("enabled", True))
         if not self.enabled:
             self.log("RFID Guard disabled by config (enabled=false).")
             return
 
-        # TODO: Substitute YOUR_SPOOLMAN_IP with your Spoolman server IP. Port 7912 is Spoolman default.
         self.spoolman_base_url = str(
-            self.args.get("spoolman_base_url", self.args.get("spoolman_url", "http://YOUR_SPOOLMAN_IP:7912"))
+            self.args.get("spoolman_url", self.args.get("spoolman_base_url", ""))
         ).rstrip("/")
         self.scan_interval_seconds = int(self.args.get("scan_interval_seconds", 300))
         self.dry_run = bool(self.args.get("dry_run", False))
         self.notify_cooldown_minutes = int(self.args.get("notify_cooldown_minutes", 360))
-        self.cache_sensor = str(self.args.get("cache_sensor_entity", "sensor.spoolman_spools_cache")).strip()
+        self.cache_sensor = str(
+            self.args.get("cache_sensor_entity", "sensor.spoolman_spools_cache")
+        ).strip()
         self.use_cache_trigger = bool(self.args.get("use_cache_trigger", False))
 
         raw_patterns = self.args.get("rfid_managed_patterns", ["bambu", "bambu lab"])
         if isinstance(raw_patterns, str):
             raw_patterns = [p.strip() for p in raw_patterns.split(",") if p.strip()]
-        self.rfid_managed_patterns = [re.compile(p, re.IGNORECASE) for p in raw_patterns if p]
+        self.rfid_managed_patterns = [
+            re.compile(p, re.IGNORECASE) for p in raw_patterns if p
+        ]
 
-        mode = str(self.args.get("missing_ha_spool_uuid_mode", "warn_only")).strip().lower()
+        mode = str(
+            self.args.get("missing_ha_spool_uuid_mode", "warn_only")
+        ).strip().lower()
         if mode not in ("warn_only", "quarantine"):
             mode = "warn_only"
         self.missing_ha_spool_uuid_mode = mode
@@ -80,8 +75,10 @@ class AmsRfidGuard(hass.Hass):
             self.listen_state(self._on_cache_change, self.cache_sensor)
             self.log(f"RFID Guard listening to cache: {self.cache_sensor}")
         self.log(
-            f"RFID Guard initialized interval={self.scan_interval_seconds}s dry_run={self.dry_run} "
-            f"missing_ha_uuid_mode={self.missing_ha_spool_uuid_mode} patterns={raw_patterns} "
+            f"RFID Guard initialized interval={self.scan_interval_seconds}s "
+            f"dry_run={self.dry_run} "
+            f"missing_ha_uuid_mode={self.missing_ha_spool_uuid_mode} "
+            f"patterns={raw_patterns} "
             f"notify_cooldown={self.notify_cooldown_minutes}min"
         )
 
@@ -89,19 +86,31 @@ class AmsRfidGuard(hass.Hass):
         self._run_scan({})
 
     def _fetch_spools(self):
-        """Fetch spools from Spoolman. Try limit=1000 first, fall back to /spool. Log which endpoint used."""
         for path in ["/api/v1/spool?limit=1000", "/api/v1/spool"]:
             try:
                 resp = self._spoolman_get(path)
-                items = resp.get("items", []) if isinstance(resp, dict) else (resp if isinstance(resp, list) else [])
+                items = (
+                    resp.get("items", [])
+                    if isinstance(resp, dict)
+                    else (resp if isinstance(resp, list) else [])
+                )
                 if not isinstance(items, list):
                     items = []
-                self.log(f"RFID_GUARD fetch_spools used endpoint {path} count={len(items)}", level="INFO")
+                self.log(
+                    f"RFID_GUARD fetch_spools used endpoint {path} count={len(items)}",
+                    level="INFO",
+                )
                 return items
             except Exception as exc:
-                self.log(f"RFID_GUARD fetch_spools {path} failed: {exc}", level="DEBUG")
+                self.log(
+                    f"RFID_GUARD fetch_spools {path} failed: {exc}",
+                    level="DEBUG",
+                )
                 continue
-        self.log("RFID_GUARD fetch_spools all endpoints failed (Spoolman unreachable)", level="WARNING")
+        self.log(
+            "RFID_GUARD fetch_spools all endpoints failed (Spoolman unreachable)",
+            level="WARNING",
+        )
         return []
 
     def _run_scan(self, kwargs):
@@ -133,17 +142,22 @@ class AmsRfidGuard(hass.Hass):
                 if violation.get("warn_only"):
                     warned_only += 1
                     self.log(
-                        f"RFID_GUARD WARN_ONLY spool_id={spool_id} reason={violation['reason']} "
-                        f"filament={violation.get('filament_name','')} tag_uid={violation.get('tag_uid','')} "
-                        f"ha_spool_uuid={violation.get('ha_spool_uuid','')} mode={self.missing_ha_spool_uuid_mode}",
+                        f"RFID_GUARD WARN_ONLY spool_id={spool_id} "
+                        f"reason={violation['reason']} "
+                        f"filament={violation.get('filament_name','')} "
+                        f"tag_uid={violation.get('tag_uid','')} "
+                        f"ha_spool_uuid={violation.get('ha_spool_uuid','')} "
+                        f"mode={self.missing_ha_spool_uuid_mode}",
                         level="WARNING",
                     )
                     self._maybe_notify(spool_id, violation)
                 elif self.dry_run:
                     violation["dry_run"] = True
                     self.log(
-                        f"RFID_GUARD DRY_RUN would quarantine spool_id={spool_id} reason={violation['reason']} "
-                        f"filament={violation.get('filament_name','')} tag_uid={violation.get('tag_uid','')} "
+                        f"RFID_GUARD DRY_RUN would quarantine spool_id={spool_id} "
+                        f"reason={violation['reason']} "
+                        f"filament={violation.get('filament_name','')} "
+                        f"tag_uid={violation.get('tag_uid','')} "
                         f"ha_spool_uuid={violation.get('ha_spool_uuid','')}",
                         level="WARNING",
                     )
@@ -154,18 +168,16 @@ class AmsRfidGuard(hass.Hass):
                         quarantined += 1
         if scanned > 0:
             self.log(
-                f"RFID_GUARD scan complete total={scanned} violations={violations} quarantined={quarantined} "
-                f"dry_run={self.dry_run}",
+                f"RFID_GUARD scan complete total={scanned} violations={violations} "
+                f"quarantined={quarantined} dry_run={self.dry_run}",
                 level="INFO",
             )
 
     def _is_quarantined(self, spool):
-        """Skip if location == QUARANTINE. Do not rely on extra.quarantined (Spoolman allowlist)."""
         loc = str(spool.get("location", "") or "").strip().upper()
         return loc == "QUARANTINE"
 
     def _get_tag_uid(self, extra):
-        """Normalize rfid_tag_uid from extra. Uses _json_text_to_str for JSON-encoded values. Returns '' if missing."""
         if not isinstance(extra, dict):
             return ""
         raw = extra.get("rfid_tag_uid") or extra.get("rfid_uid")
@@ -175,7 +187,6 @@ class AmsRfidGuard(hass.Hass):
         return s.strip().upper()
 
     def _get_ha_spool_uuid(self, extra):
-        """Normalize ha_spool_uuid from extra. Uses _json_text_to_str for JSON-encoded values. Returns '' if missing."""
         if not isinstance(extra, dict):
             return ""
         raw = extra.get("ha_spool_uuid") or extra.get("ha_uuid")
@@ -208,15 +219,12 @@ class AmsRfidGuard(hass.Hass):
                 "location": location,
             }
 
-        # Only enforce identity invariants for spools currently in AMS slots
         if not _AMS_LOC_RE.match(location):
             return None
 
-        # v4: lot_nr is the primary identity field; ha_spool_uuid is legacy
         lot_nr = str(spool.get("lot_nr") or "").strip()
         has_identity = bool(ha_spool_uuid or lot_nr)
 
-        # Invariant A: rfid_tag_uid present => identity must exist (lot_nr or ha_spool_uuid)
         if tag_uid and not has_identity:
             violation = _make_violation(
                 ReasonCode.RFID_TAG_MANUAL,
@@ -227,7 +235,6 @@ class AmsRfidGuard(hass.Hass):
                 violation["warn_only"] = True
             return violation
 
-        # Invariant B: RFID-managed filament => identity must exist
         if self._is_rfid_managed_filament(filament) and not has_identity:
             violation = _make_violation(
                 ReasonCode.RFID_FILAMENT_MANUAL,
@@ -241,7 +248,6 @@ class AmsRfidGuard(hass.Hass):
         return None
 
     def _is_rfid_managed_filament(self, filament):
-        """Priority: 1) filament.extra.rfid_managed==true, 2) vendor/manufacturer/brand match bambu, 3) regex on name."""
         if not isinstance(filament, dict):
             return False
         extra = filament.get("extra", {}) or {}
@@ -251,7 +257,9 @@ class AmsRfidGuard(hass.Hass):
         for key in ("vendor", "manufacturer", "brand"):
             v = filament.get(key)
             if isinstance(v, dict):
-                vendor_parts.append(str(v.get("name", v.get("manufacturer_name", "")) or "").lower())
+                vendor_parts.append(
+                    str(v.get("name", v.get("manufacturer_name", "")) or "").lower()
+                )
             elif v is not None:
                 vendor_parts.append(str(v).lower())
         vendor_haystack = " ".join(vendor_parts)
@@ -265,22 +273,29 @@ class AmsRfidGuard(hass.Hass):
         return False
 
     def _quarantine_spool(self, spool, violation):
-        """PATCH only location=QUARANTINE. Do not modify extra (Spoolman allowlist may reject unknown fields)."""
         spool_id = self._safe_int(spool.get("id"), 0)
         if spool_id <= 0:
             return False
         reason = ReasonCode.resolve(violation.get("reason", ""))
 
         self.log(
-            f"RFID_GUARD quarantine spool_id={spool_id} filament={violation.get('filament_name','')} "
-            f"location={violation.get('location','')} tag_uid={violation.get('tag_uid','')} "
-            f"ha_spool_uuid={violation.get('ha_spool_uuid','')} reason={reason}",
+            f"RFID_GUARD quarantine spool_id={spool_id} "
+            f"filament={violation.get('filament_name','')} "
+            f"location={violation.get('location','')} "
+            f"tag_uid={violation.get('tag_uid','')} "
+            f"ha_spool_uuid={violation.get('ha_spool_uuid','')} "
+            f"reason={reason}",
             level="WARNING",
         )
         try:
-            self._spoolman_patch(f"/api/v1/spool/{spool_id}", {"location": "QUARANTINE"})
+            self._spoolman_patch(
+                f"/api/v1/spool/{spool_id}", {"location": "QUARANTINE"}
+            )
         except Exception as exc:
-            self.log(f"RFID_GUARD quarantine PATCH failed spool_id={spool_id}: {exc}", level="ERROR")
+            self.log(
+                f"RFID_GUARD quarantine PATCH failed spool_id={spool_id}: {exc}",
+                level="ERROR",
+            )
             return False
 
         self._maybe_notify(spool_id, violation)
@@ -301,10 +316,12 @@ class AmsRfidGuard(hass.Hass):
         dry_marker = " [DRY_RUN]" if violation.get("dry_run") else ""
         title = (
             f"RFID Guard: Spool {spool_id} Violation (Warn Only){dry_marker}"
-            if violation.get("warn_only") else
-            f"RFID Guard: Spool {spool_id} Quarantined{dry_marker}"
+            if violation.get("warn_only")
+            else f"RFID Guard: Spool {spool_id} Quarantined{dry_marker}"
         )
-        reason_display = f"{reason} (DRY_RUN)" if violation.get("dry_run") else reason
+        reason_display = (
+            f"{reason} (DRY_RUN)" if violation.get("dry_run") else reason
+        )
         msg = (
             f"Spool ID: {spool_id}\n"
             f"Filament: {violation.get('filament_name', '')}\n"
@@ -314,7 +331,9 @@ class AmsRfidGuard(hass.Hass):
             f"Found: {violation.get('found', '')}"
         )
         try:
-            nid_suffix = f"dryrun_{reason}" if violation.get("dry_run") else reason
+            nid_suffix = (
+                f"dryrun_{reason}" if violation.get("dry_run") else reason
+            )
             self.call_service(
                 "persistent_notification/create",
                 title=title,
@@ -322,10 +341,12 @@ class AmsRfidGuard(hass.Hass):
                 notification_id=f"rfid_guard_quarantine_{spool_id}_{nid_suffix}",
             )
         except Exception as exc:
-            self.log(f"RFID_GUARD notify failed spool_id={spool_id}: {exc}", level="WARNING")
+            self.log(
+                f"RFID_GUARD notify failed spool_id={spool_id}: {exc}",
+                level="WARNING",
+            )
 
     def _json_text_to_str(self, v):
-        """Parse Spoolman JSON literal to plain string."""
         if v is None:
             return ""
         s = str(v).strip()
@@ -338,14 +359,20 @@ class AmsRfidGuard(hass.Hass):
             return str(s).strip('"')
 
     def _spoolman_get(self, path):
-        url = urllib.parse.urljoin(self.spoolman_base_url + "/", path.lstrip("/"))
-        req = urllib.request.Request(url, method="GET", headers={"Content-Type": "application/json"})
+        url = urllib.parse.urljoin(
+            self.spoolman_base_url + "/", path.lstrip("/")
+        )
+        req = urllib.request.Request(
+            url, method="GET", headers={"Content-Type": "application/json"}
+        )
         with urllib.request.urlopen(req, timeout=20) as resp:
             body = resp.read().decode("utf-8")
             return json.loads(body) if body else {}
 
     def _spoolman_patch(self, path, payload):
-        url = urllib.parse.urljoin(self.spoolman_base_url + "/", path.lstrip("/"))
+        url = urllib.parse.urljoin(
+            self.spoolman_base_url + "/", path.lstrip("/")
+        )
         req = urllib.request.Request(
             url,
             method="PATCH",

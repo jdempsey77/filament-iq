@@ -1,6 +1,7 @@
 """
-Filament Weight Delta Tracker
-Snapshots spool weights before/after prints to validate filament tracking.
+Filament Weight Delta Tracker — Snapshots spool weights before/after prints.
+
+All config from self.args. Entity naming uses _build_entity_prefix().
 """
 
 import datetime
@@ -9,53 +10,96 @@ import urllib.request
 
 import hassapi as hass
 
+from .base import FilamentIQBase
 
-class FilamentWeightTracker(hass.Hass):
+
+class FilamentWeightTracker(FilamentIQBase):
     def initialize(self):
+        self._validate_config(["spoolman_url", "printer_serial"])
+
         self.log("FilamentWeightTracker initialized", level="INFO")
-        # TODO: Substitute YOUR_SPOOLMAN_IP with your Spoolman server IP. Port 7912 is Spoolman default.
-        self.spoolman_url = str(self.args.get("spoolman_url", "http://YOUR_SPOOLMAN_IP:7912")).rstrip("/")
-        # TODO: Substitute with a writable path on your HA host (e.g. /config/ or addon_config path).
-        self.report_path = str(self.args.get("report_path", "/config/filament_weight_reports.log"))
+        self.spoolman_url = str(
+            self.args.get("spoolman_url", "")
+        ).rstrip("/")
+        self.report_path = str(
+            self.args.get(
+                "report_path",
+                "/config/filament_weight_reports.log",
+            )
+        )
         self._before_snapshot = None
         self._before_timestamp = None
         self._print_name = None
 
-        # Auto trigger: print start
+        prefix = self._build_entity_prefix()
+        self._operator_status_entity = str(
+            self.args.get(
+                "operator_status_entity",
+                "sensor.filament_iq_operator_status",
+            )
+        ).strip()
+        self._weight_snapshot_button_entity = str(
+            self.args.get(
+                "weight_snapshot_button_entity",
+                "input_button.filament_iq_weight_snapshot_now",
+            )
+        ).strip()
+        print_entities = self.args.get("print_name_entities")
+        if print_entities:
+            self._print_name_entities = list(print_entities)
+        else:
+            # Default: read from printer entities (Bambu integration)
+            printer_print_status = self.args.get("printer_print_status_entity")
+            printer_current_stage = self.args.get("printer_current_stage_entity")
+            if printer_print_status or printer_current_stage:
+                self._print_name_entities = [
+                    e for e in [printer_current_stage, printer_print_status] if e
+                ]
+            else:
+                self._print_name_entities = [
+                    f"sensor.{prefix}_current_stage",
+                    f"sensor.{prefix}_print_status",
+                ]
+
         self.listen_state(
             self._on_print_start,
-            "sensor.filament_iq_operator_status",
+            self._operator_status_entity,
             new=lambda x: x in ("printing_normally", "printing"),
         )
 
-        # Auto trigger: print end
         self.listen_state(
             self._on_print_end,
-            "sensor.filament_iq_operator_status",
+            self._operator_status_entity,
             new=lambda x: x in ("idle", "finished", "failed"),
         )
 
-        # Manual trigger
         self.listen_state(
             self._on_manual_snapshot,
-            "input_button.filament_iq_weight_snapshot_now",  # TODO: Create this helper in HA if missing.
+            self._weight_snapshot_button_entity,
         )
 
     def _get_all_spool_weights(self):
-        """Fetch all spools from Spoolman, return dict of {spool_id: {remaining_weight, filament_name, material, location}}."""
         url = f"{self.spoolman_url}/api/v1/spool?limit=1000"
-        req = urllib.request.Request(url, headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(
+            url, headers={"Content-Type": "application/json"}
+        )
         try:
             with urllib.request.urlopen(req, timeout=20) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
         except Exception as e:
-            self.log(f"WEIGHT_TRACKER: Failed to fetch spools: {e}", level="ERROR")
+            self.log(
+                f"WEIGHT_TRACKER: Failed to fetch spools: {e}",
+                level="ERROR",
+            )
             return None
 
         if isinstance(data, dict) and "items" in data:
             data = data["items"]
         if not isinstance(data, list):
-            self.log("WEIGHT_TRACKER: Unexpected response format", level="ERROR")
+            self.log(
+                "WEIGHT_TRACKER: Unexpected response format",
+                level="ERROR",
+            )
             return None
 
         result = {}
@@ -75,16 +119,14 @@ class FilamentWeightTracker(hass.Hass):
         return result
 
     def _get_print_name(self):
-        """Try to get current print filename/task name from HA sensors."""
-        # TODO: Substitute YOUR_PRINTER_SERIAL with your Bambu printer's device serial.
-        for entity in [
-            "sensor.p1s_YOUR_PRINTER_SERIAL_current_stage",
-            "sensor.p1s_YOUR_PRINTER_SERIAL_print_status",
-        ]:
+        for entity in self._print_name_entities:
             try:
                 state = self.get_state(entity, attribute="all")
                 if isinstance(state, dict):
-                    name = state.get("attributes", {}).get("file", "") or state.get("attributes", {}).get("subtask_name", "")
+                    name = (
+                        state.get("attributes", {}).get("file", "")
+                        or state.get("attributes", {}).get("subtask_name", "")
+                    )
                     if name:
                         return str(name)
             except Exception:
@@ -108,7 +150,10 @@ class FilamentWeightTracker(hass.Hass):
 
     def _take_after_snapshot_and_report(self, reason="auto"):
         if self._before_snapshot is None:
-            self.log("WEIGHT_TRACKER: No before snapshot — skipping report", level="WARNING")
+            self.log(
+                "WEIGHT_TRACKER: No before snapshot — skipping report",
+                level="WARNING",
+            )
             return
 
         after_weights = self._get_all_spool_weights()
@@ -118,7 +163,6 @@ class FilamentWeightTracker(hass.Hass):
 
         after_timestamp = datetime.datetime.utcnow().isoformat() + "Z"
 
-        # Compute deltas — only for spools that existed in both snapshots
         deltas = []
         for sid, before_data in self._before_snapshot.items():
             after_data = after_weights.get(sid)
@@ -128,18 +172,19 @@ class FilamentWeightTracker(hass.Hass):
             after_g = after_data["remaining_weight"]
             delta_g = round(before_g - after_g, 1)
             if delta_g != 0:
-                deltas.append({
-                    "spool_id": sid,
-                    "filament_name": before_data.get("filament_name", ""),
-                    "material": before_data.get("material", ""),
-                    "vendor": before_data.get("vendor", ""),
-                    "location": before_data.get("location", ""),
-                    "before_g": round(before_g, 1),
-                    "after_g": round(after_g, 1),
-                    "consumed_g": delta_g,
-                })
+                deltas.append(
+                    {
+                        "spool_id": sid,
+                        "filament_name": before_data.get("filament_name", ""),
+                        "material": before_data.get("material", ""),
+                        "vendor": before_data.get("vendor", ""),
+                        "location": before_data.get("location", ""),
+                        "before_g": round(before_g, 1),
+                        "after_g": round(after_g, 1),
+                        "consumed_g": delta_g,
+                    }
+                )
 
-        # Sort by consumption (highest first)
         deltas.sort(key=lambda x: x["consumed_g"], reverse=True)
 
         total_consumed = round(sum(d["consumed_g"] for d in deltas), 1)
@@ -154,7 +199,6 @@ class FilamentWeightTracker(hass.Hass):
             "spools_unchanged": len(self._before_snapshot) - len(deltas),
         }
 
-        # Log summary
         self.log(
             f"WEIGHT_TRACKER: Report — print={self._print_name} "
             f"total_consumed={total_consumed}g spools_changed={len(deltas)}",
@@ -162,15 +206,14 @@ class FilamentWeightTracker(hass.Hass):
         )
         for d in deltas:
             self.log(
-                f"  spool_id={d['spool_id']} {d['vendor']} {d['filament_name']} ({d['material']}) "
-                f"@ {d['location']}: {d['before_g']}g → {d['after_g']}g (consumed {d['consumed_g']}g)",
+                f"  spool_id={d['spool_id']} {d['vendor']} {d['filament_name']} "
+                f"({d['material']}) @ {d['location']}: "
+                f"{d['before_g']}g → {d['after_g']}g (consumed {d['consumed_g']}g)",
                 level="INFO",
             )
 
-        # Write to report file
         self._append_report(report)
 
-        # Clear snapshot for next print
         self._before_snapshot = None
         self._before_timestamp = None
         self._print_name = None
@@ -179,9 +222,15 @@ class FilamentWeightTracker(hass.Hass):
         try:
             with open(self.report_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(report, sort_keys=True) + "\n")
-            self.log(f"WEIGHT_TRACKER: Report written to {self.report_path}", level="INFO")
+            self.log(
+                f"WEIGHT_TRACKER: Report written to {self.report_path}",
+                level="INFO",
+            )
         except Exception as e:
-            self.log(f"WEIGHT_TRACKER: Failed to write report: {e}", level="ERROR")
+            self.log(
+                f"WEIGHT_TRACKER: Failed to write report: {e}",
+                level="ERROR",
+            )
 
     def _on_print_start(self, entity, attribute, old, new, kwargs):
         if old == new:
@@ -191,11 +240,12 @@ class FilamentWeightTracker(hass.Hass):
     def _on_print_end(self, entity, attribute, old, new, kwargs):
         if old == new:
             return
-        # Small delay to let Spoolman update weights
         self.run_in(self._delayed_after_snapshot, 10, reason="print_end")
 
     def _delayed_after_snapshot(self, kwargs):
-        self._take_after_snapshot_and_report(reason=kwargs.get("reason", "auto"))
+        self._take_after_snapshot_and_report(
+            reason=kwargs.get("reason", "auto")
+        )
 
     def _on_manual_snapshot(self, entity, attribute, old, new, kwargs):
         if not new or new == old:
@@ -206,7 +256,8 @@ class FilamentWeightTracker(hass.Hass):
                 self.call_service(
                     "persistent_notification/create",
                     title="Weight Tracker",
-                    message=f"Before snapshot taken ({len(self._before_snapshot)} spools). Press again after print for delta report.",
+                    message=f"Before snapshot taken ({len(self._before_snapshot)} spools). "
+                    "Press again after print for delta report.",
                     notification_id="weight_tracker_manual",
                 )
         else:

@@ -36,7 +36,7 @@ if _APPS not in sys.path:
 from filament_iq.base import build_slot_mappings
 
 # Build default slot mappings for test fixtures (no hardcoded IPs/serials)
-_TEST_PREFIX = "p1s_01p00c5a3101668"
+_TEST_PREFIX = "p1s_01s00a0b1c2d3e4f"
 _TRAY_ENTITY_BY_SLOT, _, _, _CANONICAL_LOCATION_BY_SLOT = build_slot_mappings(
     _TEST_PREFIX
 )
@@ -211,7 +211,7 @@ class TestableReconcile(AmsRfidReconcile):
     """Reconcile with injected FakeSpoolman and state map."""
 
     def __init__(self, spoolman, state_map, ad=None, args=None, *rest, **k):
-        a = dict({"printer_serial": "01p00c5a3101668", "spoolman_url": "http://192.0.2.1:7912"})
+        a = dict({"printer_serial": "01s00a0b1c2d3e4f", "spoolman_url": "http://192.0.2.1:7912"})
         a.update(args or k.get("args", {}))
         super().__init__(ad, "test", None, a, None, None, None)
         self._spoolman = spoolman
@@ -342,7 +342,7 @@ class StartupWaiterHarness(AmsRfidReconcile):
     """Minimal harness to test _run_reconcile_startup; does not override _run_reconcile_startup."""
 
     def __init__(self, state_map, args=None):
-        a = dict({"printer_serial": "01p00c5a3101668", "spoolman_url": "http://192.0.2.1:7912"})
+        a = dict({"printer_serial": "01s00a0b1c2d3e4f", "spoolman_url": "http://192.0.2.1:7912"})
         a.update(args or {})
         super().__init__(None, "test", None, a, None, None, None)
         self._state_map = dict(state_map)
@@ -386,7 +386,7 @@ def _tray_entity(slot):
 class TestAmsRfidReconcile(unittest.TestCase):
     def setUp(self):
         self.args = {
-            "printer_serial": "01p00c5a3101668",
+            "printer_serial": "01s00a0b1c2d3e4f",
             "spoolman_url": "http://192.0.2.1:7912",
             "enabled": True,
             "debug_logs": False,
@@ -3268,7 +3268,7 @@ class TestStartupWaiter(unittest.TestCase):
 # ── Parameterized non-RFID tests across all 6 slots ──
 
 _DEFAULT_ARGS = {
-    "printer_serial": "01p00c5a3101668",
+    "printer_serial": "01s00a0b1c2d3e4f",
     "spoolman_url": "http://192.0.2.1:7912",
     "enabled": True,
     "debug_logs": False,
