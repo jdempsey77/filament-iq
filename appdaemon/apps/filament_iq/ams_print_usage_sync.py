@@ -457,6 +457,14 @@ class AmsPrintUsageSync(FilamentIQBase):
                     level="INFO",
                 )
 
+        # Write-ahead dedup: persist job_key BEFORE Spoolman writes so a
+        # crash between writes and persist can't cause double-charge on restart.
+        if job_key:
+            self._seen_job_keys[job_key] = True
+            while len(self._seen_job_keys) > MAX_SEEN_JOBS:
+                self._seen_job_keys.popitem(last=False)
+            self._persist_seen_job_keys()
+
         patched = 0
 
         for slot, spool_id, consumption_g, method in all_results:
@@ -525,12 +533,6 @@ class AmsPrintUsageSync(FilamentIQBase):
                     )
             else:
                 skipped += 1
-
-        if job_key:
-            self._seen_job_keys[job_key] = True
-            while len(self._seen_job_keys) > MAX_SEEN_JOBS:
-                self._seen_job_keys.popitem(last=False)
-            self._persist_seen_job_keys()
 
         total_consumed = sum(c for _, _, c, _ in all_results)
         threemf_count = sum(1 for _, _, _, m in all_results if m == "3mf")
