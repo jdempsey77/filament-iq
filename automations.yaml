@@ -1355,6 +1355,7 @@
   max: 6
 
 - id: ams_print_unbound_warning
+  enabled: false  # Replaced by AppDaemon _check_unbound_trays (scoped to active slots only)
   alias: "AMS Print With Unbound Warning"
   description: "Urgent push when print starts with unbound slots"
   triggers:
