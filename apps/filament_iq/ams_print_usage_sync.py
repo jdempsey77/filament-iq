@@ -644,6 +644,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 self.run_in(self._fetch_3mf_background, 5)
             if self._lifecycle_phase1:
                 self._on_print_start()
+            self.run_in(self._check_unbound_trays, 10)
         elif old in ("running", "printing") and new not in ("running", "printing", "pause", "paused"):
             self._print_active = False
             if self._current_active_slot is not None:
@@ -805,6 +806,46 @@ class AmsPrintUsageSync(FilamentIQBase):
             f"start_snapshot={self._start_snapshot}",
             level="INFO",
         )
+
+    def _check_unbound_trays(self, kwargs):
+        """Warn if any actively-used tray is unbound (delayed check)."""
+        if not self._print_active:
+            return
+        if not self._trays_used:
+            self.log("UNBOUND_CHECK_SKIPPED reason=no_trays_yet", level="DEBUG")
+            return
+        unbound = []
+        for slot in sorted(self._trays_used):
+            spool_id = str(
+                self.get_state(f"input_text.ams_slot_{slot}_spool_id") or ""
+            ).strip()
+            if not spool_id or spool_id in ("0", "unknown", "unavailable"):
+                reason = str(
+                    self.get_state(f"input_text.ams_slot_{slot}_unbound_reason") or ""
+                ).strip()
+                if reason not in ("", "unknown", "unavailable", "UNBOUND_TRAY_EMPTY"):
+                    unbound.append((slot, reason))
+        if not unbound:
+            return
+        slots_str = ", ".join(f"slot {s} ({r})" for s, r in unbound)
+        self.log(
+            f"PRINT_UNBOUND_WARNING slots=[{slots_str}]", level="WARNING",
+        )
+        notify_target = self.args.get("notify_target")
+        try:
+            msg = f"Print started with unbound active slot: {slots_str}"
+            if notify_target:
+                self.call_service(
+                    "notify/notify", target=notify_target,
+                    title="Print With Unbound Slot", message=msg,
+                )
+            else:
+                self.call_service(
+                    "notify/persistent_notification",
+                    title="Print With Unbound Slot", message=msg,
+                )
+        except Exception as e:
+            self.log(f"UNBOUND_WARN_NOTIFY_FAILED: {e}", level="WARNING")
 
     def _seed_slot_start_grams(self, slot):
         """Write-once: seed start grams for a newly-active slot during print."""
