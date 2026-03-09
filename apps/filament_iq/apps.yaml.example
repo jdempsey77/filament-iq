@@ -1,49 +1,101 @@
-# apps.yaml.example — FilamentIQ AppDaemon configuration
-#
-# Copy this file to your AppDaemon apps.yaml and replace:
-#   YOUR_PRINTER_IP      → Bambu printer LAN IP (e.g. 192.168.4.50)
-#   YOUR_SPOOLMAN_IP     → Spoolman server IP (e.g. 192.168.1.250)
-#
-# Also replace YOUR_PRINTER_SERIAL in the Python source files
-# (ams_print_usage_sync.py, ams_rfid_reconcile.py) with your
-# Bambu printer's device serial from ha-bambulab entity IDs.
-#
-# Advanced tuning keys (debounce, thresholds, poll intervals, etc.)
-# have sensible defaults and are documented in the source of each app.
+# FilamentIQ — Complete apps.yaml example
+# Copy to your AppDaemon apps.yaml and replace placeholders.
+# All config keys are documented below.
 
-ams_print_usage_sync:
-  module: ams_print_usage_sync
-  class: AmsPrintUsageSync
-  enabled: true
-  spoolman_base_url: "http://YOUR_SPOOLMAN_IP:7912"
-  dry_run: false
-  printer_ip: "YOUR_PRINTER_IP"
-  access_code_entity: "input_text.bambu_printer_access_code"
-  threemf_enabled: true
-  # printer_access_code: ""  # optional; overrides entity if set
-
+# ── AMS RFID Reconcile ─────────────────────────────────────────────────────
+# Slot identity management: RFID tag matching, non-RFID fingerprinting.
 ams_rfid_reconcile:
-  module: ams_rfid_reconcile
+  module: filament_iq.ams_rfid_reconcile
   class: AmsRfidReconcile
   enabled: true
+  # Required
   spoolman_url: "http://YOUR_SPOOLMAN_IP:7912"
+  printer_serial: "01P00C5A3101668"
+  # Optional
+  printer_model: "p1s"                    # default p1s; used for entity prefix
+  ams_units:                             # default: AMS Pro (1-4) + HT (5-6)
+    - type: ams_2_pro
+      ams_index: 0
+      slots: [1, 2, 3, 4]
+    - type: ams_ht
+      ams_index: 128
+      slots: [5]
+    - type: ams_ht
+      ams_index: 129
+      slots: [6]
   startup_delay_seconds: 60
+  startup_wait_helpers_seconds: 420
+  startup_probe_helper_entity: "input_text.ams_slot_1_spool_id"
+  debounce_seconds: 3
+  safety_poll_seconds: 600
+  strict_mode_reregister: false
+  evidence_log_path: "/config/ams_rfid_reconcile_evidence.log"
   debug_logs: false
+  color_distance_threshold: 90
+  reconcile_button_entity: "input_button.filament_iq_reconcile_now"
+  nonrfid_enabled_entity: "input_boolean.filament_iq_nonrfid_enabled"
+  last_mapping_json_entity: "input_text.filament_iq_last_mapping_json"
+  startup_suppress_swap_entity: "input_boolean.filament_iq_startup_suppress_swap"
 
+# ── AMS RFID Guard ────────────────────────────────────────────────────────
+# Auditor: quarantines Spoolman spools with RFID policy violations.
 ams_rfid_guard:
-  module: ams_rfid_guard
+  module: filament_iq.ams_rfid_guard
   class: AmsRfidGuard
   enabled: true
-  spoolman_base_url: "http://YOUR_SPOOLMAN_IP:7912"
-  dry_run: false
-
-filament_weight_tracker:
-  module: filament_weight_tracker
-  class: FilamentWeightTracker
   spoolman_url: "http://YOUR_SPOOLMAN_IP:7912"
+  scan_interval_seconds: 300
+  dry_run: false
+  notify_cooldown_minutes: 360
+  cache_sensor_entity: "sensor.spoolman_spools_cache"
+  use_cache_trigger: false
+  rfid_managed_patterns:
+    - bambu
+    - bambu lab
+  missing_ha_spool_uuid_mode: "warn_only"  # or quarantine
 
+# ── Spoolman Dropdown Sync ───────────────────────────────────────────────
+# Populates filament dropdown from Spoolman /api/v1/filament.
 spoolman_dropdown_sync:
-  module: spoolman_dropdown_sync
+  module: filament_iq.spoolman_dropdown_sync
   class: SpoolmanDropdownSync
   enabled: true
-  spoolman_base_url: "http://YOUR_SPOOLMAN_IP:7912"
+  spoolman_url: "http://YOUR_SPOOLMAN_IP:7912"
+  dropdown_entity: "input_select.spoolman_new_spool_filament"  # default
+
+# ── AMS Print Usage Sync ──────────────────────────────────────────────────
+# Writes filament consumption to Spoolman after each print (P1S_PRINT_USAGE_READY).
+ams_print_usage_sync:
+  module: filament_iq.ams_print_usage_sync
+  class: AmsPrintUsageSync
+  enabled: true
+  spoolman_url: "http://YOUR_SPOOLMAN_IP:7912"
+  printer_serial: "01P00C5A3101668"
+  printer_model: "p1s"
+  printer_ip: "YOUR_PRINTER_IP"
+  printer_ftps_port: 990
+  access_code_entity: "input_text.bambu_printer_access_code"  # or filament_iq_printer_access_code
+  spoolman_sensor_prefix: "sensor.spoolman_spool_"  # default; for 3MF color/material fallback
+  dry_run: false
+  min_consumption_g: 2
+  max_consumption_g: 300
+  threemf_enabled: true
+  trays_used_entity: "input_text.filament_iq_trays_used_this_print"
+  notify_target: []  # optional: ["notify mobile app"] for push
+  ams_units: []      # optional; default AMS Pro + HT
+
+# ── Filament Weight Tracker ───────────────────────────────────────────────
+# Snapshots spool weights before/after prints for validation.
+filament_weight_tracker:
+  module: filament_iq.filament_weight_tracker
+  class: FilamentWeightTracker
+  spoolman_url: "http://YOUR_SPOOLMAN_IP:7912"
+  printer_serial: "01P00C5A3101668"
+  printer_model: "p1s"
+  report_path: "/config/filament_weight_reports.log"
+  operator_status_entity: "sensor.filament_iq_operator_status"
+  weight_snapshot_button_entity: "input_button.filament_iq_weight_snapshot_now"
+  # Printer entities (from Bambu integration) — replace with your printer's entity IDs
+  print_name_entities:
+    - "sensor.p1s_YOUR_PRINTER_SERIAL_current_stage"
+    - "sensor.p1s_YOUR_PRINTER_SERIAL_print_status"

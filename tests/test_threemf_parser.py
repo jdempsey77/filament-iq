@@ -11,10 +11,10 @@ import zipfile
 import pytest
 
 sys.path.insert(
-    0, os.path.join(os.path.dirname(__file__), "..", "apps", "filament_iq")
+    0, os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps")
 )
 
-from threemf_parser import (
+from filament_iq.threemf_parser import (
     color_distance,
     find_best_3mf,
     match_filaments_to_slots,
@@ -251,12 +251,11 @@ class TestMatchFilamentsToSlots:
             {"index": 1, "used_g": 1.51, "color_hex": "000000", "material": "pla"},
             {"index": 2, "used_g": 0.61, "color_hex": "939393", "material": "pla"},
         ]
-        # TODO: spool_id values are example (1, 2, 3, 4); substitute with your Spoolman spool IDs.
         self.slot_data = {
-            1: {"color_hex": "00ae42", "material": "pla", "spool_id": 1},
-            2: {"color_hex": "000000", "material": "pla", "spool_id": 2},
-            3: {"color_hex": "1a1a1a", "material": "pla", "spool_id": 3},
-            4: {"color_hex": "8e9089", "material": "pla", "spool_id": 4},
+            1: {"color_hex": "00ae42", "material": "pla", "spool_id": 41},
+            2: {"color_hex": "000000", "material": "pla", "spool_id": 31},
+            3: {"color_hex": "1a1a1a", "material": "pla", "spool_id": 52},
+            4: {"color_hex": "8e9089", "material": "pla", "spool_id": 46},
         }
 
     def test_exact_color_match_green(self):
@@ -321,8 +320,8 @@ class TestMatchFilamentsToSlots:
             {"index": 1, "used_g": 3.0, "color_hex": "000000", "material": "pla"},
         ]
         slot_data = {
-            2: {"color_hex": "000000", "material": "pla", "spool_id": 2},
-            3: {"color_hex": "000000", "material": "pla", "spool_id": 3},
+            2: {"color_hex": "000000", "material": "pla", "spool_id": 31},
+            3: {"color_hex": "000000", "material": "pla", "spool_id": 52},
         }
         matches, _ = match_filaments_to_slots(filaments, slot_data)
         assert len(matches) == 2
@@ -343,7 +342,7 @@ class TestMatchFilamentsToSlots:
             {"index": 0, "used_g": 5.0, "color_hex": "ff0000", "material": "petg"},
         ]
         slot_data = {
-            6: {"color_hex": "000000", "material": "petg", "spool_id": 6},
+            6: {"color_hex": "000000", "material": "petg", "spool_id": 28},
         }
         matches, _ = match_filaments_to_slots(filaments, slot_data)
         assert len(matches) == 1
@@ -355,8 +354,8 @@ class TestMatchFilamentsToSlots:
             {"index": 0, "used_g": 5.0, "color_hex": "ff0000", "material": "petg"},
         ]
         slot_data = {
-            5: {"color_hex": "000000", "material": "petg", "spool_id": 5},
-            6: {"color_hex": "161616", "material": "petg", "spool_id": 6},
+            5: {"color_hex": "000000", "material": "petg", "spool_id": 27},
+            6: {"color_hex": "161616", "material": "petg", "spool_id": 28},
         }
         matches, unmatched = match_filaments_to_slots(filaments, slot_data)
         assert len(matches) == 0
@@ -375,7 +374,7 @@ class TestMatchFilamentsToSlots:
     def test_spool_id_zero_excluded(self):
         slot_data = {
             1: {"color_hex": "00ae42", "material": "pla", "spool_id": 0},
-            2: {"color_hex": "000000", "material": "pla", "spool_id": 2},
+            2: {"color_hex": "000000", "material": "pla", "spool_id": 31},
         }
         filaments = [
             {"index": 0, "used_g": 1.29, "color_hex": "00ae42", "material": "pla"},
@@ -390,7 +389,7 @@ class TestMatchFilamentsToSlots:
             {"index": 1, "used_g": 3.0, "color_hex": "010101", "material": "pla"},
         ]
         slot_data = {
-            2: {"color_hex": "000000", "material": "pla", "spool_id": 2},
+            2: {"color_hex": "000000", "material": "pla", "spool_id": 31},
         }
         matches, unmatched = match_filaments_to_slots(filaments, slot_data)
         assert len(matches) == 1
@@ -410,10 +409,10 @@ class TestMatchingWithRealPrintData:
             {"index": 2, "used_g": 0.61, "color_hex": "939393", "material": "pla"},
         ]
         slot_data = {
-            1: {"color_hex": "00ae42", "material": "pla", "spool_id": 1},
-            2: {"color_hex": "000000", "material": "pla", "spool_id": 2},
-            3: {"color_hex": "1a1a1a", "material": "pla", "spool_id": 3},
-            4: {"color_hex": "8e9089", "material": "pla", "spool_id": 4},
+            1: {"color_hex": "00ae42", "material": "pla", "spool_id": 41},
+            2: {"color_hex": "000000", "material": "pla", "spool_id": 31},
+            3: {"color_hex": "1a1a1a", "material": "pla", "spool_id": 52},
+            4: {"color_hex": "8e9089", "material": "pla", "spool_id": 46},
         }
         trays_used = {1, 2, 4}
 
@@ -425,19 +424,19 @@ class TestMatchingWithRealPrintData:
 
         slot_map = {m["slot"]: m for m in matches}
         assert slot_map[1]["used_g"] == 1.29
-        assert slot_map[1]["spool_id"] == 1
+        assert slot_map[1]["spool_id"] == 41
         assert slot_map[2]["used_g"] == 1.51
-        assert slot_map[2]["spool_id"] == 2
+        assert slot_map[2]["spool_id"] == 31
         assert slot_map[4]["used_g"] == 0.61
-        assert slot_map[4]["spool_id"] == 4
+        assert slot_map[4]["spool_id"] == 46
 
     def test_single_spool_petg_print(self):
         filaments = [
             {"index": 0, "used_g": 6.75, "color_hex": "161616", "material": "petg"},
         ]
         slot_data = {
-            5: {"color_hex": "000000", "material": "petg", "spool_id": 5},
-            6: {"color_hex": "161616", "material": "petg", "spool_id": 6},
+            5: {"color_hex": "000000", "material": "petg", "spool_id": 27},
+            6: {"color_hex": "161616", "material": "petg", "spool_id": 28},
         }
         trays_used = {6}
 
@@ -454,8 +453,8 @@ class TestMatchingWithRealPrintData:
             {"index": 1, "used_g": 15.0, "color_hex": "000000", "material": "petg"},
         ]
         slot_data = {
-            2: {"color_hex": "000000", "material": "pla", "spool_id": 2},
-            6: {"color_hex": "161616", "material": "petg", "spool_id": 6},
+            2: {"color_hex": "000000", "material": "pla", "spool_id": 31},
+            6: {"color_hex": "161616", "material": "petg", "spool_id": 28},
         }
         trays_used = {2, 6}
 
@@ -474,9 +473,9 @@ class TestMatchingWithRealPrintData:
             {"index": 2, "used_g": 3.0, "color_hex": "000000", "material": "tpu"},
         ]
         slot_data = {
-            2: {"color_hex": "000000", "material": "pla", "spool_id": 2},
-            5: {"color_hex": "000000", "material": "petg", "spool_id": 5},
-            6: {"color_hex": "000000", "material": "tpu", "spool_id": 6},
+            2: {"color_hex": "000000", "material": "pla", "spool_id": 31},
+            5: {"color_hex": "000000", "material": "petg", "spool_id": 27},
+            6: {"color_hex": "000000", "material": "tpu", "spool_id": 99},
         }
         matches, unmatched = match_filaments_to_slots(filaments, slot_data)
         assert len(matches) == 3
@@ -607,20 +606,18 @@ class TestParse3mfFilaments:
 
 class TestFtpErrorHandling:
     def test_ftps_list_bad_ip(self):
-        from threemf_parser import ftps_list_cache
+        from filament_iq.threemf_parser import ftps_list_cache
 
-        # TODO: Use any unreachable IP for this test (expects empty list).
-        files, directory = ftps_list_cache("192.0.2.254", "badcode", timeout=3)
+        files, directory = ftps_list_cache("192.0.2.1", "badcode", timeout=3)
         assert files == []
         assert directory is None
 
     def test_ftps_download_bad_ip(self):
-        from threemf_parser import ftps_download_3mf
+        from filament_iq.threemf_parser import ftps_download_3mf
 
-        # TODO: Use any unreachable IP for this test (expects None).
         with tempfile.TemporaryDirectory() as tmp:
             result = ftps_download_3mf(
-                "192.0.2.254", "badcode", "test.3mf", tmp, timeout=3
+                "192.0.2.1", "badcode", "test.3mf", tmp, timeout=3
             )
             assert result is None
 
@@ -628,20 +625,18 @@ class TestFtpErrorHandling:
         assert find_best_3mf([], "test") is None
 
     def test_ftps_list_empty_code(self):
-        from threemf_parser import ftps_list_cache
+        from filament_iq.threemf_parser import ftps_list_cache
 
-        # TODO: Substitute YOUR_PRINTER_IP for live test; 192.0.2.1 (TEST-NET) for CI.
-        files, directory = ftps_list_cache("192.0.2.1", "", timeout=3)
+        files, directory = ftps_list_cache("192.0.2.254", "", timeout=3)
         assert isinstance(files, list)
         assert directory is None
 
     def test_ftps_download_nonexistent_file(self):
-        from threemf_parser import ftps_download_3mf
+        from filament_iq.threemf_parser import ftps_download_3mf
 
-        # TODO: Substitute YOUR_PRINTER_IP for live test; 192.0.2.1 (TEST-NET) for CI.
         with tempfile.TemporaryDirectory() as tmp:
             result = ftps_download_3mf(
-                "192.0.2.1", "badcode", "nonexistent.3mf", tmp, timeout=3
+                "192.0.2.254", "badcode", "nonexistent.3mf", tmp, timeout=3
             )
             assert result is None
 
@@ -656,8 +651,8 @@ class TestFallbackChainLogic:
             {"index": 1, "used_g": 1.51, "color_hex": "000000", "material": "pla"},
         ]
         slot_data = {
-            1: {"color_hex": "00ae42", "material": "pla", "spool_id": 1},
-            2: {"color_hex": "000000", "material": "pla", "spool_id": 2},
+            1: {"color_hex": "00ae42", "material": "pla", "spool_id": 41},
+            2: {"color_hex": "000000", "material": "pla", "spool_id": 31},
         }
         matches, unmatched = match_filaments_to_slots(filaments, slot_data)
         assert len(matches) == 2
@@ -669,8 +664,8 @@ class TestFallbackChainLogic:
             {"index": 1, "used_g": 1.51, "color_hex": "ff0000", "material": "pla"},
         ]
         slot_data = {
-            1: {"color_hex": "00ae42", "material": "pla", "spool_id": 1},
-            2: {"color_hex": "000000", "material": "pla", "spool_id": 2},
+            1: {"color_hex": "00ae42", "material": "pla", "spool_id": 41},
+            2: {"color_hex": "000000", "material": "pla", "spool_id": 31},
         }
         matches, unmatched = match_filaments_to_slots(filaments, slot_data)
         assert len(matches) == 1
@@ -681,7 +676,7 @@ class TestFallbackChainLogic:
             {"index": 0, "used_g": 5.0, "color_hex": "ff0000", "material": "abs"},
         ]
         slot_data = {
-            1: {"color_hex": "00ae42", "material": "pla", "spool_id": 1},
+            1: {"color_hex": "00ae42", "material": "pla", "spool_id": 41},
         }
         matches, unmatched = match_filaments_to_slots(filaments, slot_data)
         assert len(matches) == 0
