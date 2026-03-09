@@ -17,7 +17,7 @@
 - [x] Phase 3: Debug logging, swap detection, rehydrate mutex, pause-state fix
 - [x] Disable 7 HA lifecycle automations (A-G) — replaced by Phases 1-3
 - [x] 3MF matching: lot_nr color fallback for third-party filament color mismatches
-- [x] 3MF matching: unmatched consumption flows to time_weighted pool instead of being dropped
+- [x] 3MF matching: unmatched consumption logged and skipped (pool_g estimation removed)
 - [x] 3MF matching: all bound slots as candidates, not just trays_used
 - [x] 3MF matching: 3MF-matched slots merged into active processing loop
 - [x] Suppress full reconcile on manual assign (fffe84b)
@@ -39,3 +39,10 @@
 - [x] Rename SLOT_ASSIGNED_NO_LOT_SIG → SLOT_ASSIGNED_LOT_SIG_EXISTS log message
 - [x] Reconciler performance fix — 26s → ~3s (cached spool list, removed equality bypass) (v0.7.1)
 - [x] Delete 6 obsolete HA helpers (end_json, last_processed_job_key, init_seed_debug, last_tray_entity, last_print_status_transition, finish_automation_checkpoint) — start_json and active_job_key kept (active in AppDaemon)
+- [x] Remove pool_g / time-weighted / equal_split estimation — two write paths only (RFID delta, 3MF match). Under-count acceptable, phantom charges eliminated.
+- [x] Phantom consumption fix — failed print guard, write-ahead dedup, smart empty guard
+- [x] Native FTPS fetch via ftplib.FTP_TLS (implicit TLS, ~40% faster)
+- [x] slot_position_material match tier (2.75) in 3MF matcher
+- [x] Scoped unbound-slot warning to active trays only
+- [x] Batch Spoolman fetch in usage pipeline (~12 HTTP calls → 1)
+- [x] 3MF fetch race guard — wait up to 15s for data before processing finish

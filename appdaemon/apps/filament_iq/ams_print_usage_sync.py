@@ -3,14 +3,12 @@
 Entity naming: sensor.{prefix}_{sensor_name} where prefix = _build_entity_prefix().
 See base.py for the pattern (printer_model + printer_serial lowercased).
 
-Triggered by custom HA event P1S_PRINT_USAGE_READY fired by the
-p1s_remaining_snapshot_on_finish automation.
+Two write paths only — no estimation:
+  Path A (RFID delta):  consumption = start_g - end_g from fuel gauge snapshots.
+  Path B (3MF match):   slicer-exact per-filament consumption matched to a bound slot.
+Slots with neither RFID delta nor 3MF match are logged and skipped (USAGE_NO_EVIDENCE).
 
-RFID slots:     consumption = start_g - end_g from fuel gauge snapshots.
-Non-RFID slots: time-weighted by tray active duration, or equal split fallback.
-
-Tray tracking:  AppDaemon listens to tray active attribute; replaces HA automation
-p1s_record_trays_used_during_print (avoids mode:restart race conditions).
+Tray tracking:  AppDaemon listens to tray active attribute for diagnostics/logging.
 
 Slot-to-spool mapping: input_text.ams_slot_{slot}_spool_id (reconciler-owned, read-only).
 Spoolman write:         PUT /api/v1/spool/{id}/use {"use_weight": grams}

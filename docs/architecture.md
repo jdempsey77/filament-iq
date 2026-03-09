@@ -131,7 +131,7 @@ Used by:
 1. **Print start:** HA automation records start snapshot (fuel gauge per slot) to `input_number.filament_iq_start_slot_N_g`
 2. **Print end:** HA automation records end snapshot, fires `P1S_PRINT_USAGE_READY`
 3. **ams_print_usage_sync** listens for event, reads slot→spool from `input_text.ams_slot_N_spool_id`
-4. **Consumption:** RFID slots = start_g - end_g; non-RFID = time-weighted or equal split
+4. **Consumption:** RFID slots = start_g - end_g; 3MF-matched slots = slicer-exact. No estimation fallback.
 5. **Spoolman write:** `PUT /api/v1/spool/{id}/use` with `use_weight`
 6. **Dedup:** `seen_job_keys.json` prevents double-apply for same print
 
