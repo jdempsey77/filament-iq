@@ -1029,72 +1029,100 @@
     # a separate variables+choose pair with fully self-contained templates.
     - delay:
         seconds: 1
-    - variables:
-        sid1: "{{ states('input_text.ams_slot_1_spool_id') | int(0) }}"
-        m1: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_1_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
-    - choose:
-        - conditions: "{{ sid1 > 0 and m1 | trim | length > 0 }}"
-          sequence:
-            - action: input_select.select_option
-              target:
-                entity_id: input_select.ams_slot_1_select_spool
-              data:
-                option: "{{ m1 | trim }}"
-    - variables:
-        sid2: "{{ states('input_text.ams_slot_2_spool_id') | int(0) }}"
-        m2: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_2_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
-    - choose:
-        - conditions: "{{ sid2 > 0 and m2 | trim | length > 0 }}"
-          sequence:
-            - action: input_select.select_option
-              target:
-                entity_id: input_select.ams_slot_2_select_spool
-              data:
-                option: "{{ m2 | trim }}"
-    - variables:
-        sid3: "{{ states('input_text.ams_slot_3_spool_id') | int(0) }}"
-        m3: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_3_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
-    - choose:
-        - conditions: "{{ sid3 > 0 and m3 | trim | length > 0 }}"
-          sequence:
-            - action: input_select.select_option
-              target:
-                entity_id: input_select.ams_slot_3_select_spool
-              data:
-                option: "{{ m3 | trim }}"
-    - variables:
-        sid4: "{{ states('input_text.ams_slot_4_spool_id') | int(0) }}"
-        m4: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_4_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
-    - choose:
-        - conditions: "{{ sid4 > 0 and m4 | trim | length > 0 }}"
-          sequence:
-            - action: input_select.select_option
-              target:
-                entity_id: input_select.ams_slot_4_select_spool
-              data:
-                option: "{{ m4 | trim }}"
-    - variables:
-        sid5: "{{ states('input_text.ams_slot_5_spool_id') | int(0) }}"
-        m5: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_5_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
-    - choose:
-        - conditions: "{{ sid5 > 0 and m5 | trim | length > 0 }}"
-          sequence:
-            - action: input_select.select_option
-              target:
-                entity_id: input_select.ams_slot_5_select_spool
-              data:
-                option: "{{ m5 | trim }}"
-    - variables:
-        sid6: "{{ states('input_text.ams_slot_6_spool_id') | int(0) }}"
-        m6: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_6_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
-    - choose:
-        - conditions: "{{ sid6 > 0 and m6 | trim | length > 0 }}"
-          sequence:
-            - action: input_select.select_option
-              target:
-                entity_id: input_select.ams_slot_6_select_spool
-              data:
-                option: "{{ m6 | trim }}"
+    # Use if (not choose) with fully self-contained templates per slot.
+    # Each if block reads state and options inline — no cross-variable refs.
+    - delay:
+        seconds: 1
+    - if:
+        - condition: template
+          value_template: >-
+            {% set sid = states('input_text.ams_slot_1_spool_id') | int(0) %}
+            {% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}
+            {% set t = '(' ~ sid | string ~ ')' %}
+            {{ sid > 0 and opts | select('search', t ~ '$') | list | length > 0 }}
+      then:
+        - variables:
+            m1: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_1_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
+        - action: input_select.select_option
+          target:
+            entity_id: input_select.ams_slot_1_select_spool
+          data:
+            option: "{{ m1 | trim }}"
+    - if:
+        - condition: template
+          value_template: >-
+            {% set sid = states('input_text.ams_slot_2_spool_id') | int(0) %}
+            {% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}
+            {% set t = '(' ~ sid | string ~ ')' %}
+            {{ sid > 0 and opts | select('search', t ~ '$') | list | length > 0 }}
+      then:
+        - variables:
+            m2: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_2_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
+        - action: input_select.select_option
+          target:
+            entity_id: input_select.ams_slot_2_select_spool
+          data:
+            option: "{{ m2 | trim }}"
+    - if:
+        - condition: template
+          value_template: >-
+            {% set sid = states('input_text.ams_slot_3_spool_id') | int(0) %}
+            {% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}
+            {% set t = '(' ~ sid | string ~ ')' %}
+            {{ sid > 0 and opts | select('search', t ~ '$') | list | length > 0 }}
+      then:
+        - variables:
+            m3: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_3_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
+        - action: input_select.select_option
+          target:
+            entity_id: input_select.ams_slot_3_select_spool
+          data:
+            option: "{{ m3 | trim }}"
+    - if:
+        - condition: template
+          value_template: >-
+            {% set sid = states('input_text.ams_slot_4_spool_id') | int(0) %}
+            {% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}
+            {% set t = '(' ~ sid | string ~ ')' %}
+            {{ sid > 0 and opts | select('search', t ~ '$') | list | length > 0 }}
+      then:
+        - variables:
+            m4: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_4_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
+        - action: input_select.select_option
+          target:
+            entity_id: input_select.ams_slot_4_select_spool
+          data:
+            option: "{{ m4 | trim }}"
+    - if:
+        - condition: template
+          value_template: >-
+            {% set sid = states('input_text.ams_slot_5_spool_id') | int(0) %}
+            {% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}
+            {% set t = '(' ~ sid | string ~ ')' %}
+            {{ sid > 0 and opts | select('search', t ~ '$') | list | length > 0 }}
+      then:
+        - variables:
+            m5: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_5_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
+        - action: input_select.select_option
+          target:
+            entity_id: input_select.ams_slot_5_select_spool
+          data:
+            option: "{{ m5 | trim }}"
+    - if:
+        - condition: template
+          value_template: >-
+            {% set sid = states('input_text.ams_slot_6_spool_id') | int(0) %}
+            {% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}
+            {% set t = '(' ~ sid | string ~ ')' %}
+            {{ sid > 0 and opts | select('search', t ~ '$') | list | length > 0 }}
+      then:
+        - variables:
+            m6: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_6_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
+        - action: input_select.select_option
+          target:
+            entity_id: input_select.ams_slot_6_select_spool
+          data:
+            option: "{{ m6 | trim }}"
   mode: single
 
 # When user selects a spool from "Assign from warehouse" dropdown, set the numeric ID for scripts.
