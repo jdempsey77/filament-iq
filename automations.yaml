@@ -1024,7 +1024,8 @@
     - delay:
         seconds: 1
     - action: script.sync_spool_dropdowns_to_bound
-  mode: single
+  mode: queued
+  max: 3
 
 # When user selects a spool from "Assign from warehouse" dropdown, set the numeric ID for scripts.
 - id: ams_assign_source_spool_from_select
