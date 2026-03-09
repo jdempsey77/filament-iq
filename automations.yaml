@@ -1021,38 +1021,71 @@
       data:
         options: "{{ ['— Select spool —'] + (state_attr('sensor.ams_spool_list_options', 'options') or []) }}"
     # After populating options, sync each dropdown to its currently bound spool.
-    # Read options from the sensor directly (not from the input_select which may
-    # not have propagated yet). Inline the sensor read in each match template to
-    # avoid variable scoping issues with repeat blocks.
+    # Unrolled (not repeat) because repeat.index is not available in variables blocks.
     - delay:
         seconds: 1
-    - repeat:
-        count: 6
-        sequence:
-          - variables:
-              slot: "{{ repeat.index }}"
-              spool_id: "{{ states('input_text.ams_slot_' ~ repeat.index ~ '_spool_id') | int(0) }}"
-              match: >-
-                {% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}
-                {% set sid = states('input_text.ams_slot_' ~ repeat.index ~ '_spool_id') | int(0) %}
-                {% set target = '(' ~ sid | string ~ ')' %}
-                {% set ns = namespace(match='') %}
-                {% for opt in opts %}
-                  {% if opt.endswith(target) %}
-                    {% set ns.match = opt %}
-                  {% endif %}
-                {% endfor %}
-                {{ ns.match }}
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ spool_id | int > 0 and match | trim | length > 0 }}"
-                sequence:
-                  - action: input_select.select_option
-                    target:
-                      entity_id: "input_select.ams_slot_{{ slot }}_select_spool"
-                    data:
-                      option: "{{ match | trim }}"
+    - variables:
+        opts: "{{ state_attr('sensor.ams_spool_list_options', 'options') or [] }}"
+        sid1: "{{ states('input_text.ams_slot_1_spool_id') | int(0) }}"
+        sid2: "{{ states('input_text.ams_slot_2_spool_id') | int(0) }}"
+        sid3: "{{ states('input_text.ams_slot_3_spool_id') | int(0) }}"
+        sid4: "{{ states('input_text.ams_slot_4_spool_id') | int(0) }}"
+        sid5: "{{ states('input_text.ams_slot_5_spool_id') | int(0) }}"
+        sid6: "{{ states('input_text.ams_slot_6_spool_id') | int(0) }}"
+        m1: "{% for o in opts %}{% if o.endswith('(' ~ sid1 | string ~ ')') %}{{ o }}{% endif %}{% endfor %}"
+        m2: "{% for o in opts %}{% if o.endswith('(' ~ sid2 | string ~ ')') %}{{ o }}{% endif %}{% endfor %}"
+        m3: "{% for o in opts %}{% if o.endswith('(' ~ sid3 | string ~ ')') %}{{ o }}{% endif %}{% endfor %}"
+        m4: "{% for o in opts %}{% if o.endswith('(' ~ sid4 | string ~ ')') %}{{ o }}{% endif %}{% endfor %}"
+        m5: "{% for o in opts %}{% if o.endswith('(' ~ sid5 | string ~ ')') %}{{ o }}{% endif %}{% endfor %}"
+        m6: "{% for o in opts %}{% if o.endswith('(' ~ sid6 | string ~ ')') %}{{ o }}{% endif %}{% endfor %}"
+    - choose:
+        - conditions: "{{ sid1 > 0 and m1 | trim | length > 0 }}"
+          sequence:
+            - action: input_select.select_option
+              target:
+                entity_id: input_select.ams_slot_1_select_spool
+              data:
+                option: "{{ m1 | trim }}"
+    - choose:
+        - conditions: "{{ sid2 > 0 and m2 | trim | length > 0 }}"
+          sequence:
+            - action: input_select.select_option
+              target:
+                entity_id: input_select.ams_slot_2_select_spool
+              data:
+                option: "{{ m2 | trim }}"
+    - choose:
+        - conditions: "{{ sid3 > 0 and m3 | trim | length > 0 }}"
+          sequence:
+            - action: input_select.select_option
+              target:
+                entity_id: input_select.ams_slot_3_select_spool
+              data:
+                option: "{{ m3 | trim }}"
+    - choose:
+        - conditions: "{{ sid4 > 0 and m4 | trim | length > 0 }}"
+          sequence:
+            - action: input_select.select_option
+              target:
+                entity_id: input_select.ams_slot_4_select_spool
+              data:
+                option: "{{ m4 | trim }}"
+    - choose:
+        - conditions: "{{ sid5 > 0 and m5 | trim | length > 0 }}"
+          sequence:
+            - action: input_select.select_option
+              target:
+                entity_id: input_select.ams_slot_5_select_spool
+              data:
+                option: "{{ m5 | trim }}"
+    - choose:
+        - conditions: "{{ sid6 > 0 and m6 | trim | length > 0 }}"
+          sequence:
+            - action: input_select.select_option
+              target:
+                entity_id: input_select.ams_slot_6_select_spool
+              data:
+                option: "{{ m6 | trim }}"
   mode: single
 
 # When user selects a spool from "Assign from warehouse" dropdown, set the numeric ID for scripts.
