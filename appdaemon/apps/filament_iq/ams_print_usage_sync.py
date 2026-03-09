@@ -21,6 +21,7 @@ import datetime
 import json
 import os
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -301,8 +302,11 @@ class AmsPrintUsageSync(FilamentIQBase):
         all_results = []
         skipped = 0
 
+        # Single batch fetch from Spoolman — used by slot_data, display, remaining, depleted
+        spools_cache = self._fetch_spools_cache()
+
         if self._threemf_data and self.threemf_enabled:
-            slot_data = self._build_slot_data()
+            slot_data = self._build_slot_data(spools_cache=spools_cache)
             matches, unmatched_fils = match_filaments_to_slots(
                 self._threemf_data, slot_data, trays_used=None
             )
@@ -507,11 +511,23 @@ class AmsPrintUsageSync(FilamentIQBase):
                 )
                 patched += 1
                 try:
-                    spool_data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+                    spool_data = spools_cache.get(spool_id) or self._spoolman_get(f"/api/v1/spool/{spool_id}")
                     if spool_data and float(
                         spool_data.get("remaining_weight", 1)
                     ) <= 0:
-                        if self.auto_empty_spools:
+                        if not self.auto_empty_spools:
+                            self.log(
+                                f"USAGE_SPOOL_DEPLETED_SKIPPED slot={slot} "
+                                f"spool_id={spool_id} reason=auto_empty_disabled",
+                                level="INFO",
+                            )
+                        elif self._is_tray_physically_present(slot):
+                            self.log(
+                                f"USAGE_SPOOL_DEPLETED_SKIPPED slot={slot} "
+                                f"spool_id={spool_id} reason=tray_still_occupied",
+                                level="INFO",
+                            )
+                        else:
                             self._spoolman_patch(spool_id, {"location": "Empty"})
                             self.call_service(
                                 "input_text/set_value",
@@ -527,12 +543,6 @@ class AmsPrintUsageSync(FilamentIQBase):
                                 f"USAGE_SPOOL_DEPLETED slot={slot} spool_id={spool_id} "
                                 f"— moved to Empty",
                                 level="WARNING",
-                            )
-                        else:
-                            self.log(
-                                f"USAGE_SPOOL_DEPLETED_SKIPPED slot={slot} "
-                                f"spool_id={spool_id} reason=auto_empty_disabled",
-                                level="INFO",
                             )
                 except Exception as e:
                     self.log(
@@ -565,8 +575,8 @@ class AmsPrintUsageSync(FilamentIQBase):
         job_label = task_name.replace(".gcode.3mf", "").replace(".3mf", "").strip()
         lines = [f"Job: {job_label}", f"Status: {print_status}", ""]
         for slot, spool_id, consumption_g, method in all_results:
-            spool_name = self._get_spool_display_name(spool_id)
-            remaining = self._get_spool_remaining(spool_id)
+            spool_name = self._get_spool_display_name(spool_id, spools_cache=spools_cache)
+            remaining = self._get_spool_remaining(spool_id, spools_cache=spools_cache)
             in_range = (
                 consumption_g >= self.min_consumption_g
                 and consumption_g <= self.max_consumption_g
@@ -915,6 +925,19 @@ class AmsPrintUsageSync(FilamentIQBase):
             )
             self._on_print_end()
             return
+
+        # Wait for 3MF fetch to complete (may still be in progress)
+        if self.threemf_enabled and self._threemf_data is None:
+            for _ in range(15):
+                time.sleep(1)
+                if self._threemf_data is not None:
+                    break
+            if self._threemf_data is None:
+                self.log(
+                    f"3MF_DATA_NOT_READY job_key={self._job_key} "
+                    f"— falling back to estimation",
+                    level="WARNING",
+                )
 
         # Build end snapshot
         self._end_snapshot = self._build_end_snapshot()
@@ -1333,7 +1356,22 @@ class AmsPrintUsageSync(FilamentIQBase):
             level="INFO",
         )
 
-    def _build_slot_data(self):
+    def _fetch_spools_cache(self):
+        """Batch-fetch all spools from Spoolman. Returns {spool_id: spool_dict}."""
+        try:
+            raw = self._spoolman_get("/api/v1/spool?limit=1000")
+            if isinstance(raw, list):
+                spools = raw
+            elif isinstance(raw, dict):
+                spools = raw.get("items", raw.get("results", []))
+            else:
+                return {}
+            return {int(s.get("id", 0)): s for s in spools if s.get("id")}
+        except Exception as e:
+            self.log(f"SPOOLMAN_BATCH_FETCH_FAILED: {e}", level="WARNING")
+            return {}
+
+    def _build_slot_data(self, spools_cache=None):
         slot_data = {}
         for slot, entity in self._tray_entity_by_slot.items():
             try:
@@ -1373,9 +1411,9 @@ class AmsPrintUsageSync(FilamentIQBase):
                 lot_nr_color = ""
                 if spool_id > 0:
                     try:
-                        spool_data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
-                        if spool_data:
-                            lot_nr = str(spool_data.get("lot_nr", "") or "")
+                        cached = (spools_cache or {}).get(spool_id)
+                        if cached:
+                            lot_nr = str(cached.get("lot_nr", "") or "")
                             lot_nr_color = parse_lot_nr_color(lot_nr)
                     except Exception:
                         pass
@@ -1481,6 +1519,22 @@ class AmsPrintUsageSync(FilamentIQBase):
         except Exception:
             return False
 
+    def _is_tray_physically_present(self, slot):
+        """Check if a spool is physically present in the tray via tag_uid or tray state."""
+        entity = self._tray_entity_by_slot.get(slot)
+        if not entity:
+            return False
+        try:
+            tag_uid = str(self.get_state(entity, attribute="tag_uid") or "").strip()
+            if tag_uid and tag_uid not in _INVALID_TAG_UIDS:
+                return True
+            tray_state = str(self.get_state(entity) or "").strip().lower()
+            if tray_state and tray_state not in ("", "empty", "unknown", "unavailable"):
+                return True
+        except Exception:
+            pass
+        return False
+
     def _spoolman_get(self, path):
         url = f"{self.spoolman_base_url}{path}"
         try:
@@ -1490,9 +1544,11 @@ class AmsPrintUsageSync(FilamentIQBase):
         except Exception:
             return None
 
-    def _get_spool_display_name(self, spool_id):
+    def _get_spool_display_name(self, spool_id, spools_cache=None):
         try:
-            data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+            data = (spools_cache or {}).get(spool_id)
+            if not data:
+                data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
             if data:
                 f = data.get("filament", {})
                 vendor = (
@@ -1507,9 +1563,11 @@ class AmsPrintUsageSync(FilamentIQBase):
             pass
         return f"spool {spool_id}"
 
-    def _get_spool_remaining(self, spool_id):
+    def _get_spool_remaining(self, spool_id, spools_cache=None):
         try:
-            data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+            data = (spools_cache or {}).get(spool_id)
+            if not data:
+                data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
             if data:
                 return float(data.get("remaining_weight", 0))
         except Exception:
