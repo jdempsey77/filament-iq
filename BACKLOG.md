@@ -4,15 +4,13 @@
 - [ ] Verify all 3 lifecycle phases in production — Phases 1-3 coded and enabled, 7 HA automations disabled, monitoring for issues
 
 ### High Priority
-- [ ] Sync Color on Bind — Update Spoolman filament color_hex to match AMS tray-reported color during manual bind/assign. Full spec in docs/sync_color_on_bind.md. Ship backend first (sync_color_hex event field + handler), dashboard UI later.
-- [ ] Reference Filament IQ dashboard — ship a ready-to-import Lovelace dashboard with slot cards, Filament Library, Spool Inventory, and Printer status. Extract reusable parts from Jerry's hand-built dashboard.
+- [ ] Reference Filament IQ dashboard — ship a ready-to-import Lovelace dashboard with slot cards, Filament Library, Spool Inventory, and Printer status. Raw YAML view exists in filament-iq repo (dashboard/filament_iq.yaml) but needs polish for easy import.
 - [ ] Investigate 3MF_UNMATCHED for brief tray activations — tray tracking misses slots used for very short durations. Root cause: active_tray sensor polling interval vs actual extrusion time. Workaround in place (3MF-matched slots merged into active_slots).
 
 ### Low Priority
 - [ ] 3MF fetch takes 11-15s consistently, triggering "Excessive time spent" warnings — investigate if FTPS listing of 154 files is the bottleneck. Could skip listing and download by constructed filename directly.
 - [ ] Rename SLOT_ASSIGNED_NO_LOT_SIG log message to SLOT_ASSIGNED_LOT_SIG_EXISTS when spool already has a lot_nr
 - [ ] Investigate reconciler 26s runtime for full 6-slot reconcile ("Excessive time spent" warnings)
-- [ ] Pre-existing test failure in test_ams_rfid_reconcile (missing module import)
 - [ ] Clean up obsolete HA helpers that are no longer needed after lifecycle migration (filament_iq_start_json, filament_iq_end_json, filament_iq_active_job_key, filament_iq_last_processed_job_key, filament_iq_finish_automation_checkpoint, filament_iq_init_seed_debug, filament_iq_last_tray_entity, filament_iq_last_print_status_transition, input_number.filament_iq_start/end_slot_N_g)
 
 ### Done
@@ -36,3 +34,7 @@
 - [x] Legacy AppDaemon files retired
 - [x] Deploy script updated for filament_iq/ package
 - [x] CLAUDE.md project structure rules
+- [x] Sync Color on Bind — sync_color_hex event field + handler, force re-enrollment, RFID guard, 32 new tests (v0.7.0)
+- [x] Fix test_ams_rfid_reconcile import failure — CI skip guard + proper filament_iq module imports
+- [x] Bind dialog UX — wide popup (size: wide), dropdown syncs to bound spool, no all-slots flicker on bind
+- [x] Config-driven FilamentIQBase — no hardcoded serials/IPs in app code
