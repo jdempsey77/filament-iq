@@ -230,22 +230,21 @@ def test_nonrfid_multiple_slots_equal_split():
     assert abs(by_spool[21] - 75.0) < 0.01
 
 
-def test_nonrfid_slot_in_trays_used_included_in_active_slots():
-    """Non-RFID slot in trays_used + start but NOT in end → still gets tracked via time-weighted."""
+def test_nonrfid_slot_no_evidence_skipped():
+    """Non-RFID slot with no 3MF match → USAGE_NO_EVIDENCE, only RFID slot written."""
     app = _TestableUsageSync(state_map=_default_state_map({1: 41, 2: 47}))
     app._state_map.update(_rfid_tag_uid_for_slots(app, [1]))
     _fire(app,
           trays_used="1,2",
           start_json='{"1": 960, "2": 830}',
-          end_json='{"1": 920}',  # slot 2 missing (non-RFID, no fuel gauge)
+          end_json='{"1": 920, "2": 830}',
           print_weight_g="100")
 
-    # Slot 1: RFID delta 40g; Slot 2: 60g from pool (time-weighted or equal split)
-    assert len(app._use_calls) == 2
-    by_spool = {c["spool_id"]: c["use_weight"] for c in app._use_calls}
-    assert abs(by_spool[41] - 40.0) < 0.01
-    assert abs(by_spool[47] - 60.0) < 0.01
-    assert _has_log(app, "USAGE_NONRFID_SLOT slot=2")
+    # Slot 1: RFID delta 40g; Slot 2: non-RFID, no 3MF → skipped
+    assert len(app._use_calls) == 1
+    assert app._use_calls[0]["spool_id"] == 41
+    assert abs(app._use_calls[0]["use_weight"] - 40.0) < 0.01
+    assert _has_log(app, "USAGE_NO_EVIDENCE slot=2")
 
 
 def test_cancelled_before_start_no_write():
@@ -267,6 +266,7 @@ def test_dedup_second_event_skipped():
     app = _TestableUsageSync(
         state_map=_default_state_map({4: 10}),
     )
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
     _fire(app,
           job_key="dup_key_123",
           start_json='{"4": 420.0}',
@@ -300,6 +300,7 @@ def test_below_min_consumption_skipped():
         state_map=_default_state_map({4: 10}),
         args={"min_consumption_g": 2},
     )
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
     _fire(app,
           trays_used="4",
           start_json='{"4": 420.0}',
@@ -316,6 +317,7 @@ def test_dry_run_no_patch():
         state_map=_default_state_map({4: 10}),
         args={"dry_run": True},
     )
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
     _fire(app,
           start_json='{"4": 420.0}',
           end_json='{"4": 370.0}',
@@ -608,13 +610,12 @@ def test_finish_print_still_processed():
     assert _has_log(app, "USAGE_PATCHED")
 
 
-# ── zero-delta pool guard tests ──────────────────────────────────────
+# ── no-evidence skip tests ───────────────────────────────────────────
 
 
-def test_zero_delta_no_threemf_pool_zeroed():
-    """All fuel gauge deltas zero + no 3MF → pool_g=0, no consumption."""
+def test_nonrfid_zero_delta_no_3mf_skipped():
+    """Non-RFID slot with zero fuel gauge delta and no 3MF → USAGE_NO_EVIDENCE."""
     app = _TestableUsageSync(state_map=_default_state_map({3: 52}))
-    # Slot 3 is non-RFID (no tag_uid set), so it goes to pool
     _fire(app,
           trays_used="3",
           start_json='{"3": 306.0}',
@@ -623,12 +624,11 @@ def test_zero_delta_no_threemf_pool_zeroed():
           print_status="finish")
 
     assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_POOL_ZEROED reason=no_consumption_evidence")
-    assert _has_log(app, "print_weight_g=224.0")
+    assert _has_log(app, "USAGE_NO_EVIDENCE slot=3 spool_id=52")
 
 
-def test_nonzero_delta_pool_not_zeroed():
-    """RFID slot has real delta → pool calculated normally for non-RFID slot."""
+def test_rfid_delta_written_nonrfid_skipped():
+    """RFID slot written via delta; non-RFID slot with no 3MF skipped."""
     app = _TestableUsageSync(state_map=_default_state_map({2: 5, 3: 52}))
     app._state_map.update(_rfid_tag_uid_for_slots(app, [2]))
     _fire(app,
@@ -638,16 +638,15 @@ def test_nonzero_delta_pool_not_zeroed():
           print_weight_g="100",
           print_status="finish")
 
-    # Slot 2: RFID delta 50g. Slot 3: non-RFID, pool = 100-50 = 50g
-    assert len(app._use_calls) == 2
-    assert not _has_log(app, "USAGE_POOL_ZEROED")
-    by_spool = {c["spool_id"]: c["use_weight"] for c in app._use_calls}
-    assert abs(by_spool[5] - 50.0) < 0.01
-    assert abs(by_spool[52] - 50.0) < 0.01
+    # Slot 2: RFID delta 50g written. Slot 3: non-RFID, no 3MF → skipped
+    assert len(app._use_calls) == 1
+    assert app._use_calls[0]["spool_id"] == 5
+    assert abs(app._use_calls[0]["use_weight"] - 50.0) < 0.01
+    assert _has_log(app, "USAGE_NO_EVIDENCE slot=3")
 
 
-def test_zero_delta_multi_slot_pool_zeroed():
-    """Multiple slots all with zero delta → pool_g=0."""
+def test_multi_nonrfid_slots_all_skipped():
+    """Multiple non-RFID slots with zero delta and no 3MF → all skipped."""
     app = _TestableUsageSync(state_map=_default_state_map({1: 41, 3: 52}))
     _fire(app,
           trays_used="1,3",
@@ -657,4 +656,5 @@ def test_zero_delta_multi_slot_pool_zeroed():
           print_status="finish")
 
     assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_POOL_ZEROED")
+    assert _has_log(app, "USAGE_NO_EVIDENCE slot=1")
+    assert _has_log(app, "USAGE_NO_EVIDENCE slot=3")
