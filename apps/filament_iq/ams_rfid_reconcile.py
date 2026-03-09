@@ -597,13 +597,91 @@ class AmsRfidReconcile(FilamentIQBase):
                 notification_id=f"rfid_manual_enroll_error_slot_{slot}",
             )
 
+    def _read_tray_color_hex(self, slot):
+        """Read AMS tray color for a slot. Returns 6-char uppercase hex (e.g. '161616') or None."""
+        entity_id = self._tray_entity_by_slot.get(slot)
+        if not entity_id:
+            return None
+        tray = self.get_state(entity_id, attribute="all") or {}
+        attrs = tray.get("attributes", {}) if isinstance(tray, dict) else {}
+        raw = str(attrs.get("color", "") or "").strip()
+        if not raw:
+            return None
+        raw = raw.lstrip("#")
+        if len(raw) == 8:
+            raw = raw[:6]
+        if len(raw) != 6:
+            return None
+        return raw.upper()
+
+    def _sync_filament_color_on_bind(self, slot, spool_id, sync_mode):
+        """Sync Spoolman filament color_hex to match AMS tray color on manual bind.
+        Returns True if PATCHed, False if skipped/failed."""
+        if not sync_mode:
+            return False
+        # Resolve target color
+        if sync_mode == "auto":
+            target_color = self._read_tray_color_hex(slot)
+            if not target_color:
+                self.log(
+                    f"SYNC_COLOR_NO_TRAY_COLOR slot={slot} spool_id={spool_id}",
+                    level="WARNING",
+                )
+                return False
+        elif len(sync_mode) == 6 and all(c in "0123456789abcdefABCDEF" for c in sync_mode):
+            target_color = sync_mode.upper()
+        else:
+            self.log(
+                f"SYNC_COLOR_INVALID_MODE slot={slot} spool_id={spool_id} mode={sync_mode}",
+                level="WARNING",
+            )
+            return False
+
+        # Get spool and filament info from Spoolman
+        spool = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+        if not isinstance(spool, dict) or "filament" not in spool:
+            self.log(
+                f"SYNC_COLOR_SPOOL_NOT_FOUND slot={slot} spool_id={spool_id}",
+                level="WARNING",
+            )
+            return False
+        filament = spool["filament"]
+        filament_id = filament.get("id")
+        existing_color = str(filament.get("color_hex") or "").strip().lstrip("#").upper()
+        if len(existing_color) == 8:
+            existing_color = existing_color[:6]
+
+        if existing_color == target_color:
+            self.log(
+                f"SYNC_COLOR_ALREADY_MATCHES filament_id={filament_id} color={target_color} spool_id={spool_id} slot={slot}",
+                level="DEBUG",
+            )
+            return False
+
+        # PATCH filament color
+        result = self._spoolman_patch(f"/api/v1/filament/{filament_id}", {"color_hex": target_color})
+        if result is not None:
+            self.log(
+                f"COLOR_SYNC filament_id={filament_id} old={existing_color} new={target_color} spool_id={spool_id} slot={slot}",
+                level="INFO",
+            )
+            return True
+        self.log(
+            f"SYNC_COLOR_PATCH_FAILED filament_id={filament_id} spool_id={spool_id} slot={slot}",
+            level="WARNING",
+        )
+        return False
+
     def _on_slot_assigned(self, event_name, data, kwargs):
         """Handle FILAMENT_IQ_SLOT_ASSIGNED: enroll lot_sig for non-RFID trays and reconcile the slot."""
         payload = data or {}
         slot = self._safe_int(payload.get("slot"), 0)
         spool_id = self._safe_int(payload.get("spool_id"), 0)
+        sync_color_hex = str(payload.get("sync_color_hex", "") or "").strip()
         if slot not in self._tray_entity_by_slot or spool_id <= 0:
             return
+
+        self._suppress_helper_change_until[slot] = datetime.datetime.utcnow() + datetime.timedelta(seconds=10)
 
         # Read tray attributes
         tray = self.get_state(self._tray_entity_by_slot[slot], attribute="all") or {}
@@ -620,6 +698,20 @@ class AmsRfidReconcile(FilamentIQBase):
             self._run_reconcile(f"slot_assigned_slot_{slot}", slots_filter=[slot])
             return
 
+        # Sync filament color before lot_sig build (color may change the sig)
+        if sync_color_hex:
+            spool_obj = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+            existing_lot_nr = ""
+            if isinstance(spool_obj, dict):
+                existing_lot_nr = str(spool_obj.get("lot_nr") or "").strip()
+            is_rfid = len(existing_lot_nr) == 32 and all(
+                c in "0123456789abcdefABCDEF" for c in existing_lot_nr
+            )
+            if not is_rfid:
+                self._sync_filament_color_on_bind(slot, spool_id, sync_color_hex)
+            else:
+                self.log(f"SYNC_COLOR_SKIP_RFID slot={slot} spool_id={spool_id}", level="DEBUG")
+
         # Non-RFID: build lot_sig and enroll
         state_str = str(tray.get("state", "")) if isinstance(tray, dict) else ""
         tray_meta = self._tray_meta(attrs, state_str)
@@ -631,7 +723,8 @@ class AmsRfidReconcile(FilamentIQBase):
                 spools = spools.get("items", [])
             spool_index = {self._safe_int(s.get("id"), 0): s for s in (spools if isinstance(spools, list) else [])}
 
-            self._enroll_lot_nr(spool_id, lot_sig, spool_index, reason=f"manual_assign_slot_{slot}")
+            self._enroll_lot_nr(spool_id, lot_sig, spool_index, reason=f"manual_assign_slot_{slot}",
+                                force=bool(sync_color_hex))
             self.log(
                 f"SLOT_ASSIGNED_LOT_SIG_ENROLLED slot={slot} spool_id={spool_id} lot_sig={lot_sig}",
                 level="INFO",
@@ -2242,9 +2335,10 @@ class AmsRfidReconcile(FilamentIQBase):
                 f"current_location={current_location} desired_location={desired_location}"
             )
 
-    def _enroll_lot_nr(self, spool_id, lot_nr_value, spool_index, reason="enroll"):
+    def _enroll_lot_nr(self, spool_id, lot_nr_value, spool_index, reason="enroll", force=False):
         """Write lot_nr to Spoolman on first bind. Refuses to overwrite existing different lot_nr
-        unless the existing value has empty pipe-delimited fields and the new value refines them."""
+        unless the existing value has empty pipe-delimited fields and the new value refines them,
+        or force=True (used after color sync to re-enroll with corrected sig)."""
         if not lot_nr_value:
             return
         spool = spool_index.get(spool_id) or self._spoolman_get(f"/api/v1/spool/{spool_id}")
@@ -2253,8 +2347,13 @@ class AmsRfidReconcile(FilamentIQBase):
             self._record_no_write(spool_id, "lot_nr_already_set", {"spool_id": spool_id, "lot_nr": lot_nr_value})
             return
         if existing and existing != lot_nr_value:
+            if force:
+                self.log(
+                    f"LOT_NR_FORCE_OVERWRITE spool_id={spool_id} old={existing} new={lot_nr_value} reason=color_sync_re_enrollment",
+                    level="INFO",
+                )
             # Allow overwrite if existing has empty pipe fields and new value refines them
-            if self._lot_nr_is_refinement(existing, lot_nr_value):
+            elif self._lot_nr_is_refinement(existing, lot_nr_value):
                 self.log(
                     f"LOT_NR_REFINE spool_id={spool_id} existing={existing} incoming={lot_nr_value} reason=refine_empty_fields",
                     level="INFO",
