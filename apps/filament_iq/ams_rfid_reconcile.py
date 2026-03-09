@@ -792,6 +792,9 @@ class AmsRfidReconcile(FilamentIQBase):
             spools = spools.get("items", [])
         if not isinstance(spools, list):
             raise RuntimeError("Spoolman /api/v1/spool did not return a list")
+        # Cache for this reconcile pass — used by _clear_previous_occupant_guarded
+        # to avoid re-fetching the full spool list per slot.
+        self._reconcile_spools_cache = spools
 
         if self._pending_lot_nr_writes:
             pending = self._pending_lot_nr_writes
@@ -2189,6 +2192,7 @@ class AmsRfidReconcile(FilamentIQBase):
         for s in slots_to_process:
             self._suppress_helper_change_until[s] = suppress_until
         self._active_run = None
+        self._reconcile_spools_cache = None
 
     def _normalize_location(self, loc):
         """Never write deprecated/legacy location strings to Spoolman. Map AMS2_HT_* / HT1 / HT2 to Shelf."""
@@ -2233,21 +2237,16 @@ class AmsRfidReconcile(FilamentIQBase):
         1. Previous occupant's *live* Spoolman location matches this slot's canonical location
         2. Previous occupant is not active in any other slot
 
-        Fresh-fetches all spools from Spoolman so stale spool_index cache
-        cannot cause missed moves (the key invariant: when spool X is bound to
-        slot N, ALL other spools at that location must be relocated).
+        Uses _reconcile_spools_cache (set at start of _run_reconcile) to avoid
+        re-fetching the full spool list per slot. Falls back to spool_index values.
         """
         slot_loc = self._canonical_location_by_slot.get(slot)
         if not slot_loc:
             return
         norm_slot_loc = self._normalize_location(slot_loc)
 
-        try:
-            live_spools = self._spoolman_get("/api/v1/spool?limit=1000")
-            if isinstance(live_spools, dict) and "items" in live_spools:
-                live_spools = live_spools.get("items", [])
-        except Exception as exc:
-            self.log(f"PREV_OCCUPANT_FETCH_FAIL slot={slot} error={exc}", level="WARNING")
+        live_spools = getattr(self, "_reconcile_spools_cache", None)
+        if live_spools is None:
             live_spools = list((spool_index or {}).values())
 
         prev_spools = []
@@ -3578,12 +3577,8 @@ class AmsRfidReconcile(FilamentIQBase):
 
         current = str(state_raw).strip()
         if current == next_value:
-            if "unbound_reason" in entity_id:
-                # Bypass equality skip: AppDaemon cache can be stale; always write for unbound_reason.
-                self.log(f"_SET_HELPER_BYPASS_EQUAL entity_id={entity_id} cached_cur={current} forcing_write", level="DEBUG")
-            else:
-                self._record_no_write(entity_id, "helper_already_equal", {"entity_id": entity_id, "value": next_value})
-                return
+            self._record_no_write(entity_id, "helper_already_equal", {"entity_id": entity_id, "value": next_value})
+            return
 
         # Route by entity domain: input_text.* -> input_text/set_value, text.* -> text/set_value.
         if entity_id.startswith("input_text."):
