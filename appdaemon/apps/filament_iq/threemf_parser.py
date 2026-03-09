@@ -506,6 +506,17 @@ def match_filaments_to_slots(filaments, slot_data, trays_used=None):
                     best_distance = 0.0
                     break
 
+        # Tier 2.75: slot_position_material — filament index maps to AMS slot
+        if best_slot is None:
+            position_slot = fil["index"]
+            if (
+                position_slot in available_slots
+                and position_slot not in used_slots
+                and _materials_match(available_slots[position_slot]["material"], fil_material)
+            ):
+                best_slot = position_slot
+                best_method = "slot_position_material"
+
         if best_slot is None:
             material_candidates = [
                 s
