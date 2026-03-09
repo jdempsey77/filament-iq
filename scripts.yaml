@@ -652,7 +652,9 @@ ams_slot_assign_and_update:
               data:
                 id: "{{ final_spool_id }}"
                 location: "{{ target_location }}"
-            - service: script.reload_spoolman_integration
+            - service: homeassistant.update_entity
+              target:
+                entity_id: "sensor.spoolman_spool_{{ final_spool_id }}"
             - choose:
                 - conditions:
                     - condition: template

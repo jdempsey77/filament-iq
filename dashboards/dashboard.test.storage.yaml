@@ -1674,16 +1674,13 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 1
-                        initial_style: wide
-                        popup_styles:
-                          - style: wide
-                            styles: |
-                              ha-dialog {
-                                --popup-min-width: 700px;
-                                --popup-max-width: 800px;
-                              }
                         content:
                           type: vertical-stack
+                          card_mod:
+                            style: |
+                              :host {
+                                min-width: 600px;
+                              }
                           cards:
                             - type: markdown
                               content: >-
@@ -1878,16 +1875,13 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 2
-                        initial_style: wide
-                        popup_styles:
-                          - style: wide
-                            styles: |
-                              ha-dialog {
-                                --popup-min-width: 700px;
-                                --popup-max-width: 800px;
-                              }
                         content:
                           type: vertical-stack
+                          card_mod:
+                            style: |
+                              :host {
+                                min-width: 600px;
+                              }
                           cards:
                             - type: markdown
                               content: >-
@@ -2082,16 +2076,13 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 3
-                        initial_style: wide
-                        popup_styles:
-                          - style: wide
-                            styles: |
-                              ha-dialog {
-                                --popup-min-width: 700px;
-                                --popup-max-width: 800px;
-                              }
                         content:
                           type: vertical-stack
+                          card_mod:
+                            style: |
+                              :host {
+                                min-width: 600px;
+                              }
                           cards:
                             - type: markdown
                               content: >-
@@ -2286,16 +2277,13 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 4
-                        initial_style: wide
-                        popup_styles:
-                          - style: wide
-                            styles: |
-                              ha-dialog {
-                                --popup-min-width: 700px;
-                                --popup-max-width: 800px;
-                              }
                         content:
                           type: vertical-stack
+                          card_mod:
+                            style: |
+                              :host {
+                                min-width: 600px;
+                              }
                           cards:
                             - type: markdown
                               content: >-
@@ -2564,16 +2552,13 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 5
-                        initial_style: wide
-                        popup_styles:
-                          - style: wide
-                            styles: |
-                              ha-dialog {
-                                --popup-min-width: 700px;
-                                --popup-max-width: 800px;
-                              }
                         content:
                           type: vertical-stack
+                          card_mod:
+                            style: |
+                              :host {
+                                min-width: 600px;
+                              }
                           cards:
                             - type: markdown
                               content: >-
@@ -2842,16 +2827,13 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 6
-                        initial_style: wide
-                        popup_styles:
-                          - style: wide
-                            styles: |
-                              ha-dialog {
-                                --popup-min-width: 700px;
-                                --popup-max-width: 800px;
-                              }
                         content:
                           type: vertical-stack
+                          card_mod:
+                            style: |
+                              :host {
+                                min-width: 600px;
+                              }
                           cards:
                             - type: markdown
                               content: >-
