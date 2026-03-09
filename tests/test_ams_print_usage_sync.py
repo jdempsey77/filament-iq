@@ -562,6 +562,36 @@ def test_error_print_no_consumption():
     assert _has_log(app, "USAGE_SKIP_FAILED_PRINT")
 
 
+def test_failed_print_does_not_dedup_subsequent_retry():
+    """Failed print with job_key X → retry with same job_key X succeeds (not dedup-skipped)."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+
+    # First: failed print
+    _fire(app,
+          job_key="retry_job_001",
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 420.0}',
+          print_weight_g="50",
+          print_status="failed")
+    assert len(app._use_calls) == 0
+    assert _has_log(app, "USAGE_SKIP_FAILED_PRINT")
+
+    # Second: successful retry with same job key
+    app._log_calls.clear()
+    _fire(app,
+          job_key="retry_job_001",
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 370.0}',
+          print_weight_g="50",
+          print_status="finish")
+    assert len(app._use_calls) == 1
+    assert not _has_log(app, "DEDUP_SKIP")
+    assert _has_log(app, "USAGE_PATCHED")
+
+
 def test_finish_print_still_processed():
     """status=finish → normal processing, not blocked by failed guard."""
     app = _TestableUsageSync(state_map=_default_state_map({4: 10}))

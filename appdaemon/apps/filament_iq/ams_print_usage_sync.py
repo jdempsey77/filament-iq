@@ -896,8 +896,10 @@ class AmsPrintUsageSync(FilamentIQBase):
         # Call usage handler directly (no event roundtrip)
         self._handle_usage_event(None, data, {})
 
-        # Stamp dedup
-        self._last_processed_job_key = self._job_key
+        # Stamp dedup — only for non-failed prints so a retry with the
+        # same job_key after a failure is not incorrectly skipped
+        if status not in self._FAILED_STATES:
+            self._last_processed_job_key = self._job_key
 
         # Clean up (includes setting print_active off)
         self._end_snapshot = {}
