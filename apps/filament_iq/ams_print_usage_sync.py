@@ -297,8 +297,6 @@ class AmsPrintUsageSync(FilamentIQBase):
                 )
 
         threemf_matched_slots = {}
-        threemf_used = False
-        threemf_has_unmatched = False
         all_results = []
         skipped = 0
 
@@ -311,7 +309,6 @@ class AmsPrintUsageSync(FilamentIQBase):
                 self._threemf_data, slot_data, trays_used=None
             )
             if matches:
-                threemf_used = True
                 for m in matches:
                     threemf_matched_slots[m["slot"]] = m["used_g"]
                     self.log(
@@ -320,26 +317,22 @@ class AmsPrintUsageSync(FilamentIQBase):
                         level="INFO",
                     )
                 if unmatched_fils:
-                    threemf_has_unmatched = True
                     unmatched_total = sum(f["used_g"] for f in unmatched_fils)
                     self.log(
                         f"3MF_UNMATCHED filaments="
                         f"{[(f['index'], f['used_g'], f['color_hex']) for f in unmatched_fils]} "
                         f"unmatched_total_g={unmatched_total:.2f} "
-                        f"(will flow to time_weighted/equal_split pool)",
+                        f"(consumption for these filaments will not be tracked)",
                         level="WARNING",
                     )
             else:
                 self.log(
-                    "3MF_MATCH: No matches found — falling back to estimation",
+                    "3MF_MATCH: No matches found — RFID-only for this print",
                     level="WARNING",
                 )
 
         if threemf_matched_slots:
             active_slots = sorted(set(active_slots) | set(threemf_matched_slots.keys()))
-
-        rfid_total_g = 0.0
-        remaining_nonrfid_slots = []
 
         for slot in active_slots:
             spool_id = self._read_spool_id(slot)
@@ -350,6 +343,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 skipped += 1
                 continue
 
+            # Path B: 3MF match (slicer-exact per-filament consumption)
             if slot in threemf_matched_slots:
                 consumption_g = threemf_matched_slots[slot]
                 all_results.append((slot, spool_id, consumption_g, "3mf"))
@@ -360,26 +354,13 @@ class AmsPrintUsageSync(FilamentIQBase):
                 )
                 continue
 
+            # Path A: RFID fuel gauge delta (hardware truth)
             is_rfid = self._is_rfid_slot(slot)
             start_g = float(start_map.get(str(slot), 0))
             end_g = float(end_map.get(str(slot), 0))
 
-            # When 3MF had unmatched filaments, route unmatched slots to
-            # pool-based estimation instead of rfid_delta (which may be 0g
-            # due to fuel gauge inaccuracy). The unmatched 3MF consumption
-            # is already in the pool (print_weight - matched_3mf).
-            if threemf_has_unmatched:
-                remaining_nonrfid_slots.append((slot, spool_id))
-                self.log(
-                    f"USAGE_3MF_UNMATCHED_POOL slot={slot} spool_id={spool_id} "
-                    f"is_rfid={is_rfid} (routed to pool due to unmatched 3MF filaments)",
-                    level="INFO",
-                )
-                continue
-
             if is_rfid and start_g > 0 and end_g > 0:
                 consumption_g = max(0.0, start_g - end_g)
-                rfid_total_g += consumption_g
                 all_results.append((slot, spool_id, consumption_g, "rfid_delta"))
                 self.log(
                     f"USAGE_RFID slot={slot} spool_id={spool_id} "
@@ -388,79 +369,14 @@ class AmsPrintUsageSync(FilamentIQBase):
                 )
                 continue
 
-            remaining_nonrfid_slots.append((slot, spool_id))
+            # No evidence — skip rather than estimate
             self.log(
-                f"USAGE_NONRFID_SLOT slot={slot} spool_id={spool_id} "
-                f"is_rfid={is_rfid} start_g={start_g:.1f} end_g={end_g:.1f}",
+                f"USAGE_NO_EVIDENCE slot={slot} spool_id={spool_id} "
+                f"reason=no_rfid_delta_no_3mf is_rfid={is_rfid} "
+                f"start_g={start_g:.1f} end_g={end_g:.1f}",
                 level="INFO",
             )
-
-        if rfid_total_g > print_weight_g and print_weight_g > 0:
-            self.log(
-                f"USAGE_RFID_CAP rfid_total={rfid_total_g:.1f} > "
-                f"print_weight={print_weight_g:.1f} — capping to print_weight",
-                level="WARNING",
-            )
-            rfid_total_g = print_weight_g
-
-        if remaining_nonrfid_slots:
-            threemf_total = sum(
-                c for s, _, c, m in all_results if m == "3mf"
-            )
-
-            # ── Fix 2: zero-delta guard ──
-            # Check actual fuel gauge deltas across ALL slots (not just RFID totals).
-            # If every slot shows start == end AND no 3MF data, there's no evidence
-            # filament was consumed — don't trust slicer estimate as pool.
-            all_deltas_zero = all(
-                float(start_map.get(str(s), 0)) == float(end_map.get(str(s), 0))
-                for s in active_slots
-            )
-            if all_deltas_zero and threemf_total == 0 and rfid_total_g == 0:
-                pool_g = 0.0
-                self.log(
-                    f"USAGE_POOL_ZEROED reason=no_consumption_evidence "
-                    f"print_weight_g={print_weight_g:.1f}",
-                    level="WARNING",
-                )
-            else:
-                pool_g = max(
-                    0.0, print_weight_g - threemf_total - rfid_total_g
-                )
-
-            if pool_g <= 0 and (threemf_total + rfid_total_g) > print_weight_g:
-                self.log(
-                    f"USAGE_POOL_EXHAUSTED 3mf+rfid={threemf_total + rfid_total_g:.1f} "
-                    f"> print_weight={print_weight_g:.1f} — non-RFID pool is 0",
-                    level="WARNING",
-                )
-
-            time_weights = self._get_time_weights()
-            nonrfid_slot_ids = {s for s, _ in remaining_nonrfid_slots}
-            relevant_weights = {
-                s: w for s, w in time_weights.items() if s in nonrfid_slot_ids
-            }
-
-            if relevant_weights and sum(relevant_weights.values()) > 0:
-                weight_total = sum(relevant_weights.values())
-                method = "time_weighted"
-            else:
-                relevant_weights = {s: 1.0 for s, _ in remaining_nonrfid_slots}
-                weight_total = len(remaining_nonrfid_slots)
-                method = "equal_split"
-
-            for slot, spool_id in remaining_nonrfid_slots:
-                w = relevant_weights.get(slot, 0)
-                consumption_g = (
-                    (pool_g * w / weight_total) if weight_total > 0 else 0.0
-                )
-                all_results.append((slot, spool_id, consumption_g, method))
-                self.log(
-                    f"USAGE_NONRFID slot={slot} spool_id={spool_id} "
-                    f"consumption_g={consumption_g:.2f} pool_g={pool_g:.1f} "
-                    f"method={method} weight={w:.4f}",
-                    level="INFO",
-                )
+            skipped += 1
 
         # Write-ahead dedup: persist job_key BEFORE Spoolman writes so a
         # crash between writes and persist can't cause double-charge on restart.
@@ -555,19 +471,15 @@ class AmsPrintUsageSync(FilamentIQBase):
         total_consumed = sum(c for _, _, c, _ in all_results)
         threemf_count = sum(1 for _, _, _, m in all_results if m == "3mf")
         rfid_count = sum(1 for _, _, _, m in all_results if m == "rfid_delta")
-        nonrfid_count = sum(
-            1 for _, _, _, m in all_results
-            if m in ("time_weighted", "equal_split")
-        )
         self.log(
             f"USAGE_SUMMARY job_key={job_key} task={task_name} "
             f"status={print_status} "
             f"3mf_slots={threemf_count} rfid_slots={rfid_count} "
-            f"nonrfid_slots={nonrfid_count} "
             f"trays_used={trays_used_set or 'all'} "
             f"tray_times={self._summarize_tray_times()} "
             f"threemf_file={self._threemf_filename or 'none'} "
             f"total_consumed_g={total_consumed:.1f} "
+            f"slicer_estimate_g={print_weight_g:.1f} "
             f"patched={patched} skipped={skipped}",
             level="INFO",
         )
@@ -1086,13 +998,6 @@ class AmsPrintUsageSync(FilamentIQBase):
             if total > 0:
                 result[slot] = round(total, 1)
         return result
-
-    def _get_time_weights(self):
-        times = self._summarize_tray_times()
-        total = sum(times.values())
-        if total <= 0:
-            return {}
-        return {slot: round(t / total, 4) for slot, t in times.items()}
 
     def _get_access_code(self):
         code = str(self.args.get("printer_access_code", "")).strip()
