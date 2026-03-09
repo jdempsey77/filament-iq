@@ -58,6 +58,7 @@ ams_print_usage_sync:
   max_consumption_g: 300
   # 3MF parsing (slicer-exact per-filament weights)
   threemf_enabled: true
+  threemf_fetch_method: native  # native (ftplib, single TLS) or curl (legacy subprocess)
   printer_ip: "192.168.4.114"
   printer_ftps_port: 990
   access_code_entity: "input_text.filament_iq_printer_access_code"

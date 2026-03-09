@@ -39,6 +39,9 @@ for p in _candidates:
 
 try:
     from filament_iq.threemf_parser import (
+        ftps_connect,
+        ftps_download_native,
+        ftps_list_cache_native,
         ftps_list_dir,
         ftps_list_cache,
         ftps_download_3mf,
@@ -47,7 +50,9 @@ try:
         parse_3mf_filaments,
     )
     PARSER_IMPORTED = True
+    NATIVE_AVAILABLE = True
 except ImportError:
+    NATIVE_AVAILABLE = False
     pass
 
 
@@ -439,6 +444,8 @@ def main():
     parser = argparse.ArgumentParser(description="3MF Pipeline Diagnostic")
     parser.add_argument("--task", help="Task name to match (default: from HA entity)")
     parser.add_argument("--access-code", help="Printer access code (default: from HA entity)")
+    parser.add_argument("--method", choices=["curl", "native", "both"], default="both",
+                        help="FTPS method to test (default: both)")
     args = parser.parse_args()
 
     print_header("3MF Pipeline Diagnostic")
@@ -470,45 +477,139 @@ def main():
         else:
             print(f"  Task name: {task_name!r}")
 
-    # Stage 1: FTPS Connection
-    print_header("Stage 1: FTPS Connection")
-    r1, all_files = test_ftps_connection(access_code)
-    print_result(r1)
-    results.append(r1)
+    use_curl = args.method in ("curl", "both")
+    use_native = args.method in ("native", "both") and NATIVE_AVAILABLE
 
-    # Find which directory has files
+    if args.method in ("native", "both") and not NATIVE_AVAILABLE:
+        print("\n  WARNING: Native FTPS not available (import failed)")
+        if args.method == "native":
+            sys.exit(1)
+
+    # ── curl-based pipeline ───────────────────────────────────────────
     found_dir = None
     file_list = []
-    for d in SEARCH_DIRS:
-        if all_files.get(d):
-            found_dir = d
-            file_list = all_files[d]
-            break
 
-    if not file_list:
-        print("\n  Skipping remaining stages (no files found)")
-    else:
-        # Stage 2: File Matching
-        print_header("Stage 2: File Matching")
-        r2, best_file = test_file_matching(file_list, task_name)
-        print_result(r2)
-        results.append(r2)
+    if use_curl:
+        # Stage 1: FTPS Connection (curl)
+        print_header("Stage 1: FTPS Connection (curl)")
+        r1, all_files = test_ftps_connection(access_code)
+        print_result(r1)
+        results.append(r1)
 
-        download_target = best_file or file_list[0]
+        for d in SEARCH_DIRS:
+            if all_files.get(d):
+                found_dir = d
+                file_list = all_files[d]
+                break
 
-        # Stage 3: Download
-        print_header("Stage 3: Download")
-        with tempfile.TemporaryDirectory(prefix="3mf_diag_") as tmp_dir:
-            r3, local_path = test_download(access_code, download_target, found_dir, tmp_dir)
-            print_result(r3)
-            results.append(r3)
+        if not file_list:
+            print("\n  Skipping curl download stages (no files found)")
+        else:
+            print_header("Stage 2: File Matching")
+            r2, best_file = test_file_matching(file_list, task_name)
+            print_result(r2)
+            results.append(r2)
 
-            if local_path:
-                # Stage 4: Parse
-                print_header("Stage 4: Parse")
-                r4 = test_parse(local_path)
-                print_result(r4)
-                results.append(r4)
+            download_target = best_file or file_list[0]
+
+            print_header("Stage 3: Download (curl)")
+            with tempfile.TemporaryDirectory(prefix="3mf_diag_") as tmp_dir:
+                r3, local_path = test_download(access_code, download_target, found_dir, tmp_dir)
+                print_result(r3)
+                results.append(r3)
+
+                if local_path:
+                    print_header("Stage 4: Parse")
+                    r4 = test_parse(local_path)
+                    print_result(r4)
+                    results.append(r4)
+
+    # ── native ftplib pipeline ────────────────────────────────────────
+    if use_native:
+        import time as _time
+
+        print_header("Stage 5: FTPS Connection (native ftplib)")
+        r5 = Result("FTPS Native Connection")
+        t0 = _time.monotonic()
+        try:
+            conn = ftps_connect(PRINTER_IP, access_code, PRINTER_PORT)
+            elapsed = _time.monotonic() - t0
+            r5.ok(f"Connected in {elapsed:.2f}s  welcome={conn.getwelcome()!r}")
+        except Exception as e:
+            elapsed = _time.monotonic() - t0
+            r5.fail(f"Connection failed after {elapsed:.2f}s: {e}")
+            conn = None
+        print_result(r5)
+        results.append(r5)
+
+        if conn:
+            print_header("Stage 6: Directory Listing (native)")
+            r6 = Result("FTPS Native Listing")
+            t0 = _time.monotonic()
+            native_files, native_dir = ftps_list_cache_native(conn)
+            elapsed = _time.monotonic() - t0
+            if native_files:
+                detail = (
+                    f"Found {len(native_files)} .3mf file(s) in {native_dir} "
+                    f"({elapsed:.2f}s)"
+                )
+                if len(native_files) <= 5:
+                    detail += "\n" + "\n".join(f"  {f}" for f in native_files)
+                else:
+                    detail += "\n" + "\n".join(f"  {f}" for f in native_files[:3])
+                    detail += f"\n  ... and {len(native_files) - 3} more"
+                r6.ok(detail)
+            else:
+                r6.fail(f"No .3mf files found ({elapsed:.2f}s)")
+            print_result(r6)
+            results.append(r6)
+
+            if native_files:
+                native_best = do_find_best(native_files, task_name)
+                download_target = native_best or native_files[0]
+
+                print_header("Stage 7: Download (native)")
+                r7 = Result(f"FTPS Native Download: {download_target}")
+                with tempfile.TemporaryDirectory(prefix="3mf_native_") as tmp_dir:
+                    t0 = _time.monotonic()
+                    local_path = ftps_download_native(
+                        conn, native_dir, download_target,
+                        os.path.join(tmp_dir, download_target),
+                    )
+                    elapsed = _time.monotonic() - t0
+                    if local_path:
+                        size = os.path.getsize(local_path)
+                        r7.ok(f"Downloaded {size:,} bytes in {elapsed:.2f}s")
+                    else:
+                        r7.fail(f"Download failed ({elapsed:.2f}s)")
+                    print_result(r7)
+                    results.append(r7)
+
+                    if local_path:
+                        print_header("Stage 8: Parse (native download)")
+                        r8 = test_parse(local_path)
+                        print_result(r8)
+                        results.append(r8)
+
+            # Compare curl vs native file lists
+            if use_curl and file_list and native_files:
+                print_header("Comparison: curl vs native")
+                curl_set = set(file_list)
+                native_set = set(native_files)
+                if curl_set == native_set:
+                    print(f"  MATCH: Both methods found {len(curl_set)} identical files")
+                else:
+                    print(f"  MISMATCH:")
+                    print(f"    curl only:   {curl_set - native_set}")
+                    print(f"    native only: {native_set - curl_set}")
+
+            try:
+                conn.quit()
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     # Summary
     print_header("Summary")
