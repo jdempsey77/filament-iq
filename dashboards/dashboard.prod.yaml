@@ -1674,15 +1674,9 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 1
+                        size: wide
                         content:
                           type: vertical-stack
-                          card_mod:
-                            style:
-                              ha-dialog$: |
-                                .mdc-dialog__surface {
-                                  min-width: 700px !important;
-                                  max-width: 90vw !important;
-                                }
                           cards:
                             - type: markdown
                               content: >-
@@ -1877,15 +1871,9 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 2
+                        size: wide
                         content:
                           type: vertical-stack
-                          card_mod:
-                            style:
-                              ha-dialog$: |
-                                .mdc-dialog__surface {
-                                  min-width: 700px !important;
-                                  max-width: 90vw !important;
-                                }
                           cards:
                             - type: markdown
                               content: >-
@@ -2080,15 +2068,9 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 3
+                        size: wide
                         content:
                           type: vertical-stack
-                          card_mod:
-                            style:
-                              ha-dialog$: |
-                                .mdc-dialog__surface {
-                                  min-width: 700px !important;
-                                  max-width: 90vw !important;
-                                }
                           cards:
                             - type: markdown
                               content: >-
@@ -2283,15 +2265,9 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 4
+                        size: wide
                         content:
                           type: vertical-stack
-                          card_mod:
-                            style:
-                              ha-dialog$: |
-                                .mdc-dialog__surface {
-                                  min-width: 700px !important;
-                                  max-width: 90vw !important;
-                                }
                           cards:
                             - type: markdown
                               content: >-
@@ -2560,15 +2536,9 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 5
+                        size: wide
                         content:
                           type: vertical-stack
-                          card_mod:
-                            style:
-                              ha-dialog$: |
-                                .mdc-dialog__surface {
-                                  min-width: 700px !important;
-                                  max-width: 90vw !important;
-                                }
                           cards:
                             - type: markdown
                               content: >-
@@ -2837,15 +2807,9 @@ views:
                       service: browser_mod.popup
                       data:
                         title: Slot 6
+                        size: wide
                         content:
                           type: vertical-stack
-                          card_mod:
-                            style:
-                              ha-dialog$: |
-                                .mdc-dialog__surface {
-                                  min-width: 700px !important;
-                                  max-width: 90vw !important;
-                                }
                           cards:
                             - type: markdown
                               content: >-
