@@ -1024,13 +1024,7 @@
     # Unrolled (not repeat) because repeat.index is not available in variables blocks.
     - delay:
         seconds: 1
-    # Each slot gets its own variables step so m can reference sid from the same step.
-    # HA variables within one block cannot reference each other, so each slot is
-    # a separate variables+choose pair with fully self-contained templates.
-    - delay:
-        seconds: 1
-    # Use if (not choose) with fully self-contained templates per slot.
-    # Each if block reads state and options inline — no cross-variable refs.
+    # After populating options, sync each dropdown to its currently bound spool.
     - delay:
         seconds: 1
     - if:
@@ -1039,7 +1033,7 @@
             {% set sid = states('input_text.ams_slot_1_spool_id') | int(0) %}
             {% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}
             {% set t = '(' ~ sid | string ~ ')' %}
-            {{ sid > 0 and opts | select('search', t ~ '$') | list | length > 0 }}
+            {% set ns = namespace(found=false) %}{% for o in opts %}{% if o.endswith(t) %}{% set ns.found = true %}{% endif %}{% endfor %}{{ sid > 0 and ns.found }}
       then:
         - variables:
             m1: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_1_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
@@ -1054,7 +1048,7 @@
             {% set sid = states('input_text.ams_slot_2_spool_id') | int(0) %}
             {% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}
             {% set t = '(' ~ sid | string ~ ')' %}
-            {{ sid > 0 and opts | select('search', t ~ '$') | list | length > 0 }}
+            {% set ns = namespace(found=false) %}{% for o in opts %}{% if o.endswith(t) %}{% set ns.found = true %}{% endif %}{% endfor %}{{ sid > 0 and ns.found }}
       then:
         - variables:
             m2: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_2_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
@@ -1069,7 +1063,7 @@
             {% set sid = states('input_text.ams_slot_3_spool_id') | int(0) %}
             {% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}
             {% set t = '(' ~ sid | string ~ ')' %}
-            {{ sid > 0 and opts | select('search', t ~ '$') | list | length > 0 }}
+            {% set ns = namespace(found=false) %}{% for o in opts %}{% if o.endswith(t) %}{% set ns.found = true %}{% endif %}{% endfor %}{{ sid > 0 and ns.found }}
       then:
         - variables:
             m3: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_3_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
@@ -1084,7 +1078,7 @@
             {% set sid = states('input_text.ams_slot_4_spool_id') | int(0) %}
             {% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}
             {% set t = '(' ~ sid | string ~ ')' %}
-            {{ sid > 0 and opts | select('search', t ~ '$') | list | length > 0 }}
+            {% set ns = namespace(found=false) %}{% for o in opts %}{% if o.endswith(t) %}{% set ns.found = true %}{% endif %}{% endfor %}{{ sid > 0 and ns.found }}
       then:
         - variables:
             m4: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_4_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
@@ -1099,7 +1093,7 @@
             {% set sid = states('input_text.ams_slot_5_spool_id') | int(0) %}
             {% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}
             {% set t = '(' ~ sid | string ~ ')' %}
-            {{ sid > 0 and opts | select('search', t ~ '$') | list | length > 0 }}
+            {% set ns = namespace(found=false) %}{% for o in opts %}{% if o.endswith(t) %}{% set ns.found = true %}{% endif %}{% endfor %}{{ sid > 0 and ns.found }}
       then:
         - variables:
             m5: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_5_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
@@ -1114,7 +1108,7 @@
             {% set sid = states('input_text.ams_slot_6_spool_id') | int(0) %}
             {% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}
             {% set t = '(' ~ sid | string ~ ')' %}
-            {{ sid > 0 and opts | select('search', t ~ '$') | list | length > 0 }}
+            {% set ns = namespace(found=false) %}{% for o in opts %}{% if o.endswith(t) %}{% set ns.found = true %}{% endif %}{% endfor %}{{ sid > 0 and ns.found }}
       then:
         - variables:
             m6: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_6_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% for o in opts %}{% if o.endswith(t) %}{{ o }}{% endif %}{% endfor %}"
