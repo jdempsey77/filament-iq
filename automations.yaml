@@ -1020,14 +1020,20 @@
           - input_select.ams_slot_6_select_spool
       data:
         options: "{{ ['— Select spool —'] + (state_attr('sensor.ams_spool_list_options', 'options') or []) }}"
-    # After populating options, sync each dropdown to its currently bound spool
+    # After populating options, sync each dropdown to its currently bound spool.
+    # Use the sensor options directly (not state_attr on input_select) to avoid
+    # race condition where set_options hasn't propagated to all dropdowns yet.
+    - delay:
+        seconds: 1
+    - variables:
+        all_options: "{{ ['— Select spool —'] + (state_attr('sensor.ams_spool_list_options', 'options') or []) }}"
     - repeat:
         count: 6
         sequence:
           - variables:
               slot: "{{ repeat.index }}"
               spool_id: "{{ states('input_text.ams_slot_' ~ repeat.index ~ '_spool_id') | int(0) }}"
-              match: "{% set ns = namespace(match='') %}{% for opt in state_attr('input_select.ams_slot_' ~ slot ~ '_select_spool', 'options') or [] %}{% if ('(' ~ spool_id | string ~ ')') in opt %}{% set ns.match = opt %}{% endif %}{% endfor %}{{ ns.match }}"
+              match: "{% set ns = namespace(match='') %}{% for opt in all_options %}{% if ('(' ~ spool_id | string ~ ')') in opt %}{% set ns.match = opt %}{% endif %}{% endfor %}{{ ns.match }}"
           - choose:
               - conditions:
                   - condition: template
