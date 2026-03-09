@@ -1677,10 +1677,12 @@ views:
                         content:
                           type: vertical-stack
                           card_mod:
-                            style: |
-                              :host {
-                                min-width: 600px;
-                              }
+                            style:
+                              ha-dialog$: |
+                                .mdc-dialog__surface {
+                                  min-width: 700px !important;
+                                  max-width: 90vw !important;
+                                }
                           cards:
                             - type: markdown
                               content: >-
@@ -1878,10 +1880,12 @@ views:
                         content:
                           type: vertical-stack
                           card_mod:
-                            style: |
-                              :host {
-                                min-width: 600px;
-                              }
+                            style:
+                              ha-dialog$: |
+                                .mdc-dialog__surface {
+                                  min-width: 700px !important;
+                                  max-width: 90vw !important;
+                                }
                           cards:
                             - type: markdown
                               content: >-
@@ -2079,10 +2083,12 @@ views:
                         content:
                           type: vertical-stack
                           card_mod:
-                            style: |
-                              :host {
-                                min-width: 600px;
-                              }
+                            style:
+                              ha-dialog$: |
+                                .mdc-dialog__surface {
+                                  min-width: 700px !important;
+                                  max-width: 90vw !important;
+                                }
                           cards:
                             - type: markdown
                               content: >-
@@ -2280,10 +2286,12 @@ views:
                         content:
                           type: vertical-stack
                           card_mod:
-                            style: |
-                              :host {
-                                min-width: 600px;
-                              }
+                            style:
+                              ha-dialog$: |
+                                .mdc-dialog__surface {
+                                  min-width: 700px !important;
+                                  max-width: 90vw !important;
+                                }
                           cards:
                             - type: markdown
                               content: >-
@@ -2555,10 +2563,12 @@ views:
                         content:
                           type: vertical-stack
                           card_mod:
-                            style: |
-                              :host {
-                                min-width: 600px;
-                              }
+                            style:
+                              ha-dialog$: |
+                                .mdc-dialog__surface {
+                                  min-width: 700px !important;
+                                  max-width: 90vw !important;
+                                }
                           cards:
                             - type: markdown
                               content: >-
@@ -2830,10 +2840,12 @@ views:
                         content:
                           type: vertical-stack
                           card_mod:
-                            style: |
-                              :host {
-                                min-width: 600px;
-                              }
+                            style:
+                              ha-dialog$: |
+                                .mdc-dialog__surface {
+                                  min-width: 700px !important;
+                                  max-width: 90vw !important;
+                                }
                           cards:
                             - type: markdown
                               content: >-
