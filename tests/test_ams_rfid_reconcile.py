@@ -3,8 +3,6 @@
 Deterministic test harness for ams_rfid_reconcile (no external deps).
 Run: python -m pytest tests/test_ams_rfid_reconcile.py -v
   or: python tests/test_ams_rfid_reconcile.py
-
-TODO: Spool IDs (101, 201, 38, 41, etc.) in mocks are example values; substitute with your Spoolman spool IDs if running against live API.
 """
 
 import datetime
@@ -30,21 +28,29 @@ _hassapi.Hass = _FakeHass
 if "hassapi" not in sys.modules:
     sys.modules["hassapi"] = _hassapi
 
-# Add apps/filament_iq to path
-_APPS = os.path.join(os.path.dirname(__file__), "..", "apps", "filament_iq")
+# Add appdaemon/apps to path
+_APPS = os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps")
 if _APPS not in sys.path:
     sys.path.insert(0, _APPS)
 
-import ams_rfid_reconcile
-from ams_rfid_reconcile import (
+from filament_iq.base import build_slot_mappings
+
+# Build default slot mappings for test fixtures (no hardcoded IPs/serials)
+_TEST_PREFIX = "p1s_01p00c5a3101668"
+_TRAY_ENTITY_BY_SLOT, _, _, _CANONICAL_LOCATION_BY_SLOT = build_slot_mappings(
+    _TEST_PREFIX
+)
+TRAY_ENTITY_BY_SLOT = _TRAY_ENTITY_BY_SLOT
+CANONICAL_LOCATION_BY_SLOT = _CANONICAL_LOCATION_BY_SLOT
+
+import filament_iq.ams_rfid_reconcile as ams_rfid_reconcile
+from filament_iq.ams_rfid_reconcile import (
     _normalize_rfid_tag_uid,
     AmsRfidReconcile,
-    CANONICAL_LOCATION_BY_SLOT,
     COLOR_DISTANCE_THRESHOLD,
     DEPRECATED_LOCATION_TO_CANONICAL,
     LOCATION_EMPTY,
     LOCATION_NOT_IN_AMS,
-    TRAY_ENTITY_BY_SLOT,
     FULL_SPOOL_G,
     NEXT_MAN_MIN_MARGIN_G,
     STATUS_NON_RFID_REGISTERED,
@@ -205,10 +211,21 @@ class TestableReconcile(AmsRfidReconcile):
     """Reconcile with injected FakeSpoolman and state map."""
 
     def __init__(self, spoolman, state_map, ad=None, args=None, *rest, **k):
-        a = args or k.get("args", {})
+        a = dict({"printer_serial": "01p00c5a3101668", "spoolman_url": "http://192.0.2.1:7912"})
+        a.update(args or k.get("args", {}))
         super().__init__(ad, "test", None, a, None, None, None)
         self._spoolman = spoolman
         self._state_map = dict(state_map)
+        # Build slot mappings from config (bypass initialize)
+        self._prefix = self._build_entity_prefix()
+        prefix = self._prefix
+        tray, _, _, canon = build_slot_mappings(prefix, a.get("ams_units"))
+        self._tray_entity_by_slot = tray
+        self._canonical_location_by_slot = canon
+        self._physical_ams_slots = tuple(sorted(tray.keys()))
+        self._last_mapping_json_entity = f"input_text.{prefix}_last_mapping_json"
+        self._reconcile_button_entity = f"input_button.{prefix}_rfid_reconcile_now"
+        self._startup_suppress_entity = "input_boolean.filament_iq_startup_suppress_swap"
         self._helper_writes = []
         self._active_run = None
         self._last_summary = None
@@ -325,9 +342,15 @@ class StartupWaiterHarness(AmsRfidReconcile):
     """Minimal harness to test _run_reconcile_startup; does not override _run_reconcile_startup."""
 
     def __init__(self, state_map, args=None):
-        a = args or {}
+        a = dict({"printer_serial": "01p00c5a3101668", "spoolman_url": "http://192.0.2.1:7912"})
+        a.update(args or {})
         super().__init__(None, "test", None, a, None, None, None)
         self._state_map = dict(state_map)
+        self._prefix = self._build_entity_prefix()
+        tray, _, _, canon = build_slot_mappings(self._prefix, a.get("ams_units"))
+        self._tray_entity_by_slot = tray
+        self._canonical_location_by_slot = canon
+        self._physical_ams_slots = tuple(sorted(tray.keys()))
         self._log_calls = []
         self._run_in_calls = []
         self._run_reconcile_calls = []
@@ -363,9 +386,12 @@ def _tray_entity(slot):
 class TestAmsRfidReconcile(unittest.TestCase):
     def setUp(self):
         self.args = {
-            "spoolman_url": "http://fake:7912",
+            "printer_serial": "01p00c5a3101668",
+            "spoolman_url": "http://192.0.2.1:7912",
             "enabled": True,
             "debug_logs": False,
+            # Tests use input_boolean.filament_iq_nonrfid_enabled in state_map
+            "nonrfid_enabled_entity": "input_boolean.filament_iq_nonrfid_enabled",
         }
 
     def _run_reconcile_core(self, spoolman, state_map, slot=1):
@@ -3241,7 +3267,13 @@ class TestStartupWaiter(unittest.TestCase):
 
 # ── Parameterized non-RFID tests across all 6 slots ──
 
-_DEFAULT_ARGS = {"spoolman_url": "http://fake:7912", "enabled": True, "debug_logs": False}
+_DEFAULT_ARGS = {
+    "printer_serial": "01p00c5a3101668",
+    "spoolman_url": "http://192.0.2.1:7912",
+    "enabled": True,
+    "debug_logs": False,
+    "nonrfid_enabled_entity": "input_boolean.filament_iq_nonrfid_enabled",
+}
 _ALL_SLOTS = [1, 2, 3, 4, 5, 6]
 
 def _nonrfid_attrs_standalone(tray_type="PLA", color="ff0000", name="Overture PLA", state="valid", tag_uid="0000000000000000", filament_id=""):

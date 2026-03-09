@@ -39,6 +39,7 @@ try:
         normalize_color,
         normalize_material,
         parse_3mf_filaments,
+        parse_lot_nr_color,
     )
     THREEMF_AVAILABLE = True
 except ImportError:
@@ -83,6 +84,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._active_tray_entity = f"sensor.{prefix}_active_tray"
         self._print_status_entity = f"sensor.{prefix}_print_status"
         self._task_name_entity = f"sensor.{prefix}_task_name"
+        self._print_weight_entity = f"sensor.{prefix}_print_weight"
         self._trays_used_entity = str(
             self.args.get(
                 "trays_used_entity",
@@ -95,6 +97,60 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._tray_active_times = {}
         self._current_active_slot = None
         self._print_active = False
+
+        # Phase 1: Print start lifecycle (absorbs automations A, B, C)
+        self._lifecycle_phase1 = bool(self.args.get("lifecycle_phase1_enabled", False))
+        self._job_key = ""
+        self._start_snapshot = {}  # {slot_int: grams_float}
+        self._fuel_gauge_pattern = str(
+            self.args.get(
+                "fuel_gauge_pattern",
+                "sensor.p1s_tray_{slot}_fuel_gauge_remaining",
+            )
+        ).strip()
+        self._ams_remaining_pattern = str(
+            self.args.get(
+                "ams_remaining_pattern",
+                "sensor.ams_slot_{slot}_remaining_g",
+            )
+        ).strip()
+        self._print_active_entity = str(
+            self.args.get(
+                "print_active_entity",
+                "input_boolean.filament_iq_print_active",
+            )
+        ).strip()
+        self._job_key_entity = str(
+            self.args.get(
+                "job_key_entity",
+                "input_text.filament_iq_active_job_key",
+            )
+        ).strip()
+        self._start_json_entity = str(
+            self.args.get(
+                "start_json_entity",
+                "input_text.filament_iq_start_json",
+            )
+        ).strip()
+
+        # Phase 2: Print finish lifecycle (absorbs automation D)
+        self._lifecycle_phase2 = bool(self.args.get("lifecycle_phase2_enabled", False))
+        self._last_processed_job_key = ""
+        self._end_snapshot = {}  # {slot_int: grams_float}
+
+        # Phase 3: Debug logging, swap detection, rehydrate (absorbs automations E, F, G)
+        self._lifecycle_phase3 = bool(self.args.get("lifecycle_phase3_enabled", False))
+        self._last_swap_warn_time = None
+        self._startup_suppress_until = (
+            datetime.datetime.utcnow() + datetime.timedelta(seconds=90)
+            if self.args.get("lifecycle_phase3_enabled", False) else None
+        )
+        self._needs_reconcile_entity = str(
+            self.args.get(
+                "needs_reconcile_entity",
+                "input_boolean.filament_iq_needs_reconcile",
+            )
+        ).strip()
 
         # 3MF parsing config
         self.printer_ip = str(self.args.get("printer_ip", ""))
@@ -136,6 +192,16 @@ class AmsPrintUsageSync(FilamentIQBase):
             self._on_print_status_change,
             self._print_status_entity,
         )
+
+        # Phase 3: swap detection listeners + rehydration
+        if self._lifecycle_phase3:
+            for slot in sorted(self._tray_entity_by_slot.keys()):
+                self.listen_state(
+                    self._on_spool_id_change,
+                    f"input_text.ams_slot_{slot}_spool_id",
+                )
+            self.listen_event(self._on_ha_start, "homeassistant_started")
+            self._rehydrate_print_state()
 
         self.log(
             f"AmsPrintUsageSync initialized  dry_run={self.dry_run}  "
@@ -213,13 +279,14 @@ class AmsPrintUsageSync(FilamentIQBase):
 
         threemf_matched_slots = {}
         threemf_used = False
+        threemf_has_unmatched = False
         all_results = []
         skipped = 0
 
         if self._threemf_data and self.threemf_enabled:
             slot_data = self._build_slot_data()
             matches, unmatched_fils = match_filaments_to_slots(
-                self._threemf_data, slot_data, trays_used_set or None
+                self._threemf_data, slot_data, trays_used=None
             )
             if matches:
                 threemf_used = True
@@ -231,9 +298,13 @@ class AmsPrintUsageSync(FilamentIQBase):
                         level="INFO",
                     )
                 if unmatched_fils:
+                    threemf_has_unmatched = True
+                    unmatched_total = sum(f["used_g"] for f in unmatched_fils)
                     self.log(
                         f"3MF_UNMATCHED filaments="
-                        f"{[(f['index'], f['used_g'], f['color_hex']) for f in unmatched_fils]}",
+                        f"{[(f['index'], f['used_g'], f['color_hex']) for f in unmatched_fils]} "
+                        f"unmatched_total_g={unmatched_total:.2f} "
+                        f"(will flow to time_weighted/equal_split pool)",
                         level="WARNING",
                     )
             else:
@@ -241,6 +312,9 @@ class AmsPrintUsageSync(FilamentIQBase):
                     "3MF_MATCH: No matches found — falling back to estimation",
                     level="WARNING",
                 )
+
+        if threemf_matched_slots:
+            active_slots = sorted(set(active_slots) | set(threemf_matched_slots.keys()))
 
         rfid_total_g = 0.0
         remaining_nonrfid_slots = []
@@ -267,6 +341,19 @@ class AmsPrintUsageSync(FilamentIQBase):
             is_rfid = self._is_rfid_slot(slot)
             start_g = float(start_map.get(str(slot), 0))
             end_g = float(end_map.get(str(slot), 0))
+
+            # When 3MF had unmatched filaments, route unmatched slots to
+            # pool-based estimation instead of rfid_delta (which may be 0g
+            # due to fuel gauge inaccuracy). The unmatched 3MF consumption
+            # is already in the pool (print_weight - matched_3mf).
+            if threemf_has_unmatched:
+                remaining_nonrfid_slots.append((slot, spool_id))
+                self.log(
+                    f"USAGE_3MF_UNMATCHED_POOL slot={slot} spool_id={spool_id} "
+                    f"is_rfid={is_rfid} (routed to pool due to unmatched 3MF filaments)",
+                    level="INFO",
+                )
+                continue
 
             if is_rfid and start_g > 0 and end_g > 0:
                 consumption_g = max(0.0, start_g - end_g)
@@ -493,7 +580,12 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     # ── tray activity tracking ────────────────────────────────────────
 
+    _PAUSE_STATES = frozenset({"pause", "paused"})
+
     def _on_print_status_change(self, entity, attribute, old, new, kwargs):
+        # Debug logging (replaces automation E)
+        self.log(f"PRINT_STATUS_TRANSITION from={old} to={new}", level="DEBUG")
+
         if new in ("running", "printing") and old not in ("running", "printing"):
             self._trays_used = set()
             self._tray_active_times = {}
@@ -506,7 +598,9 @@ class AmsPrintUsageSync(FilamentIQBase):
             )
             if self.threemf_enabled:
                 self.run_in(self._fetch_3mf_background, 5)
-        elif old in ("running", "printing") and new not in ("running", "printing"):
+            if self._lifecycle_phase1:
+                self._on_print_start()
+        elif old in ("running", "printing") and new not in ("running", "printing", "pause", "paused"):
             self._print_active = False
             if self._current_active_slot is not None:
                 self._close_active_segment(self._current_active_slot)
@@ -528,6 +622,10 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"TRAY_TRACKING: Failed to update HA helper: {e}",
                     level="WARNING",
                 )
+            if self._lifecycle_phase2:
+                self._on_print_finish(new)
+            elif self._lifecycle_phase1:
+                self._on_print_end()
 
     def _resolve_active_tray_slot(self):
         try:
@@ -571,6 +669,8 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._trays_used.add(slot)
         self._open_active_segment(slot)
         self._current_active_slot = slot
+        if self._lifecycle_phase1:
+            self._seed_slot_start_grams(slot)
         self.log(
             f"TRAY_TRACKING_ACTIVE slot={slot} trays_used={self._trays_used}",
             level="DEBUG",
@@ -588,6 +688,281 @@ class AmsPrintUsageSync(FilamentIQBase):
         segments = self._tray_active_times.get(slot, [])
         if segments and segments[-1].get("end") is None:
             segments[-1]["end"] = datetime.datetime.utcnow()
+
+    # ── Phase 1: print start lifecycle ──────────────────────────────
+
+    def _read_fuel_gauge(self, slot):
+        """Read fuel gauge for a slot, with ams_remaining fallback. Returns grams or -1."""
+        fg_entity = self._fuel_gauge_pattern.format(slot=slot)
+        try:
+            fg = float(self.get_state(fg_entity) or -1)
+        except (TypeError, ValueError):
+            fg = -1.0
+        if fg > 0:
+            return fg
+        ams_entity = self._ams_remaining_pattern.format(slot=slot)
+        try:
+            ams = float(self.get_state(ams_entity) or -1)
+        except (TypeError, ValueError):
+            ams = -1.0
+        return ams if ams > 0 else -1.0
+
+    def _build_start_snapshot(self):
+        """Read fuel gauge for all slots, return {slot_int: grams} for slots with valid readings."""
+        snapshot = {}
+        for slot in sorted(self._tray_entity_by_slot.keys()):
+            grams = self._read_fuel_gauge(slot)
+            if grams >= 0:
+                snapshot[slot] = max(0.0, round(grams, 1))
+        return snapshot
+
+    def _snapshot_to_json_dict(self, snapshot):
+        """Convert {slot_int: grams} to {slot_str: grams} matching automation D's start_json format."""
+        return {str(slot): grams for slot, grams in snapshot.items()}
+
+    def _write_start_json_helper(self):
+        """Write self._start_snapshot to the HA start_json helper (bridge for automation D)."""
+        try:
+            json_dict = self._snapshot_to_json_dict(self._start_snapshot)
+            self.call_service(
+                "input_text/set_value",
+                entity_id=self._start_json_entity,
+                value=json.dumps(json_dict),
+            )
+        except Exception as e:
+            self.log(f"LIFECYCLE: Failed to write start_json helper: {e}", level="WARNING")
+
+    def _on_print_start(self):
+        """Phase 1 print start handler: job key, start snapshot, HA helpers."""
+        task_name = str(self.get_state(self._task_name_entity) or "")
+        self._job_key = task_name.replace(" ", "_")
+        self._start_snapshot = self._build_start_snapshot()
+
+        # Write HA helpers (bridge for automation D)
+        try:
+            self.call_service(
+                "input_boolean/turn_on",
+                entity_id=self._print_active_entity,
+            )
+        except Exception as e:
+            self.log(f"LIFECYCLE: Failed to set print_active: {e}", level="WARNING")
+        try:
+            self.call_service(
+                "input_text/set_value",
+                entity_id=self._job_key_entity,
+                value=self._job_key,
+            )
+        except Exception as e:
+            self.log(f"LIFECYCLE: Failed to write job_key helper: {e}", level="WARNING")
+        self._write_start_json_helper()
+
+        self.log(
+            f"PRINT_START_CAPTURED job_key={self._job_key} "
+            f"start_snapshot={self._start_snapshot}",
+            level="INFO",
+        )
+
+    def _seed_slot_start_grams(self, slot):
+        """Write-once: seed start grams for a newly-active slot during print."""
+        if slot in self._start_snapshot and self._start_snapshot[slot] > 0:
+            return  # already seeded
+        grams = self._read_fuel_gauge(slot)
+        if grams < 0:
+            return
+        self._start_snapshot[slot] = max(0.0, round(grams, 1))
+        self._write_start_json_helper()
+        self.log(
+            f"TRAY_START_SEEDED slot={slot} grams={self._start_snapshot[slot]}",
+            level="INFO",
+        )
+
+    def _on_print_end(self):
+        """Phase 1 print end handler: clear snapshot, set print_active off."""
+        self._start_snapshot = {}
+        self._job_key = ""
+        try:
+            self.call_service(
+                "input_boolean/turn_off",
+                entity_id=self._print_active_entity,
+            )
+        except Exception as e:
+            self.log(f"LIFECYCLE: Failed to clear print_active: {e}", level="WARNING")
+
+    # ── Phase 2: print finish lifecycle ──────────────────────────────
+
+    _TERMINAL_STATES = frozenset({"finish", "finished", "completed", "failed", "error"})
+    _FAILED_STATES = frozenset({"failed", "error", "canceled"})
+
+    def _build_end_snapshot(self):
+        """Read fuel gauge for slots present in start_snapshot. Returns {slot_int: grams}."""
+        snapshot = {}
+        for slot in sorted(self._start_snapshot.keys()):
+            grams = self._read_fuel_gauge(slot)
+            if grams >= 0:
+                snapshot[slot] = max(0.0, round(grams, 1))
+        return snapshot
+
+    def _on_print_finish(self, new_status):
+        """Phase 2 print finish handler: build end snapshot, call usage handler, clean up."""
+        status = str(new_status).strip().lower()
+
+        # Guard: no start data — let event listener handle as fallback
+        if not self._job_key:
+            self.log(
+                "PRINT_FINISH_SKIP reason=no_job_key (AppDaemon restart mid-print?)",
+                level="WARNING",
+            )
+            self._on_print_end()
+            return
+        if not self._start_snapshot:
+            self.log(
+                f"PRINT_FINISH_SKIP reason=no_start_snapshot job_key={self._job_key}",
+                level="WARNING",
+            )
+            self._on_print_end()
+            return
+
+        # Dedup guard
+        if self._job_key == self._last_processed_job_key:
+            self.log(
+                f"PRINT_FINISH_DEDUP_SKIP job_key={self._job_key}",
+                level="INFO",
+            )
+            self._on_print_end()
+            return
+
+        # Build end snapshot
+        self._end_snapshot = self._build_end_snapshot()
+
+        # Read print weight
+        try:
+            print_weight_g = float(self.get_state(self._print_weight_entity) or 0)
+        except (TypeError, ValueError):
+            print_weight_g = 0.0
+
+        task_name = str(self.get_state(self._task_name_entity) or "")
+
+        # Build data dict matching _handle_usage_event expectations
+        data = {
+            "job_key": self._job_key,
+            "task_name": task_name,
+            "print_weight_g": print_weight_g,
+            "trays_used": ",".join(str(s) for s in sorted(self._trays_used)),
+            "start_json": self._snapshot_to_json_dict(self._start_snapshot),
+            "end_json": self._snapshot_to_json_dict(self._end_snapshot),
+            "print_status": status,
+        }
+
+        self.log(
+            f"PRINT_FINISH_CAPTURED job_key={self._job_key} "
+            f"end_snapshot={self._end_snapshot} status={status}",
+            level="INFO",
+        )
+
+        # Call usage handler directly (no event roundtrip)
+        self._handle_usage_event(None, data, {})
+
+        # Stamp dedup
+        self._last_processed_job_key = self._job_key
+
+        # Clean up (includes setting print_active off)
+        self._end_snapshot = {}
+        self._on_print_end()
+
+    # ── Phase 3: debug logging, swap detection, rehydrate ──────────
+
+    def _on_spool_id_change(self, entity, attribute, old, new, kwargs):
+        """Detect spool mapping changes during active print (replaces automation F)."""
+        if not self._lifecycle_phase3:
+            return
+        if not self._print_active:
+            return
+        # Startup suppression
+        if self._startup_suppress_until and datetime.datetime.utcnow() < self._startup_suppress_until:
+            return
+        # Cooldown (5 minutes between warnings)
+        now = datetime.datetime.utcnow()
+        if self._last_swap_warn_time:
+            elapsed = (now - self._last_swap_warn_time).total_seconds()
+            if elapsed < 300:
+                return
+        self._last_swap_warn_time = now
+        self.log(
+            f"SPOOL_SWAP_DURING_PRINT entity={entity} old={old} new={new}",
+            level="WARNING",
+        )
+        try:
+            self.call_service(
+                "input_boolean/turn_on",
+                entity_id=self._needs_reconcile_entity,
+            )
+        except Exception as e:
+            self.log(f"SWAP_DETECT: Failed to set needs_reconcile: {e}", level="WARNING")
+        try:
+            self.call_service(
+                "notify/persistent_notification",
+                title="P1S Spool Swap During Print Detected",
+                message=f"{entity} changed from {old} to {new} while print active. "
+                        f"Manual reconciliation may be required.",
+            )
+        except Exception as e:
+            self.log(f"SWAP_DETECT: Failed to notify: {e}", level="WARNING")
+
+    def _rehydrate_print_state(self):
+        """Restore print-active state if printer is mid-print (replaces automation G)."""
+        try:
+            current_status = str(self.get_state(self._print_status_entity) or "").strip().lower()
+        except Exception:
+            return
+        if current_status not in ("running", "printing", "pause", "paused"):
+            return
+        self._print_active = True
+        self.log(f"REHYDRATE_PRINT_ACTIVE status={current_status}", level="INFO")
+        try:
+            self.call_service(
+                "input_boolean/turn_on",
+                entity_id=self._print_active_entity,
+            )
+        except Exception as e:
+            self.log(f"REHYDRATE: Failed to set print_active: {e}", level="WARNING")
+        # Phase 1: rebuild start snapshot
+        if self._lifecycle_phase1:
+            # Try to recover from HA helper first
+            recovered = False
+            try:
+                raw = str(self.get_state(self._start_json_entity) or "").strip()
+                if raw and raw not in ("{}", "unknown", "unavailable"):
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, dict) and parsed:
+                        self._start_snapshot = {int(k): float(v) for k, v in parsed.items()}
+                        recovered = True
+                        self.log(
+                            f"REHYDRATE_START_SNAPSHOT_RECOVERED from helper: {self._start_snapshot}",
+                            level="INFO",
+                        )
+            except Exception as e:
+                self.log(f"REHYDRATE: Failed to recover start_json: {e}", level="WARNING")
+            if not recovered:
+                self._start_snapshot = self._build_start_snapshot()
+                self._write_start_json_helper()
+                self.log(
+                    f"REHYDRATE_START_SNAPSHOT_REBUILT from fuel gauges: {self._start_snapshot}",
+                    level="INFO",
+                )
+            task_name = str(self.get_state(self._task_name_entity) or "")
+            self._job_key = task_name.replace(" ", "_")
+            try:
+                self.call_service(
+                    "input_text/set_value",
+                    entity_id=self._job_key_entity,
+                    value=self._job_key,
+                )
+            except Exception:
+                pass
+
+    def _on_ha_start(self, event_name, data, kwargs):
+        """Handle HA restart while AppDaemon is running (replaces automation G)."""
+        self._rehydrate_print_state()
 
     def _summarize_tray_times(self):
         result = {}
@@ -764,10 +1139,22 @@ class AmsPrintUsageSync(FilamentIQBase):
                     except Exception:
                         pass
 
+                # Extract lot_nr color for fallback matching
+                lot_nr_color = ""
+                if spool_id > 0:
+                    try:
+                        spool_data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+                        if spool_data:
+                            lot_nr = str(spool_data.get("lot_nr", "") or "")
+                            lot_nr_color = parse_lot_nr_color(lot_nr)
+                    except Exception:
+                        pass
+
                 slot_data[slot] = {
                     "color_hex": color,
                     "material": material,
                     "spool_id": spool_id,
+                    "lot_nr_color": lot_nr_color,
                 }
             except Exception as e:
                 self.log(
