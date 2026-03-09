@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.0] - 2026-03-09
+### Changed (Breaking)
+- **Removed pool_g / time-weighted / equal_split estimation** — usage pipeline now has exactly two write paths: RFID fuel gauge delta and 3MF slicer match. Slots with neither are logged (`USAGE_NO_EVIDENCE`) and skipped. Under-count is acceptable; phantom charges are eliminated.
+
+### Added
+- 3MF fetch race guard: wait up to 15s for 3MF data before processing print finish
+- Batch Spoolman fetch: single `GET /api/v1/spool?limit=1000` replaces ~12 individual GETs per print finish
+- Smart empty guard: physical tray presence check (tag_uid / tray state) before moving depleted spool to Empty
+- Scoped unbound-slot warning to actively-used trays only (10s delay after print start)
+
+### Fixed
+- Write-ahead dedup: persist `seen_job_keys` before Spoolman writes (crash between write and persist no longer causes double-charge)
+
 ## [0.8.0] - 2026-03-09
 ### Fixed
 - Phantom consumption: skip Spoolman writes for failed/cancelled/error prints
@@ -17,7 +30,7 @@
 ## [0.1.0] - TBD
 ### Added
 - Initial public release
-- Three-tier filament consumption tracking (3MF parsing, RFID fuel gauge, time-weighted estimation)
+- Filament consumption tracking (RFID fuel gauge delta, 3MF slicer-exact matching)
 - Spool identity management for RFID and non-RFID spools
 - Automatic spool enrollment on first detection
 - Spoolman consumption sync after each print
