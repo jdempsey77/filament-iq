@@ -308,6 +308,43 @@ reload_spoolman_integration:
       data:
         entry_id: "01KGX5YPH9CXR2Y1KZRVSP48V7"
 
+# Sync each slot's dropdown to its currently bound spool.
+# Called after dropdown options are populated. Each select_option call is
+# fully self-contained — reads spool_id and options inline.
+sync_spool_dropdowns_to_bound:
+  alias: Sync spool dropdowns to bound spools
+  sequence:
+    - action: input_select.select_option
+      target:
+        entity_id: input_select.ams_slot_1_select_spool
+      data:
+        option: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_1_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% set ns = namespace(m='— Select spool —') %}{% for o in opts %}{% if o.endswith(t) %}{% set ns.m = o %}{% endif %}{% endfor %}{{ ns.m }}"
+    - action: input_select.select_option
+      target:
+        entity_id: input_select.ams_slot_2_select_spool
+      data:
+        option: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_2_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% set ns = namespace(m='— Select spool —') %}{% for o in opts %}{% if o.endswith(t) %}{% set ns.m = o %}{% endif %}{% endfor %}{{ ns.m }}"
+    - action: input_select.select_option
+      target:
+        entity_id: input_select.ams_slot_3_select_spool
+      data:
+        option: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_3_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% set ns = namespace(m='— Select spool —') %}{% for o in opts %}{% if o.endswith(t) %}{% set ns.m = o %}{% endif %}{% endfor %}{{ ns.m }}"
+    - action: input_select.select_option
+      target:
+        entity_id: input_select.ams_slot_4_select_spool
+      data:
+        option: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_4_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% set ns = namespace(m='— Select spool —') %}{% for o in opts %}{% if o.endswith(t) %}{% set ns.m = o %}{% endif %}{% endfor %}{{ ns.m }}"
+    - action: input_select.select_option
+      target:
+        entity_id: input_select.ams_slot_5_select_spool
+      data:
+        option: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_5_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% set ns = namespace(m='— Select spool —') %}{% for o in opts %}{% if o.endswith(t) %}{% set ns.m = o %}{% endif %}{% endfor %}{{ ns.m }}"
+    - action: input_select.select_option
+      target:
+        entity_id: input_select.ams_slot_6_select_spool
+      data:
+        option: "{% set opts = state_attr('sensor.ams_spool_list_options', 'options') or [] %}{% set sid = states('input_text.ams_slot_6_spool_id') | int(0) %}{% set t = '(' ~ sid | string ~ ')' %}{% set ns = namespace(m='— Select spool —') %}{% for o in opts %}{% if o.endswith(t) %}{% set ns.m = o %}{% endif %}{% endfor %}{{ ns.m }}"
+
 # Add filament to Spoolman from test dashboard form (uses spoolman_new_filament_* helpers). Then reload integration.
 # If spoolman_base_url is empty, request goes to localhost:8080 and the filament won't appear in your Spoolman.
 spoolman_add_filament:
