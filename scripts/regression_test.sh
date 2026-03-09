@@ -63,8 +63,6 @@ declare -a FILAMENT_IQ_ENTITIES=(
   # filament_iq_last_mapping_json is now a command_line sensor, checked in GROUP 3
   "input_text.filament_iq_printer_access_code"
   "input_text.filament_iq_last_active_tray"
-  "input_text.filament_iq_last_print_status_transition"
-  "input_text.filament_iq_finish_automation_checkpoint"
   "input_text.filament_iq_slot_to_spool_binding_json"
   "input_number.filament_iq_start_slot_1_g"
   "input_number.filament_iq_start_slot_2_g"

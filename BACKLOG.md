@@ -9,9 +9,7 @@
 
 ### Low Priority
 - [ ] 3MF fetch takes 11-15s consistently, triggering "Excessive time spent" warnings — investigate if FTPS listing of 154 files is the bottleneck. Could skip listing and download by constructed filename directly.
-- [ ] Rename SLOT_ASSIGNED_NO_LOT_SIG log message to SLOT_ASSIGNED_LOT_SIG_EXISTS when spool already has a lot_nr
-- [ ] Investigate reconciler 26s runtime for full 6-slot reconcile ("Excessive time spent" warnings)
-- [ ] Clean up obsolete HA helpers that are no longer needed after lifecycle migration (filament_iq_start_json, filament_iq_end_json, filament_iq_active_job_key, filament_iq_last_processed_job_key, filament_iq_finish_automation_checkpoint, filament_iq_init_seed_debug, filament_iq_last_tray_entity, filament_iq_last_print_status_transition, input_number.filament_iq_start/end_slot_N_g)
+- [ ] Delete remaining obsolete HA helpers: input_number.filament_iq_start/end_slot_N_g (deferred — active test scripts reference them)
 
 ### Done
 - [x] Phase 1: Print start lifecycle in AppDaemon (job key, start snapshot, tray seeding)
@@ -38,3 +36,6 @@
 - [x] Fix test_ams_rfid_reconcile import failure — CI skip guard + proper filament_iq module imports
 - [x] Bind dialog UX — wide popup (size: wide), dropdown syncs to bound spool, no all-slots flicker on bind
 - [x] Config-driven FilamentIQBase — no hardcoded serials/IPs in app code
+- [x] Rename SLOT_ASSIGNED_NO_LOT_SIG → SLOT_ASSIGNED_LOT_SIG_EXISTS log message
+- [x] Reconciler performance fix — 26s → ~3s (cached spool list, removed equality bypass) (v0.7.1)
+- [x] Delete 6 obsolete HA helpers (end_json, last_processed_job_key, init_seed_debug, last_tray_entity, last_print_status_transition, finish_automation_checkpoint) — start_json and active_job_key kept (active in AppDaemon)

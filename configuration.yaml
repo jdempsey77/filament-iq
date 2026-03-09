@@ -110,20 +110,8 @@ input_text:
   filament_iq_last_active_tray:
     name: P1S Last Active Tray
     max: 255
-  filament_iq_last_tray_entity:
-    name: Filament IQ Last Tray Entity
-    max: 100
   filament_iq_trays_used_this_print:
     name: Filament IQ Trays used this print (comma-separated slot numbers)
-    max: 255
-  filament_iq_init_seed_debug:
-    name: Filament IQ init seed debug
-    max: 255
-  filament_iq_last_print_status_transition:
-    name: P1S last print_status transition (debug)
-    max: 255
-  filament_iq_finish_automation_checkpoint:
-    name: P1S finish automation checkpoint (debug)
     max: 255
   filament_test_last_result:
     name: Filament Test Last Result (PASS/FAIL + details)
@@ -137,14 +125,8 @@ input_text:
   filament_iq_start_json:
     name: Filament IQ tray remaining start JSON
     max: 255
-  filament_iq_end_json:
-    name: Filament IQ tray remaining end JSON
-    max: 255
   filament_iq_active_job_key:
     name: Filament IQ Print Job Key (mutex)
-    max: 255
-  filament_iq_last_processed_job_key:
-    name: Filament IQ Last Processed Job Key (dedup)
     max: 255
   # AMS UI / mapping helpers (managed)
   ams_slot_1_expected_spool_id:
