@@ -731,7 +731,7 @@ class AmsRfidReconcile(FilamentIQBase):
             )
         else:
             self.log(
-                f"SLOT_ASSIGNED_NO_LOT_SIG slot={slot} spool_id={spool_id} tray_meta={tray_meta}",
+                f"SLOT_ASSIGNED_LOT_SIG_EXISTS slot={slot} spool_id={spool_id} tray_meta={tray_meta}",
                 level="WARNING",
             )
 

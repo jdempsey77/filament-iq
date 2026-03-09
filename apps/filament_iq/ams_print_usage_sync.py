@@ -32,8 +32,11 @@ from .base import FilamentIQBase, build_slot_mappings
 
 try:
     from .threemf_parser import (
+        ftps_connect,
         ftps_download_3mf,
+        ftps_download_native,
         ftps_list_cache,
+        ftps_list_cache_native,
         find_best_3mf,
         match_filaments_to_slots,
         normalize_color,
@@ -163,6 +166,9 @@ class AmsPrintUsageSync(FilamentIQBase):
         self.threemf_enabled = (
             bool(self.args.get("threemf_enabled", True)) and THREEMF_AVAILABLE
         )
+        self.threemf_fetch_method = str(
+            self.args.get("threemf_fetch_method", "native")
+        ).strip().lower()
         self.spoolman_sensor_prefix = str(
             self.args.get("spoolman_sensor_prefix", "sensor.spoolman_spool_")
         ).strip()
@@ -170,7 +176,10 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._threemf_filename = None
 
         if self.threemf_enabled:
-            self.log("3MF parsing enabled", level="INFO")
+            self.log(
+                f"3MF parsing enabled  3MF_FETCH_METHOD={self.threemf_fetch_method}",
+                level="INFO",
+            )
         elif not THREEMF_AVAILABLE:
             self.log(
                 "3MF parsing disabled — threemf_parser module not found",
@@ -220,6 +229,14 @@ class AmsPrintUsageSync(FilamentIQBase):
         job_key = str(data.get("job_key", "")).strip()
         task_name = str(data.get("task_name", "")).strip()
         print_status = str(data.get("print_status", "")).strip().lower()
+
+        # ── Fix 1: skip failed/cancelled prints ──
+        if print_status in self._FAILED_STATES:
+            self.log(
+                f"USAGE_SKIP_FAILED_PRINT job_key={job_key} status={print_status}",
+                level="INFO",
+            )
+            return
 
         try:
             print_weight_g = float(data.get("print_weight_g", 0))
@@ -385,9 +402,26 @@ class AmsPrintUsageSync(FilamentIQBase):
             threemf_total = sum(
                 c for s, _, c, m in all_results if m == "3mf"
             )
-            pool_g = max(
-                0.0, print_weight_g - threemf_total - rfid_total_g
+
+            # ── Fix 2: zero-delta guard ──
+            # Check actual fuel gauge deltas across ALL slots (not just RFID totals).
+            # If every slot shows start == end AND no 3MF data, there's no evidence
+            # filament was consumed — don't trust slicer estimate as pool.
+            all_deltas_zero = all(
+                float(start_map.get(str(s), 0)) == float(end_map.get(str(s), 0))
+                for s in active_slots
             )
+            if all_deltas_zero and threemf_total == 0 and rfid_total_g == 0:
+                pool_g = 0.0
+                self.log(
+                    f"USAGE_POOL_ZEROED reason=no_consumption_evidence "
+                    f"print_weight_g={print_weight_g:.1f}",
+                    level="WARNING",
+                )
+            else:
+                pool_g = max(
+                    0.0, print_weight_g - threemf_total - rfid_total_g
+                )
 
             if pool_g <= 0 and (threemf_total + rfid_total_g) > print_weight_g:
                 self.log(
@@ -862,8 +896,10 @@ class AmsPrintUsageSync(FilamentIQBase):
         # Call usage handler directly (no event roundtrip)
         self._handle_usage_event(None, data, {})
 
-        # Stamp dedup
-        self._last_processed_job_key = self._job_key
+        # Stamp dedup — only for non-failed prints so a retry with the
+        # same job_key after a failure is not incorrectly skipped
+        if status not in self._FAILED_STATES:
+            self._last_processed_job_key = self._job_key
 
         # Clean up (includes setting print_active off)
         self._end_snapshot = {}
@@ -998,9 +1034,15 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     def _fetch_3mf_background(self, kwargs):
         """Fetch and parse a 3MF file from the printer with retry + multi-directory fallback."""
+        if self.threemf_fetch_method == "native":
+            return self._fetch_3mf_native(kwargs)
+        return self._fetch_3mf_curl(kwargs)
+
+    def _fetch_3mf_native(self, kwargs):
+        """Fetch 3MF via ftplib — single TLS handshake for list + download."""
         attempt = kwargs.get("attempt", 1)
         max_attempts = 3
-        retry_delays = [10, 30]  # seconds between retries
+        retry_delays = [10, 30]
 
         if attempt == 1:
             self._threemf_data = None
@@ -1011,16 +1053,153 @@ class AmsPrintUsageSync(FilamentIQBase):
             self.log("3MF_FETCH: No access code available", level="ERROR")
             return
 
-        task_name = str(
-            self.get_state(self._task_name_entity) or ""
-        )
+        task_name = str(self.get_state(self._task_name_entity) or "")
 
         if not self.printer_ip:
             self.log("3MF_FETCH: printer_ip not configured", level="WARNING")
             return
 
         self.log(
-            f"3MF_FETCH: attempt {attempt}/{max_attempts} for task={task_name}",
+            f"3MF_FETCH: attempt {attempt}/{max_attempts} method=native "
+            f"for task={task_name}",
+            level="INFO",
+        )
+
+        conn = None
+        try:
+            conn = ftps_connect(
+                self.printer_ip, access_code, self.printer_ftps_port
+            )
+
+            file_list, found_dir = ftps_list_cache_native(conn)
+            if not file_list:
+                if attempt < max_attempts:
+                    delay = retry_delays[attempt - 1]
+                    self.log(
+                        f"3MF_FETCH: No .3mf files found (attempt {attempt}), "
+                        f"retrying in {delay}s",
+                        level="WARNING",
+                    )
+                    self.run_in(
+                        self._fetch_3mf_background, delay, attempt=attempt + 1
+                    )
+                    return
+                self.log(
+                    "3MF_FETCH: No .3mf files found after all retries",
+                    level="WARNING",
+                )
+                return
+
+            best_file = find_best_3mf(file_list, task_name)
+            if not best_file:
+                self.log(
+                    f"3MF_FETCH: No match for task={task_name} in {file_list}",
+                    level="WARNING",
+                )
+                return
+
+            self.log(
+                f"3MF_FETCH: downloading {best_file} from {found_dir}",
+                level="INFO",
+            )
+
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                local_path = ftps_download_native(
+                    conn, found_dir, best_file,
+                    os.path.join(tmp_dir, best_file),
+                )
+                if not local_path:
+                    if attempt < max_attempts:
+                        delay = retry_delays[attempt - 1]
+                        self.log(
+                            f"3MF_FETCH: Download failed (attempt {attempt}), "
+                            f"retrying in {delay}s",
+                            level="WARNING",
+                        )
+                        self.run_in(
+                            self._fetch_3mf_background, delay,
+                            attempt=attempt + 1,
+                        )
+                        return
+                    self.log(
+                        f"3MF_FETCH: Download failed for {best_file} "
+                        f"after all retries",
+                        level="ERROR",
+                    )
+                    return
+
+                filaments = parse_3mf_filaments(local_path)
+                if not filaments:
+                    self.log(
+                        f"3MF_FETCH: No filament data in {best_file}",
+                        level="WARNING",
+                    )
+                    return
+
+            self._threemf_data = filaments
+            self._threemf_filename = best_file
+            total_g = sum(f["used_g"] for f in filaments)
+            self.log(
+                f"3MF_PARSED file={best_file} dir={found_dir} "
+                f"filaments={len(filaments)} total_g={total_g:.2f} "
+                f"breakdown={[(f['index'], f['used_g'], f['color_hex'], f['material']) for f in filaments]}",
+                level="INFO",
+            )
+
+        except Exception as e:
+            self.log(
+                f"3MF_FETCH_NATIVE_ERROR attempt={attempt} error={e}",
+                level="ERROR",
+            )
+            if attempt < max_attempts:
+                delay = retry_delays[attempt - 1]
+                self.log(
+                    f"3MF_FETCH: Connection failed (attempt {attempt}), "
+                    f"retrying in {delay}s",
+                    level="WARNING",
+                )
+                self.run_in(
+                    self._fetch_3mf_background, delay, attempt=attempt + 1
+                )
+            else:
+                self.log(
+                    "3MF_FETCH: All attempts failed (native)",
+                    level="ERROR",
+                )
+        finally:
+            if conn is not None:
+                try:
+                    conn.quit()
+                except Exception:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+    def _fetch_3mf_curl(self, kwargs):
+        """Fetch 3MF via curl subprocesses (legacy fallback)."""
+        attempt = kwargs.get("attempt", 1)
+        max_attempts = 3
+        retry_delays = [10, 30]
+
+        if attempt == 1:
+            self._threemf_data = None
+            self._threemf_filename = None
+
+        access_code = self._get_access_code()
+        if not access_code:
+            self.log("3MF_FETCH: No access code available", level="ERROR")
+            return
+
+        task_name = str(self.get_state(self._task_name_entity) or "")
+
+        if not self.printer_ip:
+            self.log("3MF_FETCH: printer_ip not configured", level="WARNING")
+            return
+
+        self.log(
+            f"3MF_FETCH: attempt {attempt}/{max_attempts} method=curl "
+            f"for task={task_name}",
             level="INFO",
         )
 
