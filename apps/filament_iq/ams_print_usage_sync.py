@@ -71,6 +71,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self.dry_run = bool(self.args.get("dry_run", False))
         self.min_consumption_g = float(self.args.get("min_consumption_g", 2))
         self.max_consumption_g = float(self.args.get("max_consumption_g", 300))
+        self.auto_empty_spools = bool(self.args.get("auto_empty_spools", False))
         self._seen_job_keys = self._load_seen_job_keys()
         self._ensure_data_dir()
 
@@ -510,22 +511,29 @@ class AmsPrintUsageSync(FilamentIQBase):
                     if spool_data and float(
                         spool_data.get("remaining_weight", 1)
                     ) <= 0:
-                        self._spoolman_patch(spool_id, {"location": "Empty"})
-                        self.call_service(
-                            "input_text/set_value",
-                            entity_id=f"input_text.ams_slot_{slot}_spool_id",
-                            value="0",
-                        )
-                        self.call_service(
-                            "input_text/set_value",
-                            entity_id=f"input_text.ams_slot_{slot}_unbound_reason",
-                            value="UNBOUND_TRAY_EMPTY",
-                        )
-                        self.log(
-                            f"USAGE_SPOOL_DEPLETED slot={slot} spool_id={spool_id} "
-                            f"— moved to Empty",
-                            level="WARNING",
-                        )
+                        if self.auto_empty_spools:
+                            self._spoolman_patch(spool_id, {"location": "Empty"})
+                            self.call_service(
+                                "input_text/set_value",
+                                entity_id=f"input_text.ams_slot_{slot}_spool_id",
+                                value="0",
+                            )
+                            self.call_service(
+                                "input_text/set_value",
+                                entity_id=f"input_text.ams_slot_{slot}_unbound_reason",
+                                value="UNBOUND_TRAY_EMPTY",
+                            )
+                            self.log(
+                                f"USAGE_SPOOL_DEPLETED slot={slot} spool_id={spool_id} "
+                                f"— moved to Empty",
+                                level="WARNING",
+                            )
+                        else:
+                            self.log(
+                                f"USAGE_SPOOL_DEPLETED_SKIPPED slot={slot} "
+                                f"spool_id={spool_id} reason=auto_empty_disabled",
+                                level="INFO",
+                            )
                 except Exception as e:
                     self.log(
                         f"USAGE_DEPLETED_CHECK_FAILED: {e}",
