@@ -1,0 +1,408 @@
+# ─── Filament IQ: Live Print Monitor Card (compact) ─────────────────
+# Paste as a manual card in the 3D Printer view.
+# Prerequisites: mushroom cards, card-mod, mod-card
+# ─────────────────────────────────────────────────────────────────────
+type: custom:mod-card
+style: |
+  ha-card {
+    background: rgba(255,255,255,0.03) !important;
+    border: 2px solid rgba(255,255,255,0.12) !important;
+    border-radius: 14px !important;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.7) !important;
+    overflow: hidden;
+    padding: 0 !important;
+  }
+card:
+  type: vertical-stack
+  cards:
+    # ── Row 1: Status header with model image ──────────────────────
+    - type: custom:mod-card
+      style: |
+        ha-card {
+          background: rgba(255,255,255,0.03) !important;
+          border: none !important;
+          border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          padding: 0 !important;
+        }
+      card:
+        type: custom:button-card
+        entity: image.p1s_01p00c5a3101668_cover_image
+        show_entity_picture: >
+          [[[
+            const status = states['sensor.p1s_01p00c5a3101668_print_status'].state;
+            return !['idle', 'offline', 'unavailable', 'unknown'].includes(status);
+          ]]]
+        show_icon: >
+          [[[
+            const status = states['sensor.p1s_01p00c5a3101668_print_status'].state;
+            return ['idle', 'offline', 'unavailable', 'unknown'].includes(status);
+          ]]]
+        icon: mdi:printer-3d-nozzle
+        show_name: true
+        show_label: true
+        show_state: false
+        layout: icon_name_state2nd
+        name: >
+          [[[
+            const status = states['sensor.p1s_01p00c5a3101668_print_status'].state;
+            const task = states['sensor.p1s_01p00c5a3101668_task_name'].state;
+            let primary = '';
+            if (status === 'running') primary = 'PRINTING';
+            else if (status === 'idle') primary = 'IDLE';
+            else if (status === 'pause') primary = 'PAUSED';
+            else if (status === 'failed' || status === 'error') primary = 'FAILED';
+            else if (status === 'finish') primary = 'FINISHED';
+            else if (status === 'prepare') primary = 'PREPARING';
+            else if (['offline', 'unavailable', 'unknown'].includes(status)) primary = 'OFFLINE';
+            else primary = status ? status.toUpperCase() : '—';
+            if (!['idle', 'offline', 'unavailable', 'unknown'].includes(status) &&
+                task && !['unknown', 'unavailable', ''].includes(task)) {
+              primary += ' · ' + task.replace(/_/g, ' ');
+            }
+            return primary;
+          ]]]
+        label: >
+          [[[
+            const status = states['sensor.p1s_01p00c5a3101668_print_status'].state;
+            if (['idle', 'offline', 'unavailable', 'unknown'].includes(status))
+              return 'No active print';
+            if (['running', 'pause', 'prepare'].includes(status)) {
+              const pct = parseInt(states['sensor.p1s_01p00c5a3101668_print_progress'].state) || 0;
+              const t = parseFloat(states['sensor.p1s_01p00c5a3101668_remaining_time'].state) || 0;
+              const h = Math.floor(t);
+              const m = Math.floor((t - h) * 60);
+              const cur = states['sensor.p1s_01p00c5a3101668_current_layer'].state;
+              const tot = states['sensor.p1s_01p00c5a3101668_total_layer_count'].state;
+              let text = pct + '% · ';
+              if (h > 0) text += h + 'h ';
+              text += m + 'm left';
+              if (cur && tot && !['unknown', 'unavailable', ''].includes(cur) &&
+                  !['unknown', 'unavailable', ''].includes(tot)) {
+                text += ' · Layer ' + cur + '/' + tot;
+              }
+              return text;
+            }
+            if (status === 'finish') return 'Print complete';
+            if (status === 'failed' || status === 'error') return 'Print failed';
+            return '—';
+          ]]]
+        tap_action:
+          action: more-info
+          entity: sensor.p1s_01p00c5a3101668_print_status
+        styles:
+          grid:
+            - grid-template-areas: '"i n" "i l"'
+            - grid-template-columns: min-content 1fr
+            - grid-template-rows: min-content min-content
+            - column-gap: 10px
+          card:
+            - background: transparent
+            - box-shadow: none
+            - padding: 8px 12px
+            - justify-content: flex-start
+          img_cell:
+            - background: '#e8e8e8'
+            - border-radius: 4px
+            - width: 56px
+            - height: 56px
+            - min-width: 56px
+            - grid-area: i
+            - align-self: center
+          entity_picture:
+            - object-fit: contain
+            - padding: 4px
+            - width: 100%
+            - height: 100%
+          icon:
+            - color: grey
+            - width: 24px
+            - height: 24px
+          name:
+            - font-size: 15px
+            - font-weight: 700
+            - letter-spacing: 0.3px
+            - text-align: left
+            - justify-self: start
+            - white-space: normal
+            - align-self: end
+            - grid-area: n
+          label:
+            - font-size: 12px
+            - color: '#9ca3af'
+            - text-align: left
+            - justify-self: start
+            - align-self: start
+            - grid-area: l
+
+    # ── Row 2: Progress bar + Active tray (printing only) ──────────
+    - type: conditional
+      conditions:
+        - condition: state
+          entity: sensor.p1s_01p00c5a3101668_print_status
+          state_not: idle
+        - condition: state
+          entity: sensor.p1s_01p00c5a3101668_print_status
+          state_not: finish
+        - condition: state
+          entity: sensor.p1s_01p00c5a3101668_print_status
+          state_not: offline
+        - condition: state
+          entity: sensor.p1s_01p00c5a3101668_print_status
+          state_not: unavailable
+        - condition: state
+          entity: sensor.p1s_01p00c5a3101668_print_status
+          state_not: unknown
+      card:
+        type: custom:mod-card
+        style: |
+          ha-card {
+            background: rgba(255,255,255,0.03) !important;
+            border: none !important;
+            border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+          }
+        card:
+          type: vertical-stack
+          cards:
+            # Progress bar
+            - type: custom:mod-card
+              style: |
+                ha-card {
+                  background: transparent !important;
+                  border: none !important;
+                  border-radius: 0 !important;
+                  box-shadow: none !important;
+                  padding: 8px 12px 4px !important;
+                }
+              card:
+                type: custom:mushroom-template-card
+                primary: ''
+                secondary: ''
+                icon: ''
+                tap_action:
+                  action: none
+                card_mod:
+                  style: |
+                    ha-card {
+                      --ha-card-background: transparent;
+                      box-shadow: none;
+                      min-height: 5px !important;
+                      padding: 0 !important;
+                    }
+                    mushroom-card-content {
+                      display: none !important;
+                    }
+                    ha-card::before {
+                      content: '';
+                      display: block;
+                      height: 5px;
+                      border-radius: 3px;
+                      background: rgba(255,255,255,0.07);
+                      position: relative;
+                      overflow: hidden;
+                    }
+                    ha-card::after {
+                      content: '';
+                      display: block;
+                      position: absolute;
+                      height: 5px;
+                      border-radius: 3px;
+                      background: linear-gradient(90deg, #3b9fd8, #63cab7);
+                      width: {{ states('sensor.p1s_01p00c5a3101668_print_progress') | int(0) }}%;
+                      z-index: 1;
+                    }
+            # Active tray info
+            - type: custom:mushroom-template-card
+              primary: >-
+                {% set ai = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
+                {% set ti = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
+                {% if ai == 0 and ti is not none %}{% set slot = ti + 1 %}
+                {% elif ai == 128 %}{% set slot = 5 %}
+                {% elif ai == 129 %}{% set slot = 6 %}
+                {% else %}{% set slot = 0 %}
+                {% endif %}
+                {% if slot >= 1 and slot <= 6 %}
+                  {% set name = states('sensor.ams_slot_' ~ slot ~ '_name') %}
+                  {% set remaining = states('sensor.ams_slot_' ~ slot ~ '_remaining_g') %}
+                  Slot {{ slot }}
+                  {%- if name not in ['unknown', 'unavailable', '', none] %} · {{ name }}{% endif %}
+                  {%- if remaining not in ['unknown', 'unavailable', '', none] %} · {{ remaining | float(0) | round(0) | int }}g{% endif %}
+                {% else %}No active tray
+                {% endif %}
+              icon: >-
+                {% set ai = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
+                {% set ti = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
+                {% if ai == 0 and ti is not none %}{% set slot = ti + 1 %}
+                {% elif ai == 128 %}{% set slot = 5 %}
+                {% elif ai == 129 %}{% set slot = 6 %}
+                {% else %}{% set slot = 0 %}
+                {% endif %}
+                {% if slot >= 1 and slot <= 6 %}mdi:numeric-{{ slot }}-circle
+                {% else %}mdi:tray-alert
+                {% endif %}
+              icon_color: >-
+                {% set ai = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
+                {% set ti = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
+                {% if ai == 0 and ti is not none %}{% set slot = ti + 1 %}
+                {% elif ai == 128 %}{% set slot = 5 %}
+                {% elif ai == 129 %}{% set slot = 6 %}
+                {% else %}{% set slot = 0 %}
+                {% endif %}
+                {% if slot >= 1 and slot <= 6 %}
+                  {% set hex = states('sensor.ams_slot_' ~ slot ~ '_color_hex') %}
+                  {% if hex in ['000000', 'unknown', 'unavailable', '', none] %}#555555
+                  {% else %}#{{ hex }}
+                  {% endif %}
+                {% else %}grey
+                {% endif %}
+              layout: horizontal
+              tap_action:
+                action: none
+              card_mod:
+                style: |
+                  ha-card {
+                    --ha-card-background: transparent;
+                    box-shadow: none;
+                    padding: 0 12px 6px;
+                  }
+                  .primary {
+                    font-size: 12px !important;
+                    color: #9ca3af !important;
+                  }
+                  mushroom-shape-icon {
+                    --icon-size: 18px !important;
+                  }
+
+    # ── Row 3: Slot chips + reconciler (always shown) ──────────────
+    - type: custom:mod-card
+      style: |
+        ha-card {
+          background: rgba(255,255,255,0.03) !important;
+          border: none !important;
+          border-radius: 0 0 14px 14px !important;
+          box-shadow: none !important;
+          padding: 0 !important;
+        }
+      card:
+        type: custom:mushroom-chips-card
+        alignment: center
+        card_mod:
+          style: |
+            ha-card {
+              --ha-card-background: transparent;
+              box-shadow: none;
+              padding: 6px 8px 8px;
+              --chip-spacing: 4px;
+            }
+        chips:
+          - type: template
+            icon: mdi:numeric-1-circle
+            icon_color: >-
+              {% set s = states('sensor.ams_slot_1_status') %}
+              {% if s == 'ok' %}green{% elif s == 'empty' %}#3a3d44{% elif s == 'needs_bind' %}red{% else %}orange{% endif %}
+            content: ''
+            tap_action:
+              action: none
+            card_mod:
+              style: |
+                ha-card { --chip-background: transparent; --chip-padding: 0 2px; }
+          - type: template
+            icon: mdi:numeric-2-circle
+            icon_color: >-
+              {% set s = states('sensor.ams_slot_2_status') %}
+              {% if s == 'ok' %}green{% elif s == 'empty' %}#3a3d44{% elif s == 'needs_bind' %}red{% else %}orange{% endif %}
+            content: ''
+            tap_action:
+              action: none
+            card_mod:
+              style: |
+                ha-card { --chip-background: transparent; --chip-padding: 0 2px; }
+          - type: template
+            icon: mdi:numeric-3-circle
+            icon_color: >-
+              {% set s = states('sensor.ams_slot_3_status') %}
+              {% if s == 'ok' %}green{% elif s == 'empty' %}#3a3d44{% elif s == 'needs_bind' %}red{% else %}orange{% endif %}
+            content: ''
+            tap_action:
+              action: none
+            card_mod:
+              style: |
+                ha-card { --chip-background: transparent; --chip-padding: 0 2px; }
+          - type: template
+            icon: mdi:numeric-4-circle
+            icon_color: >-
+              {% set s = states('sensor.ams_slot_4_status') %}
+              {% if s == 'ok' %}green{% elif s == 'empty' %}#3a3d44{% elif s == 'needs_bind' %}red{% else %}orange{% endif %}
+            content: ''
+            tap_action:
+              action: none
+            card_mod:
+              style: |
+                ha-card { --chip-background: transparent; --chip-padding: 0 2px; }
+          - type: template
+            icon: mdi:numeric-5-circle
+            icon_color: >-
+              {% set s = states('sensor.ams_slot_5_status') %}
+              {% if s == 'ok' %}green{% elif s == 'empty' %}#3a3d44{% elif s == 'needs_bind' %}red{% else %}orange{% endif %}
+            content: ''
+            tap_action:
+              action: none
+            card_mod:
+              style: |
+                ha-card { --chip-background: transparent; --chip-padding: 0 2px; }
+          - type: template
+            icon: mdi:numeric-6-circle
+            icon_color: >-
+              {% set s = states('sensor.ams_slot_6_status') %}
+              {% if s == 'ok' %}green{% elif s == 'empty' %}#3a3d44{% elif s == 'needs_bind' %}red{% else %}orange{% endif %}
+            content: ''
+            tap_action:
+              action: none
+            card_mod:
+              style: |
+                ha-card { --chip-background: transparent; --chip-padding: 0 2px; }
+          # Reconciler summary chip
+          - type: template
+            icon: >-
+              {% set has_bind = namespace(v=false) %}
+              {% for i in [1,2,3,4,5,6] %}
+                {% if states('sensor.ams_slot_' ~ i ~ '_status') == 'needs_bind' %}
+                  {% set has_bind.v = true %}
+                {% endif %}
+              {% endfor %}
+              {% if has_bind.v %}mdi:alert-circle{% else %}mdi:check-circle{% endif %}
+            icon_color: >-
+              {% set has_bind = namespace(v=false) %}
+              {% for i in [1,2,3,4,5,6] %}
+                {% if states('sensor.ams_slot_' ~ i ~ '_status') == 'needs_bind' %}
+                  {% set has_bind.v = true %}
+                {% endif %}
+              {% endfor %}
+              {% if has_bind.v %}amber{% else %}green{% endif %}
+            content: >-
+              {% set ns = namespace(ok=0, empty=0, bind=0) %}
+              {% for i in [1,2,3,4,5,6] %}
+                {% set s = states('sensor.ams_slot_' ~ i ~ '_status') %}
+                {% if s == 'ok' %}{% set ns.ok = ns.ok + 1 %}
+                {% elif s == 'empty' %}{% set ns.empty = ns.empty + 1 %}
+                {% elif s == 'needs_bind' %}{% set ns.bind = ns.bind + 1 %}
+                {% endif %}
+              {% endfor %}
+              {% if ns.bind > 0 %}{{ ns.bind }} bind
+              {% elif ns.empty > 0 %}{{ ns.ok }} ok · {{ ns.empty }} empty
+              {% else %}{{ ns.ok }} ok
+              {% endif %}
+            tap_action:
+              action: more-info
+              entity: input_text.filament_iq_reconciler_status
+            card_mod:
+              style: |
+                ha-card {
+                  --chip-background: rgba(255,255,255,0.04);
+                  --chip-padding: 0 6px;
+                  --chip-font-size: 11px;
+                }

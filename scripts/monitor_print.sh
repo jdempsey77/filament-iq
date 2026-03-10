@@ -28,8 +28,6 @@ done
 
 # --- Config ---
 POLL_INTERVAL=10
-TIMEOUT_MINUTES=180
-TIMEOUT_SECONDS=$((TIMEOUT_MINUTES * 60))
 
 # --- Artifact directory ---
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
@@ -149,6 +147,21 @@ PRE_STATUS="$(print_status)"
 PRE_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 echo "MONITOR: pre-print status=$PRE_STATUS"
+
+# --- Smart timeout: estimated remaining time + 2h buffer ---
+_remaining_h="$(ha_state "sensor.${PRINTER_PREFIX}_remaining_time")"
+if [[ "$_remaining_h" =~ ^[0-9.]+$ ]]; then
+  _remaining_min="$(python3 -c "import math; print(math.ceil(float('${_remaining_h}') * 60))")"
+  TIMEOUT_MINUTES=$(( _remaining_min + 120 ))
+  if [[ $TIMEOUT_MINUTES -lt 60 ]]; then
+    TIMEOUT_MINUTES=60
+  fi
+  echo "MONITOR: printer estimates ${_remaining_h}h remaining — timeout set to ${TIMEOUT_MINUTES}m"
+else
+  TIMEOUT_MINUTES=1080
+  echo "MONITOR: remaining_time unavailable — using ${TIMEOUT_MINUTES}m fallback timeout"
+fi
+TIMEOUT_SECONDS=$((TIMEOUT_MINUTES * 60))
 
 # --- Start log tail ---
 start_log_tail
