@@ -1,0 +1,395 @@
+# ─── Printer Controls: Power, Light, WiFi, Fans, Air Purifier ─────────
+# Compact printer control card with tile-style layout.
+# Fans are read-only (printer-controlled).
+# Power toggle requires confirmation. Air purifier has full control.
+# Prerequisites: mushroom cards, card-mod
+# ──────────────────────────────────────────────────────────────────────
+type: vertical-stack
+cards:
+  # ── Row 1: Power, Chamber Light, WiFi ────────────────────────────
+  - type: grid
+    columns: 3
+    square: false
+    cards:
+      - type: custom:mushroom-entity-card
+        entity: switch.officeoutlet01_3dprinter
+        name: Power
+        icon: mdi:power
+        icon_color: >-
+          {% if is_state('switch.officeoutlet01_3dprinter', 'on') %}green
+          {% else %}red{% endif %}
+        layout: vertical
+        tap_action:
+          action: toggle
+          confirmation:
+            text: Toggle printer power?
+        hold_action:
+          action: more-info
+        card_mod:
+          style: |
+            ha-card {
+              {% if is_state('switch.officeoutlet01_3dprinter', 'on') %}
+              background: rgba(76,175,80,0.08) !important;
+              {% else %}
+              background: rgba(244,67,54,0.08) !important;
+              {% endif %}
+              box-shadow: none;
+              border: 1px solid rgba(255,255,255,0.06) !important;
+              border-radius: 10px !important;
+            }
+            mushroom-shape-icon {
+              --shape-color: none !important;
+              --icon-size: 24px !important;
+            }
+            .primary {
+              font-size: 12px !important;
+              font-weight: 600 !important;
+            }
+            .secondary {
+              font-size: 11px !important;
+              color: #9ca3af !important;
+            }
+      - type: custom:mushroom-entity-card
+        entity: light.p1s_01p00c5a3101668_chamber_light
+        name: Light
+        icon: mdi:lightbulb
+        icon_color: >-
+          {% if is_state('light.p1s_01p00c5a3101668_chamber_light', 'on') %}amber
+          {% else %}grey{% endif %}
+        layout: vertical
+        tap_action:
+          action: toggle
+        hold_action:
+          action: more-info
+        card_mod:
+          style: |
+            ha-card {
+              {% if is_state('light.p1s_01p00c5a3101668_chamber_light', 'on') %}
+              background: rgba(255,191,0,0.08) !important;
+              {% else %}
+              background: rgba(255,255,255,0.03) !important;
+              {% endif %}
+              box-shadow: none;
+              border: 1px solid rgba(255,255,255,0.06) !important;
+              border-radius: 10px !important;
+            }
+            mushroom-shape-icon {
+              --shape-color: none !important;
+              --icon-size: 24px !important;
+            }
+            .primary {
+              font-size: 12px !important;
+              font-weight: 600 !important;
+            }
+            .secondary {
+              font-size: 11px !important;
+              color: #9ca3af !important;
+            }
+      - type: custom:mushroom-template-card
+        primary: WiFi
+        secondary: >-
+          {% set rssi = states('sensor.p1s_01p00c5a3101668_wi_fi_signal') | int(0) %}
+          {% if rssi >= -50 %}Excellent
+          {% elif rssi >= -60 %}Good
+          {% elif rssi >= -70 %}Fair
+          {% elif rssi >= -80 %}Weak
+          {% else %}Poor{% endif %}
+          · {{ rssi }}dBm
+        icon: >-
+          {% set rssi = states('sensor.p1s_01p00c5a3101668_wi_fi_signal') | int(0) %}
+          {% if rssi >= -50 %}mdi:wifi-strength-4
+          {% elif rssi >= -60 %}mdi:wifi-strength-3
+          {% elif rssi >= -70 %}mdi:wifi-strength-2
+          {% elif rssi >= -80 %}mdi:wifi-strength-1
+          {% else %}mdi:wifi-strength-alert-outline{% endif %}
+        icon_color: >-
+          {% set rssi = states('sensor.p1s_01p00c5a3101668_wi_fi_signal') | int(0) %}
+          {% if rssi >= -60 %}green
+          {% elif rssi >= -70 %}orange
+          {% else %}red{% endif %}
+        layout: vertical
+        tap_action:
+          action: none
+        hold_action:
+          action: none
+        double_tap_action:
+          action: none
+        card_mod:
+          style: |
+            ha-card {
+              background: rgba(255,255,255,0.03) !important;
+              box-shadow: none;
+              border: 1px solid rgba(255,255,255,0.06) !important;
+              border-radius: 10px !important;
+              pointer-events: none;
+            }
+            mushroom-shape-icon {
+              --shape-color: none !important;
+              --icon-size: 24px !important;
+            }
+            .primary {
+              font-size: 12px !important;
+              font-weight: 600 !important;
+            }
+            .secondary {
+              font-size: 11px !important;
+              color: #9ca3af !important;
+            }
+  # ── Row 2: Fans (read-only) ─────────────────────────────────────
+  - type: grid
+    columns: 3
+    square: false
+    cards:
+      - type: custom:mushroom-template-card
+        primary: Chamber
+        secondary: >-
+          {% if is_state('fan.p1s_01p00c5a3101668_chamber_fan', 'on') %}
+            {{ state_attr('fan.p1s_01p00c5a3101668_chamber_fan', 'percentage') | int(0) }}%
+          {% else %}Off{% endif %}
+        icon: mdi:fan
+        icon_color: >-
+          {% if is_state('fan.p1s_01p00c5a3101668_chamber_fan', 'on') %}cyan
+          {% else %}grey{% endif %}
+        layout: vertical
+        tap_action:
+          action: none
+        hold_action:
+          action: none
+        double_tap_action:
+          action: none
+        card_mod:
+          style: |
+            ha-card {
+              {% if is_state('fan.p1s_01p00c5a3101668_chamber_fan', 'on') %}
+              background: rgba(0,188,212,0.08) !important;
+              {% else %}
+              background: rgba(255,255,255,0.03) !important;
+              {% endif %}
+              box-shadow: none;
+              border: 1px solid rgba(255,255,255,0.06) !important;
+              border-radius: 10px !important;
+              pointer-events: none;
+            }
+            mushroom-shape-icon {
+              --shape-color: none !important;
+              --icon-size: 24px !important;
+              {% if is_state('fan.p1s_01p00c5a3101668_chamber_fan', 'on') %}
+              --icon-animation: spin 1s linear infinite;
+              {% endif %}
+            }
+            .primary {
+              font-size: 12px !important;
+              font-weight: 600 !important;
+            }
+            .secondary {
+              font-size: 11px !important;
+              color: #9ca3af !important;
+            }
+      - type: custom:mushroom-template-card
+        primary: Cooling
+        secondary: >-
+          {% if is_state('fan.p1s_01p00c5a3101668_cooling_fan', 'on') %}
+            {{ state_attr('fan.p1s_01p00c5a3101668_cooling_fan', 'percentage') | int(0) }}%
+          {% else %}Off{% endif %}
+        icon: mdi:fan
+        icon_color: >-
+          {% if is_state('fan.p1s_01p00c5a3101668_cooling_fan', 'on') %}cyan
+          {% else %}grey{% endif %}
+        layout: vertical
+        tap_action:
+          action: none
+        hold_action:
+          action: none
+        double_tap_action:
+          action: none
+        card_mod:
+          style: |
+            ha-card {
+              {% if is_state('fan.p1s_01p00c5a3101668_cooling_fan', 'on') %}
+              background: rgba(0,188,212,0.08) !important;
+              {% else %}
+              background: rgba(255,255,255,0.03) !important;
+              {% endif %}
+              box-shadow: none;
+              border: 1px solid rgba(255,255,255,0.06) !important;
+              border-radius: 10px !important;
+              pointer-events: none;
+            }
+            mushroom-shape-icon {
+              --shape-color: none !important;
+              --icon-size: 24px !important;
+              {% if is_state('fan.p1s_01p00c5a3101668_cooling_fan', 'on') %}
+              --icon-animation: spin 1s linear infinite;
+              {% endif %}
+            }
+            .primary {
+              font-size: 12px !important;
+              font-weight: 600 !important;
+            }
+            .secondary {
+              font-size: 11px !important;
+              color: #9ca3af !important;
+            }
+      - type: custom:mushroom-template-card
+        primary: Aux
+        secondary: >-
+          {% if is_state('fan.p1s_01p00c5a3101668_aux_fan', 'on') %}
+            {{ state_attr('fan.p1s_01p00c5a3101668_aux_fan', 'percentage') | int(0) }}%
+          {% else %}Off{% endif %}
+        icon: mdi:fan
+        icon_color: >-
+          {% if is_state('fan.p1s_01p00c5a3101668_aux_fan', 'on') %}cyan
+          {% else %}grey{% endif %}
+        layout: vertical
+        tap_action:
+          action: none
+        hold_action:
+          action: none
+        double_tap_action:
+          action: none
+        card_mod:
+          style: |
+            ha-card {
+              {% if is_state('fan.p1s_01p00c5a3101668_aux_fan', 'on') %}
+              background: rgba(0,188,212,0.08) !important;
+              {% else %}
+              background: rgba(255,255,255,0.03) !important;
+              {% endif %}
+              box-shadow: none;
+              border: 1px solid rgba(255,255,255,0.06) !important;
+              border-radius: 10px !important;
+              pointer-events: none;
+            }
+            mushroom-shape-icon {
+              --shape-color: none !important;
+              --icon-size: 24px !important;
+              {% if is_state('fan.p1s_01p00c5a3101668_aux_fan', 'on') %}
+              --icon-animation: spin 1s linear infinite;
+              {% endif %}
+            }
+            .primary {
+              font-size: 12px !important;
+              font-weight: 600 !important;
+            }
+            .secondary {
+              font-size: 11px !important;
+              color: #9ca3af !important;
+            }
+  # ── Row 3: Air Purifier, Print Hours, Firmware ───────────────────
+  - type: grid
+    columns: 3
+    square: false
+    cards:
+      - type: custom:mushroom-entity-card
+        entity: fan.office_air_purifier
+        name: Purifier
+        icon: mdi:air-filter
+        icon_color: >-
+          {% if is_state('fan.office_air_purifier', 'on') %}cyan
+          {% else %}grey{% endif %}
+        layout: vertical
+        tap_action:
+          action: toggle
+        hold_action:
+          action: more-info
+        card_mod:
+          style: |
+            ha-card {
+              {% if is_state('fan.office_air_purifier', 'on') %}
+              background: rgba(0,188,212,0.08) !important;
+              {% else %}
+              background: rgba(255,255,255,0.03) !important;
+              {% endif %}
+              box-shadow: none;
+              border: 1px solid rgba(255,255,255,0.06) !important;
+              border-radius: 10px !important;
+            }
+            mushroom-shape-icon {
+              --shape-color: none !important;
+              --icon-size: 24px !important;
+            }
+            .primary {
+              font-size: 12px !important;
+              font-weight: 600 !important;
+            }
+            .secondary {
+              font-size: 11px !important;
+              color: #9ca3af !important;
+            }
+      - type: custom:mushroom-template-card
+        primary: Print Hours
+        secondary: >-
+          {{ states('sensor.p1s_01p00c5a3101668_total_usage') | float(0) | round(0) | int }}h
+        icon: mdi:clock-outline
+        icon_color: grey
+        layout: vertical
+        tap_action:
+          action: more-info
+          entity: sensor.p1s_01p00c5a3101668_total_usage
+        hold_action:
+          action: none
+        double_tap_action:
+          action: none
+        card_mod:
+          style: |
+            ha-card {
+              background: rgba(255,255,255,0.03) !important;
+              box-shadow: none;
+              border: 1px solid rgba(255,255,255,0.06) !important;
+              border-radius: 10px !important;
+            }
+            mushroom-shape-icon {
+              --shape-color: none !important;
+              --icon-size: 24px !important;
+            }
+            .primary {
+              font-size: 12px !important;
+              font-weight: 600 !important;
+            }
+            .secondary {
+              font-size: 11px !important;
+              color: #9ca3af !important;
+            }
+      - type: custom:mushroom-template-card
+        primary: Firmware
+        secondary: >-
+          {% if is_state('binary_sensor.p1s_01p00c5a3101668_firmware_update', 'on') %}Update available
+          {% else %}Up to date{% endif %}
+        icon: >-
+          {% if is_state('binary_sensor.p1s_01p00c5a3101668_firmware_update', 'on') %}mdi:cellphone-arrow-down
+          {% else %}mdi:check-circle-outline{% endif %}
+        icon_color: >-
+          {% if is_state('binary_sensor.p1s_01p00c5a3101668_firmware_update', 'on') %}orange
+          {% else %}green{% endif %}
+        layout: vertical
+        tap_action:
+          action: more-info
+          entity: binary_sensor.p1s_01p00c5a3101668_firmware_update
+        hold_action:
+          action: none
+        double_tap_action:
+          action: none
+        card_mod:
+          style: |
+            ha-card {
+              {% if is_state('binary_sensor.p1s_01p00c5a3101668_firmware_update', 'on') %}
+              background: rgba(255,152,0,0.08) !important;
+              {% else %}
+              background: rgba(255,255,255,0.03) !important;
+              {% endif %}
+              box-shadow: none;
+              border: 1px solid rgba(255,255,255,0.06) !important;
+              border-radius: 10px !important;
+            }
+            mushroom-shape-icon {
+              --shape-color: none !important;
+              --icon-size: 24px !important;
+            }
+            .primary {
+              font-size: 12px !important;
+              font-weight: 600 !important;
+            }
+            .secondary {
+              font-size: 11px !important;
+              color: #9ca3af !important;
+            }
