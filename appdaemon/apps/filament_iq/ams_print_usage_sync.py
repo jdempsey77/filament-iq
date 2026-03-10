@@ -141,6 +141,10 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._lifecycle_phase2 = bool(self.args.get("lifecycle_phase2_enabled", False))
         self._last_processed_job_key = ""
         self._end_snapshot = {}  # {slot_int: grams_float}
+        self._finish_wait_count = 0
+        self._finish_pending = False
+        self._finish_pending_status = ""
+        self._finish_wait_handle = None
 
         # Phase 3: Debug logging, swap detection, rehydrate (absorbs automations E, F, G)
         self._lifecycle_phase3 = bool(self.args.get("lifecycle_phase3_enabled", False))
@@ -304,7 +308,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         if self._threemf_data and self.threemf_enabled:
             slot_data = self._build_slot_data(spools_cache=spools_cache)
             matches, unmatched_fils = match_filaments_to_slots(
-                self._threemf_data, slot_data, trays_used=None
+                self._threemf_data, slot_data, trays_used=trays_used_set or None
             )
             if matches:
                 for m in matches:
@@ -808,7 +812,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         return snapshot
 
     def _on_print_finish(self, new_status):
-        """Phase 2 print finish handler: build end snapshot, call usage handler, clean up."""
+        """Phase 2 print finish handler: non-blocking 3MF wait, then _do_finish."""
         status = str(new_status).strip().lower()
 
         # Guard: no start data — let event listener handle as fallback
@@ -836,19 +840,62 @@ class AmsPrintUsageSync(FilamentIQBase):
             self._on_print_end()
             return
 
-        # Wait for 3MF fetch to complete (may still be in progress)
-        if self.threemf_enabled and self._threemf_data is None:
-            for _ in range(15):
-                time.sleep(1)
-                if self._threemf_data is not None:
-                    break
-            if self._threemf_data is None:
-                self.log(
-                    f"3MF_DATA_NOT_READY job_key={self._job_key} "
-                    f"— falling back to estimation",
-                    level="WARNING",
-                )
+        # Cancel any pending finish wait from a previous event
+        if self._finish_pending and self._finish_wait_handle is not None:
+            try:
+                self.cancel_timer(self._finish_wait_handle)
+            except Exception:
+                pass
+            self.log(
+                f"FINISH_WAIT_CANCELLED previous wait superseded by new finish status={status}",
+                level="WARNING",
+            )
+            self._finish_wait_handle = None
 
+        # Non-blocking wait for 3MF fetch to complete
+        if self.threemf_enabled and self._threemf_data is None:
+            self._finish_pending = True
+            self._finish_pending_status = status
+            self._finish_wait_count = 0
+            self._finish_wait_handle = self.run_in(self._finish_wait_tick, 1)
+            self.log(
+                f"3MF_WAIT_START job_key={self._job_key} — polling via run_in",
+                level="INFO",
+            )
+            return
+
+        # 3MF ready or not enabled — proceed immediately
+        self._do_finish(status)
+
+    def _finish_wait_tick(self, kwargs):
+        """Non-blocking poll for 3MF data readiness (replaces blocking time.sleep loop)."""
+        self._finish_wait_count += 1
+        self._finish_wait_handle = None
+
+        if self._threemf_data is not None:
+            self.log(
+                f"3MF_WAIT_DONE after {self._finish_wait_count}s",
+                level="INFO",
+            )
+            self._finish_pending = False
+            self._do_finish(self._finish_pending_status)
+            return
+
+        if self._finish_wait_count >= 15:
+            self.log(
+                f"3MF_DATA_NOT_READY job_key={self._job_key} after 15s "
+                f"— proceeding without 3MF",
+                level="WARNING",
+            )
+            self._finish_pending = False
+            self._do_finish(self._finish_pending_status)
+            return
+
+        # Schedule next tick
+        self._finish_wait_handle = self.run_in(self._finish_wait_tick, 1)
+
+    def _do_finish(self, status):
+        """Execute print finish logic: end snapshot, usage handler, cleanup."""
         # Build end snapshot
         self._end_snapshot = self._build_end_snapshot()
 

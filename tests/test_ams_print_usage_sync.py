@@ -58,6 +58,8 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self._use_calls = []
         self._service_calls = []
         self._use_fail_spool_ids = set()
+        self._run_in_calls = []
+        self._cancelled_timers = []
 
         # Build slot mappings from config (no hardcoded entities)
         prefix = self._build_entity_prefix()
@@ -71,6 +73,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self._active_tray_entity = f"sensor.{prefix}_active_tray"
         self._print_status_entity = f"sensor.{prefix}_print_status"
         self._task_name_entity = f"sensor.{prefix}_task_name"
+        self._print_weight_entity = f"sensor.{prefix}_print_weight"
         self._trays_used_entity = str(
             a.get("trays_used_entity", "input_text.filament_iq_trays_used_this_print")
         ).strip()
@@ -83,6 +86,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self.min_consumption_g = float(a.get("min_consumption_g", 2))
         self.max_consumption_g = float(a.get("max_consumption_g", 300))
         self.min_tray_active_seconds = float(a.get("min_tray_active_seconds", 10))
+        self.auto_empty_spools = bool(a.get("auto_empty_spools", False))
         self._seen_job_keys = OrderedDict()
         self._trays_used = set()
         self._tray_active_times = {}
@@ -114,6 +118,10 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self._lifecycle_phase2 = bool(a.get("lifecycle_phase2_enabled", False))
         self._last_processed_job_key = ""
         self._end_snapshot = {}
+        self._finish_wait_count = 0
+        self._finish_pending = False
+        self._finish_pending_status = ""
+        self._finish_wait_handle = None
         self._lifecycle_phase3 = bool(a.get("lifecycle_phase3_enabled", False))
         self._startup_suppress_until = None
         self._needs_reconcile_entity = str(
@@ -135,8 +143,12 @@ class _TestableUsageSync(AmsPrintUsageSync):
     def listen_state(self, *a, **kw):
         pass
 
-    def run_in(self, *a, **kw):
-        pass
+    def run_in(self, callback, delay, **kw):
+        self._run_in_calls.append({"callback": callback, "delay": delay, **kw})
+        return f"timer_{len(self._run_in_calls)}"
+
+    def cancel_timer(self, handle):
+        self._cancelled_timers.append(handle)
 
     def get_state(self, entity_id, attribute=None):
         if attribute:
@@ -812,3 +824,191 @@ def test_spool_id_change_during_print_no_notification():
     assert all(l == "DEBUG" for _, l in debug_logs), f"expected DEBUG level, got {debug_logs}"
     # No service calls (no notification, no needs_reconcile)
     assert len(app._service_calls) == 0, f"expected no service calls, got {app._service_calls}"
+
+
+# ── F3: trays_used passed to match_filaments_to_slots ────────────────
+
+
+def test_3mf_match_uses_trays_used_set():
+    """match_filaments_to_slots receives actual trays_used set, not None."""
+    from unittest.mock import patch
+    app = _TestableUsageSync(state_map=_default_state_map({1: 41, 3: 52}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [1]))
+    app.threemf_enabled = True
+    app._threemf_data = [
+        {"index": 0, "used_g": 5.0, "used_m": 1.5, "color_hex": "ff0000",
+         "material": "pla", "tray_info_idx": "0"},
+    ]
+    app._trays_used = {1, 3}
+
+    captured_kwargs = {}
+    original_match = __import__(
+        "filament_iq.threemf_parser", fromlist=["match_filaments_to_slots"]
+    ).match_filaments_to_slots
+
+    def spy_match(filaments, slot_data, trays_used=None):
+        captured_kwargs["trays_used"] = trays_used
+        return original_match(filaments, slot_data, trays_used=trays_used)
+
+    with patch("filament_iq.ams_print_usage_sync.match_filaments_to_slots", side_effect=spy_match):
+        _fire(app,
+              trays_used="1,3",
+              start_json='{"1": 960, "3": 306}',
+              end_json='{"1": 920, "3": 306}',
+              print_weight_g="50",
+              print_status="finish")
+
+    assert "trays_used" in captured_kwargs, "match_filaments_to_slots was not called"
+    assert captured_kwargs["trays_used"] == {1, 3}, (
+        f"expected trays_used={{1, 3}}, got {captured_kwargs['trays_used']}"
+    )
+
+
+def test_3mf_match_empty_trays_falls_back():
+    """Empty trays_used set falls back to trays_used=None (all slots)."""
+    from unittest.mock import patch
+    app = _TestableUsageSync(state_map=_default_state_map({1: 41}))
+    app.threemf_enabled = True
+    app._threemf_data = [
+        {"index": 0, "used_g": 5.0, "used_m": 1.5, "color_hex": "ff0000",
+         "material": "pla", "tray_info_idx": "0"},
+    ]
+    app._trays_used = set()  # empty — no tray tracking data
+
+    captured_kwargs = {}
+    original_match = __import__(
+        "filament_iq.threemf_parser", fromlist=["match_filaments_to_slots"]
+    ).match_filaments_to_slots
+
+    def spy_match(filaments, slot_data, trays_used=None):
+        captured_kwargs["trays_used"] = trays_used
+        return original_match(filaments, slot_data, trays_used=trays_used)
+
+    with patch("filament_iq.ams_print_usage_sync.match_filaments_to_slots", side_effect=spy_match):
+        _fire(app,
+              trays_used="",
+              start_json='{"1": 960}',
+              end_json='{"1": 920}',
+              print_weight_g="50",
+              print_status="finish")
+
+    assert "trays_used" in captured_kwargs, "match_filaments_to_slots was not called"
+    assert captured_kwargs["trays_used"] is None, (
+        f"expected trays_used=None for empty set, got {captured_kwargs['trays_used']}"
+    )
+
+
+# ── F2: non-blocking finish wait tests ──────────────────────────────
+
+
+def test_finish_no_blocking_sleep():
+    """_on_print_finish does not call time.sleep (uses run_in instead)."""
+    from unittest.mock import patch
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+        args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
+    )
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    app._job_key = "test_no_sleep_001"
+    app._start_snapshot = {4: 420.0}
+    app.threemf_enabled = True
+    app._threemf_data = None  # 3MF not ready — would trigger old sleep loop
+
+    with patch("time.sleep", side_effect=AssertionError("time.sleep must not be called")):
+        app._on_print_finish("finish")
+
+    # Should have scheduled run_in instead of sleeping
+    assert app._finish_pending is True or _has_log(app, "3MF_WAIT_START"), \
+        "expected non-blocking wait to be started"
+
+
+def test_finish_waits_for_threemf_via_run_in():
+    """_on_print_finish schedules run_in; tick with 3MF data triggers _do_finish."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+        args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
+    )
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    app._job_key = "test_run_in_001"
+    app._start_snapshot = {4: 420.0}
+    app.threemf_enabled = True
+    app._threemf_data = None
+
+    # Trigger finish — should schedule wait, not block
+    app._on_print_finish("finish")
+    assert app._finish_pending is True
+    assert _has_log(app, "3MF_WAIT_START")
+    assert len(app._run_in_calls) > 0
+
+    # Simulate 3MF arriving, then tick fires
+    app._threemf_data = [
+        {"index": 0, "used_g": 8.0, "used_m": 2.5, "color_hex": "00ae42",
+         "material": "pla", "tray_info_idx": "0"},
+    ]
+    # Set up state for _do_finish to read fuel gauges
+    app._state_map[app._fuel_gauge_pattern.format(slot=4)] = "370.0"
+
+    app._finish_wait_tick({})
+
+    assert app._finish_pending is False
+    assert _has_log(app, "3MF_WAIT_DONE")
+    assert _has_log(app, "PRINT_FINISH_CAPTURED")
+
+
+def test_finish_timeout_proceeds_without_threemf():
+    """After 15 ticks with no 3MF data, finish proceeds with RFID-only."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+        args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
+    )
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    app._job_key = "test_timeout_001"
+    app._start_snapshot = {4: 420.0}
+    app.threemf_enabled = True
+    app._threemf_data = None
+
+    app._on_print_finish("finish")
+    assert app._finish_pending is True
+
+    # Set up state for _do_finish
+    app._state_map[app._fuel_gauge_pattern.format(slot=4)] = "370.0"
+
+    # Simulate 15 ticks — 3MF never arrives
+    for i in range(15):
+        app._run_in_calls.clear()
+        app._finish_wait_tick({})
+        if not app._finish_pending:
+            break
+
+    assert app._finish_pending is False
+    assert _has_log(app, "3MF_DATA_NOT_READY")
+    assert _has_log(app, "PRINT_FINISH_CAPTURED")
+    # RFID delta should have been processed
+    assert len(app._use_calls) == 1
+    assert app._use_calls[0]["spool_id"] == 10
+    assert abs(app._use_calls[0]["use_weight"] - 50.0) < 0.01
+
+
+def test_finish_second_event_cancels_pending():
+    """Second finish event cancels pending wait from first event."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+        args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
+    )
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    app._job_key = "test_cancel_001"
+    app._start_snapshot = {4: 420.0}
+    app.threemf_enabled = True
+    app._threemf_data = None
+
+    # First finish — starts waiting
+    app._on_print_finish("finish")
+    assert app._finish_pending is True
+    first_handle = app._finish_wait_handle
+
+    # Second finish — should cancel first wait
+    app._on_print_finish("finish")
+    assert first_handle in app._cancelled_timers, (
+        f"expected first timer {first_handle} to be cancelled"
+    )
+    assert _has_log(app, "FINISH_WAIT_CANCELLED")
