@@ -71,6 +71,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self.min_consumption_g = float(self.args.get("min_consumption_g", 2))
         self.max_consumption_g = float(self.args.get("max_consumption_g", 300))
         self.auto_empty_spools = bool(self.args.get("auto_empty_spools", False))
+        self.min_tray_active_seconds = float(self.args.get("min_tray_active_seconds", 10))
         self._seen_job_keys = self._load_seen_job_keys()
         self._ensure_data_dir()
 
@@ -700,7 +701,7 @@ class AmsPrintUsageSync(FilamentIQBase):
     def _on_print_start(self):
         """Phase 1 print start handler: job key, start snapshot, HA helpers."""
         task_name = str(self.get_state(self._task_name_entity) or "")
-        self._job_key = task_name.replace(" ", "_")
+        self._job_key = f"{task_name.replace(' ', '_')}_{int(time.time())}"
         self._start_snapshot = self._build_start_snapshot()
 
         # Write HA helpers (bridge for automation D)
@@ -796,7 +797,7 @@ class AmsPrintUsageSync(FilamentIQBase):
     # ── Phase 2: print finish lifecycle ──────────────────────────────
 
     _TERMINAL_STATES = frozenset({"finish", "finished", "completed", "failed", "error"})
-    _FAILED_STATES = frozenset({"failed", "error", "canceled"})
+    _FAILED_STATES = frozenset({"failed", "error", "canceled", "cancelled"})
 
     def _build_end_snapshot(self):
         """Read fuel gauge for slots present in start_snapshot. Returns {slot_int: grams}."""
@@ -859,6 +860,16 @@ class AmsPrintUsageSync(FilamentIQBase):
             print_weight_g = 0.0
 
         task_name = str(self.get_state(self._task_name_entity) or "")
+
+        # Filter brief tray activations (load/purge sequences < threshold)
+        filtered_trays = self._filter_trays_by_duration(self._trays_used)
+        if filtered_trays != self._trays_used:
+            removed = self._trays_used - filtered_trays
+            self.log(
+                f"TRAY_FILTER_REMOVED slots={removed} reason=below_{self.min_tray_active_seconds}s_threshold",
+                level="INFO",
+            )
+            self._trays_used = filtered_trays
 
         # Build data dict matching _handle_usage_event expectations
         data = {
@@ -996,6 +1007,30 @@ class AmsPrintUsageSync(FilamentIQBase):
             if total > 0:
                 result[slot] = round(total, 1)
         return result
+
+    def _filter_trays_by_duration(self, trays_used):
+        """Filter trays_used to only include slots with total active time >= threshold.
+
+        Brief activations during filament load/purge sequences (< min_tray_active_seconds)
+        are excluded to prevent phantom consumption tracking.
+        Slots with no recorded segments (e.g. seeded at start) are always kept.
+        """
+        if not self._tray_active_times:
+            return trays_used
+        filtered = set()
+        for slot in trays_used:
+            segments = self._tray_active_times.get(slot, [])
+            if not segments:
+                # No timing data — slot was seeded at start, keep it
+                filtered.add(slot)
+                continue
+            total = sum(
+                (s["end"] - s["start"]).total_seconds()
+                for s in segments if s.get("end") and s.get("start")
+            )
+            if total >= self.min_tray_active_seconds:
+                filtered.add(slot)
+        return filtered
 
     def _get_access_code(self):
         code = str(self.args.get("printer_access_code", "")).strip()

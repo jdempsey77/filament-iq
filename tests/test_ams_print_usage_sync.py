@@ -81,6 +81,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self.dry_run = bool(a.get("dry_run", False))
         self.min_consumption_g = float(a.get("min_consumption_g", 2))
         self.max_consumption_g = float(a.get("max_consumption_g", 300))
+        self.min_tray_active_seconds = float(a.get("min_tray_active_seconds", 10))
         self._seen_job_keys = OrderedDict()
         self._trays_used = set()
         self._tray_active_times = {}
@@ -687,3 +688,94 @@ def test_multi_nonrfid_slots_all_skipped():
     assert len(app._use_calls) == 0
     assert _has_log(app, "USAGE_NO_EVIDENCE slot=1")
     assert _has_log(app, "USAGE_NO_EVIDENCE slot=3")
+
+
+# ── F5: unique job key tests ─────────────────────────────────────────
+
+
+def test_job_key_includes_timestamp():
+    """Two prints of same file get different job keys (timestamp appended)."""
+    import time
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+        args={"lifecycle_phase1_enabled": True},
+    )
+    app._state_map[app._task_name_entity] = "test_model.3mf"
+    app._on_print_start()
+    key1 = app._job_key
+
+    # Advance time by at least 1 second to ensure different timestamp
+    time.sleep(1.1)
+    app._on_print_start()
+    key2 = app._job_key
+
+    assert key1 != key2, f"job keys should differ: {key1} == {key2}"
+    assert key1.startswith("test_model.3mf_")
+    assert key2.startswith("test_model.3mf_")
+
+
+# ── F10: cancelled variant tests ─────────────────────────────────────
+
+
+def test_cancelled_british_spelling_no_consumption():
+    """status='cancelled' (British spelling) → USAGE_SKIP_FAILED_PRINT."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 370.0}',
+          print_weight_g="50",
+          print_status="cancelled")
+
+    assert len(app._use_calls) == 0
+    assert _has_log(app, "USAGE_SKIP_FAILED_PRINT")
+    assert not _has_log(app, "USAGE_PATCHED")
+
+
+# ── F7: tray duration filter tests ───────────────────────────────────
+
+
+def test_brief_tray_activation_filtered():
+    """Tray active for < 10s is excluded from trays_used."""
+    import datetime
+    app = _TestableUsageSync(state_map=_default_state_map({2: 5, 4: 10}))
+
+    now = datetime.datetime.utcnow()
+    # Slot 2: brief activation (3 seconds)
+    app._tray_active_times[2] = [
+        {"start": now - datetime.timedelta(seconds=3), "end": now},
+    ]
+    # Slot 4: long activation (60 seconds)
+    app._tray_active_times[4] = [
+        {"start": now - datetime.timedelta(seconds=60), "end": now},
+    ]
+
+    result = app._filter_trays_by_duration({2, 4})
+    assert result == {4}, f"expected only slot 4, got {result}"
+
+
+def test_tray_with_no_segments_kept():
+    """Tray seeded at start (no segments) is always kept."""
+    app = _TestableUsageSync(state_map=_default_state_map({2: 5}))
+    app._tray_active_times = {}  # no timing data at all
+
+    result = app._filter_trays_by_duration({2})
+    assert result == {2}, "slot with no segments should be kept"
+
+
+def test_tray_multiple_segments_summed():
+    """Multiple short segments that sum above threshold are kept."""
+    import datetime
+    app = _TestableUsageSync(state_map=_default_state_map({3: 52}))
+
+    now = datetime.datetime.utcnow()
+    # Three segments: 4s + 4s + 4s = 12s (above 10s threshold)
+    app._tray_active_times[3] = [
+        {"start": now - datetime.timedelta(seconds=12), "end": now - datetime.timedelta(seconds=8)},
+        {"start": now - datetime.timedelta(seconds=7), "end": now - datetime.timedelta(seconds=3)},
+        {"start": now - datetime.timedelta(seconds=2), "end": now + datetime.timedelta(seconds=2)},
+    ]
+
+    result = app._filter_trays_by_duration({3})
+    assert result == {3}, f"12s total should pass 10s threshold, got {result}"
