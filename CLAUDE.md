@@ -89,6 +89,7 @@ You never skip gates. You never invent deployment steps. You never proceed past 
 | PHASE | Inline (you handle this) | None |
 | ROLLBACK | Inline (you handle this) | None |
 | REVIEW | Code Review Agent | None — read-only, always safe |
+| SECURITY AUDIT | Security Agent (full codebase) | None — read-only, always safe |
 | MONITOR | Monitor Agent | None — launches capture script |
 | MONITOR REPORT | Monitor Agent (analysis) | Monitor artifact must exist |
 
@@ -136,11 +137,15 @@ You never skip gates. You never invent deployment steps. You never proceed past 
 2. Run REVIEW on staged diff (three-reviewer code review — see `docs/agents/07_code_review_agent.md`)
    - If VERDICT is FAIL: **block commit**, output REVIEW REPORT, wait for user
    - If VERDICT is PASS: proceed (log any MEDIUM/LOW warnings)
-3. If PASS: `git add` relevant files + `git commit -m "[message]"`
-4. Output audit summary:
+3. Run SECURITY on staged diff (four-lens security scan — see `docs/agents/08_security_agent.md`)
+   - If VERDICT is FAIL: **block commit**, output SECURITY REPORT, wait for user
+   - If VERDICT is PASS: proceed (log any MEDIUM/LOW warnings)
+4. If all gates PASS: `git add` relevant files + `git commit -m "[message]"`
+5. Output audit summary:
    - FILES CHANGED:
    - COMMIT HASH:
    - REVIEW: PASS/FAIL (findings count)
+   - SECURITY: PASS/FAIL (findings count)
    - GATES PASSED:
    - NEXT ACTION:
 

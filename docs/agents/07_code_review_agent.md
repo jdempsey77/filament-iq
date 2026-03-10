@@ -123,5 +123,5 @@ When CHECKIN trigger fires:
    - Wait for user direction
 4. If VERDICT is **PASS**:
    - Log MEDIUM/LOW warnings in CHECKIN output table
-   - Proceed with git commit
+   - Proceed to step 3: SECURITY scan (see `docs/agents/08_security_agent.md`)
    - Include in CHECKIN output: `REVIEW: PASS (R1+R2+R3) — N findings (M medium, L low)`
