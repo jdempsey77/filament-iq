@@ -14,7 +14,7 @@ if [[ -z "${HOME_ASSISTANT_URL:-}" || -z "${HOME_ASSISTANT_TOKEN:-}" ]]; then
   exit 1
 fi
 
-helper_entity="${INPUT_TEXT_PREFLIGHT_ENTITY:-input_text.p1s_init_seed_debug}"
+helper_entity="${INPUT_TEXT_PREFLIGHT_ENTITY:-input_text.filament_iq_last_active_tray}"
 test_value="preflight-$(date +%s)"
 
 services_resp_file="$(mktemp)"
@@ -103,16 +103,18 @@ if [[ "$set_http" != "200" ]]; then
   exit 1
 fi
 
-sleep 1
+write_verified="NO"
+for attempt in 1 2 3; do
+  sleep 1
 
-state_after_http="$(
-  curl -s -o "$state_after_file" -w "%{http_code}" \
-    -H "Authorization: Bearer ${HOME_ASSISTANT_TOKEN}" \
-    "${HOME_ASSISTANT_URL}/api/states/${helper_entity}" || true
-)"
+  state_after_http="$(
+    curl -s -o "$state_after_file" -w "%{http_code}" \
+      -H "Authorization: Bearer ${HOME_ASSISTANT_TOKEN}" \
+      "${HOME_ASSISTANT_URL}/api/states/${helper_entity}" || true
+  )"
 
-new_value="$(
-  python3 - <<'PY' "$state_after_file"
+  new_value="$(
+    python3 - <<'PY' "$state_after_file"
 import json, sys
 try:
     data = json.load(open(sys.argv[1]))
@@ -120,9 +122,15 @@ try:
 except Exception:
     print("")
 PY
-)"
+  )"
 
-if [[ "$state_after_http" != "200" || "$new_value" != "$test_value" ]]; then
+  if [[ "$state_after_http" == "200" && "$new_value" == "$test_value" ]]; then
+    write_verified="YES"
+    break
+  fi
+done
+
+if [[ "$write_verified" != "YES" ]]; then
   echo "INPUT_TEXT_DOMAIN_PRESENT=YES INPUT_TEXT_WRITE_TEST=FAIL SERVICES_HTTP=${services_http} STATE_HTTP=${state_after_http}"
   exit 1
 fi

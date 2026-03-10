@@ -90,6 +90,35 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self._threemf_filename = None
         self.threemf_enabled = False
 
+        # Lifecycle phase flags (must mirror ams_print_usage_sync.py init)
+        self._lifecycle_phase1 = bool(a.get("lifecycle_phase1_enabled", False))
+        self._job_key = ""
+        self._start_snapshot = {}
+        self._fuel_gauge_pattern = str(
+            a.get("fuel_gauge_pattern", "sensor.p1s_tray_{slot}_fuel_gauge_remaining")
+        ).strip()
+        self._ams_remaining_pattern = str(
+            a.get("ams_remaining_pattern", "sensor.ams_slot_{slot}_remaining_g")
+        ).strip()
+        self._print_active_entity = str(
+            a.get("print_active_entity", "input_boolean.filament_iq_print_active")
+        ).strip()
+        self._job_key_entity = str(
+            a.get("job_key_entity", "input_text.filament_iq_active_job_key")
+        ).strip()
+        self._start_json_entity = str(
+            a.get("start_json_entity", "input_text.filament_iq_start_json")
+        ).strip()
+        self._lifecycle_phase2 = bool(a.get("lifecycle_phase2_enabled", False))
+        self._last_processed_job_key = ""
+        self._end_snapshot = {}
+        self._lifecycle_phase3 = bool(a.get("lifecycle_phase3_enabled", False))
+        self._last_swap_warn_time = None
+        self._startup_suppress_until = None
+        self._needs_reconcile_entity = str(
+            a.get("needs_reconcile_entity", "input_boolean.filament_iq_needs_reconcile")
+        ).strip()
+
     def initialize(self):
         pass
 

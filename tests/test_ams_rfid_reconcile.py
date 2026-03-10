@@ -2117,7 +2117,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
 
     def test_rfid_no_shelf_match_needs_action(self):
         """PHASE_2_5: RFID tag in tray but no spool at Shelf with that UID => UNBOUND_ACTION_REQUIRED, no bind, no create."""
-        from ams_rfid_reconcile import STATUS_UNBOUND_ACTION_REQUIRED
+        from filament_iq.ams_rfid_reconcile import STATUS_UNBOUND_ACTION_REQUIRED
         slot = 1
         tag = "AABBCCDD00112233"
         spools = [_spool(99, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000")]
