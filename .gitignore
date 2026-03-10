@@ -50,3 +50,4 @@ appdaemon/apps/data/
 appdaemon/apps/filament_iq/
 scripts/validate_filament_iq.sh
 scripts/manage_filament_iq.sh
+temp/
