@@ -88,6 +88,8 @@ You never skip gates. You never invent deployment steps. You never proceed past 
 | GUARDRAILS | Inline (you handle this) | None |
 | PHASE | Inline (you handle this) | None |
 | ROLLBACK | Inline (you handle this) | None |
+| MONITOR | Monitor Agent | None — launches capture script |
+| MONITOR REPORT | Monitor Agent (analysis) | Monitor artifact must exist |
 
 ---
 
