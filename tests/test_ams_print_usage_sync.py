@@ -56,6 +56,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self._state_map = state_map or {}
         self._log_calls = []
         self._use_calls = []
+        self._service_calls = []
         self._use_fail_spool_ids = set()
 
         # Build slot mappings from config (no hardcoded entities)
@@ -114,7 +115,6 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self._last_processed_job_key = ""
         self._end_snapshot = {}
         self._lifecycle_phase3 = bool(a.get("lifecycle_phase3_enabled", False))
-        self._last_swap_warn_time = None
         self._startup_suppress_until = None
         self._needs_reconcile_entity = str(
             a.get("needs_reconcile_entity", "input_boolean.filament_iq_needs_reconcile")
@@ -128,6 +128,15 @@ class _TestableUsageSync(AmsPrintUsageSync):
 
     def log(self, msg, level="INFO"):
         self._log_calls.append((msg, level))
+
+    def call_service(self, service, **kwargs):
+        self._service_calls.append({"service": service, **kwargs})
+
+    def listen_state(self, *a, **kw):
+        pass
+
+    def run_in(self, *a, **kw):
+        pass
 
     def get_state(self, entity_id, attribute=None):
         if attribute:
@@ -779,3 +788,27 @@ def test_tray_multiple_segments_summed():
 
     result = app._filter_trays_by_duration({3})
     assert result == {3}, f"12s total should pass 10s threshold, got {result}"
+
+
+# ── spool_id change during print — no notification ──────────────────
+
+
+def test_spool_id_change_during_print_no_notification():
+    """_on_spool_id_change during active print logs DEBUG only, no notification or needs_reconcile."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 16}),
+        args={"lifecycle_phase3_enabled": True},
+    )
+    app._print_active = True
+    app._startup_suppress_until = None
+
+    app._on_spool_id_change(
+        "input_text.ams_slot_4_spool_id", "state", "16", "0", {}
+    )
+
+    # Should log at DEBUG level, not WARNING
+    assert _has_log(app, "SPOOL_ID_CHANGED_DURING_PRINT")
+    debug_logs = [(m, l) for m, l in app._log_calls if "SPOOL_ID_CHANGED" in m]
+    assert all(l == "DEBUG" for _, l in debug_logs), f"expected DEBUG level, got {debug_logs}"
+    # No service calls (no notification, no needs_reconcile)
+    assert len(app._service_calls) == 0, f"expected no service calls, got {app._service_calls}"

@@ -144,7 +144,6 @@ class AmsPrintUsageSync(FilamentIQBase):
 
         # Phase 3: Debug logging, swap detection, rehydrate (absorbs automations E, F, G)
         self._lifecycle_phase3 = bool(self.args.get("lifecycle_phase3_enabled", False))
-        self._last_swap_warn_time = None
         self._startup_suppress_until = (
             datetime.datetime.utcnow() + datetime.timedelta(seconds=90)
             if self.args.get("lifecycle_phase3_enabled", False) else None
@@ -903,7 +902,7 @@ class AmsPrintUsageSync(FilamentIQBase):
     # ── Phase 3: debug logging, swap detection, rehydrate ──────────
 
     def _on_spool_id_change(self, entity, attribute, old, new, kwargs):
-        """Detect spool mapping changes during active print (replaces automation F)."""
+        """Log spool mapping changes during active print for diagnostics."""
         if not self._lifecycle_phase3:
             return
         if not self._print_active:
@@ -911,33 +910,14 @@ class AmsPrintUsageSync(FilamentIQBase):
         # Startup suppression
         if self._startup_suppress_until and datetime.datetime.utcnow() < self._startup_suppress_until:
             return
-        # Cooldown (5 minutes between warnings)
-        now = datetime.datetime.utcnow()
-        if self._last_swap_warn_time:
-            elapsed = (now - self._last_swap_warn_time).total_seconds()
-            if elapsed < 300:
-                return
-        self._last_swap_warn_time = now
+        # Log for diagnostics only — Bambu P1S does not support mid-print
+        # spool changes, so any spool_id helper change during print is a
+        # reconciler correction, not a physical swap.
         self.log(
-            f"SPOOL_SWAP_DURING_PRINT entity={entity} old={old} new={new}",
-            level="WARNING",
+            f"SPOOL_ID_CHANGED_DURING_PRINT entity={entity} old={old} "
+            f"new={new} (no action — reconciler correction, not physical swap)",
+            level="DEBUG",
         )
-        try:
-            self.call_service(
-                "input_boolean/turn_on",
-                entity_id=self._needs_reconcile_entity,
-            )
-        except Exception as e:
-            self.log(f"SWAP_DETECT: Failed to set needs_reconcile: {e}", level="WARNING")
-        try:
-            self.call_service(
-                "notify/persistent_notification",
-                title="P1S Spool Swap During Print Detected",
-                message=f"{entity} changed from {old} to {new} while print active. "
-                        f"Manual reconciliation may be required.",
-            )
-        except Exception as e:
-            self.log(f"SWAP_DETECT: Failed to notify: {e}", level="WARNING")
 
     def _rehydrate_print_state(self):
         """Restore print-active state if printer is mid-print (replaces automation G)."""
