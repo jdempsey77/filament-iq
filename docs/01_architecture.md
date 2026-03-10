@@ -47,10 +47,12 @@ Home Assistant:
 - UI
 - Service calls
 
-AppDaemon:
-- Deterministic reconciliation logic
-- Identity decisions
-- State transitions
+AppDaemon (all three lifecycle phases):
+- **Identity** — deterministic reconciliation, RFID + non-RFID matching, auto-enrollment
+- **Usage tracking** — print consumption via RFID delta + 3MF match, job dedup
+- **Weight sync** — Spoolman remaining weight updates, smart empty guard
+- Color sync on bind, filament weight tracking, Spoolman dropdown sync
+- Replaced 7 HA automations — all lifecycle logic now runs in AppDaemon
 
 Spoolman:
 - Canonical spool inventory

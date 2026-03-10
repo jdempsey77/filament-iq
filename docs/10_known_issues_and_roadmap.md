@@ -1,11 +1,33 @@
 # Current Maturity
 
-System is stable and deployed. Core reconciliation is hardened with full
-auto-enrollment for both RFID and non-RFID spools. All 6 slots resolve
+System is stable and deployed at v0.9.0. Core reconciliation is hardened with
+full auto-enrollment for both RFID and non-RFID spools. All 6 slots resolve
 automatically on first insert with zero manual intervention required for
-enrolled spools.
+enrolled spools. All three lifecycle phases (identity, usage tracking, weight
+sync) now run in AppDaemon — 7 HA automations replaced.
 
-Resolved since last update:
+## Version History
+
+### v0.9.0 — Pool_g Removal + Smart Empty Guard (2026-03-09)
+- Removed pool_g estimation — two write paths only: RFID delta + 3MF match
+- Smart Empty Guard prevents over-decrement on short/interrupted prints
+- Write-ahead dedup with `_last_processed_job_key` fix
+- 6 obsolete helpers removed (57/57 validated)
+
+### v0.8.0 — Native FTPS + 3MF Tier 2.75 (2026-03)
+- Native FTPS fetch via `ftplib.FTP_TLS` (replaced curl subprocess)
+- 3MF Tier 2.75 slot position matching for non-RFID slotss
+- Phantom consumption fixes (false usage on non-prints)
+
+### v0.7.1 — Reconciler Performance (2026-03)
+- Reconciler 26s → 0.4s (batch Spoolman fetch, eliminated serial API calls)
+
+### v0.7.0 — Sync Color on Bind (2026-03)
+- PATCHes filament `color_hex` on manual bind to match AMS tray-reported color
+- Fixes lot_sig mismatches and 3MF matching failures from Bambu preset colors
+
+## Resolved Since v0.6
+
 - RFID orientation mismatch (dual-chip tray_uuid instability) — resolved by v4
   lot_nr migration. tray_uuid is orientation-independent factory serial.
 - P8 lot_nr migration — complete. All identity stored in lot_nr. extra fields
@@ -27,6 +49,10 @@ Resolved since last update:
   90 seconds after AppDaemon restart to prevent false positives.
 - Data integrity — startup lot_nr patches removed. Duplicate lot_nr on spool 4
   cleaned up.
+- Sync color on bind — Spoolman filament color auto-PATCHed on manual assign.
+- Native FTPS — replaced curl subprocess with ftplib.FTP_TLS.
+- Pool_g removal — eliminated estimation-based write path, two paths only.
+- Phantom consumption — false usage events on non-print jobs eliminated.
 
 ---
 
@@ -36,8 +62,24 @@ Resolved since last update:
 |---|---|
 | Non-RFID color must match Bambu profile color | By design — Spoolman filament color_hex must match what Bambu reports for that filament_id profile, not the actual spool color |
 | Two non-RFID spools with identical type+filament_id+color → AMBIGUOUS_SIG | By design — requires manual bind via dashboard |
-| dry_run=True in ams_print_usage_sync | Flip after P1S_PRINT_USAGE_READY pipeline verified end-to-end |
+| 3MF_UNMATCHED for brief tray activations | Backlog — short tray activations during print may not match 3MF plate data |
 | Dashboard custom:mod-card not installed | Fixed for AMS Pro card. AMS HT card pending same fix. |
+
+---
+
+# Backlog
+
+## High Priority
+- Validate usage tracking end-to-end with real prints
+- Reference dashboard for OSS repo
+- 3MF_UNMATCHED handling for brief tray activations
+
+## Low Priority
+- 3MF fetch timing optimization
+- Dropdown label format in Spoolman sync
+- Clean up `input_number.filament_iq_start/end_slot_N_g` helpers
+- Phase 3: Portability
+- Phase 4: OSS Packaging
 
 ---
 
@@ -60,16 +102,21 @@ Sentinel short-circuit. Bambu vendor exclusion tightened.
   spools. Delete extra field definitions in Spoolman UI. Retire canonicalizer
   entirely. Update test suite to remove UUID/canonicalizer references.
 
-## Phase 2b — Print Pipeline
-- Verify P1S_PRINT_USAGE_READY pipeline end-to-end
-- Flip dry_run=false in ams_print_usage_sync
-- Validate consumption tracking after first real print
+## Phase 2b — Print Pipeline ✅
+- P1S_PRINT_USAGE_READY pipeline verified ✅
+- dry_run flipped to false ✅
+- Two write paths: RFID delta + 3MF match (pool_g removed) ✅
+- Write-ahead dedup with persisted seen_job_keys ✅
+- Smart Empty Guard ✅
+- Native FTPS fetch ✅
+- 3MF Tier 2.75 slot position matching ✅
 
 ## Phase 2c — Dashboard Polish
 - AMS HT card — fix custom:mod-card wrapper (same fix as AMS Pro)
 - Badge: sensor.ams_unbound_slot_count working, verify display
 - Tap behavior: bound slots no-op tap confirmed
 - Add spool quantity field to Add Spool dialog
+- Reference dashboard for OSS repo
 
 ## Phase 3 — Portability
 Multi-printer support. Config-driven slot maps. Externalise hardcoded entity names.

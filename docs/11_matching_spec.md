@@ -532,5 +532,5 @@ Until populated, matching falls back to vendor + material + fuzzy color. Generic
 | **P5** | Non-RFID matching improvements | ✅ COMPLETE | filament_id primary signal. Color tiebreaker. Sentinel short-circuit. |
 | **P6** | Three-tier waterfall | ✅ COMPLETE | Tier 2 AMS slot empty-confirmed. |
 | **P7** | Previous occupant clearing guard | ✅ COMPLETE | Prevents irreversible moves of in-use spools. |
-| **P8** | lot_nr identity migration (Spec v4) | **NEXT** | Replace all extra field identity with lot_nr. Retire rfid_tag_uid write path. Retire ha_spool_uuid. Free comment field. Update _build_tray_signature for lot_nr sig. Add migration fallback read paths. Patch spool 41. |
-| **P9** | Legacy field cleanup | After P8 verified | PATCH extra fields to null. Delete extra field definitions in Spoolman UI. Retire canonicalizer. Clear comment fields. Update test suite. See Legacy Field Cleanup task. |
+| **P8** | lot_nr identity migration (Spec v4) | ✅ COMPLETE | All identity stored in lot_nr. extra fields retired. canonicalizer migration-only. comment freed. RFID and non-RFID auto-enroll. |
+| **P9** | Legacy field cleanup | **NEXT** | PATCH extra fields to null. Delete extra field definitions in Spoolman UI. Retire canonicalizer entirely. Update test suite. |
