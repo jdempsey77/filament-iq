@@ -34,6 +34,18 @@ SCRIPTS_FILE="$REPO_ROOT/scripts.yaml"
 SCENES_FILE="$REPO_ROOT/scenes.yaml"
 GO2RTC_FILE="$REPO_ROOT/go2rtc.yaml"
 
+# Safe SSH/SCP wrappers: convert string SSH_OPTS to properly-quoted array arguments
+_do_ssh() {
+  local -a opts
+  read -ra opts <<< "${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
+  ssh "${opts[@]}" "$@"
+}
+_do_scp() {
+  local -a opts
+  read -ra opts <<< "${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
+  scp "${opts[@]}" "$@"
+}
+
 # Parse args
 TARGET="${1:-}"
 if [[ -z "$TARGET" || "$TARGET" == "--help" || "$TARGET" == "-h" ]]; then
@@ -319,28 +331,27 @@ deploy_appdaemon() {
   fi
   local slug="${APPDAEMON_ADDON_SLUG:-a0d7b954_appdaemon}"
   local remote_dir="/addon_configs/${slug}/apps"
-  local opts="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
-  if ! ssh $opts "$AD_SSH_TARGET" "mkdir -p $remote_dir/filament_iq"; then
+  if ! _do_ssh "$AD_SSH_TARGET" "mkdir -p $remote_dir/filament_iq"; then
     echo "Error: could not create remote dir $remote_dir on host." >&2
     return 1
   fi
   # Deploy only: apps.yaml config + filament_iq/ package (source of truth)
   echo "Deploying apps.yaml to $AD_SSH_TARGET:$remote_dir/"
-  if ! scp $opts "$apps_dir/apps.yaml" "$AD_SSH_TARGET:$remote_dir/apps.yaml"; then
+  if ! _do_scp "$apps_dir/apps.yaml" "$AD_SSH_TARGET:$remote_dir/apps.yaml"; then
     echo "Error: scp apps.yaml failed." >&2
     return 1
   fi
   echo "Deploying filament_iq/ package to $AD_SSH_TARGET:$remote_dir/"
-  if ! scp $opts -r "$apps_dir/filament_iq" "$AD_SSH_TARGET:$remote_dir/"; then
+  if ! _do_scp -r "$apps_dir/filament_iq" "$AD_SSH_TARGET:$remote_dir/"; then
     echo "Error: scp filament_iq/ failed." >&2
     return 1
   fi
   # Verify package landed
-  if ! ssh $opts "$AD_SSH_TARGET" "test -f $remote_dir/filament_iq/__init__.py"; then
+  if ! _do_ssh "$AD_SSH_TARGET" "test -f $remote_dir/filament_iq/__init__.py"; then
     echo "Error: filament_iq/__init__.py missing on remote after deploy." >&2
     return 1
   fi
-  if ! ssh $opts "$AD_SSH_TARGET" "ha apps restart '${slug}'"; then
+  if ! _do_ssh "$AD_SSH_TARGET" "ha apps restart '${slug}'"; then
     echo "Error: addon restart failed." >&2
     return 1
   fi
@@ -350,8 +361,7 @@ deploy_appdaemon() {
 
 restart_appdaemon() {
   local slug="${APPDAEMON_ADDON_SLUG:-a0d7b954_appdaemon}"
-  local opts="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
-  if ! ssh $opts "$AD_SSH_TARGET" "ha apps restart '${slug}'"; then
+  if ! _do_ssh "$AD_SSH_TARGET" "ha apps restart '${slug}'"; then
     echo "Error: AppDaemon addon restart failed." >&2
     return 1
   fi
@@ -457,7 +467,7 @@ if [[ "$TARGET" == "--check" ]]; then
 
       echo "=== Local stage vs HA stage (ui-lovelace-stage.yaml) ==="
       echo "Remote path: $SSH_USER@$SSH_HOST:${REMOTE_CONFIG}/ui-lovelace-stage.yaml"
-      if scp -q $SSH_OPTS "$SSH_USER@$SSH_HOST:${REMOTE_CONFIG}/ui-lovelace-stage.yaml" "$TMP_DIR/ha-stage.yaml" 2>/dev/null; then
+      if _do_scp -q "$SSH_USER@$SSH_HOST:${REMOTE_CONFIG}/ui-lovelace-stage.yaml" "$TMP_DIR/ha-stage.yaml" 2>/dev/null; then
         if diff -q "$STAGE_FILE" "$TMP_DIR/ha-stage.yaml" > /dev/null 2>&1; then
           echo "SAME"
         else
@@ -495,18 +505,18 @@ if [[ "$TARGET" == "--config" ]]; then
   SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
   REMOTE_PATH="${REMOTE_CONFIG_PATH%/}/configuration.yaml"
   echo "Deploying configuration.yaml to $SSH_USER@$SSH_HOST:$REMOTE_PATH"
-  scp $SSH_OPTS "$CONFIG_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_PATH"
+  _do_scp "$CONFIG_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_PATH"
   if [[ -f "$SCRIPTS_FILE" ]]; then
     echo "Deploying scripts.yaml to $SSH_USER@$SSH_HOST:${REMOTE_CONFIG_PATH%/}/scripts.yaml"
-    scp $SSH_OPTS "$SCRIPTS_FILE" "$SSH_USER@$SSH_HOST:${REMOTE_CONFIG_PATH%/}/scripts.yaml"
+    _do_scp "$SCRIPTS_FILE" "$SSH_USER@$SSH_HOST:${REMOTE_CONFIG_PATH%/}/scripts.yaml"
   fi
   if [[ -f "$SCENES_FILE" ]]; then
     echo "Deploying scenes.yaml to $SSH_USER@$SSH_HOST:${REMOTE_CONFIG_PATH%/}/scenes.yaml"
-    scp $SSH_OPTS "$SCENES_FILE" "$SSH_USER@$SSH_HOST:${REMOTE_CONFIG_PATH%/}/scenes.yaml"
+    _do_scp "$SCENES_FILE" "$SSH_USER@$SSH_HOST:${REMOTE_CONFIG_PATH%/}/scenes.yaml"
   fi
   if [[ -f "$REPO_ROOT/secrets.yaml" ]]; then
     echo "Deploying secrets.yaml to $SSH_USER@$SSH_HOST:${REMOTE_CONFIG_PATH%/}/secrets.yaml"
-    scp $SSH_OPTS "$REPO_ROOT/secrets.yaml" "$SSH_USER@$SSH_HOST:${REMOTE_CONFIG_PATH%/}/secrets.yaml"
+    _do_scp "$REPO_ROOT/secrets.yaml" "$SSH_USER@$SSH_HOST:${REMOTE_CONFIG_PATH%/}/secrets.yaml"
   fi
   echo "Done."
   if [[ "$VALIDATE_AFTER" -eq 1 ]]; then
@@ -537,7 +547,7 @@ if [[ "$TARGET" == "--automations" ]]; then
   SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
   REMOTE_PATH="${REMOTE_CONFIG_PATH%/}/automations.yaml"
   echo "Deploying automations.yaml to $SSH_USER@$SSH_HOST:$REMOTE_PATH"
-  scp $SSH_OPTS "$AUTOMATIONS_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_PATH"
+  _do_scp "$AUTOMATIONS_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_PATH"
   echo "Done."
   if [[ "$RESTART_AFTER" -eq 1 ]]; then
     do_restart
@@ -569,7 +579,7 @@ if [[ "$TARGET" == "--scripts" ]]; then
   SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
   REMOTE_PATH="${REMOTE_CONFIG_PATH%/}/scripts.yaml"
   echo "Deploying scripts.yaml to $SSH_USER@$SSH_HOST:$REMOTE_PATH"
-  scp $SSH_OPTS "$SCRIPTS_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_PATH"
+  _do_scp "$SCRIPTS_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_PATH"
   echo "Done."
   echo "Restart Home Assistant for script changes to take effect (or use --restart)."
   if [[ "$RESTART_AFTER" -eq 1 ]]; then
@@ -600,15 +610,15 @@ if [[ "$TARGET" == "--python_scripts" ]]; then
   SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
   REMOTE_PS="${REMOTE_CONFIG_PATH%/}/python_scripts"
   echo "Deploying python_scripts/ to $SSH_USER@$SSH_HOST:$REMOTE_PS"
-  ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" "mkdir -p $REMOTE_PS"
+  _do_ssh "$SSH_USER@$SSH_HOST" "mkdir -p $REMOTE_PS"
   for f in "$PYTHON_SCRIPTS_DIR"/*.py; do
     [[ -f "$f" ]] || continue
     fn=$(basename "$f")
-    scp $SSH_OPTS "$f" "$SSH_USER@$SSH_HOST:$REMOTE_PS/$fn"
+    _do_scp "$f" "$SSH_USER@$SSH_HOST:$REMOTE_PS/$fn"
     echo "  copied: $fn -> $REMOTE_PS/$fn"
   done
   echo "Remote $REMOTE_PS contents:"
-  ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" "ls -la $REMOTE_PS/"
+  _do_ssh "$SSH_USER@$SSH_HOST" "ls -la $REMOTE_PS/"
   echo "Done. Reload python_script integration in HA (Developer Tools -> YAML -> Python Scripts) if needed."
   exit 0
 fi
@@ -632,7 +642,7 @@ if [[ "$TARGET" == "--go2rtc" ]]; then
   SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
   REMOTE_GO2RTC_PATH="${REMOTE_GO2RTC_PATH:-${REMOTE_CONFIG_PATH%/}/go2rtc.yaml}"
   echo "Deploying go2rtc.yaml to $SSH_USER@$SSH_HOST:$REMOTE_GO2RTC_PATH"
-  scp $SSH_OPTS "$GO2RTC_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_GO2RTC_PATH"
+  _do_scp "$GO2RTC_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_GO2RTC_PATH"
   echo "Done."
   echo "Restart the go2rtc add-on (Settings → Add-ons → go2rtc → Restart) for changes to take effect."
   exit 0
@@ -655,25 +665,25 @@ if [[ "$TARGET" == "--all" ]]; then
 
   echo "=== Deploying all config and restarting ==="
   echo "Deploying configuration.yaml to $SSH_USER@$SSH_HOST:$REMOTE_BASE/configuration.yaml"
-  scp $SSH_OPTS "$CONFIG_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_BASE/configuration.yaml"
+  _do_scp "$CONFIG_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_BASE/configuration.yaml"
   if [[ -f "$SCRIPTS_FILE" ]]; then
     echo "Deploying scripts.yaml to $SSH_USER@$SSH_HOST:$REMOTE_BASE/scripts.yaml"
-    scp $SSH_OPTS "$SCRIPTS_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_BASE/scripts.yaml"
+    _do_scp "$SCRIPTS_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_BASE/scripts.yaml"
   fi
   if [[ -f "$SCENES_FILE" ]]; then
     echo "Deploying scenes.yaml to $SSH_USER@$SSH_HOST:$REMOTE_BASE/scenes.yaml"
-    scp $SSH_OPTS "$SCENES_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_BASE/scenes.yaml"
+    _do_scp "$SCENES_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_BASE/scenes.yaml"
   fi
   if [[ -f "$REPO_ROOT/secrets.yaml" ]]; then
     echo "Deploying secrets.yaml to $SSH_USER@$SSH_HOST:$REMOTE_BASE/secrets.yaml"
-    scp $SSH_OPTS "$REPO_ROOT/secrets.yaml" "$SSH_USER@$SSH_HOST:$REMOTE_BASE/secrets.yaml"
+    _do_scp "$REPO_ROOT/secrets.yaml" "$SSH_USER@$SSH_HOST:$REMOTE_BASE/secrets.yaml"
   fi
   echo "Deploying automations.yaml to $SSH_USER@$SSH_HOST:$REMOTE_BASE/automations.yaml"
-  scp $SSH_OPTS "$AUTOMATIONS_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_BASE/automations.yaml"
+  _do_scp "$AUTOMATIONS_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_BASE/automations.yaml"
   if [[ -f "$GO2RTC_FILE" ]]; then
     REMOTE_GO2RTC_PATH="${REMOTE_GO2RTC_PATH:-$REMOTE_BASE/go2rtc.yaml}"
     echo "Deploying go2rtc.yaml to $SSH_USER@$SSH_HOST:$REMOTE_GO2RTC_PATH"
-    scp $SSH_OPTS "$GO2RTC_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_GO2RTC_PATH"
+    _do_scp "$GO2RTC_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_GO2RTC_PATH"
   fi
   echo "Done deploying."
   do_restart
@@ -805,7 +815,7 @@ SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
 REMOTE_PATH="${REMOTE_CONFIG_PATH%/}/$REMOTE_NAME"
 
 echo "Deploying $(basename "$SOURCE_FILE") to $SSH_USER@$SSH_HOST:$REMOTE_PATH"
-scp $SSH_OPTS "$SOURCE_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_PATH"
+_do_scp "$SOURCE_FILE" "$SSH_USER@$SSH_HOST:$REMOTE_PATH"
 echo "Copy complete."
 if [[ "$TARGET" == "--stage" || "$TARGET" == "--stage-restart" ]]; then
   # Regenerate prod version for manual copy to HA main dashboard
