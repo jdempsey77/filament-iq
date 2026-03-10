@@ -58,6 +58,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self._use_calls = []
         self._service_calls = []
         self._use_fail_spool_ids = set()
+        self._use_remaining_override = {}  # {spool_id: remaining_weight} for mock responses
         self._run_in_calls = []
         self._cancelled_timers = []
 
@@ -164,12 +165,14 @@ class _TestableUsageSync(AmsPrintUsageSync):
                 f"use_weight={use_weight_g:.1f} error=simulated",
                 level="ERROR",
             )
-            return False
+            return None
         self._use_calls.append({
             "spool_id": spool_id,
             "use_weight": use_weight_g,
         })
-        return True
+        # Return mock Spoolman response with post-write remaining weight
+        remaining = self._use_remaining_override.get(spool_id, 100.0)
+        return {"id": spool_id, "remaining_weight": remaining}
 
     def _spoolman_get(self, path):
         """Mock: avoid real HTTP in tests. Return non-depleted spool."""
@@ -1012,3 +1015,77 @@ def test_finish_second_event_cancels_pending():
         f"expected first timer {first_handle} to be cancelled"
     )
     assert _has_log(app, "FINISH_WAIT_CANCELLED")
+
+
+# ── F1: smart empty guard — use POST-write remaining ─────────────────
+
+
+def test_spoolman_use_returns_spool_data():
+    """_spoolman_use mock returns dict with remaining_weight, not bool."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    result = app._spoolman_use(10, 5.0)
+    assert isinstance(result, dict), f"expected dict, got {type(result)}"
+    assert "remaining_weight" in result
+    assert result["id"] == 10
+
+
+def test_spoolman_use_returns_none_on_failure():
+    """_spoolman_use returns None when spool_id is in fail set."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._use_fail_spool_ids.add(10)
+    result = app._spoolman_use(10, 5.0)
+    assert result is None, f"expected None on failure, got {result}"
+
+
+def test_depleted_spool_detected_after_write():
+    """Post-write remaining <= 0 triggers USAGE_SPOOL_DEPLETED_SKIPPED (auto_empty disabled)."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+        args={"auto_empty_spools": False},
+    )
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    # Spool 10 will have -3g remaining after write
+    app._use_remaining_override[10] = -3.0
+
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 370.0}',
+          print_weight_g="50",
+          print_status="finish")
+
+    assert len(app._use_calls) == 1
+    assert _has_log(app, "USAGE_SPOOL_DEPLETED_SKIPPED")
+    assert _has_log(app, "reason=auto_empty_disabled")
+    assert _has_log(app, "remaining=-3.0")
+
+
+def test_depleted_spool_not_detected_with_stale_cache():
+    """Regression: depleted detection uses POST-write response, not stale cache.
+
+    spools_cache would show remaining=50 (pre-write), but the actual
+    _spoolman_use response shows remaining=-3 (post-write). Verify
+    the depleted guard fires based on the response, not the cache.
+    """
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+        args={"auto_empty_spools": False},
+    )
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    # _spoolman_use will return remaining=-3 (post-write truth)
+    # The stale cache (via _spoolman_get mock) returns remaining=100
+    # If code used stale cache, it would see 100 > 0 and NOT detect depletion
+    app._use_remaining_override[10] = -3.0
+
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 370.0}',
+          print_weight_g="50",
+          print_status="finish")
+
+    # MUST detect depletion from response, not miss it from stale cache
+    assert _has_log(app, "USAGE_SPOOL_DEPLETED_SKIPPED"), (
+        "depleted guard should fire using post-write remaining, not stale cache"
+    )
+    assert _has_log(app, "remaining=-3.0")

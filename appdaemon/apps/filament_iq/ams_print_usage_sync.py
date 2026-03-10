@@ -419,30 +419,30 @@ class AmsPrintUsageSync(FilamentIQBase):
                 patched += 1
                 continue
 
-            ok = self._spoolman_use(spool_id, consumption_g)
-            if ok:
+            use_result = self._spoolman_use(spool_id, consumption_g)
+            if use_result:
+                post_remaining = float(use_result.get("remaining_weight", 1))
                 self.log(
                     f"USAGE_PATCHED slot={slot} spool_id={spool_id} "
                     f"consumption_g={consumption_g:.2f} method={method} "
-                    f"job_key={job_key}",
+                    f"remaining={post_remaining:.1f} job_key={job_key}",
                     level="INFO",
                 )
                 patched += 1
                 try:
-                    spool_data = spools_cache.get(spool_id) or self._spoolman_get(f"/api/v1/spool/{spool_id}")
-                    if spool_data and float(
-                        spool_data.get("remaining_weight", 1)
-                    ) <= 0:
+                    if post_remaining <= 0:
                         if not self.auto_empty_spools:
                             self.log(
                                 f"USAGE_SPOOL_DEPLETED_SKIPPED slot={slot} "
-                                f"spool_id={spool_id} reason=auto_empty_disabled",
+                                f"spool_id={spool_id} remaining={post_remaining:.1f} "
+                                f"reason=auto_empty_disabled",
                                 level="INFO",
                             )
                         elif self._is_tray_physically_present(slot):
                             self.log(
                                 f"USAGE_SPOOL_DEPLETED_SKIPPED slot={slot} "
-                                f"spool_id={spool_id} reason=tray_still_occupied",
+                                f"spool_id={spool_id} remaining={post_remaining:.1f} "
+                                f"reason=tray_still_occupied",
                                 level="INFO",
                             )
                         else:
@@ -459,7 +459,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                             )
                             self.log(
                                 f"USAGE_SPOOL_DEPLETED slot={slot} spool_id={spool_id} "
-                                f"— moved to Empty",
+                                f"remaining={post_remaining:.1f} — moved to Empty",
                                 level="WARNING",
                             )
                 except Exception as e:
@@ -1555,6 +1555,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             return None
 
     def _spoolman_use(self, spool_id, use_weight_g):
+        """PUT /api/v1/spool/{id}/use — returns updated spool dict or None on failure."""
         url = f"{self.spoolman_base_url}/api/v1/spool/{spool_id}/use"
         payload = json.dumps(
             {"use_weight": round(use_weight_g, 2)}
@@ -1567,11 +1568,13 @@ class AmsPrintUsageSync(FilamentIQBase):
         )
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
-                return resp.status == 200
+                if resp.status == 200:
+                    return json.loads(resp.read().decode())
+                return None
         except Exception as exc:
             self.log(
                 f"USAGE_PATCH_FAILED spool_id={spool_id} "
                 f"use_weight={use_weight_g:.1f} error={exc}",
                 level="ERROR",
             )
-            return False
+            return None
