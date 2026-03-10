@@ -92,6 +92,7 @@ You never skip gates. You never invent deployment steps. You never proceed past 
 | SECURITY AUDIT | Security Agent (full codebase) | None — read-only, always safe |
 | MONITOR | Monitor Agent | None — launches capture script |
 | MONITOR REPORT | Monitor Agent (analysis) | Monitor artifact must exist |
+| DASHBOARD | Dashboard Agent | None — edits dashboard YAML only; config.yaml changes suggested |
 
 ---
 
@@ -106,6 +107,12 @@ You never skip gates. You never invent deployment steps. You never proceed past 
 ### Before routing to Documentation Agent:
 - Recommend (not require) that ANALYZE or DEPLOY output is available as input
 - If no prior output exists, ask user to confirm they want to document from scratch
+
+### Before routing to Dashboard Agent:
+- Always safe to route (dashboard YAML edits are non-destructive, reloadable)
+- If configuration.yaml changes are needed: Dashboard Agent produces a suggested patch, clearly marked "SUGGESTED — requires human review + HA restart"
+- Dashboard Agent never edits configuration.yaml directly
+- HA config tasks (non-AppDaemon) route to Dashboard Agent — see `docs/agents/09_dashboard_agent.md`
 
 ### ANALYZE routing:
 - Always safe to route
