@@ -1089,3 +1089,108 @@ def test_depleted_spool_not_detected_with_stale_cache():
         "depleted guard should fire using post-write remaining, not stale cache"
     )
     assert _has_log(app, "remaining=-3.0")
+
+
+# ── Fix: FTPS retry window tests ────────────────────────────────────
+
+def test_3mf_initial_fetch_delay_10s():
+    """3MF background fetch should be scheduled with 10s delay, not 5s."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({3: 39}),
+        args={"lifecycle_phase2_enabled": True},
+    )
+    app.threemf_enabled = True
+    # Simulate print start: old=idle, new=running
+    app._on_print_status_change(None, None, "idle", "running", {})
+    # Find the run_in call for _fetch_3mf_background
+    fetch_calls = [c for c in app._run_in_calls
+                   if c["callback"].__name__ == "_fetch_3mf_background"]
+    assert len(fetch_calls) >= 1, "expected _fetch_3mf_background to be scheduled"
+    assert fetch_calls[0]["delay"] == 10, (
+        f"expected 10s initial delay, got {fetch_calls[0]['delay']}s"
+    )
+
+
+def test_3mf_fetch_native_4_attempts():
+    """Native 3MF fetch should allow 4 attempts with retry_delays=[10, 30, 60]."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({3: 39}),
+        args={"lifecycle_phase2_enabled": True, "printer_access_code": "12345678"},
+    )
+    app.threemf_enabled = True
+    app.threemf_fetch_method = "native"
+    app.printer_ip = "127.0.0.1"  # Will fail fast (connection refused)
+    app.printer_ftps_port = 1  # Unreachable port for fast failure
+    # Attempt 3 will fail (no FTPS), should schedule attempt 4 with 60s delay
+    app._fetch_3mf_native({"attempt": 3})
+    # After attempt 3 (of 4 max), should schedule attempt 4
+    retry_calls = [c for c in app._run_in_calls
+                   if c.get("attempt") == 4]
+    assert len(retry_calls) == 1, (
+        f"expected attempt 4 to be scheduled after attempt 3; "
+        f"run_in_calls={app._run_in_calls}, logs={[m for m, _ in app._log_calls]}"
+    )
+    assert retry_calls[0]["delay"] == 60, (
+        f"expected 60s delay for attempt 4, got {retry_calls[0]['delay']}s"
+    )
+
+
+# ── Fix: unavailable/unknown skip consumption tests ─────────────────
+
+def test_unavailable_status_skips_consumption():
+    """Status 'unavailable' should be in _FAILED_STATES and skip consumption."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    _fire(app, print_status="unavailable")
+    assert len(app._use_calls) == 0, "unavailable should skip Spoolman write"
+    assert _has_log(app, "USAGE_SKIP_FAILED_PRINT")
+    assert _has_log(app, "status=unavailable")
+
+
+def test_unknown_status_skips_consumption():
+    """Status 'unknown' should be in _FAILED_STATES and skip consumption."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    _fire(app, print_status="unknown")
+    assert len(app._use_calls) == 0, "unknown should skip Spoolman write"
+    assert _has_log(app, "USAGE_SKIP_FAILED_PRINT")
+    assert _has_log(app, "status=unknown")
+
+
+def test_finish_status_still_writes_regression():
+    """Regression: status='finish' must still write consumption normally."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    _fire(app,
+          start_json='{"4": 420.0}',
+          end_json='{"4": 370.0}',
+          print_weight_g="50",
+          print_status="finish")
+    assert len(app._use_calls) == 1, "finish should write consumption"
+    assert _has_log(app, "USAGE_PATCHED")
+
+
+# ── Fix: offline WARNING log test ────────────────────────────────────
+
+def test_offline_status_logs_warning_and_writes():
+    """Status 'offline' should log FINISH_OFFLINE_STATE WARNING and still write."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({3: 39}),
+        args={"lifecycle_phase2_enabled": True},
+    )
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [3]))
+    app._lifecycle_phase2 = True
+    app._print_active = True
+    app._job_key = "test_offline_001"
+    app._start_snapshot = {3: 990.0}
+
+    # Simulate _do_finish with offline status
+    app._do_finish("offline")
+
+    # Should log the offline warning
+    assert any("FINISH_OFFLINE_STATE" in msg and level == "WARNING"
+               for msg, level in app._log_calls), (
+        "expected FINISH_OFFLINE_STATE WARNING log"
+    )
+    # Should still write consumption (offline is NOT in _FAILED_STATES)
+    assert _has_log(app, "PRINT_FINISH_CAPTURED")

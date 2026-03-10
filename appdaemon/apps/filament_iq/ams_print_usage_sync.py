@@ -565,7 +565,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 level="INFO",
             )
             if self.threemf_enabled:
-                self.run_in(self._fetch_3mf_background, 5)
+                self.run_in(self._fetch_3mf_background, 10)
             if self._lifecycle_phase1:
                 self._on_print_start()
             self.run_in(self._check_unbound_trays, 10)
@@ -800,7 +800,10 @@ class AmsPrintUsageSync(FilamentIQBase):
     # ── Phase 2: print finish lifecycle ──────────────────────────────
 
     _TERMINAL_STATES = frozenset({"finish", "finished", "completed", "failed", "error"})
-    _FAILED_STATES = frozenset({"failed", "error", "canceled", "cancelled"})
+    _FAILED_STATES = frozenset({
+        "failed", "error", "canceled", "cancelled",
+        "unavailable", "unknown",
+    })
 
     def _build_end_snapshot(self):
         """Read fuel gauge for slots present in start_snapshot. Returns {slot_int: grams}."""
@@ -933,6 +936,14 @@ class AmsPrintUsageSync(FilamentIQBase):
             f"end_snapshot={self._end_snapshot} status={status}",
             level="INFO",
         )
+
+        if status == "offline":
+            self.log(
+                f"FINISH_OFFLINE_STATE job_key={self._job_key} "
+                f"— printer went offline, assuming print completed, "
+                f"writing consumption. Manual verify recommended.",
+                level="WARNING",
+            )
 
         # Call usage handler directly (no event roundtrip)
         self._handle_usage_event(None, data, {})
@@ -1080,8 +1091,8 @@ class AmsPrintUsageSync(FilamentIQBase):
     def _fetch_3mf_native(self, kwargs):
         """Fetch 3MF via ftplib — single TLS handshake for list + download."""
         attempt = kwargs.get("attempt", 1)
-        max_attempts = 3
-        retry_delays = [10, 30]
+        max_attempts = 4
+        retry_delays = [10, 30, 60]
 
         if attempt == 1:
             self._threemf_data = None
@@ -1218,8 +1229,8 @@ class AmsPrintUsageSync(FilamentIQBase):
     def _fetch_3mf_curl(self, kwargs):
         """Fetch 3MF via curl subprocesses (legacy fallback)."""
         attempt = kwargs.get("attempt", 1)
-        max_attempts = 3
-        retry_delays = [10, 30]
+        max_attempts = 4
+        retry_delays = [10, 30, 60]
 
         if attempt == 1:
             self._threemf_data = None
