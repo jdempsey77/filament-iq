@@ -3,6 +3,9 @@
 # Fans are read-only (printer-controlled).
 # Power toggle requires confirmation. Air purifier has full control.
 # Prerequisites: mushroom cards, card-mod
+#
+# Color scheme: cyan = on/active, grey = off/inactive (uniform)
+# All cards use mushroom-template-card for consistent sizing.
 # ──────────────────────────────────────────────────────────────────────
 type: vertical-stack
 cards:
@@ -11,13 +14,14 @@ cards:
     columns: 3
     square: false
     cards:
-      - type: custom:mushroom-entity-card
+      - type: custom:mushroom-template-card
         entity: switch.officeoutlet01_3dprinter
-        name: Power
+        primary: Power
+        secondary: >-
+          {{ 'On' if is_state('switch.officeoutlet01_3dprinter', 'on') else 'Off' }}
         icon: mdi:power
         icon_color: >-
-          {% if is_state('switch.officeoutlet01_3dprinter', 'on') %}green
-          {% else %}red{% endif %}
+          {{ 'cyan' if is_state('switch.officeoutlet01_3dprinter', 'on') else 'grey' }}
         layout: vertical
         tap_action:
           action: toggle
@@ -29,9 +33,9 @@ cards:
           style: |
             ha-card {
               {% if is_state('switch.officeoutlet01_3dprinter', 'on') %}
-              background: rgba(76,175,80,0.08) !important;
+              background: rgba(0,188,212,0.08) !important;
               {% else %}
-              background: rgba(244,67,54,0.08) !important;
+              background: rgba(255,255,255,0.03) !important;
               {% endif %}
               box-shadow: none;
               border: 1px solid rgba(255,255,255,0.06) !important;
@@ -49,13 +53,14 @@ cards:
               font-size: 11px !important;
               color: #9ca3af !important;
             }
-      - type: custom:mushroom-entity-card
+      - type: custom:mushroom-template-card
         entity: light.p1s_01p00c5a3101668_chamber_light
-        name: Light
+        primary: Light
+        secondary: >-
+          {{ 'On' if is_state('light.p1s_01p00c5a3101668_chamber_light', 'on') else 'Off' }}
         icon: mdi:lightbulb
         icon_color: >-
-          {% if is_state('light.p1s_01p00c5a3101668_chamber_light', 'on') %}amber
-          {% else %}grey{% endif %}
+          {{ 'cyan' if is_state('light.p1s_01p00c5a3101668_chamber_light', 'on') else 'grey' }}
         layout: vertical
         tap_action:
           action: toggle
@@ -65,7 +70,7 @@ cards:
           style: |
             ha-card {
               {% if is_state('light.p1s_01p00c5a3101668_chamber_light', 'on') %}
-              background: rgba(255,191,0,0.08) !important;
+              background: rgba(0,188,212,0.08) !important;
               {% else %}
               background: rgba(255,255,255,0.03) !important;
               {% endif %}
@@ -104,9 +109,7 @@ cards:
           {% else %}mdi:wifi-strength-alert-outline{% endif %}
         icon_color: >-
           {% set rssi = states('sensor.p1s_01p00c5a3101668_wi_fi_signal') | int(0) %}
-          {% if rssi >= -60 %}green
-          {% elif rssi >= -70 %}orange
-          {% else %}red{% endif %}
+          {{ 'cyan' if rssi >= -70 else 'grey' }}
         layout: vertical
         tap_action:
           action: none
@@ -117,7 +120,12 @@ cards:
         card_mod:
           style: |
             ha-card {
+              {% set rssi = states('sensor.p1s_01p00c5a3101668_wi_fi_signal') | int(0) %}
+              {% if rssi >= -70 %}
+              background: rgba(0,188,212,0.08) !important;
+              {% else %}
               background: rgba(255,255,255,0.03) !important;
+              {% endif %}
               box-shadow: none;
               border: 1px solid rgba(255,255,255,0.06) !important;
               border-radius: 10px !important;
@@ -148,8 +156,7 @@ cards:
           {% else %}Off{% endif %}
         icon: mdi:fan
         icon_color: >-
-          {% if is_state('fan.p1s_01p00c5a3101668_chamber_fan', 'on') %}cyan
-          {% else %}grey{% endif %}
+          {{ 'cyan' if is_state('fan.p1s_01p00c5a3101668_chamber_fan', 'on') else 'grey' }}
         layout: vertical
         tap_action:
           action: none
@@ -193,8 +200,7 @@ cards:
           {% else %}Off{% endif %}
         icon: mdi:fan
         icon_color: >-
-          {% if is_state('fan.p1s_01p00c5a3101668_cooling_fan', 'on') %}cyan
-          {% else %}grey{% endif %}
+          {{ 'cyan' if is_state('fan.p1s_01p00c5a3101668_cooling_fan', 'on') else 'grey' }}
         layout: vertical
         tap_action:
           action: none
@@ -238,8 +244,7 @@ cards:
           {% else %}Off{% endif %}
         icon: mdi:fan
         icon_color: >-
-          {% if is_state('fan.p1s_01p00c5a3101668_aux_fan', 'on') %}cyan
-          {% else %}grey{% endif %}
+          {{ 'cyan' if is_state('fan.p1s_01p00c5a3101668_aux_fan', 'on') else 'grey' }}
         layout: vertical
         tap_action:
           action: none
@@ -280,13 +285,16 @@ cards:
     columns: 3
     square: false
     cards:
-      - type: custom:mushroom-entity-card
+      - type: custom:mushroom-template-card
         entity: fan.office_air_purifier
-        name: Purifier
+        primary: Purifier
+        secondary: >-
+          {% if is_state('fan.office_air_purifier', 'on') %}
+            {{ state_attr('fan.office_air_purifier', 'percentage') | int(0) }}%
+          {% else %}Off{% endif %}
         icon: mdi:air-filter
         icon_color: >-
-          {% if is_state('fan.office_air_purifier', 'on') %}cyan
-          {% else %}grey{% endif %}
+          {{ 'cyan' if is_state('fan.office_air_purifier', 'on') else 'grey' }}
         layout: vertical
         tap_action:
           action: toggle
@@ -359,8 +367,7 @@ cards:
           {% if is_state('binary_sensor.p1s_01p00c5a3101668_firmware_update', 'on') %}mdi:cellphone-arrow-down
           {% else %}mdi:check-circle-outline{% endif %}
         icon_color: >-
-          {% if is_state('binary_sensor.p1s_01p00c5a3101668_firmware_update', 'on') %}orange
-          {% else %}green{% endif %}
+          {{ 'cyan' if is_state('binary_sensor.p1s_01p00c5a3101668_firmware_update', 'on') else 'grey' }}
         layout: vertical
         tap_action:
           action: more-info
@@ -373,7 +380,7 @@ cards:
           style: |
             ha-card {
               {% if is_state('binary_sensor.p1s_01p00c5a3101668_firmware_update', 'on') %}
-              background: rgba(255,152,0,0.08) !important;
+              background: rgba(0,188,212,0.08) !important;
               {% else %}
               background: rgba(255,255,255,0.03) !important;
               {% endif %}
