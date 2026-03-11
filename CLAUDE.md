@@ -93,6 +93,7 @@ You never skip gates. You never invent deployment steps. You never proceed past 
 | MONITOR | Monitor Agent | None — launches capture script |
 | MONITOR REPORT | Monitor Agent (analysis) | Monitor artifact must exist |
 | DASHBOARD | Dashboard Agent | None — edits dashboard YAML only; config.yaml changes suggested |
+| RESEARCH | Research Agent | None — read-only, always safe |
 
 ---
 
@@ -113,6 +114,12 @@ You never skip gates. You never invent deployment steps. You never proceed past 
 - If configuration.yaml changes are needed: Dashboard Agent produces a suggested patch, clearly marked "SUGGESTED — requires human review + HA restart"
 - Dashboard Agent never edits configuration.yaml directly
 - HA config tasks (non-AppDaemon) route to Dashboard Agent — see `docs/agents/09_dashboard_agent.md`
+
+### RESEARCH routing:
+- Always safe to route (read-only, no edits)
+- Output is a structured RESEARCH REPORT with cited sources and confidence levels
+- Findings feed into other agents (Analyze, Dashboard, Orchestrator)
+- See `docs/agents/10_research_agent.md` for full spec
 
 ### ANALYZE routing:
 - Always safe to route

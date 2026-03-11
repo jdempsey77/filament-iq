@@ -70,6 +70,7 @@ See `CLAUDE.md` for the full routing table. Key triggers:
 | DEPLOY | Deploy Agent | No |
 | ANALYZE | Analyze Agent | No |
 | DASHBOARD | Dashboard Agent | No |
+| RESEARCH | Research Agent | No |
 
 ## HA Config Routing
 
@@ -81,3 +82,4 @@ Non-AppDaemon HA configuration tasks (Lovelace YAML, custom cards, template sens
 - `docs/agents/07_code_review_agent.md` — Three-reviewer spec, synthesis rules, domain invariants
 - `docs/agents/08_security_agent.md` — Four-lens security spec, severity levels, CHECKIN integration
 - `docs/agents/09_dashboard_agent.md` — Dashboard Agent spec, entity map, write access rules
+- `docs/agents/10_research_agent.md` — Research Agent spec, source reading, confidence levels
