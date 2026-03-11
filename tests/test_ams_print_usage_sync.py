@@ -1606,3 +1606,40 @@ def test_rfid_weight_reconcile_handles_spoolman_failure():
     assert len(app._patch_calls) == 0
     assert _has_log(app, "RFID_WEIGHT_RECONCILE_SKIP")
     assert _has_log(app, "spoolman_fetch_failed")
+
+
+def test_rfid_weight_reconcile_respects_dry_run():
+    """dry_run=True → no PATCH called, DRYRUN logged."""
+    app = _reconcile_app(remain=39, tray_weight=1000, spoolman_remaining=0.0)
+    app.dry_run = True
+    app._reconcile_rfid_weights()
+    assert len(app._patch_calls) == 0
+    assert _has_log(app, "RFID_WEIGHT_RECONCILE_DRYRUN slot=4 spool_id=10")
+    assert _has_log(app, "rfid=390.0g spoolman_was=0.0g")
+
+
+def test_rfid_weight_reconcile_skips_zero_tray_weight():
+    """tray_weight=0 → skip slot, no PATCH, no crash."""
+    app = _reconcile_app(remain=50, tray_weight=0, spoolman_remaining=0.0)
+    app._reconcile_rfid_weights()
+    assert len(app._patch_calls) == 0
+    assert not _has_log(app, "RFID_WEIGHT_RECONCILED")
+
+
+def test_rfid_weight_reconcile_skips_invalid_remain_negative():
+    """remain=-1 → skip slot, WARNING logged, no PATCH."""
+    app = _reconcile_app(remain=-1, tray_weight=1000, spoolman_remaining=0.0)
+    app._reconcile_rfid_weights()
+    assert len(app._patch_calls) == 0
+    assert _has_log(app, "RFID_WEIGHT_INVALID_REMAIN slot=4")
+
+
+def test_rfid_weight_reconcile_skips_invalid_remain_none():
+    """remain=None → skip slot, WARNING logged, no PATCH."""
+    app = _reconcile_app(remain=39, tray_weight=1000, spoolman_remaining=0.0)
+    # Override remain to None after _reconcile_app set it
+    entity = app._tray_entity_by_slot[4]
+    app._state_map[f"{entity}::remain"] = None
+    app._reconcile_rfid_weights()
+    assert len(app._patch_calls) == 0
+    assert _has_log(app, "RFID_WEIGHT_INVALID_REMAIN slot=4")

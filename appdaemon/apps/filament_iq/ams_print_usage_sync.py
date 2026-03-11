@@ -1596,59 +1596,86 @@ class AmsPrintUsageSync(FilamentIQBase):
         if not self._weight_reconcile_enabled:
             return
         for slot in sorted(self._tray_entity_by_slot.keys()):
-            if not self._is_rfid_slot(slot):
-                continue
-            spool_id = self._read_spool_id(slot)
-            if spool_id <= 0:
-                continue
-            entity = self._tray_entity_by_slot[slot]
             try:
-                remain = float(self.get_state(entity, attribute="remain") or 0)
-                tray_weight = float(self.get_state(entity, attribute="tray_weight") or 0)
-                remain_enabled = self.get_state(entity, attribute="remain_enabled")
+                self._reconcile_rfid_weight_slot(slot)
+            except Exception as exc:
+                self.log(
+                    f"RFID_WEIGHT_RECONCILE_SLOT_ERROR slot={slot}: {exc}",
+                    level="WARNING",
+                )
+
+    def _reconcile_rfid_weight_slot(self, slot):
+        """Reconcile a single slot's RFID weight against Spoolman."""
+        if not self._is_rfid_slot(slot):
+            return
+        spool_id = self._read_spool_id(slot)
+        if spool_id <= 0:
+            return
+        entity = self._tray_entity_by_slot[slot]
+        try:
+            remain_raw = self.get_state(entity, attribute="remain")
+            tray_weight = float(self.get_state(entity, attribute="tray_weight") or 0)
+            remain_enabled = self.get_state(entity, attribute="remain_enabled")
+        except (TypeError, ValueError):
+            return
+        if remain_enabled is False or str(remain_enabled).strip().lower() == "false":
+            return
+        if tray_weight <= 0:
+            return
+        # Validate remain value before calculation
+        if remain_raw is None or not isinstance(remain_raw, (int, float)):
+            try:
+                remain_raw = float(remain_raw)
             except (TypeError, ValueError):
-                continue
-            if remain_enabled is False or str(remain_enabled).strip().lower() == "false":
-                continue
-            if tray_weight <= 0:
-                continue
-            rfid_weight_g = round(remain / 100.0 * tray_weight, 1)
-            spool_data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
-            if spool_data is None:
                 self.log(
-                    f"RFID_WEIGHT_RECONCILE_SKIP slot={slot} spool_id={spool_id} "
-                    f"reason=spoolman_fetch_failed",
+                    f"RFID_WEIGHT_INVALID_REMAIN slot={slot} remain={remain_raw!r}",
                     level="WARNING",
                 )
-                continue
-            spoolman_weight_g = round(float(spool_data.get("remaining_weight", 0)), 1)
-            if rfid_weight_g == spoolman_weight_g:
-                self.log(
-                    f"RFID_WEIGHT_MATCH slot={slot} spool_id={spool_id} "
-                    f"rfid={rfid_weight_g}g",
-                    level="DEBUG",
-                )
-                continue
-            if self.dry_run:
-                self.log(
-                    f"RFID_WEIGHT_RECONCILE_DRYRUN slot={slot} spool_id={spool_id} "
-                    f"rfid={rfid_weight_g}g spoolman_was={spoolman_weight_g}g",
-                    level="INFO",
-                )
-                continue
-            result = self._spoolman_patch(spool_id, {"remaining_weight": rfid_weight_g})
-            if result is None:
-                self.log(
-                    f"RFID_WEIGHT_RECONCILE_FAILED slot={slot} spool_id={spool_id} "
-                    f"rfid={rfid_weight_g}g",
-                    level="WARNING",
-                )
-            else:
-                self.log(
-                    f"RFID_WEIGHT_RECONCILED slot={slot} spool_id={spool_id} "
-                    f"rfid={rfid_weight_g}g spoolman_was={spoolman_weight_g}g",
-                    level="INFO",
-                )
+                return
+        remain = float(remain_raw)
+        if remain < 0 or remain > 100:
+            self.log(
+                f"RFID_WEIGHT_INVALID_REMAIN slot={slot} remain={remain}",
+                level="WARNING",
+            )
+            return
+        rfid_weight_g = round(remain / 100.0 * tray_weight, 1)
+        spool_data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+        if spool_data is None:
+            self.log(
+                f"RFID_WEIGHT_RECONCILE_SKIP slot={slot} spool_id={spool_id} "
+                f"reason=spoolman_fetch_failed",
+                level="WARNING",
+            )
+            return
+        spoolman_weight_g = round(float(spool_data.get("remaining_weight", 0)), 1)
+        if rfid_weight_g == spoolman_weight_g:
+            self.log(
+                f"RFID_WEIGHT_MATCH slot={slot} spool_id={spool_id} "
+                f"rfid={rfid_weight_g}g",
+                level="DEBUG",
+            )
+            return
+        if self.dry_run:
+            self.log(
+                f"RFID_WEIGHT_RECONCILE_DRYRUN slot={slot} spool_id={spool_id} "
+                f"rfid={rfid_weight_g}g spoolman_was={spoolman_weight_g}g",
+                level="INFO",
+            )
+            return
+        result = self._spoolman_patch(spool_id, {"remaining_weight": rfid_weight_g})
+        if result is None:
+            self.log(
+                f"RFID_WEIGHT_RECONCILE_FAILED slot={slot} spool_id={spool_id} "
+                f"rfid={rfid_weight_g}g",
+                level="WARNING",
+            )
+        else:
+            self.log(
+                f"RFID_WEIGHT_RECONCILED slot={slot} spool_id={spool_id} "
+                f"rfid={rfid_weight_g}g spoolman_was={spoolman_weight_g}g",
+                level="INFO",
+            )
 
     def _spoolman_use(self, spool_id, use_weight_g):
         """PUT /api/v1/spool/{id}/use — returns updated spool dict or None on failure."""
