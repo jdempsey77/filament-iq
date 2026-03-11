@@ -904,7 +904,7 @@
       entity_id: input_boolean.filament_iq_print_active
       state: 'on'
     - condition: state
-      entity_id: input_boolean.appdaemon_startup_suppress_swap
+      entity_id: input_boolean.filament_iq_startup_suppress_swap
       state: 'off'
     # Only fire when printer is actually printing (avoid false positives when mutex is stale)
     - condition: or
@@ -934,17 +934,17 @@
         - appdaemon_startup
         - ams_rfid_reconcile_startup
     - platform: state
-      entity_id: input_boolean.appdaemon_startup_suppress_swap
+      entity_id: input_boolean.filament_iq_startup_suppress_swap
       to: 'on'
   action:
     - service: input_boolean.turn_on
       target:
-        entity_id: input_boolean.appdaemon_startup_suppress_swap
+        entity_id: input_boolean.filament_iq_startup_suppress_swap
     - delay:
         seconds: 90
     - service: input_boolean.turn_off
       target:
-        entity_id: input_boolean.appdaemon_startup_suppress_swap
+        entity_id: input_boolean.filament_iq_startup_suppress_swap
   mode: restart
 
 # Sync spool dropdown to bound spool when helper changes (reconciler or assign).
@@ -1305,7 +1305,7 @@
         {{ trigger.to_state.state | default('') not in
         ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] }}
     - condition: state
-      entity_id: input_boolean.appdaemon_startup_suppress_swap
+      entity_id: input_boolean.filament_iq_startup_suppress_swap
       state: 'off'
   actions:
     - variables:
