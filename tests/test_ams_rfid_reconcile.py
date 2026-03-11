@@ -29,14 +29,14 @@ if "hassapi" not in sys.modules:
     sys.modules["hassapi"] = _hassapi
 
 # Add appdaemon/apps to path
-_APPS = os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps")
+_APPS = os.path.join(os.path.dirname(__file__), "..", "apps")
 if _APPS not in sys.path:
     sys.path.insert(0, _APPS)
 
 from filament_iq.base import build_slot_mappings
 
 # Build default slot mappings for test fixtures (no hardcoded IPs/serials)
-_TEST_PREFIX = "p1s_01s00a0b1c2d3e4f"
+_TEST_PREFIX = "p1s_01p00c5a3101668"
 _TRAY_ENTITY_BY_SLOT, _, _, _CANONICAL_LOCATION_BY_SLOT = build_slot_mappings(
     _TEST_PREFIX
 )
@@ -211,7 +211,7 @@ class TestableReconcile(AmsRfidReconcile):
     """Reconcile with injected FakeSpoolman and state map."""
 
     def __init__(self, spoolman, state_map, ad=None, args=None, *rest, **k):
-        a = dict({"printer_serial": "01s00a0b1c2d3e4f", "spoolman_url": "http://192.0.2.1:7912"})
+        a = dict({"printer_serial": "01p00c5a3101668", "spoolman_url": "http://192.0.2.1:7912"})
         a.update(args or k.get("args", {}))
         super().__init__(ad, "test", None, a, None, None, None)
         self._spoolman = spoolman
@@ -342,7 +342,7 @@ class StartupWaiterHarness(AmsRfidReconcile):
     """Minimal harness to test _run_reconcile_startup; does not override _run_reconcile_startup."""
 
     def __init__(self, state_map, args=None):
-        a = dict({"printer_serial": "01s00a0b1c2d3e4f", "spoolman_url": "http://192.0.2.1:7912"})
+        a = dict({"printer_serial": "01p00c5a3101668", "spoolman_url": "http://192.0.2.1:7912"})
         a.update(args or {})
         super().__init__(None, "test", None, a, None, None, None)
         self._state_map = dict(state_map)
@@ -386,7 +386,7 @@ def _tray_entity(slot):
 class TestAmsRfidReconcile(unittest.TestCase):
     def setUp(self):
         self.args = {
-            "printer_serial": "01s00a0b1c2d3e4f",
+            "printer_serial": "01p00c5a3101668",
             "spoolman_url": "http://192.0.2.1:7912",
             "enabled": True,
             "debug_logs": False,
@@ -2117,7 +2117,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
 
     def test_rfid_no_shelf_match_needs_action(self):
         """PHASE_2_5: RFID tag in tray but no spool at Shelf with that UID => UNBOUND_ACTION_REQUIRED, no bind, no create."""
-        from ams_rfid_reconcile import STATUS_UNBOUND_ACTION_REQUIRED
+        from filament_iq.ams_rfid_reconcile import STATUS_UNBOUND_ACTION_REQUIRED
         slot = 1
         tag = "AABBCCDD00112233"
         spools = [_spool(99, remaining_weight=500, rfid_tag_uid=None, location="Shelf", color_hex="ff0000")]
@@ -3268,7 +3268,7 @@ class TestStartupWaiter(unittest.TestCase):
 # ── Parameterized non-RFID tests across all 6 slots ──
 
 _DEFAULT_ARGS = {
-    "printer_serial": "01s00a0b1c2d3e4f",
+    "printer_serial": "01p00c5a3101668",
     "spoolman_url": "http://192.0.2.1:7912",
     "enabled": True,
     "debug_logs": False,
@@ -4181,6 +4181,63 @@ def test_prev_occupant_skip_when_other_slot_tray_empty(slot):
         "must log PREV_OCCUPANT_MOVED (not skipped)"
     assert not any("PREV_OCCUPANT_SKIP" in msg for msg in logs), \
         "must NOT log PREV_OCCUPANT_SKIP when other slot tray is empty"
+
+
+class TestActiveRunResetOnFailure(unittest.TestCase):
+    """Verify _active_run is always reset after reconcile, even on exceptions."""
+
+    def setUp(self):
+        self.args = {
+            "printer_serial": "01p00c5a3101668",
+            "spoolman_url": "http://192.0.2.1:7912",
+            "enabled": True,
+            "debug_logs": False,
+            "nonrfid_enabled_entity": "input_boolean.filament_iq_nonrfid_enabled",
+        }
+
+    def test_active_run_reset_on_spoolman_failure(self):
+        """Spoolman returns bad data → _active_run must be None after, next run proceeds."""
+        sm = FakeSpoolman([], [])
+        state_map = _rfid_state_map(1, tag_uid="AABB")
+        r = TestableReconcile(sm, state_map, None, self.args)
+
+        # Poison Spoolman to return a string instead of a list
+        original_get = r._spoolman_get
+        r._spoolman_get = lambda path: "not_a_list"
+
+        r._run_reconcile("test_failure")
+        assert r._active_run is None, "_active_run must be reset after Spoolman failure"
+
+        # Restore and verify next run proceeds normally
+        r._spoolman_get = original_get
+        r._run_reconcile("test_recovery")
+        assert r._active_run is None, "_active_run must be reset after successful run"
+        assert r._last_summary is not None, "recovery run should produce a summary"
+
+    def test_active_run_reset_on_success(self):
+        """Normal reconcile cycle → _active_run is None after."""
+        sm = FakeSpoolman([], [])
+        state_map = _rfid_state_map(1, tag_uid="AABB")
+        r = TestableReconcile(sm, state_map, None, self.args)
+        r._run_reconcile("test_success")
+        assert r._active_run is None, "_active_run must be None after successful reconcile"
+
+    def test_reconcile_logs_error_on_exception(self):
+        """Unhandled exception during reconcile → RECONCILE_ERROR logged at ERROR level."""
+        sm = FakeSpoolman([], [])
+        state_map = _rfid_state_map(1, tag_uid="AABB")
+        r = TestableReconcile(sm, state_map, None, self.args)
+
+        # Poison Spoolman to raise an exception
+        def _raise_on_get(path):
+            raise ConnectionError("Spoolman unreachable")
+        r._spoolman_get = _raise_on_get
+
+        r._run_reconcile("test_exception")
+        assert r._active_run is None, "_active_run must be reset after exception"
+        error_logs = [(msg, lvl) for msg, lvl in r._log_calls if lvl == "ERROR" and "RECONCILE_ERROR" in msg]
+        assert len(error_logs) >= 1, "RECONCILE_ERROR must be logged at ERROR level"
+        assert "Spoolman unreachable" in error_logs[0][0], "exception message must appear in log"
 
 
 if __name__ == "__main__":

@@ -7,9 +7,12 @@ The 3MF is a ZIP containing Metadata/slice_info.config (XML) with:
 This module is pure utility — no AppDaemon or HA dependencies.
 """
 
+import ftplib
 import logging
 import os
 import re
+import socket
+import ssl
 import subprocess
 import unicodedata
 import urllib.parse
@@ -111,6 +114,123 @@ def color_distance(hex1, hex2):
 
 
 FTPS_SEARCH_DIRS = ["/cache", "/model", "/sdcard"]
+
+
+# ── Native ftplib transport (implicit TLS) ─────────────────────────────
+
+
+class ImplicitFTP_TLS(ftplib.FTP_TLS):
+    """FTP_TLS subclass for implicit TLS (port 990).
+
+    Standard ftplib.FTP_TLS uses explicit TLS (AUTH TLS after connect).
+    Bambu printers use implicit TLS where the connection is wrapped in
+    SSL/TLS from the start. This subclass overrides connect() to wrap
+    the socket immediately, and ntransfercmd() to handle TLS session
+    reuse on the data channel (required by Bambu's FTPS server).
+    """
+
+    def connect(self, host="", port=0, timeout=-999, source_address=None):
+        if host:
+            self.host = host
+        if port:
+            self.port = port
+        if timeout != -999:
+            self.timeout = timeout
+        if source_address is not None:
+            self.source_address = source_address
+
+        self.sock = socket.create_connection(
+            (self.host, self.port), self.timeout, self.source_address
+        )
+        self.af = self.sock.family
+        self.sock = self.context.wrap_socket(self.sock, server_hostname=self.host)
+        self.file = self.sock.makefile("r", encoding=self.encoding)
+        self.welcome = self.getresp()
+        return self.welcome
+
+    def ntransfercmd(self, cmd, rest=None):
+        """Override to reuse TLS session on the data channel.
+
+        Some FTP servers (including Bambu) require TLS session reuse —
+        the data channel must present the same TLS session as the control
+        channel. Without this, RETR commands hang waiting for the server
+        to accept the data connection.
+        """
+        conn, size = ftplib.FTP.ntransfercmd(self, cmd, rest)
+        if self._prot_p:
+            # Reuse the control channel's TLS session on the data socket
+            conn = self.context.wrap_socket(
+                conn,
+                server_hostname=self.host,
+                session=self.sock.session,
+            )
+        return conn, size
+
+
+def ftps_connect(printer_ip, access_code, port=990, timeout=15):
+    """Establish a persistent implicit-TLS FTPS connection to the printer.
+
+    Returns a connected ImplicitFTP_TLS instance, logged in as bblp,
+    with data channel protection enabled (PROT P).
+    """
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE  # Bambu uses self-signed cert
+
+    ftp = ImplicitFTP_TLS(context=ctx)
+    ftp.connect(printer_ip, port, timeout=timeout)
+    ftp.login("bblp", access_code)
+    ftp.prot_p()
+    return ftp
+
+
+def ftps_list_cache_native(ftp_conn, search_dirs=None):
+    """List .3mf files using an existing FTP connection.
+
+    Searches directories in order, returns (files, directory) on first hit.
+    Single TLS session — no extra handshake per directory.
+    """
+    if search_dirs is None:
+        search_dirs = FTPS_SEARCH_DIRS
+    for directory in search_dirs:
+        try:
+            raw_list = ftp_conn.nlst(directory)
+            # nlst may return full paths (/cache/file.3mf) or just filenames
+            files = []
+            for entry in raw_list:
+                basename = entry.rsplit("/", 1)[-1] if "/" in entry else entry
+                if basename.lower().endswith(".3mf"):
+                    files.append(basename)
+            if files:
+                logger.info(f"FTPS_NATIVE found {len(files)} .3mf file(s) in {directory}")
+                return files, directory
+        except ftplib.error_perm as e:
+            logger.debug(f"FTPS_NATIVE list {directory}: {e}")
+            continue
+    return [], None
+
+
+def ftps_download_native(ftp_conn, remote_dir, remote_filename, local_path):
+    """Download a file using an existing FTP connection.
+
+    Uses RETR on the same TLS session — no extra handshake.
+    Returns local_path on success, None on failure.
+    """
+    dir_path = remote_dir.rstrip("/")
+    remote_path = f"{dir_path}/{remote_filename}"
+    try:
+        with open(local_path, "wb") as f:
+            ftp_conn.retrbinary(f"RETR {remote_path}", f.write)
+        if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+            return local_path
+        logger.warning("FTPS_NATIVE_DOWNLOAD empty file for '%s'", remote_filename)
+        return None
+    except (ftplib.error_perm, ftplib.error_temp, OSError) as e:
+        logger.warning("FTPS_NATIVE_DOWNLOAD_FAILED file='%s' error=%s", remote_filename, e)
+        return None
+
+
+# ── Legacy curl-based transport (fallback) ─────────────────────────────
 
 
 def ftps_list_dir(printer_ip, access_code, directory="/cache", port=990, timeout=15):
@@ -385,6 +505,17 @@ def match_filaments_to_slots(filaments, slot_data, trays_used=None):
                     best_method = "lot_nr_color_material"
                     best_distance = 0.0
                     break
+
+        # Tier 2.75: slot_position_material — filament index maps to AMS slot
+        if best_slot is None:
+            position_slot = fil["index"]
+            if (
+                position_slot in available_slots
+                and position_slot not in used_slots
+                and _materials_match(available_slots[position_slot]["material"], fil_material)
+            ):
+                best_slot = position_slot
+                best_method = "slot_position_material"
 
         if best_slot is None:
             material_candidates = [

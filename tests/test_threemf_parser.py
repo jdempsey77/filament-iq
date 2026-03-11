@@ -11,7 +11,7 @@ import zipfile
 import pytest
 
 sys.path.insert(
-    0, os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps")
+    0, os.path.join(os.path.dirname(__file__), "..", "apps")
 )
 
 from filament_iq.threemf_parser import (
@@ -681,6 +681,69 @@ class TestFallbackChainLogic:
         matches, unmatched = match_filaments_to_slots(filaments, slot_data)
         assert len(matches) == 0
         assert len(unmatched) == 1
+
+    def test_slot_position_material_match_wrong_color(self):
+        """Filament index 2 with wrong color but matching material → slot_position_material."""
+        filaments = [
+            {"index": 2, "used_g": 2.84, "color_hex": "ff6a13", "material": "pla"},
+        ]
+        slot_data = {
+            1: {"color_hex": "00ae42", "material": "pla", "spool_id": 41},
+            2: {"color_hex": "bac4c4", "material": "pla", "spool_id": 47},
+            3: {"color_hex": "000000", "material": "pla", "spool_id": 52},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data)
+        assert len(matches) == 1
+        assert matches[0]["slot"] == 2
+        assert matches[0]["spool_id"] == 47
+        assert matches[0]["method"] == "slot_position_material"
+        assert len(unmatched) == 0
+
+    def test_slot_position_material_wrong_material_no_match(self):
+        """Filament index 2 with wrong color AND wrong material → no match."""
+        filaments = [
+            {"index": 2, "used_g": 2.84, "color_hex": "ff6a13", "material": "petg"},
+        ]
+        slot_data = {
+            1: {"color_hex": "00ae42", "material": "pla", "spool_id": 41},
+            2: {"color_hex": "bac4c4", "material": "pla", "spool_id": 47},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data)
+        assert len(matches) == 0
+        assert len(unmatched) == 1
+
+    def test_slot_position_not_reached_when_color_matches(self):
+        """Filament index 2 with correct color → exact_color_material wins (tier 1)."""
+        filaments = [
+            {"index": 2, "used_g": 2.84, "color_hex": "bac4c4", "material": "pla"},
+        ]
+        slot_data = {
+            1: {"color_hex": "00ae42", "material": "pla", "spool_id": 41},
+            2: {"color_hex": "bac4c4", "material": "pla", "spool_id": 47},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data)
+        assert len(matches) == 1
+        assert matches[0]["slot"] == 2
+        assert matches[0]["method"] == "exact_color_material"
+
+    def test_multi_filament_mixed_color_and_position_match(self):
+        """Two filaments: one matches by color (tier 1), one by position (tier 2.75)."""
+        filaments = [
+            {"index": 1, "used_g": 5.0, "color_hex": "00ae42", "material": "pla"},
+            {"index": 2, "used_g": 2.84, "color_hex": "ff6a13", "material": "pla"},
+        ]
+        slot_data = {
+            1: {"color_hex": "00ae42", "material": "pla", "spool_id": 41},
+            2: {"color_hex": "bac4c4", "material": "pla", "spool_id": 47},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data)
+        assert len(matches) == 2
+        assert len(unmatched) == 0
+        by_slot = {m["slot"]: m for m in matches}
+        assert by_slot[1]["method"] == "exact_color_material"
+        assert by_slot[1]["spool_id"] == 41
+        assert by_slot[2]["method"] == "slot_position_material"
+        assert by_slot[2]["spool_id"] == 47
 
     def test_3mf_overrides_rfid_fuel_gauge(self):
         threemf_g = 1.29
