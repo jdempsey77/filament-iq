@@ -1515,3 +1515,31 @@
     # Auto-populate Add Spool filament dropdown
     - service: script.refresh_filament_dropdown
       data: {}
+- id: '1741654800000'
+  alias: HA Restart Watchdog
+  description: Detects HA restarts and sends notification with timestamp
+  trigger:
+  - platform: homeassistant
+    event: start
+  condition: []
+  action:
+  - delay:
+      seconds: 10
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.ha_last_restart_time
+    data:
+      value: "{{ now().isoformat() }}"
+  - action: persistent_notification.create
+    data:
+      title: "Home Assistant Restarted"
+      message: >
+        HA restarted at {{ now().strftime('%Y-%m-%d %H:%M:%S') }}
+
+        Check logs: Settings > System > Logs
+      notification_id: ha_restart_watchdog
+  - action: notify.notify
+    data:
+      title: "HA Restarted"
+      message: "HA restarted at {{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+  mode: single
