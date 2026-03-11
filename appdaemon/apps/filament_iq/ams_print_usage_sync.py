@@ -234,13 +234,22 @@ class AmsPrintUsageSync(FilamentIQBase):
         task_name = str(data.get("task_name", "")).strip()
         print_status = str(data.get("print_status", "")).strip().lower()
 
-        # ── Fix 1: skip failed/cancelled prints ──
+        # ── Tier 1: hard failures — skip entirely (no writes) ──
         if print_status in self._FAILED_STATES:
             self.log(
                 f"USAGE_SKIP_FAILED_PRINT job_key={job_key} status={print_status}",
                 level="INFO",
             )
             return
+
+        # ── Tier 2: non-success — suppress 3MF, allow RFID delta ──
+        if print_status not in self._SUCCESS_STATES:
+            self.log(
+                f"3MF_SUPPRESSED_NON_SUCCESS status={print_status} "
+                f"job_key={job_key} — falling back to RFID delta only",
+                level="WARNING",
+            )
+            self._threemf_data = None
 
         try:
             print_weight_g = float(data.get("print_weight_g", 0))
@@ -487,7 +496,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         )
 
         job_label = task_name.replace(".gcode.3mf", "").replace(".3mf", "").strip()
-        lines = [f"Job: {job_label}", f"Status: {print_status}", ""]
+        lines = [f"Job: {job_label} [{job_key}]", f"Status: {print_status}", ""]
         for slot, spool_id, consumption_g, method in all_results:
             spool_name = self._get_spool_display_name(spool_id, spools_cache=spools_cache)
             remaining = self._get_spool_remaining(spool_id, spools_cache=spools_cache)
@@ -799,11 +808,8 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     # ── Phase 2: print finish lifecycle ──────────────────────────────
 
-    _TERMINAL_STATES = frozenset({"finish", "finished", "completed", "failed", "error"})
-    _FAILED_STATES = frozenset({
-        "failed", "error", "canceled", "cancelled",
-        "unavailable", "unknown",
-    })
+    _SUCCESS_STATES = frozenset({"finish"})
+    _FAILED_STATES = frozenset({"failed", "error"})
 
     def _build_end_snapshot(self):
         """Read fuel gauge for slots present in start_snapshot. Returns {slot_int: grams}."""
@@ -940,8 +946,8 @@ class AmsPrintUsageSync(FilamentIQBase):
         if status == "offline":
             self.log(
                 f"FINISH_OFFLINE_STATE job_key={self._job_key} "
-                f"— printer went offline, assuming print completed, "
-                f"writing consumption. Manual verify recommended.",
+                f"— printer went offline, 3MF suppressed, "
+                f"RFID delta only. Manual verify recommended.",
                 level="WARNING",
             )
 

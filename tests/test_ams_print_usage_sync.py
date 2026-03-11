@@ -302,7 +302,7 @@ def test_nonrfid_slot_no_evidence_skipped():
 
 
 def test_cancelled_before_start_no_write():
-    """status=canceled → USAGE_SKIP_FAILED_PRINT (failed guard fires first), no Spoolman call."""
+    """status=canceled (phantom) → 3MF suppressed, no start data → no writes."""
     app = _TestableUsageSync(
         state_map=_default_state_map({4: 10}),
     )
@@ -312,7 +312,7 @@ def test_cancelled_before_start_no_write():
           print_status="canceled")
 
     assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_SKIP_FAILED_PRINT")
+    assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
 
 
 def test_dedup_second_event_skipped():
@@ -591,7 +591,7 @@ def test_failed_print_no_consumption():
 
 
 def test_canceled_print_no_consumption():
-    """status=canceled → USAGE_SKIP_FAILED_PRINT, no Spoolman writes."""
+    """status=canceled → 3MF suppressed, RFID delta still allowed (no RFID here → no writes)."""
     app = _TestableUsageSync(state_map=_default_state_map({3: 52}))
     _fire(app,
           trays_used="3",
@@ -601,7 +601,7 @@ def test_canceled_print_no_consumption():
           print_status="canceled")
 
     assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_SKIP_FAILED_PRINT")
+    assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
 
 
 def test_error_print_no_consumption():
@@ -741,8 +741,8 @@ def test_job_key_includes_timestamp():
 # ── F10: cancelled variant tests ─────────────────────────────────────
 
 
-def test_cancelled_british_spelling_no_consumption():
-    """status='cancelled' (British spelling) → USAGE_SKIP_FAILED_PRINT."""
+def test_cancelled_british_spelling_suppresses_3mf():
+    """status='cancelled' (phantom) → 3MF suppressed, RFID delta allowed."""
     app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
     app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
     _fire(app,
@@ -752,9 +752,10 @@ def test_cancelled_british_spelling_no_consumption():
           print_weight_g="50",
           print_status="cancelled")
 
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_SKIP_FAILED_PRINT")
-    assert not _has_log(app, "USAGE_PATCHED")
+    # RFID delta: 420 - 370 = 50g → should write via rfid_delta
+    assert len(app._use_calls) == 1
+    assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
+    assert _has_log(app, "USAGE_RFID")
 
 
 # ── F7: tray duration filter tests ───────────────────────────────────
@@ -1137,23 +1138,22 @@ def test_3mf_fetch_native_4_attempts():
 
 # ── Fix: unavailable/unknown skip consumption tests ─────────────────
 
-def test_unavailable_status_skips_consumption():
-    """Status 'unavailable' should be in _FAILED_STATES and skip consumption."""
+def test_unavailable_status_suppresses_3mf_allows_rfid():
+    """Status 'unavailable' → 3MF suppressed, RFID delta path still runs."""
     app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
     app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
     _fire(app, print_status="unavailable")
-    assert len(app._use_calls) == 0, "unavailable should skip Spoolman write"
-    assert _has_log(app, "USAGE_SKIP_FAILED_PRINT")
+    # RFID delta: 420 - 110 = 310g → exceeds max_consumption_g (300) → sanity cap
+    assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
     assert _has_log(app, "status=unavailable")
 
 
-def test_unknown_status_skips_consumption():
-    """Status 'unknown' should be in _FAILED_STATES and skip consumption."""
+def test_unknown_status_suppresses_3mf_allows_rfid():
+    """Status 'unknown' → 3MF suppressed, RFID delta path still runs."""
     app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
     app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
     _fire(app, print_status="unknown")
-    assert len(app._use_calls) == 0, "unknown should skip Spoolman write"
-    assert _has_log(app, "USAGE_SKIP_FAILED_PRINT")
+    assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
     assert _has_log(app, "status=unknown")
 
 
@@ -1172,8 +1172,8 @@ def test_finish_status_still_writes_regression():
 
 # ── Fix: offline WARNING log test ────────────────────────────────────
 
-def test_offline_status_logs_warning_and_writes():
-    """Status 'offline' should log FINISH_OFFLINE_STATE WARNING and still write."""
+def test_offline_status_logs_warning_and_suppresses_3mf():
+    """Status 'offline' should log FINISH_OFFLINE_STATE WARNING and suppress 3MF."""
     app = _TestableUsageSync(
         state_map=_default_state_map({3: 39}),
         args={"lifecycle_phase2_enabled": True},
@@ -1192,5 +1192,117 @@ def test_offline_status_logs_warning_and_writes():
                for msg, level in app._log_calls), (
         "expected FINISH_OFFLINE_STATE WARNING log"
     )
-    # Should still write consumption (offline is NOT in _FAILED_STATES)
+    # Should still run (RFID delta), but 3MF is suppressed
     assert _has_log(app, "PRINT_FINISH_CAPTURED")
+    assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
+
+
+# ── SUCCESS_STATES allowlist tests ────────────────────────────────────
+
+def test_success_state_writes_3mf():
+    """status='finish' with 3MF data → 3MF path executes normally."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    app.threemf_enabled = True
+    app._threemf_data = [{"index": 0, "used_g": 42.5, "color_hex": "#FFFFFF",
+                          "material": "PLA", "name": "PLA White"}]
+    app._threemf_filename = "test_model.3mf"
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 377.5}',
+          print_weight_g="42.5",
+          print_status="finish")
+    assert _has_log(app, "USAGE_3MF") or _has_log(app, "3MF_MATCH"), \
+        "finish status should allow 3MF path"
+    assert not _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
+
+
+def test_non_success_suppresses_3mf_allows_rfid():
+    """status='offline' with RFID data → 3MF suppressed, RFID delta written."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    app.threemf_enabled = True
+    app._threemf_data = [{"index": 0, "used_g": 42.5, "color_hex": "#FFFFFF",
+                          "material": "PLA", "name": "PLA White"}]
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 395.0}',
+          print_weight_g="42.5",
+          print_status="offline")
+    assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
+    # RFID delta: 420 - 395 = 25g → should write via rfid_delta
+    assert len(app._use_calls) == 1, "RFID delta should still write"
+    assert _has_log(app, "USAGE_RFID")
+    assert not _has_log(app, "USAGE_3MF")
+
+
+def test_failed_state_skips_entirely():
+    """status='failed' → USAGE_SKIP_FAILED_PRINT, no RFID delta, no 3MF, no writes."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    app.threemf_enabled = True
+    app._threemf_data = [{"index": 0, "used_g": 42.5, "color_hex": "#FFFFFF",
+                          "material": "PLA", "name": "PLA White"}]
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 395.0}',
+          print_weight_g="42.5",
+          print_status="failed")
+    assert len(app._use_calls) == 0, "failed should skip entirely"
+    assert _has_log(app, "USAGE_SKIP_FAILED_PRINT")
+    assert not _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
+    assert not _has_log(app, "USAGE_RFID")
+    assert not _has_log(app, "USAGE_3MF")
+
+
+def test_phantom_states_never_needed():
+    """Phantom values 'cancelled', 'finished', 'completed', 'unavailable' are not in any state set."""
+    from filament_iq.ams_print_usage_sync import AmsPrintUsageSync
+    phantoms = {"cancelled", "finished", "completed", "unavailable"}
+    for p in phantoms:
+        assert p not in AmsPrintUsageSync._SUCCESS_STATES, \
+            f"phantom '{p}' should not be in _SUCCESS_STATES"
+        assert p not in AmsPrintUsageSync._FAILED_STATES, \
+            f"phantom '{p}' should not be in _FAILED_STATES"
+
+
+def test_job_key_in_notification():
+    """Notification message includes job_key."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    _fire(app,
+          job_key="notify_test_key_42",
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 370.0}',
+          print_weight_g="50",
+          print_status="finish")
+    # Check that any service call message contains the job_key
+    notif_calls = [c for c in app._service_calls if "notify" in c.get("service", "")]
+    assert len(notif_calls) > 0, "expected a notification service call"
+    msg = notif_calls[0].get("message", "")
+    assert "notify_test_key_42" in msg, \
+        f"expected job_key in notification message, got: {msg}"
+
+
+def test_unknown_state_suppresses_3mf_allows_rfid():
+    """status='unknown' with RFID data → 3MF suppressed, RFID delta written."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    app.threemf_enabled = True
+    app._threemf_data = [{"index": 0, "used_g": 100.0, "color_hex": "#000000",
+                          "material": "PLA", "name": "PLA Black"}]
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 395.0}',
+          print_weight_g="100",
+          print_status="unknown")
+    assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
+    # RFID delta: 420 - 395 = 25g → should write
+    assert len(app._use_calls) == 1, "RFID delta should still write"
+    assert _has_log(app, "USAGE_RFID")
+    assert not _has_log(app, "USAGE_3MF")
