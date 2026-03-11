@@ -97,5 +97,5 @@ filament_weight_tracker:
   weight_snapshot_button_entity: "input_button.filament_iq_weight_snapshot_now"
   # Printer entities (from Bambu integration) — replace with your printer's entity IDs
   print_name_entities:
-    - "sensor.p1s_YOUR_PRINTER_SERIAL_current_stage"
-    - "sensor.p1s_YOUR_PRINTER_SERIAL_print_status"
+    - "sensor.p1s_01p00c5a3101668_current_stage"
+    - "sensor.p1s_01p00c5a3101668_print_status"

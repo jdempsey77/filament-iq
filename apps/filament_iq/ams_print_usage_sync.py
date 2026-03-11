@@ -71,6 +71,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self.min_consumption_g = float(self.args.get("min_consumption_g", 2))
         self.max_consumption_g = float(self.args.get("max_consumption_g", 300))
         self.auto_empty_spools = bool(self.args.get("auto_empty_spools", False))
+        self.min_tray_active_seconds = float(self.args.get("min_tray_active_seconds", 10))
         self._seen_job_keys = self._load_seen_job_keys()
         self._ensure_data_dir()
 
@@ -140,10 +141,13 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._lifecycle_phase2 = bool(self.args.get("lifecycle_phase2_enabled", False))
         self._last_processed_job_key = ""
         self._end_snapshot = {}  # {slot_int: grams_float}
+        self._finish_wait_count = 0
+        self._finish_pending = False
+        self._finish_pending_status = ""
+        self._finish_wait_handle = None
 
         # Phase 3: Debug logging, swap detection, rehydrate (absorbs automations E, F, G)
         self._lifecycle_phase3 = bool(self.args.get("lifecycle_phase3_enabled", False))
-        self._last_swap_warn_time = None
         self._startup_suppress_until = (
             datetime.datetime.utcnow() + datetime.timedelta(seconds=90)
             if self.args.get("lifecycle_phase3_enabled", False) else None
@@ -154,6 +158,11 @@ class AmsPrintUsageSync(FilamentIQBase):
                 "input_boolean.filament_iq_needs_reconcile",
             )
         ).strip()
+
+        # RFID weight reconciler
+        self._weight_reconcile_enabled = bool(
+            self.args.get("weight_reconcile_enabled", True)
+        )
 
         # 3MF parsing config
         self.printer_ip = str(self.args.get("printer_ip", ""))
@@ -230,13 +239,22 @@ class AmsPrintUsageSync(FilamentIQBase):
         task_name = str(data.get("task_name", "")).strip()
         print_status = str(data.get("print_status", "")).strip().lower()
 
-        # ── Fix 1: skip failed/cancelled prints ──
+        # ── Tier 1: hard failures — skip entirely (no writes) ──
         if print_status in self._FAILED_STATES:
             self.log(
                 f"USAGE_SKIP_FAILED_PRINT job_key={job_key} status={print_status}",
                 level="INFO",
             )
             return
+
+        # ── Tier 2: non-success — suppress 3MF, allow RFID delta ──
+        if print_status not in self._SUCCESS_STATES:
+            self.log(
+                f"3MF_SUPPRESSED_NON_SUCCESS status={print_status} "
+                f"job_key={job_key} — falling back to RFID delta only",
+                level="WARNING",
+            )
+            self._threemf_data = None
 
         try:
             print_weight_g = float(data.get("print_weight_g", 0))
@@ -304,7 +322,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         if self._threemf_data and self.threemf_enabled:
             slot_data = self._build_slot_data(spools_cache=spools_cache)
             matches, unmatched_fils = match_filaments_to_slots(
-                self._threemf_data, slot_data, trays_used=None
+                self._threemf_data, slot_data, trays_used=trays_used_set or None
             )
             if matches:
                 for m in matches:
@@ -415,30 +433,30 @@ class AmsPrintUsageSync(FilamentIQBase):
                 patched += 1
                 continue
 
-            ok = self._spoolman_use(spool_id, consumption_g)
-            if ok:
+            use_result = self._spoolman_use(spool_id, consumption_g)
+            if use_result:
+                post_remaining = float(use_result.get("remaining_weight", 1))
                 self.log(
                     f"USAGE_PATCHED slot={slot} spool_id={spool_id} "
                     f"consumption_g={consumption_g:.2f} method={method} "
-                    f"job_key={job_key}",
+                    f"remaining={post_remaining:.1f} job_key={job_key}",
                     level="INFO",
                 )
                 patched += 1
                 try:
-                    spool_data = spools_cache.get(spool_id) or self._spoolman_get(f"/api/v1/spool/{spool_id}")
-                    if spool_data and float(
-                        spool_data.get("remaining_weight", 1)
-                    ) <= 0:
+                    if post_remaining <= 0:
                         if not self.auto_empty_spools:
                             self.log(
                                 f"USAGE_SPOOL_DEPLETED_SKIPPED slot={slot} "
-                                f"spool_id={spool_id} reason=auto_empty_disabled",
+                                f"spool_id={spool_id} remaining={post_remaining:.1f} "
+                                f"reason=auto_empty_disabled",
                                 level="INFO",
                             )
                         elif self._is_tray_physically_present(slot):
                             self.log(
                                 f"USAGE_SPOOL_DEPLETED_SKIPPED slot={slot} "
-                                f"spool_id={spool_id} reason=tray_still_occupied",
+                                f"spool_id={spool_id} remaining={post_remaining:.1f} "
+                                f"reason=tray_still_occupied",
                                 level="INFO",
                             )
                         else:
@@ -455,7 +473,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                             )
                             self.log(
                                 f"USAGE_SPOOL_DEPLETED slot={slot} spool_id={spool_id} "
-                                f"— moved to Empty",
+                                f"remaining={post_remaining:.1f} — moved to Empty",
                                 level="WARNING",
                             )
                 except Exception as e:
@@ -483,7 +501,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         )
 
         job_label = task_name.replace(".gcode.3mf", "").replace(".3mf", "").strip()
-        lines = [f"Job: {job_label}", f"Status: {print_status}", ""]
+        lines = [f"Job: {job_label} [{job_key}]", f"Status: {print_status}", ""]
         for slot, spool_id, consumption_g, method in all_results:
             spool_name = self._get_spool_display_name(spool_id, spools_cache=spools_cache)
             remaining = self._get_spool_remaining(spool_id, spools_cache=spools_cache)
@@ -561,7 +579,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 level="INFO",
             )
             if self.threemf_enabled:
-                self.run_in(self._fetch_3mf_background, 5)
+                self.run_in(self._fetch_3mf_background, 10)
             if self._lifecycle_phase1:
                 self._on_print_start()
             self.run_in(self._check_unbound_trays, 10)
@@ -700,7 +718,7 @@ class AmsPrintUsageSync(FilamentIQBase):
     def _on_print_start(self):
         """Phase 1 print start handler: job key, start snapshot, HA helpers."""
         task_name = str(self.get_state(self._task_name_entity) or "")
-        self._job_key = task_name.replace(" ", "_")
+        self._job_key = f"{task_name.replace(' ', '_')}_{int(time.time())}"
         self._start_snapshot = self._build_start_snapshot()
 
         # Write HA helpers (bridge for automation D)
@@ -795,8 +813,8 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     # ── Phase 2: print finish lifecycle ──────────────────────────────
 
-    _TERMINAL_STATES = frozenset({"finish", "finished", "completed", "failed", "error"})
-    _FAILED_STATES = frozenset({"failed", "error", "canceled"})
+    _SUCCESS_STATES = frozenset({"finish"})
+    _FAILED_STATES = frozenset({"failed", "error"})
 
     def _build_end_snapshot(self):
         """Read fuel gauge for slots present in start_snapshot. Returns {slot_int: grams}."""
@@ -808,7 +826,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         return snapshot
 
     def _on_print_finish(self, new_status):
-        """Phase 2 print finish handler: build end snapshot, call usage handler, clean up."""
+        """Phase 2 print finish handler: non-blocking 3MF wait, then _do_finish."""
         status = str(new_status).strip().lower()
 
         # Guard: no start data — let event listener handle as fallback
@@ -836,19 +854,62 @@ class AmsPrintUsageSync(FilamentIQBase):
             self._on_print_end()
             return
 
-        # Wait for 3MF fetch to complete (may still be in progress)
-        if self.threemf_enabled and self._threemf_data is None:
-            for _ in range(15):
-                time.sleep(1)
-                if self._threemf_data is not None:
-                    break
-            if self._threemf_data is None:
-                self.log(
-                    f"3MF_DATA_NOT_READY job_key={self._job_key} "
-                    f"— falling back to estimation",
-                    level="WARNING",
-                )
+        # Cancel any pending finish wait from a previous event
+        if self._finish_pending and self._finish_wait_handle is not None:
+            try:
+                self.cancel_timer(self._finish_wait_handle)
+            except Exception:
+                pass
+            self.log(
+                f"FINISH_WAIT_CANCELLED previous wait superseded by new finish status={status}",
+                level="WARNING",
+            )
+            self._finish_wait_handle = None
 
+        # Non-blocking wait for 3MF fetch to complete
+        if self.threemf_enabled and self._threemf_data is None:
+            self._finish_pending = True
+            self._finish_pending_status = status
+            self._finish_wait_count = 0
+            self._finish_wait_handle = self.run_in(self._finish_wait_tick, 1)
+            self.log(
+                f"3MF_WAIT_START job_key={self._job_key} — polling via run_in",
+                level="INFO",
+            )
+            return
+
+        # 3MF ready or not enabled — proceed immediately
+        self._do_finish(status)
+
+    def _finish_wait_tick(self, kwargs):
+        """Non-blocking poll for 3MF data readiness (replaces blocking time.sleep loop)."""
+        self._finish_wait_count += 1
+        self._finish_wait_handle = None
+
+        if self._threemf_data is not None:
+            self.log(
+                f"3MF_WAIT_DONE after {self._finish_wait_count}s",
+                level="INFO",
+            )
+            self._finish_pending = False
+            self._do_finish(self._finish_pending_status)
+            return
+
+        if self._finish_wait_count >= 15:
+            self.log(
+                f"3MF_DATA_NOT_READY job_key={self._job_key} after 15s "
+                f"— proceeding without 3MF",
+                level="WARNING",
+            )
+            self._finish_pending = False
+            self._do_finish(self._finish_pending_status)
+            return
+
+        # Schedule next tick
+        self._finish_wait_handle = self.run_in(self._finish_wait_tick, 1)
+
+    def _do_finish(self, status):
+        """Execute print finish logic: end snapshot, usage handler, cleanup."""
         # Build end snapshot
         self._end_snapshot = self._build_end_snapshot()
 
@@ -859,6 +920,16 @@ class AmsPrintUsageSync(FilamentIQBase):
             print_weight_g = 0.0
 
         task_name = str(self.get_state(self._task_name_entity) or "")
+
+        # Filter brief tray activations (load/purge sequences < threshold)
+        filtered_trays = self._filter_trays_by_duration(self._trays_used)
+        if filtered_trays != self._trays_used:
+            removed = self._trays_used - filtered_trays
+            self.log(
+                f"TRAY_FILTER_REMOVED slots={removed} reason=below_{self.min_tray_active_seconds}s_threshold",
+                level="INFO",
+            )
+            self._trays_used = filtered_trays
 
         # Build data dict matching _handle_usage_event expectations
         data = {
@@ -877,8 +948,25 @@ class AmsPrintUsageSync(FilamentIQBase):
             level="INFO",
         )
 
+        if status == "offline":
+            self.log(
+                f"FINISH_OFFLINE_STATE job_key={self._job_key} "
+                f"— printer went offline, 3MF suppressed, "
+                f"RFID delta only. Manual verify recommended.",
+                level="WARNING",
+            )
+
         # Call usage handler directly (no event roundtrip)
         self._handle_usage_event(None, data, {})
+
+        # RFID weight reconciler — correct Spoolman drift using RFID ground truth
+        try:
+            self._reconcile_rfid_weights()
+        except Exception as exc:
+            self.log(
+                f"RFID_WEIGHT_RECONCILE_ERROR unhandled: {exc}",
+                level="ERROR",
+            )
 
         # Stamp dedup — only for non-failed prints so a retry with the
         # same job_key after a failure is not incorrectly skipped
@@ -892,7 +980,7 @@ class AmsPrintUsageSync(FilamentIQBase):
     # ── Phase 3: debug logging, swap detection, rehydrate ──────────
 
     def _on_spool_id_change(self, entity, attribute, old, new, kwargs):
-        """Detect spool mapping changes during active print (replaces automation F)."""
+        """Log spool mapping changes during active print for diagnostics."""
         if not self._lifecycle_phase3:
             return
         if not self._print_active:
@@ -900,33 +988,14 @@ class AmsPrintUsageSync(FilamentIQBase):
         # Startup suppression
         if self._startup_suppress_until and datetime.datetime.utcnow() < self._startup_suppress_until:
             return
-        # Cooldown (5 minutes between warnings)
-        now = datetime.datetime.utcnow()
-        if self._last_swap_warn_time:
-            elapsed = (now - self._last_swap_warn_time).total_seconds()
-            if elapsed < 300:
-                return
-        self._last_swap_warn_time = now
+        # Log for diagnostics only — Bambu P1S does not support mid-print
+        # spool changes, so any spool_id helper change during print is a
+        # reconciler correction, not a physical swap.
         self.log(
-            f"SPOOL_SWAP_DURING_PRINT entity={entity} old={old} new={new}",
-            level="WARNING",
+            f"SPOOL_ID_CHANGED_DURING_PRINT entity={entity} old={old} "
+            f"new={new} (no action — reconciler correction, not physical swap)",
+            level="DEBUG",
         )
-        try:
-            self.call_service(
-                "input_boolean/turn_on",
-                entity_id=self._needs_reconcile_entity,
-            )
-        except Exception as e:
-            self.log(f"SWAP_DETECT: Failed to set needs_reconcile: {e}", level="WARNING")
-        try:
-            self.call_service(
-                "notify/persistent_notification",
-                title="P1S Spool Swap During Print Detected",
-                message=f"{entity} changed from {old} to {new} while print active. "
-                        f"Manual reconciliation may be required.",
-            )
-        except Exception as e:
-            self.log(f"SWAP_DETECT: Failed to notify: {e}", level="WARNING")
 
     def _rehydrate_print_state(self):
         """Restore print-active state if printer is mid-print (replaces automation G)."""
@@ -997,6 +1066,30 @@ class AmsPrintUsageSync(FilamentIQBase):
                 result[slot] = round(total, 1)
         return result
 
+    def _filter_trays_by_duration(self, trays_used):
+        """Filter trays_used to only include slots with total active time >= threshold.
+
+        Brief activations during filament load/purge sequences (< min_tray_active_seconds)
+        are excluded to prevent phantom consumption tracking.
+        Slots with no recorded segments (e.g. seeded at start) are always kept.
+        """
+        if not self._tray_active_times:
+            return trays_used
+        filtered = set()
+        for slot in trays_used:
+            segments = self._tray_active_times.get(slot, [])
+            if not segments:
+                # No timing data — slot was seeded at start, keep it
+                filtered.add(slot)
+                continue
+            total = sum(
+                (s["end"] - s["start"]).total_seconds()
+                for s in segments if s.get("end") and s.get("start")
+            )
+            if total >= self.min_tray_active_seconds:
+                filtered.add(slot)
+        return filtered
+
     def _get_access_code(self):
         code = str(self.args.get("printer_access_code", "")).strip()
         if code:
@@ -1018,8 +1111,8 @@ class AmsPrintUsageSync(FilamentIQBase):
     def _fetch_3mf_native(self, kwargs):
         """Fetch 3MF via ftplib — single TLS handshake for list + download."""
         attempt = kwargs.get("attempt", 1)
-        max_attempts = 3
-        retry_delays = [10, 30]
+        max_attempts = 4
+        retry_delays = [10, 30, 60]
 
         if attempt == 1:
             self._threemf_data = None
@@ -1156,8 +1249,8 @@ class AmsPrintUsageSync(FilamentIQBase):
     def _fetch_3mf_curl(self, kwargs):
         """Fetch 3MF via curl subprocesses (legacy fallback)."""
         attempt = kwargs.get("attempt", 1)
-        max_attempts = 3
-        retry_delays = [10, 30]
+        max_attempts = 4
+        retry_delays = [10, 30, 60]
 
         if attempt == 1:
             self._threemf_data = None
@@ -1376,13 +1469,19 @@ class AmsPrintUsageSync(FilamentIQBase):
             dir_path = os.path.dirname(SEEN_JOBS_PATH)
             os.makedirs(dir_path, exist_ok=True)
             keys = list(self._seen_job_keys.keys())
-            with open(SEEN_JOBS_PATH, "w", encoding="utf-8") as f:
+            tmp_path = SEEN_JOBS_PATH + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(keys, f, indent=None)
-        except OSError as e:
+            os.replace(tmp_path, SEEN_JOBS_PATH)
+        except Exception as e:
             self.log(
-                f"AmsPrintUsageSync: could not persist seen_job_keys to {SEEN_JOBS_PATH}: {e}",
-                level="WARNING",
+                f"PERSIST_JOB_KEYS_FAILED: {e}",
+                level="ERROR",
             )
+            try:
+                os.unlink(SEEN_JOBS_PATH + ".tmp")
+            except OSError:
+                pass
 
     # ── helpers ───────────────────────────────────────────────────────
 
@@ -1492,7 +1591,94 @@ class AmsPrintUsageSync(FilamentIQBase):
             )
             return None
 
+    def _reconcile_rfid_weights(self):
+        """After print finish, correct Spoolman remaining_weight using RFID ground truth."""
+        if not self._weight_reconcile_enabled:
+            return
+        for slot in sorted(self._tray_entity_by_slot.keys()):
+            try:
+                self._reconcile_rfid_weight_slot(slot)
+            except Exception as exc:
+                self.log(
+                    f"RFID_WEIGHT_RECONCILE_SLOT_ERROR slot={slot}: {exc}",
+                    level="WARNING",
+                )
+
+    def _reconcile_rfid_weight_slot(self, slot):
+        """Reconcile a single slot's RFID weight against Spoolman."""
+        if not self._is_rfid_slot(slot):
+            return
+        spool_id = self._read_spool_id(slot)
+        if spool_id <= 0:
+            return
+        entity = self._tray_entity_by_slot[slot]
+        try:
+            remain_raw = self.get_state(entity, attribute="remain")
+            tray_weight = float(self.get_state(entity, attribute="tray_weight") or 0)
+            remain_enabled = self.get_state(entity, attribute="remain_enabled")
+        except (TypeError, ValueError):
+            return
+        if remain_enabled is False or str(remain_enabled).strip().lower() == "false":
+            return
+        if tray_weight <= 0:
+            return
+        # Validate remain value before calculation
+        if remain_raw is None or not isinstance(remain_raw, (int, float)):
+            try:
+                remain_raw = float(remain_raw)
+            except (TypeError, ValueError):
+                self.log(
+                    f"RFID_WEIGHT_INVALID_REMAIN slot={slot} remain={remain_raw!r}",
+                    level="WARNING",
+                )
+                return
+        remain = float(remain_raw)
+        if remain < 0 or remain > 100:
+            self.log(
+                f"RFID_WEIGHT_INVALID_REMAIN slot={slot} remain={remain}",
+                level="WARNING",
+            )
+            return
+        rfid_weight_g = round(remain / 100.0 * tray_weight, 1)
+        spool_data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+        if spool_data is None:
+            self.log(
+                f"RFID_WEIGHT_RECONCILE_SKIP slot={slot} spool_id={spool_id} "
+                f"reason=spoolman_fetch_failed",
+                level="WARNING",
+            )
+            return
+        spoolman_weight_g = round(float(spool_data.get("remaining_weight", 0)), 1)
+        if rfid_weight_g == spoolman_weight_g:
+            self.log(
+                f"RFID_WEIGHT_MATCH slot={slot} spool_id={spool_id} "
+                f"rfid={rfid_weight_g}g",
+                level="DEBUG",
+            )
+            return
+        if self.dry_run:
+            self.log(
+                f"RFID_WEIGHT_RECONCILE_DRYRUN slot={slot} spool_id={spool_id} "
+                f"rfid={rfid_weight_g}g spoolman_was={spoolman_weight_g}g",
+                level="INFO",
+            )
+            return
+        result = self._spoolman_patch(spool_id, {"remaining_weight": rfid_weight_g})
+        if result is None:
+            self.log(
+                f"RFID_WEIGHT_RECONCILE_FAILED slot={slot} spool_id={spool_id} "
+                f"rfid={rfid_weight_g}g",
+                level="WARNING",
+            )
+        else:
+            self.log(
+                f"RFID_WEIGHT_RECONCILED slot={slot} spool_id={spool_id} "
+                f"rfid={rfid_weight_g}g spoolman_was={spoolman_weight_g}g",
+                level="INFO",
+            )
+
     def _spoolman_use(self, spool_id, use_weight_g):
+        """PUT /api/v1/spool/{id}/use — returns updated spool dict or None on failure."""
         url = f"{self.spoolman_base_url}/api/v1/spool/{spool_id}/use"
         payload = json.dumps(
             {"use_weight": round(use_weight_g, 2)}
@@ -1505,11 +1691,13 @@ class AmsPrintUsageSync(FilamentIQBase):
         )
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
-                return resp.status == 200
+                if resp.status == 200:
+                    return json.loads(resp.read().decode())
+                return None
         except Exception as exc:
             self.log(
                 f"USAGE_PATCH_FAILED spool_id={spool_id} "
                 f"use_weight={use_weight_g:.1f} error={exc}",
                 level="ERROR",
             )
-            return False
+            return None

@@ -6,7 +6,7 @@ import datetime
 import json
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "apps"))
 
 import pytest
 from filament_iq.threemf_parser import match_filaments_to_slots, parse_lot_nr_color
