@@ -1,6 +1,6 @@
 # Filament IQ — Backlog
 
-> Full codebase audit: 2026-03-10 | Last updated: 2026-03-10
+> Full codebase audit: 2026-03-10 | Last updated: 2026-03-11
 
 ## Legend
 - 🔴 HIGH — production risk, fix immediately
@@ -13,10 +13,14 @@
 
 ## In Progress
 
-| # | Sev | Finding | Source | File |
-|---|-----|---------|--------|------|
-| 1 | 🔴 | `_active_run` not reset in finally — Spoolman outage permanently blocks reconciler | R3 #1/#2 | `ams_rfid_reconcile.py` |
-| 2 | 🔴 | `seen_job_keys.json` non-atomic write — crash mid-write corrupts dedup history | R1 #4 | `ams_print_usage_sync.py` |
+_None — all in-progress items completed._
+
+## Recently Completed (moved from In Progress)
+
+| # | Status | Finding | Source | Fix |
+|---|--------|---------|--------|-----|
+| 1 | ✅ | `_active_run` not reset in finally — Spoolman outage permanently blocks reconciler | R3 #1/#2 | `1713c7b` |
+| 2 | ✅ | `seen_job_keys.json` non-atomic write — crash mid-write corrupts dedup history | R1 #4 | `1713c7b` |
 
 ---
 
@@ -27,14 +31,14 @@
 | # | Status | Finding | Source | File / Line |
 |---|--------|---------|--------|-------------|
 | 1 | ✅ | `_SUCCESS_STATES` allowlist — 3MF overcounting on non-success prints | R1 #1 | `ams_print_usage_sync.py` — fixed `c50eac0` |
-| 2 | 🔴 | Test harness drift from real `initialize()` — `_TestableUsageSync` missing `spoolman_sensor_prefix`, `printer_ip`, `threemf_fetch_method` attrs; silent test failures | R2 #8 | `tests/test_ams_print_usage_sync.py` |
-| 3 | 🔴 | `_spoolman_patch` not mocked in test harness — depleted-spool path could make real HTTP calls | R2 #7 | `tests/test_ams_print_usage_sync.py` |
-| 4 | 🔴 | Zero test coverage: `ams_rfid_guard.py` | R2 #1 | `ams_rfid_guard.py` |
-| 5 | 🔴 | Zero test coverage: `filament_weight_tracker.py` | R2 #2 | `filament_weight_tracker.py` |
-| 6 | 🔴 | Zero test coverage: `spoolman_dropdown_sync.py` | R2 #3 | `spoolman_dropdown_sync.py` |
-| 7 | 🔴 | `_rehydrate_print_state()` never tested | R2 #4 | `ams_print_usage_sync.py` |
-| 8 | 🔴 | Negative RFID delta clamping never tested | R2 #6 | `ams_print_usage_sync.py` |
-| 9 | 🔴 | `_coerce_json_field` None path never tested | R2 #5 | `ams_print_usage_sync.py` |
+| 2 | ✅ | Test harness drift from real `initialize()` — `_TestableUsageSync` missing `spoolman_sensor_prefix`, `printer_ip`, `threemf_fetch_method` attrs; silent test failures | R2 #8 | `tests/test_ams_print_usage_sync.py` — fixed `4368ce5` |
+| 3 | ✅ | `_spoolman_patch` not mocked in test harness — depleted-spool path could make real HTTP calls | R2 #7 | `tests/test_ams_print_usage_sync.py` — fixed `4368ce5` |
+| 4 | ✅ | Zero test coverage: `ams_rfid_guard.py` | R2 #1 | 14 tests — `4ce5332` |
+| 5 | ✅ | Zero test coverage: `filament_weight_tracker.py` | R2 #2 | 9 tests — `4ce5332` |
+| 6 | ✅ | Zero test coverage: `spoolman_dropdown_sync.py` | R2 #3 | 9 tests — `4ce5332` |
+| 7 | ✅ | `_rehydrate_print_state()` never tested | R2 #4 | 7 tests — `4ce5332` |
+| 8 | ✅ | Negative RFID delta clamping never tested | R2 #6 | 3 tests — `4ce5332` |
+| 9 | ✅ | `_coerce_json_field` None path never tested | R2 #5 | 5 tests — `4ce5332` |
 
 ### MEDIUM
 
@@ -46,7 +50,7 @@
 | 4 | "offline" status writes RFID delta for incomplete prints — consider `_FAILED_STATES` | R1 #7 | `ams_print_usage_sync.py:946-955` |
 | 5 | `manage_ha.sh` restart sequence missing `wait_for_ha` between HA and AppDaemon restart | R1 #6 | `scripts/manage_ha.sh:372-375` |
 | 6 | `monitor_print.sh` JSON via string concatenation — unescaped `$state` could produce malformed JSON | R1 #5 | `scripts/monitor_print.sh` |
-| 7 | Real file I/O in tests — `_persist_seen_job_keys` writes to `data/seen_job_keys.json` on every test | R2 #9 | `tests/test_ams_print_usage_sync.py` |
+| 7 | ✅ Real file I/O in tests — `_persist_seen_job_keys` writes to `data/seen_job_keys.json` on every test | R2 #9 | `tests/test_ams_print_usage_sync.py` — fixed `4368ce5` |
 | 8 | `_check_unbound_trays()` never tested | R2 #10 | `ams_rfid_reconcile.py` |
 | 9 | `_fetch_spools_cache()` never directly tested | R2 #11 | `ams_rfid_reconcile.py` |
 | 10 | `_build_slot_data()` never directly tested | R2 #12 | `ams_rfid_reconcile.py` |
@@ -120,11 +124,13 @@
 | # | Feature | Description |
 |---|---------|-------------|
 | 1 | 🔵 RFID-Spoolman weight reconciler | Detect drift between AMS remain% x tray_weight and Spoolman remaining_weight for RFID spools. Auto-correct on >50g delta. |
-| 2 | 🔵 Background Monitor daemon | Unified Python monitor replacing `monitor_print.sh` and `monitor_ha.sh`. Runs as macOS LaunchAgent with structured JSON artifacts. |
+| 2 | ✅ Background Monitor daemon | Deployed as `filament-iq-monitor.service` on ska (systemd user unit). HA availability + print lifecycle monitoring with structured JSON artifacts to `/mnt/store/filament_iq/monitor/`. Committed `59d68df`, fixes `f513d49` `a27569f`. |
 | 3 | 🔵 `auto_empty_spools` re-enable | Re-enable after verifying F1 fix in production logs. |
 | 4 | 🔵 Dashboard — inventory view | Full spool inventory card showing all 6 AMS slots + shelf spools. |
 | 5 | 🔵 Dashboard — system health | AppDaemon health, last reconcile, last print, error counts. |
 | 6 | 🔵 OSS prep | Reference dashboard, README, install docs for public release. |
+| 7 | ✅ HA token rotation script | `scripts/rotate-secret.sh` — rotates HA long-lived token on Mac + ska. Committed `efc7cad`. |
+| 8 | ✅ loginctl linger | `deploy-monitor.sh` enables linger so monitor survives SSH disconnect. Fixed `a27569f`. |
 
 ---
 
