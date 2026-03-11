@@ -123,7 +123,7 @@ _None — all in-progress items completed._
 
 | # | Feature | Description |
 |---|---------|-------------|
-| 1 | 🔵 RFID-Spoolman weight reconciler | Detect drift between AMS remain% x tray_weight and Spoolman remaining_weight for RFID spools. Auto-correct on >50g delta. |
+| 1 | ✅ RFID-Spoolman weight reconciler | `_reconcile_rfid_weights()` in `ams_print_usage_sync.py`. Runs after every print finish, RFID always ground truth (no threshold). Per-slot isolation, negative remain guard, dry_run safe. 9 tests. Commits `3214e6c` + `4304ba0`. |
 | 2 | ✅ Background Monitor daemon | Deployed as `filament-iq-monitor.service` on ska (systemd user unit). HA availability + print lifecycle monitoring with structured JSON artifacts to `/mnt/store/filament_iq/monitor/`. Committed `59d68df`, fixes `f513d49` `a27569f`. |
 | 3 | 🔵 `auto_empty_spools` re-enable | Re-enable after verifying F1 fix in production logs. |
 | 4 | 🔵 Dashboard — inventory view | Full spool inventory card showing all 6 AMS slots + shelf spools. |
