@@ -131,6 +131,22 @@ class _TestableUsageSync(AmsPrintUsageSync):
             a.get("needs_reconcile_entity", "input_boolean.filament_iq_needs_reconcile")
         ).strip()
 
+        # R2 #8: attrs from real initialize() that were missing from harness
+        self.printer_ip = str(a.get("printer_ip", "192.0.2.99"))
+        self.printer_ftps_port = int(a.get("printer_ftps_port", 990))
+        self.access_code_entity = str(
+            a.get("access_code_entity", "input_text.bambu_printer_access_code")
+        )
+        self.threemf_fetch_method = str(
+            a.get("threemf_fetch_method", "native")
+        ).strip().lower()
+        self.spoolman_sensor_prefix = str(
+            a.get("spoolman_sensor_prefix", "sensor.spoolman_spool_")
+        ).strip()
+
+        # R2 #7: capture _spoolman_patch calls instead of real HTTP
+        self._patch_calls = []
+
     def initialize(self):
         pass
 
@@ -176,9 +192,18 @@ class _TestableUsageSync(AmsPrintUsageSync):
         remaining = self._use_remaining_override.get(spool_id, 100.0)
         return {"id": spool_id, "remaining_weight": remaining}
 
+    def _spoolman_patch(self, spool_id, data):
+        """R2 #7: Mock — capture patch calls instead of real HTTP."""
+        self._patch_calls.append({"spool_id": spool_id, "data": data})
+        return {"id": spool_id, **data}
+
     def _spoolman_get(self, path):
         """Mock: avoid real HTTP in tests. Return non-depleted spool."""
         return {"remaining_weight": 100}
+
+    def _persist_seen_job_keys(self):
+        """R2 #9: Mock — no real file I/O in tests."""
+        pass
 
 
 def _fire(app, **overrides):
@@ -1314,7 +1339,7 @@ def test_unknown_state_suppresses_3mf_allows_rfid():
 
 def test_atomic_write_uses_replace():
     """_persist_seen_job_keys must use os.replace for atomic write."""
-    from appdaemon.apps.filament_iq.ams_print_usage_sync import SEEN_JOBS_PATH
+    from appdaemon.apps.filament_iq.ams_print_usage_sync import AmsPrintUsageSync, SEEN_JOBS_PATH
 
     app = _TestableUsageSync()
     app._seen_job_keys = OrderedDict([("job_a", True), ("job_b", True)])
@@ -1322,13 +1347,13 @@ def test_atomic_write_uses_replace():
     with mock.patch("appdaemon.apps.filament_iq.ams_print_usage_sync.os.replace") as mock_replace, \
          mock.patch("builtins.open", mock.mock_open()), \
          mock.patch("appdaemon.apps.filament_iq.ams_print_usage_sync.os.makedirs"):
-        app._persist_seen_job_keys()
+        AmsPrintUsageSync._persist_seen_job_keys(app)
         mock_replace.assert_called_once_with(SEEN_JOBS_PATH + ".tmp", SEEN_JOBS_PATH)
 
 
 def test_atomic_write_cleans_tmp_on_failure():
     """If os.replace fails, .tmp file must be cleaned up."""
-    from appdaemon.apps.filament_iq.ams_print_usage_sync import SEEN_JOBS_PATH
+    from appdaemon.apps.filament_iq.ams_print_usage_sync import AmsPrintUsageSync, SEEN_JOBS_PATH
 
     app = _TestableUsageSync()
     app._seen_job_keys = OrderedDict([("job_a", True)])
@@ -1338,6 +1363,6 @@ def test_atomic_write_cleans_tmp_on_failure():
          mock.patch("builtins.open", mock.mock_open()), \
          mock.patch("appdaemon.apps.filament_iq.ams_print_usage_sync.os.makedirs"), \
          mock.patch("appdaemon.apps.filament_iq.ams_print_usage_sync.os.unlink") as mock_unlink:
-        app._persist_seen_job_keys()
+        AmsPrintUsageSync._persist_seen_job_keys(app)
         mock_unlink.assert_called_once_with(SEEN_JOBS_PATH + ".tmp")
         assert _has_log(app, "PERSIST_JOB_KEYS_FAILED")
