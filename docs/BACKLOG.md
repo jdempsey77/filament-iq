@@ -95,7 +95,7 @@ _None — all in-progress items completed._
 
 | # | Finding | File |
 |---|---------|------|
-| 1 | `notify.notify` may not be configured — used for leak detection (safety-critical) and watchdog | `automations.yaml` |
+| 1 | ✅ `notify.notify` → `notify.mobile_app_jd_pixel_10xl` — leak detection + HA watchdog | `automations.yaml` — fixed `1039a5c` |
 | 2 | `input_boolean` manifest incomplete — 3 missing: `filament_iq_print_active`, `filament_iq_needs_reconcile`, `filament_iq_nonrfid_enabled` | `helpers_manifest.yaml` |
 | 3 | Fuel gauge template sensors lack `availability` template — report 0.0 when printer offline | `configuration.yaml` |
 | 4 | 12 dead `input_number` helpers: `ams_slot_{1-6}_extras_weight`, `ams_slot_{1-6}_filament_id` | `configuration.yaml` |
