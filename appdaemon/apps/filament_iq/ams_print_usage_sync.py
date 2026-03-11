@@ -69,7 +69,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         ).rstrip("/")
         self.dry_run = bool(self.args.get("dry_run", False))
         self.min_consumption_g = float(self.args.get("min_consumption_g", 2))
-        self.max_consumption_g = float(self.args.get("max_consumption_g", 300))
+        self.max_consumption_g = float(self.args.get("max_consumption_g", 1000))
         self.auto_empty_spools = bool(self.args.get("auto_empty_spools", False))
         self.min_tray_active_seconds = float(self.args.get("min_tray_active_seconds", 10))
         self._seen_job_keys = self._load_seen_job_keys()

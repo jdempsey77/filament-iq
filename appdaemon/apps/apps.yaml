@@ -55,7 +55,7 @@ ams_print_usage_sync:
   printer_model: "p1s"
   dry_run: false
   min_consumption_g: 2
-  max_consumption_g: 300
+  max_consumption_g: 1000
   # 3MF parsing (slicer-exact per-filament weights)
   threemf_enabled: true
   threemf_fetch_method: native  # native (ftplib, single TLS) or curl (legacy subprocess)
