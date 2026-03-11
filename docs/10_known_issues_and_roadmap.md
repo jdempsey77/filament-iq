@@ -53,6 +53,12 @@ sync) now run in AppDaemon — 7 HA automations replaced.
 - Native FTPS — replaced curl subprocess with ftplib.FTP_TLS.
 - Pool_g removal — eliminated estimation-based write path, two paths only.
 - Phantom consumption — false usage events on non-print jobs eliminated.
+- 3MF overcounting on non-success prints — replaced `_FAILED_STATES` blocklist
+  with `_SUCCESS_STATES` allowlist (`frozenset({"finish"})`). Only `finish`
+  triggers the full 3MF consumption path. Non-success terminal states fall back
+  to RFID delta only. Phantom state values cleaned out; pybambu confirms a
+  closed set of 10 `gcode_state` values. Job key now included in notification
+  messages. (c50eac0)
 
 ---
 
@@ -108,6 +114,7 @@ Sentinel short-circuit. Bambu vendor exclusion tightened.
 - Two write paths: RFID delta + 3MF match (pool_g removed) ✅
 - Write-ahead dedup with persisted seen_job_keys ✅
 - Smart Empty Guard ✅
+- _SUCCESS_STATES allowlist fix — 3MF path gated to `finish` only ✅
 - Native FTPS fetch ✅
 - 3MF Tier 2.75 slot position matching ✅
 

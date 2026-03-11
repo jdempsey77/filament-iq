@@ -413,6 +413,20 @@ Move to `Shelf` if `remaining_weight > 0`, `Empty` if `remaining_weight <= 0`.
 
 ---
 
+## Print Usage — 3MF Path Gating
+
+The print usage sync applies consumption data after a print completes. The 3MF path (Path B — plate-to-slot matching from 3MF file data) is **only active when `gcode_state == "finish"`**. This is the sole success state in the Bambu `gcode_state` closed set (10 values defined in pybambu `const.py`).
+
+Non-success terminal states (e.g. idle after cancel, pause) fall back to **RFID delta only** (Path A). Failed/error states skip consumption entirely.
+
+Constants governing this behavior:
+- `_SUCCESS_STATES = frozenset({"finish"})` — gates 3MF fetch + Path B
+- `_FAILED_STATES = frozenset({"failed", "error"})` — skip all consumption
+
+This prevents overcounting when a print is cancelled or interrupted — only a successful `finish` triggers the full two-path consumption pipeline.
+
+---
+
 ## End of Life (EOL)
 
 When `remaining_weight <= 0` and tray transitions to `empty`:
