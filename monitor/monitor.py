@@ -347,7 +347,7 @@ class HAAvailabilityMonitor:
                 ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 artifact = {
                     "start": self.outage_start,
-                    "end": datetime.datetime.utcnow().isoformat() + "Z",
+                    "end": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     "duration_s": round(duration_s, 1),
                     "appdaemon_log_tail": appd_log,
                 }
@@ -362,7 +362,7 @@ class HAAvailabilityMonitor:
         else:
             self.consecutive_fails += 1
             if not self.outage_start:
-                self.outage_start = datetime.datetime.utcnow().isoformat() + "Z"
+                self.outage_start = datetime.datetime.now(datetime.timezone.utc).isoformat()
                 self.outage_start_ts = time.time()
                 log.warning("HA OUTAGE DETECTED — HTTP %d at %s", code, self.outage_start)
                 self.availability_log.warning("OUTAGE_START code=%d", code)
@@ -495,7 +495,7 @@ class PrintLifecycleMonitor:
 
     def _transition_to_preparing(self, gcode_state: str) -> None:
         self.job_name = self._get_job_name() or "unknown"
-        self.print_start = datetime.datetime.utcnow().isoformat() + "Z"
+        self.print_start = datetime.datetime.now(datetime.timezone.utc).isoformat()
         self.print_start_ts = time.time()
         self.pre_weights = _snapshot_spoolman_weights(self.cfg)
         self.state = STATE_PREPARING
@@ -518,7 +518,7 @@ class PrintLifecycleMonitor:
 
         # Post-print snapshot
         post_weights = _snapshot_spoolman_weights(self.cfg)
-        print_end = datetime.datetime.utcnow().isoformat() + "Z"
+        print_end = datetime.datetime.now(datetime.timezone.utc).isoformat()
         duration_s = time.time() - self.print_start_ts if self.print_start_ts > 0 else 0
 
         # Weight deltas

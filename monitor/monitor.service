@@ -2,14 +2,14 @@
 Description=Filament IQ Monitor
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
 ExecStart=/usr/bin/python3 %h/filament_iq/monitor.py
 Restart=on-failure
 RestartSec=10s
-StartLimitIntervalSec=60
-StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 
