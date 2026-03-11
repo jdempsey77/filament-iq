@@ -6,7 +6,7 @@ import datetime
 import json
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "apps"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps"))
 
 import pytest
 from filament_iq.threemf_parser import match_filaments_to_slots, parse_lot_nr_color
@@ -502,7 +502,7 @@ class TestJobKeyGeneration:
         assert generate_job_key("benchy") == "benchy"
 
     def test_spaces_replaced(self):
-        assert generate_job_key("sample Plate 1") == "sample_Plate_1"
+        assert generate_job_key("miriam Plate 1") == "miriam_Plate_1"
 
     def test_already_underscored(self):
         assert generate_job_key("my_print_v2") == "my_print_v2"
@@ -943,18 +943,18 @@ class TestBuildEndSnapshot:
 
 class TestDedupGuard:
     def test_same_job_key_is_duplicate(self):
-        last_processed = "sample_Plate_1"
-        current = "sample_Plate_1"
+        last_processed = "miriam_Plate_1"
+        current = "miriam_Plate_1"
         assert current == last_processed  # should skip
 
     def test_different_job_key_not_duplicate(self):
-        last_processed = "sample_Plate_1"
+        last_processed = "miriam_Plate_1"
         current = "benchy_v2"
         assert current != last_processed  # should process
 
     def test_empty_last_processed_allows_any(self):
         last_processed = ""
-        current = "sample_Plate_1"
+        current = "miriam_Plate_1"
         assert current != last_processed  # should process
 
     def test_empty_current_skipped_by_guard(self):
@@ -977,16 +977,16 @@ class TestEmptyStartSnapshotGuard:
 class TestUsageDataConstruction:
     def test_data_dict_has_all_fields(self):
         data = build_usage_data(
-            job_key="sample_Plate_1",
-            task_name="sample Plate 1",
+            job_key="miriam_Plate_1",
+            task_name="miriam Plate 1",
             print_weight_g=17.3,
             trays_used={1, 3, 4},
             start_snapshot={1: 800.0, 3: 400.0, 4: 100.0},
             end_snapshot={1: 785.0, 3: 390.0, 4: 95.0},
             print_status="finish",
         )
-        assert data["job_key"] == "sample_Plate_1"
-        assert data["task_name"] == "sample Plate 1"
+        assert data["job_key"] == "miriam_Plate_1"
+        assert data["task_name"] == "miriam Plate 1"
         assert data["print_weight_g"] == 17.3
         assert data["trays_used"] == "1,3,4"
         assert data["print_status"] == "finish"
@@ -1016,7 +1016,7 @@ class TestUsageDataConstruction:
 class TestPrintEndClearsState:
     def test_state_cleared_after_finish(self):
         """Simulate state clearing after _on_print_finish."""
-        job_key = "sample_Plate_1"
+        job_key = "miriam_Plate_1"
         start_snapshot = {1: 800.0, 3: 400.0}
         end_snapshot = {1: 785.0, 3: 390.0}
         last_processed = ""
@@ -1032,7 +1032,7 @@ class TestPrintEndClearsState:
         assert start_snapshot == {}
         assert end_snapshot == {}
         assert job_key == ""
-        assert last_processed == "sample_Plate_1"  # preserved for dedup
+        assert last_processed == "miriam_Plate_1"  # preserved for dedup
 
 
 # ── Phase 3: Pause state, swap detection, rehydration ──

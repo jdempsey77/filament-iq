@@ -28,7 +28,7 @@ if "hassapi" not in sys.modules:
     _hassapi.Hass = _FakeHass
     sys.modules["hassapi"] = _hassapi
 
-_APPS = os.path.join(os.path.dirname(__file__), "..", "apps")
+_APPS = os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps")
 if _APPS not in sys.path:
     sys.path.insert(0, _APPS)
 
@@ -87,7 +87,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         ).rstrip("/")
         self.dry_run = bool(a.get("dry_run", False))
         self.min_consumption_g = float(a.get("min_consumption_g", 2))
-        self.max_consumption_g = float(a.get("max_consumption_g", 300))
+        self.max_consumption_g = float(a.get("max_consumption_g", 1000))
         self.min_tray_active_seconds = float(a.get("min_tray_active_seconds", 10))
         self.auto_empty_spools = bool(a.get("auto_empty_spools", False))
         self._seen_job_keys = OrderedDict()
@@ -437,19 +437,47 @@ def test_sanity_cap_refuses_large_consumption():
     """consumption > max_consumption_g → USAGE_SANITY_CAP, no write."""
     app = _TestableUsageSync(
         state_map=_default_state_map({4: 10}),
-        args={"max_consumption_g": 300},
+        args={"max_consumption_g": 1000},
     )
     app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
     _fire(app,
           trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 110.0}',
-          print_weight_g="310")
+          start_json='{"4": 1100.0}',
+          end_json='{"4": 90.0}',
+          print_weight_g="1010")
 
     assert len(app._use_calls) == 0
     assert _has_log(app, "USAGE_SANITY_CAP")
-    assert _has_log(app, "consumption_g=310.0")
+    assert _has_log(app, "consumption_g=1010.0")
     assert _has_log(app, "SKIPPING")
+
+
+def test_sanity_cap_allows_484g_big_crate():
+    """Regression: 484g Big Crate must NOT be capped (was blocked by old 300g cap)."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 987.0}',
+          end_json='{"4": 502.6}',
+          print_weight_g="484.4")
+
+    assert len(app._use_calls) == 1
+    assert not _has_log(app, "USAGE_SANITY_CAP")
+
+
+def test_sanity_cap_refuses_above_1000g():
+    """consumption_g=1001 → still capped even with raised 1000g limit."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 1100.0}',
+          end_json='{"4": 99.0}',
+          print_weight_g="1001")
+
+    assert len(app._use_calls) == 0
+    assert _has_log(app, "USAGE_SANITY_CAP")
 
 
 def test_spoolman_failure_continues():
@@ -1177,7 +1205,7 @@ def test_unavailable_status_suppresses_3mf_allows_rfid():
     app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
     app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
     _fire(app, print_status="unavailable")
-    # RFID delta: 420 - 110 = 310g → exceeds max_consumption_g (300) → sanity cap
+    # RFID delta: 420 - 110 = 310g (under 1000g cap, writes normally)
     assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
     assert _has_log(app, "status=unavailable")
 
@@ -1346,30 +1374,30 @@ def test_unknown_state_suppresses_3mf_allows_rfid():
 
 def test_atomic_write_uses_replace():
     """_persist_seen_job_keys must use os.replace for atomic write."""
-    from filament_iq.ams_print_usage_sync import AmsPrintUsageSync, SEEN_JOBS_PATH
+    from appdaemon.apps.filament_iq.ams_print_usage_sync import AmsPrintUsageSync, SEEN_JOBS_PATH
 
     app = _TestableUsageSync()
     app._seen_job_keys = OrderedDict([("job_a", True), ("job_b", True)])
 
-    with mock.patch("filament_iq.ams_print_usage_sync.os.replace") as mock_replace, \
+    with mock.patch("appdaemon.apps.filament_iq.ams_print_usage_sync.os.replace") as mock_replace, \
          mock.patch("builtins.open", mock.mock_open()), \
-         mock.patch("filament_iq.ams_print_usage_sync.os.makedirs"):
+         mock.patch("appdaemon.apps.filament_iq.ams_print_usage_sync.os.makedirs"):
         AmsPrintUsageSync._persist_seen_job_keys(app)
         mock_replace.assert_called_once_with(SEEN_JOBS_PATH + ".tmp", SEEN_JOBS_PATH)
 
 
 def test_atomic_write_cleans_tmp_on_failure():
     """If os.replace fails, .tmp file must be cleaned up."""
-    from filament_iq.ams_print_usage_sync import AmsPrintUsageSync, SEEN_JOBS_PATH
+    from appdaemon.apps.filament_iq.ams_print_usage_sync import AmsPrintUsageSync, SEEN_JOBS_PATH
 
     app = _TestableUsageSync()
     app._seen_job_keys = OrderedDict([("job_a", True)])
 
-    with mock.patch("filament_iq.ams_print_usage_sync.os.replace",
+    with mock.patch("appdaemon.apps.filament_iq.ams_print_usage_sync.os.replace",
                      side_effect=OSError("disk full")), \
          mock.patch("builtins.open", mock.mock_open()), \
-         mock.patch("filament_iq.ams_print_usage_sync.os.makedirs"), \
-         mock.patch("filament_iq.ams_print_usage_sync.os.unlink") as mock_unlink:
+         mock.patch("appdaemon.apps.filament_iq.ams_print_usage_sync.os.makedirs"), \
+         mock.patch("appdaemon.apps.filament_iq.ams_print_usage_sync.os.unlink") as mock_unlink:
         AmsPrintUsageSync._persist_seen_job_keys(app)
         mock_unlink.assert_called_once_with(SEEN_JOBS_PATH + ".tmp")
         assert _has_log(app, "PERSIST_JOB_KEYS_FAILED")
