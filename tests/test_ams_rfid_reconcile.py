@@ -4183,5 +4183,62 @@ def test_prev_occupant_skip_when_other_slot_tray_empty(slot):
         "must NOT log PREV_OCCUPANT_SKIP when other slot tray is empty"
 
 
+class TestActiveRunResetOnFailure(unittest.TestCase):
+    """Verify _active_run is always reset after reconcile, even on exceptions."""
+
+    def setUp(self):
+        self.args = {
+            "printer_serial": "01p00c5a3101668",
+            "spoolman_url": "http://192.0.2.1:7912",
+            "enabled": True,
+            "debug_logs": False,
+            "nonrfid_enabled_entity": "input_boolean.filament_iq_nonrfid_enabled",
+        }
+
+    def test_active_run_reset_on_spoolman_failure(self):
+        """Spoolman returns bad data → _active_run must be None after, next run proceeds."""
+        sm = FakeSpoolman([], [])
+        state_map = _rfid_state_map(1, tag_uid="AABB")
+        r = TestableReconcile(sm, state_map, None, self.args)
+
+        # Poison Spoolman to return a string instead of a list
+        original_get = r._spoolman_get
+        r._spoolman_get = lambda path: "not_a_list"
+
+        r._run_reconcile("test_failure")
+        assert r._active_run is None, "_active_run must be reset after Spoolman failure"
+
+        # Restore and verify next run proceeds normally
+        r._spoolman_get = original_get
+        r._run_reconcile("test_recovery")
+        assert r._active_run is None, "_active_run must be reset after successful run"
+        assert r._last_summary is not None, "recovery run should produce a summary"
+
+    def test_active_run_reset_on_success(self):
+        """Normal reconcile cycle → _active_run is None after."""
+        sm = FakeSpoolman([], [])
+        state_map = _rfid_state_map(1, tag_uid="AABB")
+        r = TestableReconcile(sm, state_map, None, self.args)
+        r._run_reconcile("test_success")
+        assert r._active_run is None, "_active_run must be None after successful reconcile"
+
+    def test_reconcile_logs_error_on_exception(self):
+        """Unhandled exception during reconcile → RECONCILE_ERROR logged at ERROR level."""
+        sm = FakeSpoolman([], [])
+        state_map = _rfid_state_map(1, tag_uid="AABB")
+        r = TestableReconcile(sm, state_map, None, self.args)
+
+        # Poison Spoolman to raise an exception
+        def _raise_on_get(path):
+            raise ConnectionError("Spoolman unreachable")
+        r._spoolman_get = _raise_on_get
+
+        r._run_reconcile("test_exception")
+        assert r._active_run is None, "_active_run must be reset after exception"
+        error_logs = [(msg, lvl) for msg, lvl in r._log_calls if lvl == "ERROR" and "RECONCILE_ERROR" in msg]
+        assert len(error_logs) >= 1, "RECONCILE_ERROR must be logged at ERROR level"
+        assert "Spoolman unreachable" in error_logs[0][0], "exception message must appear in log"
+
+
 if __name__ == "__main__":
     unittest.main()

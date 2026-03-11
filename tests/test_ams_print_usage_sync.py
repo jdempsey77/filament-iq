@@ -7,7 +7,9 @@ Run: python -m pytest tests/test_ams_print_usage_sync.py -v
 import json
 import os
 import sys
+import tempfile
 import types
+from unittest import mock
 
 import pytest
 
@@ -1306,3 +1308,36 @@ def test_unknown_state_suppresses_3mf_allows_rfid():
     assert len(app._use_calls) == 1, "RFID delta should still write"
     assert _has_log(app, "USAGE_RFID")
     assert not _has_log(app, "USAGE_3MF")
+
+
+# ── Atomic write tests for _persist_seen_job_keys ────────────────────
+
+def test_atomic_write_uses_replace():
+    """_persist_seen_job_keys must use os.replace for atomic write."""
+    from appdaemon.apps.filament_iq.ams_print_usage_sync import SEEN_JOBS_PATH
+
+    app = _TestableUsageSync()
+    app._seen_job_keys = OrderedDict([("job_a", True), ("job_b", True)])
+
+    with mock.patch("appdaemon.apps.filament_iq.ams_print_usage_sync.os.replace") as mock_replace, \
+         mock.patch("builtins.open", mock.mock_open()), \
+         mock.patch("appdaemon.apps.filament_iq.ams_print_usage_sync.os.makedirs"):
+        app._persist_seen_job_keys()
+        mock_replace.assert_called_once_with(SEEN_JOBS_PATH + ".tmp", SEEN_JOBS_PATH)
+
+
+def test_atomic_write_cleans_tmp_on_failure():
+    """If os.replace fails, .tmp file must be cleaned up."""
+    from appdaemon.apps.filament_iq.ams_print_usage_sync import SEEN_JOBS_PATH
+
+    app = _TestableUsageSync()
+    app._seen_job_keys = OrderedDict([("job_a", True)])
+
+    with mock.patch("appdaemon.apps.filament_iq.ams_print_usage_sync.os.replace",
+                     side_effect=OSError("disk full")), \
+         mock.patch("builtins.open", mock.mock_open()), \
+         mock.patch("appdaemon.apps.filament_iq.ams_print_usage_sync.os.makedirs"), \
+         mock.patch("appdaemon.apps.filament_iq.ams_print_usage_sync.os.unlink") as mock_unlink:
+        app._persist_seen_job_keys()
+        mock_unlink.assert_called_once_with(SEEN_JOBS_PATH + ".tmp")
+        assert _has_log(app, "PERSIST_JOB_KEYS_FAILED")

@@ -777,6 +777,18 @@ class AmsRfidReconcile(FilamentIQBase):
             "validation_transcripts": [],
             "spool_exists_cache": {},
         }
+        try:
+            self._run_reconcile_inner(reason, started, slots_filter, validation_mode, status_only)
+        except Exception as exc:
+            self.log(
+                f"RECONCILE_ERROR unhandled exception: {exc}",
+                level="ERROR",
+            )
+        finally:
+            self._active_run = None
+            self._reconcile_spools_cache = None
+
+    def _run_reconcile_inner(self, reason, started, slots_filter=None, validation_mode=False, status_only=False):
         if slots_filter is not None:
             raw = slots_filter if isinstance(slots_filter, (list, tuple)) else [slots_filter]
             slots_to_process = [self._safe_int(s, 0) for s in raw if self._safe_int(s, 0) in self._tray_entity_by_slot]
@@ -791,7 +803,11 @@ class AmsRfidReconcile(FilamentIQBase):
         if isinstance(spools, dict) and "items" in spools:
             spools = spools.get("items", [])
         if not isinstance(spools, list):
-            raise RuntimeError("Spoolman /api/v1/spool did not return a list")
+            self.log(
+                "RECONCILE_SPOOLMAN_FETCH_FAILED: /api/v1/spool did not return a list",
+                level="ERROR",
+            )
+            return
         # Cache for this reconcile pass — used by _clear_previous_occupant_guarded
         # to avoid re-fetching the full spool list per slot.
         self._reconcile_spools_cache = spools
@@ -2191,8 +2207,6 @@ class AmsRfidReconcile(FilamentIQBase):
         suppress_until = datetime.datetime.utcnow() + datetime.timedelta(seconds=5)
         for s in slots_to_process:
             self._suppress_helper_change_until[s] = suppress_until
-        self._active_run = None
-        self._reconcile_spools_cache = None
 
     def _normalize_location(self, loc):
         """Never write deprecated/legacy location strings to Spoolman. Map AMS2_HT_* / HT1 / HT2 to Shelf."""

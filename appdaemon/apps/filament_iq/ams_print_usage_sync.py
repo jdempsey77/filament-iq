@@ -1455,13 +1455,19 @@ class AmsPrintUsageSync(FilamentIQBase):
             dir_path = os.path.dirname(SEEN_JOBS_PATH)
             os.makedirs(dir_path, exist_ok=True)
             keys = list(self._seen_job_keys.keys())
-            with open(SEEN_JOBS_PATH, "w", encoding="utf-8") as f:
+            tmp_path = SEEN_JOBS_PATH + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(keys, f, indent=None)
-        except OSError as e:
+            os.replace(tmp_path, SEEN_JOBS_PATH)
+        except Exception as e:
             self.log(
-                f"AmsPrintUsageSync: could not persist seen_job_keys to {SEEN_JOBS_PATH}: {e}",
-                level="WARNING",
+                f"PERSIST_JOB_KEYS_FAILED: {e}",
+                level="ERROR",
             )
+            try:
+                os.unlink(SEEN_JOBS_PATH + ".tmp")
+            except OSError:
+                pass
 
     # ── helpers ───────────────────────────────────────────────────────
 
