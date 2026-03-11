@@ -36,6 +36,9 @@ rsync -avz "$MONITOR_DIR/monitor-config.env" "$SKA_HOST:~/.config/filament_iq/mo
 echo ""
 
 # Reload, enable, restart
+echo "Enabling linger for user service persistence..."
+ssh -n "$SKA_HOST" "loginctl enable-linger \$USER"
+
 echo "Reloading systemd and restarting daemon..."
 ssh -n "$SKA_HOST" bash -c "'
   systemctl --user daemon-reload
@@ -51,5 +54,6 @@ echo "  Monitor: ~/filament_iq/monitor.py"
 echo "  Service: ~/.config/systemd/user/filament-iq-monitor.service"
 echo "  Config:  ~/.config/filament_iq/monitor-config.env"
 echo "  Secrets: ~/.config/filament_iq/secrets.env (not deployed — use rotate-secret.sh)"
+echo "  Linger:  enabled (service survives without SSH session)"
 echo ""
 echo "Logs:  journalctl --user -u filament-iq-monitor -f"
