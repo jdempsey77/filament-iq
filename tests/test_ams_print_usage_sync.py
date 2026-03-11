@@ -1366,3 +1366,165 @@ def test_atomic_write_cleans_tmp_on_failure():
         AmsPrintUsageSync._persist_seen_job_keys(app)
         mock_unlink.assert_called_once_with(SEEN_JOBS_PATH + ".tmp")
         assert _has_log(app, "PERSIST_JOB_KEYS_FAILED")
+
+
+# ── R2 #4: _rehydrate_print_state tests ──────────────────────────────
+
+def test_rehydrate_mid_print_restores_active():
+    """If printer is 'running' on startup, _print_active set to True."""
+    app = _TestableUsageSync(state_map={
+        f"sensor.p1s_01p00c5a3101668_print_status": "running",
+    })
+    assert app._print_active is False
+    app._rehydrate_print_state()
+    assert app._print_active is True
+    assert _has_log(app, "REHYDRATE_PRINT_ACTIVE status=running")
+
+
+def test_rehydrate_idle_no_action():
+    """If printer is idle on startup, no rehydration — _print_active stays False."""
+    app = _TestableUsageSync(state_map={
+        f"sensor.p1s_01p00c5a3101668_print_status": "idle",
+    })
+    app._rehydrate_print_state()
+    assert app._print_active is False
+    assert not _has_log(app, "REHYDRATE_PRINT_ACTIVE")
+
+
+def test_rehydrate_paused_restores_active():
+    """Paused printer is still mid-print — should rehydrate."""
+    app = _TestableUsageSync(state_map={
+        f"sensor.p1s_01p00c5a3101668_print_status": "pause",
+    })
+    app._rehydrate_print_state()
+    assert app._print_active is True
+    assert _has_log(app, "REHYDRATE_PRINT_ACTIVE status=pause")
+
+
+def test_rehydrate_phase1_recovers_start_json():
+    """Phase1: start_json recovered from HA helper on rehydrate."""
+    app = _TestableUsageSync(
+        args={"lifecycle_phase1_enabled": True},
+        state_map={
+            f"sensor.p1s_01p00c5a3101668_print_status": "running",
+            "input_text.filament_iq_start_json": '{"1": 500.0, "2": 800.0}',
+            f"sensor.p1s_01p00c5a3101668_task_name": "test_print",
+        },
+    )
+    app._rehydrate_print_state()
+    assert app._start_snapshot == {1: 500.0, 2: 800.0}
+    assert _has_log(app, "REHYDRATE_START_SNAPSHOT_RECOVERED")
+
+
+def test_rehydrate_phase1_corrupt_json_rebuilds():
+    """Phase1: corrupt start_json helper → falls back to fuel gauge rebuild."""
+    app = _TestableUsageSync(
+        args={"lifecycle_phase1_enabled": True},
+        state_map={
+            f"sensor.p1s_01p00c5a3101668_print_status": "running",
+            "input_text.filament_iq_start_json": "NOT_VALID_JSON{{{",
+            f"sensor.p1s_01p00c5a3101668_task_name": "test_print",
+        },
+    )
+    app._rehydrate_print_state()
+    # Should have attempted rebuild (even if snapshot is empty due to missing gauges)
+    assert _has_log(app, "REHYDRATE_START_SNAPSHOT_REBUILT") or _has_log(app, "Failed to recover start_json")
+
+
+def test_rehydrate_empty_status_no_crash():
+    """Empty/unavailable print_status → no rehydration, no crash."""
+    app = _TestableUsageSync(state_map={
+        f"sensor.p1s_01p00c5a3101668_print_status": "",
+    })
+    app._rehydrate_print_state()
+    assert app._print_active is False
+
+
+# ── R2 #6: Negative RFID delta clamping ──────────────────────────────
+
+def test_rfid_negative_delta_clamped_to_zero():
+    """end_g > start_g (spool gains weight) → delta clamped to 0.0, no write."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 370.0}',
+          end_json='{"4": 420.0}',
+          print_weight_g="0")
+
+    # Delta = max(0.0, 370 - 420) = 0.0 → below min_consumption_g → no write
+    assert len(app._use_calls) == 0
+    assert _has_log(app, "USAGE_RFID slot=4")
+    assert _has_log(app, "consumption_g=0.0")
+
+
+def test_rfid_equal_weights_no_write():
+    """end_g == start_g → delta = 0.0, no Spoolman write."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 420.0}',
+          print_weight_g="0")
+
+    assert len(app._use_calls) == 0
+    assert _has_log(app, "consumption_g=0.0")
+
+
+def test_rfid_normal_consumption_writes():
+    """end_g < start_g (normal) → correct delta, Spoolman write."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 400.0}',
+          print_weight_g="20")
+
+    assert len(app._use_calls) == 1
+    assert abs(app._use_calls[0]["use_weight"] - 20.0) < 0.01
+    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10")
+
+
+# ── R2 #5: _coerce_json_field tests ──────────────────────────────────
+
+def test_coerce_json_field_valid_dict():
+    """Valid dict field → returned as-is."""
+    app = _TestableUsageSync()
+    data = {"extra": {"rfid_tag_uid": "abc"}}
+    result = app._coerce_json_field(data, "extra")
+    assert result == {"rfid_tag_uid": "abc"}
+
+
+def test_coerce_json_field_json_string():
+    """JSON string field → parsed to dict."""
+    app = _TestableUsageSync()
+    data = {"extra": '{"rfid_tag_uid": "abc"}'}
+    result = app._coerce_json_field(data, "extra")
+    assert result == {"rfid_tag_uid": "abc"}
+
+
+def test_coerce_json_field_none_returns_empty():
+    """None value (missing key) → returns empty dict."""
+    app = _TestableUsageSync()
+    data = {}
+    result = app._coerce_json_field(data, "extra")
+    assert result == {}
+
+
+def test_coerce_json_field_malformed_returns_none():
+    """Malformed JSON string → returns None, logs error."""
+    app = _TestableUsageSync()
+    data = {"extra": "NOT{VALID}JSON"}
+    result = app._coerce_json_field(data, "extra")
+    assert result is None
+    assert _has_log(app, "JSON_PARSE_ERROR")
+
+
+def test_coerce_json_field_empty_string():
+    """Empty string → returns empty dict."""
+    app = _TestableUsageSync()
+    data = {"extra": ""}
+    result = app._coerce_json_field(data, "extra")
+    assert result == {}
