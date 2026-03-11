@@ -131,6 +131,11 @@ class _TestableUsageSync(AmsPrintUsageSync):
             a.get("needs_reconcile_entity", "input_boolean.filament_iq_needs_reconcile")
         ).strip()
 
+        # RFID weight reconciler
+        self._weight_reconcile_enabled = bool(
+            a.get("weight_reconcile_enabled", True)
+        )
+
         # R2 #8: attrs from real initialize() that were missing from harness
         self.printer_ip = str(a.get("printer_ip", "192.0.2.99"))
         self.printer_ftps_port = int(a.get("printer_ftps_port", 990))
@@ -199,6 +204,8 @@ class _TestableUsageSync(AmsPrintUsageSync):
 
     def _spoolman_get(self, path):
         """Mock: avoid real HTTP in tests. Return non-depleted spool."""
+        if hasattr(self, "_spoolman_get_override") and self._spoolman_get_override is not None:
+            return self._spoolman_get_override(path)
         return {"remaining_weight": 100}
 
     def _persist_seen_job_keys(self):
@@ -1528,3 +1535,74 @@ def test_coerce_json_field_empty_string():
     data = {"extra": ""}
     result = app._coerce_json_field(data, "extra")
     assert result == {}
+
+
+# ── RFID weight reconciler tests ─────────────────────────────────────
+
+def _reconcile_app(slot=4, spool_id=10, remain=39, tray_weight=1000,
+                   remain_enabled=True, spoolman_remaining=0.0):
+    """Build a _TestableUsageSync configured for RFID weight reconcile tests."""
+    sm = _default_state_map({slot: spool_id})
+    app = _TestableUsageSync(state_map=sm)
+    # Mark slot as RFID-capable
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [slot]))
+    # Set tray attributes
+    entity = app._tray_entity_by_slot[slot]
+    app._state_map[f"{entity}::remain"] = remain
+    app._state_map[f"{entity}::tray_weight"] = tray_weight
+    app._state_map[f"{entity}::remain_enabled"] = remain_enabled
+    # Mock _spoolman_get to return specific remaining_weight per spool
+    def _get_override(path):
+        if f"/api/v1/spool/{spool_id}" in path:
+            return {"id": spool_id, "remaining_weight": spoolman_remaining}
+        return {"remaining_weight": 100}
+    app._spoolman_get_override = _get_override
+    return app
+
+
+def test_rfid_weight_reconcile_corrects_drift():
+    """RFID says 390g, Spoolman says 0g → PATCH called with 390g."""
+    app = _reconcile_app(remain=39, tray_weight=1000, spoolman_remaining=0.0)
+    app._reconcile_rfid_weights()
+    assert len(app._patch_calls) == 1
+    assert app._patch_calls[0]["spool_id"] == 10
+    assert app._patch_calls[0]["data"] == {"remaining_weight": 390.0}
+    assert _has_log(app, "RFID_WEIGHT_RECONCILED slot=4 spool_id=10")
+    assert _has_log(app, "rfid=390.0g spoolman_was=0.0g")
+
+
+def test_rfid_weight_reconcile_skips_exact_match():
+    """RFID says 390g, Spoolman says 390g → no PATCH called."""
+    app = _reconcile_app(remain=39, tray_weight=1000, spoolman_remaining=390.0)
+    app._reconcile_rfid_weights()
+    assert len(app._patch_calls) == 0
+    assert _has_log(app, "RFID_WEIGHT_MATCH slot=4 spool_id=10")
+
+
+def test_rfid_weight_reconcile_skips_non_rfid():
+    """Slot with remain_enabled=False → skip, no PATCH."""
+    app = _reconcile_app(remain=39, tray_weight=1000, remain_enabled=False,
+                         spoolman_remaining=0.0)
+    app._reconcile_rfid_weights()
+    assert len(app._patch_calls) == 0
+    assert not _has_log(app, "RFID_WEIGHT_RECONCILED")
+
+
+def test_rfid_weight_reconcile_skips_unbound():
+    """spool_id=0 (unbound slot) → skip, no PATCH."""
+    app = _reconcile_app(spool_id=0, spoolman_remaining=0.0)
+    # Override state_map to return 0 for spool_id
+    app._state_map["input_text.ams_slot_4_spool_id"] = "0"
+    app._reconcile_rfid_weights()
+    assert len(app._patch_calls) == 0
+    assert not _has_log(app, "RFID_WEIGHT_RECONCILED")
+
+
+def test_rfid_weight_reconcile_handles_spoolman_failure():
+    """Spoolman GET returns None → skip gracefully, no crash."""
+    app = _reconcile_app(remain=39, tray_weight=1000, spoolman_remaining=0.0)
+    app._spoolman_get_override = lambda path: None
+    app._reconcile_rfid_weights()
+    assert len(app._patch_calls) == 0
+    assert _has_log(app, "RFID_WEIGHT_RECONCILE_SKIP")
+    assert _has_log(app, "spoolman_fetch_failed")

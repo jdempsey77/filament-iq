@@ -159,6 +159,11 @@ class AmsPrintUsageSync(FilamentIQBase):
             )
         ).strip()
 
+        # RFID weight reconciler
+        self._weight_reconcile_enabled = bool(
+            self.args.get("weight_reconcile_enabled", True)
+        )
+
         # 3MF parsing config
         self.printer_ip = str(self.args.get("printer_ip", ""))
         self.printer_ftps_port = int(self.args.get("printer_ftps_port", 990))
@@ -954,6 +959,15 @@ class AmsPrintUsageSync(FilamentIQBase):
         # Call usage handler directly (no event roundtrip)
         self._handle_usage_event(None, data, {})
 
+        # RFID weight reconciler — correct Spoolman drift using RFID ground truth
+        try:
+            self._reconcile_rfid_weights()
+        except Exception as exc:
+            self.log(
+                f"RFID_WEIGHT_RECONCILE_ERROR unhandled: {exc}",
+                level="ERROR",
+            )
+
         # Stamp dedup — only for non-failed prints so a retry with the
         # same job_key after a failure is not incorrectly skipped
         if status not in self._FAILED_STATES:
@@ -1576,6 +1590,65 @@ class AmsPrintUsageSync(FilamentIQBase):
                 level="ERROR",
             )
             return None
+
+    def _reconcile_rfid_weights(self):
+        """After print finish, correct Spoolman remaining_weight using RFID ground truth."""
+        if not self._weight_reconcile_enabled:
+            return
+        for slot in sorted(self._tray_entity_by_slot.keys()):
+            if not self._is_rfid_slot(slot):
+                continue
+            spool_id = self._read_spool_id(slot)
+            if spool_id <= 0:
+                continue
+            entity = self._tray_entity_by_slot[slot]
+            try:
+                remain = float(self.get_state(entity, attribute="remain") or 0)
+                tray_weight = float(self.get_state(entity, attribute="tray_weight") or 0)
+                remain_enabled = self.get_state(entity, attribute="remain_enabled")
+            except (TypeError, ValueError):
+                continue
+            if remain_enabled is False or str(remain_enabled).strip().lower() == "false":
+                continue
+            if tray_weight <= 0:
+                continue
+            rfid_weight_g = round(remain / 100.0 * tray_weight, 1)
+            spool_data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+            if spool_data is None:
+                self.log(
+                    f"RFID_WEIGHT_RECONCILE_SKIP slot={slot} spool_id={spool_id} "
+                    f"reason=spoolman_fetch_failed",
+                    level="WARNING",
+                )
+                continue
+            spoolman_weight_g = round(float(spool_data.get("remaining_weight", 0)), 1)
+            if rfid_weight_g == spoolman_weight_g:
+                self.log(
+                    f"RFID_WEIGHT_MATCH slot={slot} spool_id={spool_id} "
+                    f"rfid={rfid_weight_g}g",
+                    level="DEBUG",
+                )
+                continue
+            if self.dry_run:
+                self.log(
+                    f"RFID_WEIGHT_RECONCILE_DRYRUN slot={slot} spool_id={spool_id} "
+                    f"rfid={rfid_weight_g}g spoolman_was={spoolman_weight_g}g",
+                    level="INFO",
+                )
+                continue
+            result = self._spoolman_patch(spool_id, {"remaining_weight": rfid_weight_g})
+            if result is None:
+                self.log(
+                    f"RFID_WEIGHT_RECONCILE_FAILED slot={slot} spool_id={spool_id} "
+                    f"rfid={rfid_weight_g}g",
+                    level="WARNING",
+                )
+            else:
+                self.log(
+                    f"RFID_WEIGHT_RECONCILED slot={slot} spool_id={spool_id} "
+                    f"rfid={rfid_weight_g}g spoolman_was={spoolman_weight_g}g",
+                    level="INFO",
+                )
 
     def _spoolman_use(self, spool_id, use_weight_g):
         """PUT /api/v1/spool/{id}/use — returns updated spool dict or None on failure."""
