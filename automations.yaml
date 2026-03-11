@@ -41,7 +41,7 @@
       seconds: 5
   condition: []
   action:
-  - action: notify.notify
+  - action: notify.mobile_app_jd_pixel_10xl
     data:
       message: 'Leak detected by Water Heater '
   mode: single
@@ -1538,7 +1538,7 @@
 
         Check logs: Settings > System > Logs
       notification_id: ha_restart_watchdog
-  - action: notify.notify
+  - action: notify.mobile_app_jd_pixel_10xl
     data:
       title: "HA Restarted"
       message: "HA restarted at {{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
