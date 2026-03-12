@@ -1374,7 +1374,7 @@ def test_unknown_state_suppresses_3mf_allows_rfid():
 
 def test_atomic_write_uses_replace():
     """_persist_seen_job_keys must use os.replace for atomic write."""
-    from appdaemon.apps.filament_iq.ams_print_usage_sync import AmsPrintUsageSync, SEEN_JOBS_PATH
+    from filament_iq.ams_print_usage_sync import AmsPrintUsageSync, SEEN_JOBS_PATH
 
     app = _TestableUsageSync()
     app._seen_job_keys = OrderedDict([("job_a", True), ("job_b", True)])
@@ -1388,7 +1388,7 @@ def test_atomic_write_uses_replace():
 
 def test_atomic_write_cleans_tmp_on_failure():
     """If os.replace fails, .tmp file must be cleaned up."""
-    from appdaemon.apps.filament_iq.ams_print_usage_sync import AmsPrintUsageSync, SEEN_JOBS_PATH
+    from filament_iq.ams_print_usage_sync import AmsPrintUsageSync, SEEN_JOBS_PATH
 
     app = _TestableUsageSync()
     app._seen_job_keys = OrderedDict([("job_a", True)])
