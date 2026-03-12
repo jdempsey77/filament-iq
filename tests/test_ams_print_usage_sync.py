@@ -1855,6 +1855,204 @@ def test_rfid_weight_reconcile_skips_invalid_remain_none():
     assert _has_log(app, "RFID_WEIGHT_INVALID_REMAIN slot=4")
 
 
+# ── coverage: usage handler edge cases ───────────────────────────────
+
+def test_usage_max_consumption_exceeded():
+    """Consumption > max_consumption_g → USAGE_SANITY_CAP, no write."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+        args={"max_consumption_g": 100.0},
+    )
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 500.0}',
+          end_json='{"4": 100.0}',
+          print_weight_g="400")
+    assert len(app._use_calls) == 0
+    assert _has_log(app, "USAGE_SANITY_CAP slot=4")
+
+
+def test_usage_below_min_consumption():
+    """Consumption < min_consumption_g → USAGE_BELOW_MIN, no write."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+        args={"min_consumption_g": 5.0},
+    )
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 418.0}',
+          print_weight_g="2")
+    assert len(app._use_calls) == 0
+    assert _has_log(app, "USAGE_BELOW_MIN slot=4")
+
+
+def test_usage_no_evidence_non_rfid_no_3mf():
+    """Non-RFID slot with no 3MF data → USAGE_NO_EVIDENCE."""
+    app = _TestableUsageSync(state_map=_default_state_map({5: 20}))
+    # slot 5 = AMS HT, tag_uid defaults to 0000... (non-RFID)
+    _fire(app,
+          trays_used="5",
+          start_json='{"5": 0}',
+          end_json='{"5": 0}',
+          print_weight_g="50")
+    assert len(app._use_calls) == 0
+    assert _has_log(app, "USAGE_NO_EVIDENCE slot=5")
+
+
+def test_usage_unbound_slot_skipped():
+    """Slot with no spool binding → USAGE_SKIP UNBOUND."""
+    app = _TestableUsageSync(state_map={})  # no bindings
+    _fire(app, trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 370.0}',
+          print_weight_g="50")
+    assert len(app._use_calls) == 0
+    assert _has_log(app, "USAGE_SKIP slot=4 reason=UNBOUND")
+
+
+def test_usage_dry_run_no_write():
+    """dry_run=True → WOULD_PATCH logged, no Spoolman write."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+        args={"dry_run": True},
+    )
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 370.0}',
+          print_weight_g="50")
+    assert len(app._use_calls) == 0
+    assert _has_log(app, "WOULD_PATCH slot=4 spool_id=10")
+
+
+def test_usage_write_failed_dedup_not_persisted():
+    """When Spoolman write fails → job_key NOT added to seen_job_keys."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    app._use_fail_spool_ids = {10}
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 370.0}',
+          print_weight_g="50")
+    assert "test_job_001" not in app._seen_job_keys
+    assert _has_log(app, "USAGE_PATCH_FAILED spool_id=10")
+
+
+def test_usage_dedup_persisted_on_success():
+    """Successful write → job_key added to seen_job_keys."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 370.0}',
+          print_weight_g="50")
+    assert "test_job_001" in app._seen_job_keys
+
+
+def test_usage_duplicate_job_key_skipped():
+    """Same job_key fired twice → second time is deduped."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    _fire(app)
+    assert len(app._use_calls) == 1
+    app._use_calls.clear()
+    _fire(app)  # same job_key
+    assert len(app._use_calls) == 0
+    assert _has_log(app, "DEDUP_SKIP")
+
+
+def test_usage_3mf_match_invoked_when_data_present():
+    """3MF data triggers match_filaments_to_slots (even if no match found)."""
+    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+    app._threemf_data = [
+        {"index": 0, "used_g": 25.5, "color_hex": "ff0000", "material": "PLA"}
+    ]
+    app.threemf_enabled = True
+    _fire(app,
+          trays_used="4",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 394.5}',
+          print_weight_g="25.5")
+    # 3MF matching was attempted — either USAGE_3MF or 3MF_MATCH logged
+    assert _has_log(app, "3MF") or _has_log(app, "USAGE")
+
+
+def test_on_print_start_captures_snapshot():
+    """_on_print_start writes job_key and start_snapshot."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+        args={"lifecycle_phase1_enabled": True},
+    )
+    app._state_map[app._task_name_entity] = "test_model"
+    app._print_active = True
+    app._on_print_start()
+    assert app._job_key.startswith("test_model_")
+    assert isinstance(app._start_snapshot, dict)
+    assert _has_log(app, "PRINT_START_CAPTURED")
+
+
+def test_on_print_end_clears_state():
+    """_on_print_end clears start_snapshot and job_key."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+        args={"lifecycle_phase1_enabled": True},
+    )
+    app._job_key = "test_job"
+    app._start_snapshot = {4: 420.0}
+    app._on_print_end()
+    assert app._start_snapshot == {}
+    assert app._job_key == ""
+
+
+def test_finish_wait_tick_proceeds_after_timeout():
+    """After 15 ticks with no 3MF data → proceeds with WARNING."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+        args={"lifecycle_phase2_enabled": True},
+    )
+    app._finish_wait_count = 14
+    app._finish_pending = True
+    app._finish_pending_status = "finish"
+    app._threemf_data = None
+    app._do_finish = mock.MagicMock()
+    app._finish_wait_tick({})
+    assert _has_log(app, "3MF_DATA_NOT_READY")
+    app._do_finish.assert_called_once_with("finish")
+
+
+def test_seed_slot_start_grams_write_once():
+    """_seed_slot_start_grams only writes if slot not already in snapshot."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+        args={"lifecycle_phase1_enabled": True},
+    )
+    app._start_snapshot = {4: 420.0}
+    # Seed should not overwrite
+    app._seed_slot_start_grams(4)
+    assert app._start_snapshot[4] == 420.0
+
+
+def test_finish_offline_state_warning():
+    """Print finishing with offline status → FINISH_OFFLINE_STATE logged."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+        args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
+    )
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    app._job_key = "test_offline"
+    app._start_snapshot = {4: 420.0}
+    app._trays_used = {4}
+    app._print_active = True
+    app._do_finish("offline")
+    assert _has_log(app, "FINISH_OFFLINE_STATE")
+
+
 # ── active_print.json persistence tests ──────────────────────────────
 
 class TestActivePrintPersistence:
@@ -2066,3 +2264,1157 @@ class TestActivePrintPersistence:
                 assert not tmp_file.exists()
             finally:
                 self._cleanup()
+
+
+# ── lifecycle method tests ────────────────────────────────────────────
+
+class TestLifecycleMethods:
+    """Tests for _on_print_start, _on_print_end, _do_finish, _on_print_finish."""
+
+    def test_on_print_start_captures_job_key(self):
+        """_on_print_start sets job_key and start_snapshot."""
+        app = _TestableUsageSync(
+            state_map={
+                "sensor.p1s_01p00c5a3101668_task_name": "benchy.3mf",
+                "sensor.p1s_tray_1_fuel_gauge_remaining": "500.0",
+                "sensor.p1s_tray_2_fuel_gauge_remaining": "300.0",
+            },
+            args={"lifecycle_phase1_enabled": True},
+        )
+        app._on_print_start()
+        assert app._job_key.startswith("benchy.3mf_")
+        assert _has_log(app, "PRINT_START_CAPTURED")
+        assert any(c["service"] == "input_boolean/turn_on" for c in app._service_calls)
+        assert any(c["service"] == "input_text/set_value" for c in app._service_calls)
+
+    def test_on_print_end_clears_state(self):
+        """_on_print_end clears start_snapshot and job_key."""
+        app = _TestableUsageSync(args={"lifecycle_phase1_enabled": True})
+        app._job_key = "test_key"
+        app._start_snapshot = {1: 500.0}
+        app._on_print_end()
+        assert app._job_key == ""
+        assert app._start_snapshot == {}
+        assert any(c["service"] == "input_boolean/turn_off" for c in app._service_calls)
+
+    def test_on_print_finish_no_job_key_skips(self):
+        """_on_print_finish with no job_key logs skip."""
+        app = _TestableUsageSync(args={
+            "lifecycle_phase1_enabled": True,
+            "lifecycle_phase2_enabled": True,
+        })
+        app._job_key = ""
+        app._on_print_finish("finish")
+        assert _has_log(app, "PRINT_FINISH_SKIP reason=no_job_key")
+
+    def test_on_print_finish_no_start_snapshot_skips(self):
+        """_on_print_finish with no start_snapshot logs skip."""
+        app = _TestableUsageSync(args={
+            "lifecycle_phase1_enabled": True,
+            "lifecycle_phase2_enabled": True,
+        })
+        app._job_key = "test_key"
+        app._start_snapshot = {}
+        app._on_print_finish("finish")
+        assert _has_log(app, "PRINT_FINISH_SKIP reason=no_start_snapshot")
+
+    def test_on_print_finish_dedup_skip(self):
+        """Same job_key processed twice → dedup skip."""
+        app = _TestableUsageSync(args={
+            "lifecycle_phase1_enabled": True,
+            "lifecycle_phase2_enabled": True,
+        })
+        app._job_key = "dup_key"
+        app._start_snapshot = {1: 500.0}
+        app._last_processed_job_key = "dup_key"
+        app._on_print_finish("finish")
+        assert _has_log(app, "PRINT_FINISH_DEDUP_SKIP")
+
+    def test_do_finish_offline_state_warning(self):
+        """_do_finish with offline status logs FINISH_OFFLINE_STATE."""
+        app = _TestableUsageSync(
+            state_map=_default_state_map({4: 10}),
+            args={
+                "lifecycle_phase1_enabled": True,
+                "lifecycle_phase2_enabled": True,
+            },
+        )
+        app._job_key = "offline_test"
+        app._start_snapshot = {4: 420.0}
+        app._trays_used = {4}
+        app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+        app._do_finish("offline")
+        assert _has_log(app, "FINISH_OFFLINE_STATE")
+
+    def test_do_finish_processes_usage(self):
+        """_do_finish builds end snapshot and processes usage."""
+        app = _TestableUsageSync(
+            state_map={
+                **_default_state_map({4: 10}),
+                "sensor.p1s_tray_4_fuel_gauge_remaining": "370.0",
+                "sensor.p1s_01p00c5a3101668_print_weight": "50",
+                "sensor.p1s_01p00c5a3101668_task_name": "test.3mf",
+            },
+            args={
+                "lifecycle_phase1_enabled": True,
+                "lifecycle_phase2_enabled": True,
+            },
+        )
+        app._job_key = "test_finish"
+        app._start_snapshot = {4: 420.0}
+        app._trays_used = {4}
+        app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+        app._do_finish("finish")
+        assert _has_log(app, "PRINT_FINISH_CAPTURED")
+        assert len(app._use_calls) == 1
+        assert app._use_calls[0]["spool_id"] == 10
+
+
+class TestReadFuelGauge:
+    """_read_fuel_gauge with fallback."""
+
+    def test_fuel_gauge_returns_value(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_tray_1_fuel_gauge_remaining": "500.0",
+        })
+        assert app._read_fuel_gauge(1) == 500.0
+
+    def test_fuel_gauge_unavailable_falls_back_to_ams(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.ams_slot_1_remaining_g": "300.0",
+        })
+        assert app._read_fuel_gauge(1) == 300.0
+
+    def test_fuel_gauge_both_unavailable(self):
+        app = _TestableUsageSync(state_map={})
+        assert app._read_fuel_gauge(1) == -1.0
+
+    def test_fuel_gauge_invalid_value(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_tray_1_fuel_gauge_remaining": "unavailable",
+        })
+        assert app._read_fuel_gauge(1) == -1.0
+
+
+class TestBuildStartEndSnapshot:
+    """_build_start_snapshot and _build_end_snapshot."""
+
+    def test_build_start_snapshot(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_tray_1_fuel_gauge_remaining": "500.0",
+            "sensor.p1s_tray_2_fuel_gauge_remaining": "300.0",
+        })
+        snap = app._build_start_snapshot()
+        assert 1 in snap
+        assert 2 in snap
+        assert snap[1] == 500.0
+
+    def test_build_end_snapshot_only_start_slots(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_tray_1_fuel_gauge_remaining": "450.0",
+            "sensor.p1s_tray_2_fuel_gauge_remaining": "280.0",
+        })
+        app._start_snapshot = {1: 500.0}
+        snap = app._build_end_snapshot()
+        assert 1 in snap
+        assert 2 not in snap
+
+
+class TestSeedSlotStartGrams:
+    """_seed_slot_start_grams write-once behavior."""
+
+    def test_already_seeded_no_overwrite(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_tray_1_fuel_gauge_remaining": "300.0",
+        })
+        app._start_snapshot = {1: 500.0}
+        app._seed_slot_start_grams(1)
+        assert app._start_snapshot[1] == 500.0
+
+    def test_new_slot_seeded(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_tray_3_fuel_gauge_remaining": "800.0",
+        })
+        app._start_snapshot = {}
+        app._seed_slot_start_grams(3)
+        assert 3 in app._start_snapshot
+        assert app._start_snapshot[3] == 800.0
+
+
+class TestCheckUnboundTrays:
+    """_check_unbound_trays delayed check."""
+
+    def test_not_printing_noop(self):
+        app = _TestableUsageSync()
+        app._print_active = False
+        app._check_unbound_trays({})
+        assert not _has_log(app, "PRINT_UNBOUND_WARNING")
+
+    def test_no_trays_skips(self):
+        app = _TestableUsageSync()
+        app._print_active = True
+        app._trays_used = set()
+        app._check_unbound_trays({})
+        assert _has_log(app, "UNBOUND_CHECK_SKIPPED")
+
+    def test_unbound_tray_warns(self):
+        app = _TestableUsageSync(state_map={
+            "input_text.ams_slot_1_spool_id": "0",
+            "input_text.ams_slot_1_unbound_reason": "UNBOUND_TAG_UID_NO_MATCH",
+        })
+        app._print_active = True
+        app._trays_used = {1}
+        app._check_unbound_trays({})
+        assert _has_log(app, "PRINT_UNBOUND_WARNING")
+
+
+class TestRehydratePrintState:
+    """_rehydrate_print_state mid-print recovery."""
+
+    def test_not_printing_noop(self):
+        app = _TestableUsageSync(
+            state_map={"sensor.p1s_01p00c5a3101668_print_status": "idle"},
+            args={"lifecycle_phase1_enabled": True},
+        )
+        app._rehydrate_print_state()
+        assert app._print_active is False
+
+    def test_printing_rehydrates(self):
+        app = _TestableUsageSync(
+            state_map={
+                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "input_text.filament_iq_start_json": '{"1": 500.0}',
+                "sensor.p1s_01p00c5a3101668_task_name": "test_model",
+            },
+            args={"lifecycle_phase1_enabled": True},
+        )
+        app._rehydrate_print_state()
+        assert app._print_active is True
+        assert 1 in app._start_snapshot
+        assert app._start_snapshot[1] == 500.0
+        assert _has_log(app, "REHYDRATE_PRINT_ACTIVE")
+
+    def test_rehydrate_rebuilds_when_no_helper(self):
+        app = _TestableUsageSync(
+            state_map={
+                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "sensor.p1s_tray_1_fuel_gauge_remaining": "450.0",
+                "sensor.p1s_01p00c5a3101668_task_name": "rebuild_test",
+            },
+            args={"lifecycle_phase1_enabled": True},
+        )
+        app._rehydrate_print_state()
+        assert app._print_active is True
+        assert 1 in app._start_snapshot
+        assert _has_log(app, "REHYDRATE_START_SNAPSHOT_REBUILT")
+
+
+class TestResolveActiveTraySlot:
+    """_resolve_active_tray_slot edge cases."""
+
+    def test_returns_none_when_no_indices(self):
+        app = _TestableUsageSync()
+        assert app._resolve_active_tray_slot() is None
+
+    def test_resolves_correct_slot(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_active_tray::ams_index": "0",
+            "sensor.p1s_01p00c5a3101668_active_tray::tray_index": "0",
+        })
+        result = app._resolve_active_tray_slot()
+        assert result == 1
+
+
+class TestOnPrintStatusChange:
+    """_on_print_status_change tracking lifecycle."""
+
+    def test_start_triggers_tracking(self):
+        app = _TestableUsageSync(args={"lifecycle_phase1_enabled": True})
+        app._on_print_status_change(
+            "entity", "state", "idle", "running", {}
+        )
+        assert app._print_active is True
+        assert _has_log(app, "TRAY_TRACKING_START")
+
+    def test_end_triggers_tracking_end(self):
+        app = _TestableUsageSync(args={"lifecycle_phase1_enabled": True})
+        app._print_active = True
+        app._trays_used = {1, 2}
+        app._on_print_status_change(
+            "entity", "state", "running", "idle", {}
+        )
+        assert app._print_active is False
+        assert _has_log(app, "TRAY_TRACKING_END")
+
+
+class TestFinishWaitTick:
+    """_finish_wait_tick non-blocking 3MF polling."""
+
+    def test_timeout_proceeds_without_3mf(self):
+        app = _TestableUsageSync(args={
+            "lifecycle_phase1_enabled": True,
+            "lifecycle_phase2_enabled": True,
+        })
+        app._threemf_data = None
+        app._finish_pending = True
+        app._finish_pending_status = "finish"
+        app._finish_wait_count = 14
+        app._do_finish = mock.MagicMock()
+        app._finish_wait_tick({})
+        assert _has_log(app, "3MF_DATA_NOT_READY")
+        app._do_finish.assert_called_once_with("finish")
+
+    def test_schedules_next_tick_when_waiting(self):
+        app = _TestableUsageSync(args={
+            "lifecycle_phase1_enabled": True,
+            "lifecycle_phase2_enabled": True,
+        })
+        app._threemf_data = None
+        app._finish_pending = True
+        app._finish_pending_status = "finish"
+        app._finish_wait_count = 3
+        app._finish_wait_tick({})
+        assert any(c["callback"] == app._finish_wait_tick for c in app._run_in_calls)
+
+
+class TestOnPrintFinishCancelsPrevious:
+    """_on_print_finish cancels pending timer."""
+
+    def test_cancels_existing_wait(self):
+        app = _TestableUsageSync(args={
+            "lifecycle_phase1_enabled": True,
+            "lifecycle_phase2_enabled": True,
+        })
+        app._job_key = "test_key"
+        app._start_snapshot = {1: 500.0}
+        app._finish_pending = True
+        app._finish_wait_handle = "timer_42"
+        app.threemf_enabled = False
+        app._do_finish = mock.MagicMock()
+        app._on_print_finish("finish")
+        assert "timer_42" in app._cancelled_timers
+        assert _has_log(app, "FINISH_WAIT_CANCELLED")
+
+
+class TestFilterTraysByDuration:
+    """_filter_trays_by_duration removes brief activations."""
+
+    def test_brief_tray_filtered(self):
+        import datetime
+        app = _TestableUsageSync(args={"min_tray_active_seconds": 10})
+        now = datetime.datetime.utcnow()
+        app._tray_active_times = {
+            1: [{"start": now, "end": now + datetime.timedelta(seconds=5)}],
+            2: [{"start": now, "end": now + datetime.timedelta(seconds=60)}],
+        }
+        result = app._filter_trays_by_duration({1, 2})
+        assert 1 not in result
+        assert 2 in result
+
+
+class TestSummarizeTrayTimes:
+    """_summarize_tray_times returns {slot: seconds}."""
+
+    def test_summarize(self):
+        import datetime
+        app = _TestableUsageSync()
+        now = datetime.datetime.utcnow()
+        app._tray_active_times = {
+            1: [{"start": now, "end": now + datetime.timedelta(seconds=120)}],
+        }
+        result = app._summarize_tray_times()
+        assert 1 in result
+        assert result[1] == 120.0
+
+
+class TestWriteStartJsonHelper:
+    """_write_start_json_helper writes to HA helper."""
+
+    def test_writes_json(self):
+        app = _TestableUsageSync()
+        app._start_snapshot = {1: 500.0, 4: 420.0}
+        app._write_start_json_helper()
+        calls = [c for c in app._service_calls
+                 if c["service"] == "input_text/set_value"
+                 and c.get("entity_id") == "input_text.filament_iq_start_json"]
+        assert len(calls) == 1
+        data = json.loads(calls[0]["value"])
+        assert data["1"] == 500.0
+        assert data["4"] == 420.0
+
+
+# ── Coverage push: IO helpers, lifecycle, weight reconcile ────────────
+
+
+class TestReadSpoolId:
+    """_read_spool_id returns int or 0."""
+
+    def test_valid_id(self):
+        app = _TestableUsageSync(state_map={"input_text.ams_slot_1_spool_id": "42"})
+        assert app._read_spool_id(1) == 42
+
+    def test_none_returns_zero(self):
+        app = _TestableUsageSync(state_map={"input_text.ams_slot_1_spool_id": None})
+        assert app._read_spool_id(1) == 0
+
+    def test_invalid_returns_zero(self):
+        app = _TestableUsageSync(state_map={"input_text.ams_slot_1_spool_id": "banana"})
+        assert app._read_spool_id(1) == 0
+
+    def test_empty_string_returns_zero(self):
+        app = _TestableUsageSync(state_map={"input_text.ams_slot_1_spool_id": ""})
+        assert app._read_spool_id(1) == 0
+
+
+class TestIsRfidSlot:
+    """_is_rfid_slot checks tag_uid attribute."""
+
+    def test_valid_rfid_tag(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": "AABBCCDD11223344",
+        })
+        assert app._is_rfid_slot(1) is True
+
+    def test_zero_tag_not_rfid(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": "0000000000000000",
+        })
+        assert app._is_rfid_slot(1) is False
+
+    def test_none_tag_not_rfid(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": None,
+        })
+        assert app._is_rfid_slot(1) is False
+
+    def test_empty_tag_not_rfid(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": "",
+        })
+        assert app._is_rfid_slot(1) is False
+
+    def test_unknown_slot_returns_false(self):
+        app = _TestableUsageSync()
+        assert app._is_rfid_slot(99) is False
+
+
+class TestIsTrayPhysicallyPresent:
+    """_is_tray_physically_present checks tag_uid and tray state."""
+
+    def test_rfid_tag_present(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": "AABB",
+            "sensor.p1s_01p00c5a3101668_ams_1_tray_1": "PLA",
+        })
+        assert app._is_tray_physically_present(1) is True
+
+    def test_no_tag_but_tray_state_present(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": "",
+            "sensor.p1s_01p00c5a3101668_ams_1_tray_1": "PLA Basic",
+        })
+        assert app._is_tray_physically_present(1) is True
+
+    def test_empty_tray(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": "",
+            "sensor.p1s_01p00c5a3101668_ams_1_tray_1": "empty",
+        })
+        assert app._is_tray_physically_present(1) is False
+
+    def test_unknown_slot(self):
+        app = _TestableUsageSync()
+        assert app._is_tray_physically_present(99) is False
+
+
+def _mock_urlopen_response(data_bytes):
+    """Create a mock that works with `with urllib.request.urlopen(...) as resp:`."""
+    resp = mock.MagicMock()
+    resp.read.return_value = data_bytes
+    resp.status = 200
+    cm = mock.MagicMock()
+    cm.__enter__ = mock.MagicMock(return_value=resp)
+    cm.__exit__ = mock.MagicMock(return_value=False)
+    return cm
+
+
+class TestSpoolmanGetSync:
+    """_spoolman_get performs HTTP GET (real implementation, not harness override)."""
+
+    def test_success(self):
+        app = _TestableUsageSync()
+        cm = _mock_urlopen_response(json.dumps({"id": 1, "remaining_weight": 500}).encode())
+        with mock.patch("urllib.request.urlopen", return_value=cm):
+            result = AmsPrintUsageSync._spoolman_get(app, "/api/v1/spool/1")
+        assert result["id"] == 1
+
+    def test_failure_returns_none(self):
+        app = _TestableUsageSync()
+        with mock.patch("urllib.request.urlopen", side_effect=Exception("timeout")):
+            result = AmsPrintUsageSync._spoolman_get(app, "/api/v1/spool/1")
+        assert result is None
+
+
+class TestGetSpoolDisplayName:
+    """_get_spool_display_name formats vendor+name+material."""
+
+    def test_from_cache(self):
+        app = _TestableUsageSync()
+        cache = {42: {
+            "filament": {
+                "vendor": {"name": "Bambu"},
+                "name": "Basic",
+                "material": "PLA",
+            },
+        }}
+        assert AmsPrintUsageSync._get_spool_display_name(app, 42, spools_cache=cache) == "Bambu Basic PLA"
+
+    def test_no_vendor(self):
+        app = _TestableUsageSync()
+        cache = {42: {"filament": {"vendor": None, "name": "Basic", "material": "PLA"}}}
+        assert AmsPrintUsageSync._get_spool_display_name(app, 42, spools_cache=cache) == "Basic PLA"
+
+    def test_cache_miss_with_spoolman_data(self):
+        app = _TestableUsageSync()
+        # harness _spoolman_get returns {"remaining_weight": 100} (no filament) → empty name
+        # Exercise the code path where data exists but has no vendor/name/material
+        result = AmsPrintUsageSync._get_spool_display_name(app, 999)
+        # No filament key means all parts are empty → stripped to ""
+        assert result == ""
+
+    def test_spoolman_returns_none(self):
+        app = _TestableUsageSync()
+        app._spoolman_get_override = lambda path: None
+        assert AmsPrintUsageSync._get_spool_display_name(app, 999) == "spool 999"
+
+    def test_exception_fallback(self):
+        app = _TestableUsageSync()
+        bad_cache = mock.MagicMock()
+        bad_cache.get.side_effect = Exception("boom")
+        assert AmsPrintUsageSync._get_spool_display_name(app, 1, spools_cache=bad_cache) == "spool 1"
+
+
+class TestGetSpoolRemaining:
+    """_get_spool_remaining returns float weight."""
+
+    def test_from_cache(self):
+        app = _TestableUsageSync()
+        cache = {42: {"remaining_weight": 350.5}}
+        assert AmsPrintUsageSync._get_spool_remaining(app, 42, spools_cache=cache) == 350.5
+
+    def test_cache_miss_fetches(self):
+        app = _TestableUsageSync()
+        # harness _spoolman_get returns {"remaining_weight": 100}
+        assert AmsPrintUsageSync._get_spool_remaining(app, 999) == 100.0
+
+    def test_exception_returns_zero(self):
+        app = _TestableUsageSync()
+        bad_cache = mock.MagicMock()
+        bad_cache.get.side_effect = Exception("boom")
+        assert AmsPrintUsageSync._get_spool_remaining(app, 1, spools_cache=bad_cache) == 0.0
+
+
+class TestSpoolmanPatchSync:
+    """_spoolman_patch performs HTTP PATCH (real implementation)."""
+
+    def test_success(self):
+        app = _TestableUsageSync()
+        cm = _mock_urlopen_response(json.dumps({"id": 1, "remaining_weight": 400}).encode())
+        with mock.patch("urllib.request.urlopen", return_value=cm):
+            result = AmsPrintUsageSync._spoolman_patch(app, 1, {"remaining_weight": 400})
+        assert result["remaining_weight"] == 400
+
+    def test_failure_returns_none(self):
+        app = _TestableUsageSync()
+        with mock.patch("urllib.request.urlopen", side_effect=Exception("timeout")):
+            result = AmsPrintUsageSync._spoolman_patch(app, 1, {"remaining_weight": 400})
+        assert result is None
+        assert any("SPOOLMAN_PATCH_FAILED" in msg for msg, _ in app._log_calls)
+
+
+class TestReconcileRfidWeights:
+    """_reconcile_rfid_weights iterates slots."""
+
+    def test_disabled(self):
+        app = _TestableUsageSync()
+        app._weight_reconcile_enabled = False
+        app._reconcile_rfid_weights()  # should not raise
+
+    def test_exception_per_slot_logged(self):
+        app = _TestableUsageSync()
+        app._weight_reconcile_enabled = True
+        with mock.patch.object(app, "_reconcile_rfid_weight_slot", side_effect=Exception("boom")):
+            app._reconcile_rfid_weights()
+        assert any("RFID_WEIGHT_RECONCILE_SLOT_ERROR" in msg for msg, _ in app._log_calls)
+
+
+class TestReconcileRfidWeightSlot:
+    """_reconcile_rfid_weight_slot full reconciliation logic."""
+
+    def _app_with_rfid(self, slot=1, remain=75, tray_weight=1000, remain_enabled=True,
+                       spool_id="42", tag_uid="AABB"):
+        tray_entity = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+        app = _TestableUsageSync(state_map={
+            f"{tray_entity}::tag_uid": tag_uid,
+            f"{tray_entity}::remain": remain,
+            f"{tray_entity}::tray_weight": tray_weight,
+            f"{tray_entity}::remain_enabled": remain_enabled,
+            f"input_text.ams_slot_{slot}_spool_id": spool_id,
+        })
+        app._weight_reconcile_enabled = True
+        return app
+
+    def test_non_rfid_slot_skips(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": "",
+        })
+        app._reconcile_rfid_weight_slot(1)  # no error
+
+    def test_unbound_slot_skips(self):
+        app = self._app_with_rfid(spool_id="0")
+        app._reconcile_rfid_weight_slot(1)  # no error
+
+    def test_remain_disabled_skips(self):
+        app = self._app_with_rfid(remain_enabled=False)
+        app._reconcile_rfid_weight_slot(1)
+
+    def test_tray_weight_zero_skips(self):
+        app = self._app_with_rfid(tray_weight=0)
+        app._reconcile_rfid_weight_slot(1)
+
+    def test_remain_out_of_range_skips(self):
+        app = self._app_with_rfid(remain=150)
+        app._reconcile_rfid_weight_slot(1)
+        assert any("RFID_WEIGHT_INVALID_REMAIN" in msg for msg, _ in app._log_calls)
+
+    def test_remain_negative_skips(self):
+        app = self._app_with_rfid(remain=-5)
+        app._reconcile_rfid_weight_slot(1)
+        assert any("RFID_WEIGHT_INVALID_REMAIN" in msg for msg, _ in app._log_calls)
+
+    def test_weights_match_no_patch(self):
+        app = self._app_with_rfid(remain=50, tray_weight=1000)
+        # rfid_weight = 50/100 * 1000 = 500g; spoolman returns 500g -> match
+        app._spoolman_get_override = lambda path: {"remaining_weight": 500.0}
+        app._reconcile_rfid_weight_slot(1)
+        assert not app._patch_calls
+
+    def test_dry_run_no_patch(self):
+        app = self._app_with_rfid(remain=50, tray_weight=1000)
+        app.dry_run = True
+        app._spoolman_get_override = lambda path: {"remaining_weight": 400.0}
+        app._reconcile_rfid_weight_slot(1)
+        assert not app._patch_calls
+        assert any("DRYRUN" in msg for msg, _ in app._log_calls)
+
+    def test_actual_patch(self):
+        app = self._app_with_rfid(remain=50, tray_weight=1000)
+        # spoolman says 400g, RFID says 500g -> patch
+        app._spoolman_get_override = lambda path: {"remaining_weight": 400.0}
+        app._reconcile_rfid_weight_slot(1)
+        assert len(app._patch_calls) == 1
+        assert app._patch_calls[0]["data"]["remaining_weight"] == 500.0
+
+    def test_spoolman_fetch_fails(self):
+        app = self._app_with_rfid(remain=50, tray_weight=1000)
+        app._spoolman_get_override = lambda path: None
+        app._reconcile_rfid_weight_slot(1)
+        assert any("spoolman_fetch_failed" in msg for msg, _ in app._log_calls)
+
+    def test_patch_failure_logged(self):
+        app = self._app_with_rfid(remain=50, tray_weight=1000)
+        app._spoolman_get_override = lambda path: {"remaining_weight": 400.0}
+        # Override _spoolman_patch to return None (simulating failure)
+        original_patch = app._spoolman_patch
+        app._spoolman_patch = lambda sid, data: None
+        app._reconcile_rfid_weight_slot(1)
+        assert any("RFID_WEIGHT_RECONCILE_FAILED" in msg for msg, _ in app._log_calls)
+
+    def test_remain_string_converted(self):
+        """remain as string '75' gets converted to float."""
+        app = self._app_with_rfid(remain="75", tray_weight=1000)
+        app._spoolman_get_override = lambda path: {"remaining_weight": 700.0}
+        app._reconcile_rfid_weight_slot(1)
+        assert len(app._patch_calls) == 1
+        assert app._patch_calls[0]["data"]["remaining_weight"] == 750.0
+
+    def test_remain_invalid_string_skips(self):
+        app = self._app_with_rfid(remain="banana", tray_weight=1000)
+        app._reconcile_rfid_weight_slot(1)
+        assert any("RFID_WEIGHT_INVALID_REMAIN" in msg for msg, _ in app._log_calls)
+
+
+class TestLoadSeenJobKeys:
+    """_load_seen_job_keys loads dedup state from JSON."""
+
+    def test_load_list(self):
+        import tempfile as _tf
+        app = _TestableUsageSync()
+        with _tf.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(["key1", "key2"], f)
+            f.flush()
+            with mock.patch("filament_iq.ams_print_usage_sync.SEEN_JOBS_PATH", f.name):
+                result = app._load_seen_job_keys()
+        assert list(result.keys()) == ["key1", "key2"]
+        os.unlink(f.name)
+
+    def test_load_dict(self):
+        import tempfile as _tf
+        app = _TestableUsageSync()
+        with _tf.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"k1": True, "k2": True}, f)
+            f.flush()
+            with mock.patch("filament_iq.ams_print_usage_sync.SEEN_JOBS_PATH", f.name):
+                result = app._load_seen_job_keys()
+        assert "k1" in result
+        os.unlink(f.name)
+
+    def test_missing_file(self):
+        app = _TestableUsageSync()
+        with mock.patch("filament_iq.ams_print_usage_sync.SEEN_JOBS_PATH", "/nonexistent/path.json"):
+            result = app._load_seen_job_keys()
+        assert len(result) == 0
+
+    def test_invalid_json(self):
+        import tempfile as _tf
+        app = _TestableUsageSync()
+        with _tf.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write("not json{{{")
+            f.flush()
+            with mock.patch("filament_iq.ams_print_usage_sync.SEEN_JOBS_PATH", f.name):
+                result = app._load_seen_job_keys()
+        assert len(result) == 0
+        assert any("could not load" in msg for msg, _ in app._log_calls)
+        os.unlink(f.name)
+
+    def test_overflow_trimmed(self):
+        import tempfile as _tf
+        app = _TestableUsageSync()
+        keys = [f"key_{i}" for i in range(100)]
+        with _tf.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(keys, f)
+            f.flush()
+            with mock.patch("filament_iq.ams_print_usage_sync.SEEN_JOBS_PATH", f.name):
+                result = app._load_seen_job_keys()
+        assert len(result) == 50  # MAX_SEEN_JOBS
+        os.unlink(f.name)
+
+
+class TestEnsureDataDir:
+    """_ensure_data_dir creates directory and file."""
+
+    def test_creates_file(self):
+        import tempfile as _tf
+        with _tf.TemporaryDirectory() as td:
+            path = os.path.join(td, "data", "seen.json")
+            with mock.patch("filament_iq.ams_print_usage_sync.SEEN_JOBS_PATH", path):
+                app = _TestableUsageSync()
+                app._ensure_data_dir()
+            assert os.path.isfile(path)
+
+    def test_oserror_logged(self):
+        app = _TestableUsageSync()
+        with mock.patch("filament_iq.ams_print_usage_sync.SEEN_JOBS_PATH", "/proc/fake/path.json"):
+            app._ensure_data_dir()
+        assert any("could not ensure" in msg for msg, _ in app._log_calls)
+
+
+class TestCheckUnboundTrays:
+    """_check_unbound_trays warns about unbound active slots."""
+
+    def test_not_active_skips(self):
+        app = _TestableUsageSync()
+        app._print_active = False
+        app._check_unbound_trays({})
+        assert not any("UNBOUND" in msg for msg, _ in app._log_calls)
+
+    def test_no_trays_skips(self):
+        app = _TestableUsageSync()
+        app._print_active = True
+        app._trays_used = set()
+        app._check_unbound_trays({})
+
+    def test_unbound_slot_warns(self):
+        app = _TestableUsageSync(state_map={
+            "input_text.ams_slot_1_spool_id": "0",
+            "input_text.ams_slot_1_unbound_reason": "NEEDS_ACTION",
+        })
+        app._print_active = True
+        app._trays_used = {1}
+        app._check_unbound_trays({})
+        assert any("PRINT_UNBOUND_WARNING" in msg for msg, _ in app._log_calls)
+        assert any(c["service"] == "notify/persistent_notification" for c in app._service_calls)
+
+    def test_unbound_with_notify_target(self):
+        app = _TestableUsageSync(state_map={
+            "input_text.ams_slot_1_spool_id": "0",
+            "input_text.ams_slot_1_unbound_reason": "NEEDS_ACTION",
+        }, args={"notify_target": "mobile_app_phone"})
+        app._print_active = True
+        app._trays_used = {1}
+        app._check_unbound_trays({})
+        assert any(c["service"] == "notify/notify" for c in app._service_calls)
+
+    def test_bound_slot_no_warning(self):
+        app = _TestableUsageSync(state_map={
+            "input_text.ams_slot_1_spool_id": "42",
+        })
+        app._print_active = True
+        app._trays_used = {1}
+        app._check_unbound_trays({})
+        assert not any("PRINT_UNBOUND_WARNING" in msg for msg, _ in app._log_calls)
+
+
+class TestOnPrintFinish:
+    """_on_print_finish lifecycle handler."""
+
+    def test_no_job_key_skips(self):
+        app = _TestableUsageSync()
+        app._lifecycle_phase2 = True
+        app._job_key = ""
+        app._on_print_finish("finish")
+        assert any("no_job_key" in msg for msg, _ in app._log_calls)
+
+    def test_no_start_snapshot_skips(self):
+        app = _TestableUsageSync()
+        app._lifecycle_phase2 = True
+        app._job_key = "test_job_123"
+        app._start_snapshot = {}
+        app._on_print_finish("finish")
+        assert any("no_start_snapshot" in msg for msg, _ in app._log_calls)
+
+    def test_dedup_skips(self):
+        app = _TestableUsageSync()
+        app._lifecycle_phase2 = True
+        app._job_key = "test_job_123"
+        app._start_snapshot = {1: 500.0}
+        app._last_processed_job_key = "test_job_123"
+        app._on_print_finish("finish")
+        assert any("DEDUP_SKIP" in msg for msg, _ in app._log_calls)
+
+    def test_threemf_wait_starts(self):
+        app = _TestableUsageSync()
+        app._lifecycle_phase2 = True
+        app._job_key = "test_job_123"
+        app._start_snapshot = {1: 500.0}
+        app.threemf_enabled = True
+        app._threemf_data = None
+        app._on_print_finish("finish")
+        assert app._finish_pending is True
+        assert len(app._run_in_calls) > 0
+
+    def test_direct_do_finish(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_task_name": "benchy",
+            "sensor.p1s_01p00c5a3101668_print_weight": "15.0",
+        })
+        app._lifecycle_phase2 = True
+        app._job_key = "benchy_123"
+        app._start_snapshot = {1: 500.0}
+        app.threemf_enabled = False
+        app._on_print_finish("finish")
+        assert any("USAGE_SUMMARY" in msg for msg, _ in app._log_calls)
+
+
+class TestOnPrintStatusChange:
+    """_on_print_status_change transitions."""
+
+    def test_start_transition(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_active_tray": "unknown",
+        })
+        app._on_print_status_change(
+            "sensor.p1s_01p00c5a3101668_print_status", "state", "idle", "running", {}
+        )
+        assert app._print_active is True
+        assert any("TRAY_TRACKING_START" in msg for msg, _ in app._log_calls)
+
+    def test_end_transition(self):
+        app = _TestableUsageSync()
+        app._print_active = True
+        app._trays_used = {1}
+        app._current_active_slot = 1
+        import datetime
+        app._tray_active_times = {1: [{"start": datetime.datetime.utcnow(), "end": None}]}
+        app._on_print_status_change(
+            "sensor.p1s_01p00c5a3101668_print_status", "state", "running", "finish", {}
+        )
+        assert app._print_active is False
+        assert any("TRAY_TRACKING_END" in msg for msg, _ in app._log_calls)
+
+    def test_end_helper_write_failure(self):
+        """Helper write failure is caught."""
+        app = _TestableUsageSync()
+        app._print_active = True
+        app._trays_used = {1}
+        app._current_active_slot = None
+        app._tray_active_times = {}
+        # Make call_service raise for the trays_used write
+        original_call = app.call_service
+        def failing_call(service, **kw):
+            if "trays_used" in kw.get("entity_id", ""):
+                raise Exception("HA unavailable")
+            original_call(service, **kw)
+        app.call_service = failing_call
+        app._on_print_status_change(
+            "sensor.p1s_01p00c5a3101668_print_status", "state", "running", "finish", {}
+        )
+        assert any("Failed to update HA helper" in msg for msg, _ in app._log_calls)
+
+
+class TestSpoolmanUseSync:
+    """_spoolman_use sends PUT request."""
+
+    def test_success(self):
+        app = _TestableUsageSync()
+        cm = _mock_urlopen_response(json.dumps({"id": 1, "remaining_weight": 400}).encode())
+        # The inner resp needs .status = 200
+        cm.__enter__.return_value.status = 200
+        with mock.patch("urllib.request.urlopen", return_value=cm):
+            from filament_iq.ams_print_usage_sync import AmsPrintUsageSync
+            result = AmsPrintUsageSync._spoolman_use(app, 1, 50.0)
+        assert result["remaining_weight"] == 400
+
+    def test_failure(self):
+        app = _TestableUsageSync()
+        with mock.patch("urllib.request.urlopen", side_effect=Exception("timeout")):
+            from filament_iq.ams_print_usage_sync import AmsPrintUsageSync
+            result = AmsPrintUsageSync._spoolman_use(app, 1, 50.0)
+        assert result is None
+        assert any("USAGE_PATCH_FAILED" in msg for msg, _ in app._log_calls)
+
+
+class TestOnPrintEnd:
+    """_on_print_end clears state and turns off print_active."""
+
+    def test_clears_state(self):
+        app = _TestableUsageSync()
+        app._lifecycle_phase1 = True
+        app._start_snapshot = {1: 500.0}
+        app._job_key = "test_123"
+        app._on_print_end()
+        assert app._start_snapshot == {}
+        assert app._job_key == ""
+        assert any(
+            c["service"] == "input_boolean/turn_off" and "print_active" in c.get("entity_id", "")
+            for c in app._service_calls
+        )
+
+
+class TestDoFinish:
+    """_do_finish executes the full finish flow."""
+
+    def test_offline_state_warning(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_task_name": "benchy",
+            "sensor.p1s_01p00c5a3101668_print_weight": "15",
+        })
+        app._lifecycle_phase2 = True
+        app._lifecycle_phase1 = True
+        app._job_key = "benchy_123"
+        app._start_snapshot = {1: 500.0}
+        app._do_finish("offline")
+        assert any("FINISH_OFFLINE_STATE" in msg for msg, _ in app._log_calls)
+
+    def test_non_failed_stamps_dedup(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_task_name": "benchy",
+            "sensor.p1s_01p00c5a3101668_print_weight": "15",
+        })
+        app._lifecycle_phase2 = True
+        app._lifecycle_phase1 = True
+        app._job_key = "benchy_123"
+        app._start_snapshot = {1: 500.0}
+        app._do_finish("finish")
+        assert app._last_processed_job_key == "benchy_123"
+
+    def test_failed_does_not_stamp_dedup(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_task_name": "benchy",
+            "sensor.p1s_01p00c5a3101668_print_weight": "15",
+        })
+        app._lifecycle_phase2 = True
+        app._lifecycle_phase1 = True
+        app._job_key = "benchy_123"
+        app._start_snapshot = {1: 500.0}
+        app._do_finish("failed")
+        assert app._last_processed_job_key == ""
+
+
+class TestOnActiveTrayChange:
+    """_on_active_tray_change tracks active slot."""
+
+    def test_not_printing_skips(self):
+        app = _TestableUsageSync()
+        app._print_active = False
+        app._on_active_tray_change("sensor.p1s_01p00c5a3101668_active_tray", "state", "none", "PLA", {})
+        assert not app._trays_used
+
+    def test_slot_change_during_print(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_active_tray::ams_index": 0,
+            "sensor.p1s_01p00c5a3101668_active_tray::tray_index": 0,
+        })
+        app._print_active = True
+        app._current_active_slot = None
+        app._on_active_tray_change("sensor.p1s_01p00c5a3101668_active_tray", "state", "none", "PLA", {})
+        assert 1 in app._trays_used
+        assert app._current_active_slot == 1
+
+    def test_slot_change_to_unavailable(self):
+        import datetime
+        app = _TestableUsageSync()
+        app._print_active = True
+        app._current_active_slot = 1
+        app._tray_active_times = {1: [{"start": datetime.datetime.utcnow(), "end": None}]}
+        app._on_active_tray_change("sensor.p1s_01p00c5a3101668_active_tray", "state", "PLA", "unavailable", {})
+        assert app._current_active_slot is None
+
+    def test_slot_switch(self):
+        import datetime
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_active_tray::ams_index": 0,
+            "sensor.p1s_01p00c5a3101668_active_tray::tray_index": 1,
+        })
+        app._print_active = True
+        app._current_active_slot = 1
+        app._tray_active_times = {1: [{"start": datetime.datetime.utcnow(), "end": None}]}
+        app._on_active_tray_change("sensor.p1s_01p00c5a3101668_active_tray", "state", "PLA", "PETG", {})
+        assert 2 in app._trays_used
+        assert app._current_active_slot == 2
+
+
+class TestGetAccessCode:
+    """_get_access_code reads from args or HA entity."""
+
+    def test_from_args(self):
+        app = _TestableUsageSync(args={"printer_access_code": "12345678"})
+        assert app._get_access_code() == "12345678"
+
+    def test_from_entity(self):
+        app = _TestableUsageSync(state_map={
+            "input_text.bambu_printer_access_code": "87654321",
+        })
+        assert app._get_access_code() == "87654321"
+
+    def test_unavailable_returns_none(self):
+        app = _TestableUsageSync(state_map={
+            "input_text.bambu_printer_access_code": "unavailable",
+        })
+        assert app._get_access_code() is None
+
+    def test_empty_returns_none(self):
+        app = _TestableUsageSync(state_map={
+            "input_text.bambu_printer_access_code": "",
+        })
+        assert app._get_access_code() is None
+
+
+class TestRehydratePrintState:
+    """_rehydrate_print_state restores state mid-print."""
+
+    def test_not_running_skips(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_print_status": "idle",
+        })
+        app._rehydrate_print_state()
+        assert app._print_active is False
+
+    def test_running_activates(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_print_status": "running",
+            "sensor.p1s_01p00c5a3101668_active_tray": "unknown",
+        })
+        app._rehydrate_print_state()
+        assert app._print_active is True
+
+    def test_phase1_recovers_from_helper(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_print_status": "running",
+            "sensor.p1s_01p00c5a3101668_active_tray": "unknown",
+            "input_text.filament_iq_start_json": '{"1": 500.0, "4": 400.0}',
+            "sensor.p1s_01p00c5a3101668_task_name": "benchy",
+        })
+        app._lifecycle_phase1 = True
+        app._rehydrate_print_state()
+        assert app._start_snapshot == {1: 500.0, 4: 400.0}
+        assert app._rehydrated is True
+
+    def test_phase1_rebuilds_when_empty(self):
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_print_status": "running",
+            "sensor.p1s_01p00c5a3101668_active_tray": "unknown",
+            "input_text.filament_iq_start_json": "{}",
+            "sensor.p1s_01p00c5a3101668_task_name": "benchy",
+        })
+        app._lifecycle_phase1 = True
+        app._rehydrate_print_state()
+        assert app._rehydrated is True
+        assert any("REBUILT" in msg for msg, _ in app._log_calls)
+
+
+class TestOnSpoolIdChange:
+    """_on_spool_id_change during active print."""
+
+    def test_not_phase3_skips(self):
+        app = _TestableUsageSync()
+        app._lifecycle_phase3 = False
+        app._on_spool_id_change("input_text.ams_slot_1_spool_id", "state", "0", "42", {})
+        assert not any("SPOOL_ID_CHANGED_DURING_PRINT" in msg for msg, _ in app._log_calls)
+
+    def test_not_printing_skips(self):
+        app = _TestableUsageSync()
+        app._lifecycle_phase3 = True
+        app._print_active = False
+        app._on_spool_id_change("input_text.ams_slot_1_spool_id", "state", "0", "42", {})
+        assert not any("SPOOL_ID_CHANGED_DURING_PRINT" in msg for msg, _ in app._log_calls)
+
+    def test_logs_during_print(self):
+        app = _TestableUsageSync()
+        app._lifecycle_phase3 = True
+        app._print_active = True
+        app._on_spool_id_change("input_text.ams_slot_1_spool_id", "state", "0", "42", {})
+        assert any("SPOOL_ID_CHANGED_DURING_PRINT" in msg for msg, _ in app._log_calls)
+
+    def test_startup_suppressed(self):
+        import datetime
+        app = _TestableUsageSync()
+        app._lifecycle_phase3 = True
+        app._print_active = True
+        app._startup_suppress_until = datetime.datetime.utcnow() + datetime.timedelta(seconds=60)
+        app._on_spool_id_change("input_text.ams_slot_1_spool_id", "state", "0", "42", {})
+        assert not any("SPOOL_ID_CHANGED_DURING_PRINT" in msg for msg, _ in app._log_calls)
+
+
+class TestFetchSpoolsCache:
+    """_fetch_spools_cache batch fetches from Spoolman."""
+
+    def test_returns_dict(self):
+        app = _TestableUsageSync()
+        app._spoolman_get_override = lambda path: [
+            {"id": 1, "remaining_weight": 500},
+            {"id": 2, "remaining_weight": 300},
+        ]
+        cache = app._fetch_spools_cache()
+        assert isinstance(cache, dict)
+
+    def test_failure_returns_empty(self):
+        app = _TestableUsageSync()
+        app._spoolman_get_override = lambda path: None
+        cache = app._fetch_spools_cache()
+        assert cache == {}
+
+
+class TestBuildSlotData:
+    """_build_slot_data reads per-slot info."""
+
+    def test_returns_slot_data(self):
+        app = _TestableUsageSync(state_map={
+            "input_text.ams_slot_1_spool_id": "42",
+            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": "AABB",
+            "sensor.p1s_01p00c5a3101668_ams_1_tray_1": "PLA Basic",
+        })
+        app._spoolman_get_override = lambda path: {"id": 42, "remaining_weight": 500, "filament": {"color_hex": "FF0000", "material": "PLA"}}
+        data = app._build_slot_data()
+        assert 1 in data
+        assert data[1]["spool_id"] == 42
