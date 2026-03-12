@@ -3191,6 +3191,154 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertNotEqual(status_writes2[-1].get("value"), STATUS_RFID_IDENTITY_STUCK,
                             "identity changed, stuck status must clear")
 
+    def test_rfid_stuck_false_positive_on_enrolled_slot(self):
+        """Enrolled spool with matching lot_nr+tray_uuid must NOT be flagged stuck after 60s."""
+        import time
+        tag = "AABBCCDD00112233"
+        tray_uuid_val = "C482963767A24ACBB858F95D4376A2E5"
+        slot = 1
+        # Spool 10 has lot_nr matching tray_uuid — properly enrolled
+        spools = [_spool(10, remaining_weight=500, rfid_tag_uid=tag, location="AMS1_Slot1",
+                         lot_nr=tray_uuid_val)]
+        filaments = [_bambu_filament()]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(slot)
+        attrs = {
+            "tag_uid": tag,
+            "tray_uuid": tray_uuid_val,
+            "type": "PLA", "color": "ff0000", "name": "Bambu PLA",
+            "filament_id": "bambu", "tray_weight": 1000, "remain": 50,
+        }
+        state_map = {}
+        for s in range(1, 7):
+            state_map[f"input_text.ams_slot_{s}_spool_id"] = str(10) if s == slot else "0"
+            state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+            state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+            state_map[f"input_text.ams_slot_{s}_unbound_reason"] = ""
+            if s == slot:
+                state_map[tray_ent] = {"attributes": attrs, "state": "valid"}
+                state_map[f"{tray_ent}::all"] = {"attributes": attrs, "state": "valid"}
+            else:
+                empty_attrs = {"tag_uid": "", "type": "", "color": "", "name": "",
+                               "filament_id": "", "tray_weight": 0, "remain": 0}
+                state_map[_tray_entity(s)] = {"attributes": empty_attrs, "state": "empty"}
+                state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_attrs, "state": "empty"}
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("tray_change")
+        # Simulate 60+ seconds elapsed
+        r._rfid_identity_tracker[slot]["change_ts"] = time.time() - (RFID_STUCK_SECONDS + 5)
+        r._helper_writes.clear()
+
+        r._run_reconcile("manual_button")
+
+        status_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"]
+        # Enrolled spool must NOT be flagged stuck
+        for w in status_writes:
+            self.assertNotEqual(w.get("value"), STATUS_RFID_IDENTITY_STUCK,
+                                "enrolled spool with matching lot_nr must not be flagged stuck")
+
+    def test_rfid_stuck_fires_on_unmatched_tag(self):
+        """Tag present but lot_nr does NOT match tray_uuid → correctly flagged STUCK after 60s."""
+        import time
+        tag = "AABBCCDD00112233"
+        slot = 1
+        # Spool 10 has lot_nr that does NOT match the tray_uuid
+        spools = [_spool(10, remaining_weight=500, rfid_tag_uid=tag, location="AMS1_Slot1",
+                         lot_nr="DIFFERENT_LOT_NR_VALUE_1234567890")]
+        filaments = [_bambu_filament()]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(slot)
+        attrs = {
+            "tag_uid": tag,
+            "tray_uuid": "C482963767A24ACBB858F95D4376A2E5",
+            "type": "PLA", "color": "ff0000", "name": "Bambu PLA",
+            "filament_id": "bambu", "tray_weight": 1000, "remain": 50,
+        }
+        state_map = {}
+        for s in range(1, 7):
+            state_map[f"input_text.ams_slot_{s}_spool_id"] = str(10) if s == slot else "0"
+            state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+            state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+            state_map[f"input_text.ams_slot_{s}_unbound_reason"] = ""
+            if s == slot:
+                state_map[tray_ent] = {"attributes": attrs, "state": "valid"}
+                state_map[f"{tray_ent}::all"] = {"attributes": attrs, "state": "valid"}
+            else:
+                empty_attrs = {"tag_uid": "", "type": "", "color": "", "name": "",
+                               "filament_id": "", "tray_weight": 0, "remain": 0}
+                state_map[_tray_entity(s)] = {"attributes": empty_attrs, "state": "empty"}
+                state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_attrs, "state": "empty"}
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("tray_change")
+        r._rfid_identity_tracker[slot]["change_ts"] = time.time() - (RFID_STUCK_SECONDS + 5)
+        r._helper_writes.clear()
+
+        r._run_reconcile("manual_button")
+
+        status_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"]
+        self.assertGreater(len(status_writes), 0)
+        self.assertEqual(status_writes[-1].get("value"), STATUS_RFID_IDENTITY_STUCK)
+
+    def test_rfid_stuck_clears_when_tag_matches(self):
+        """Slot was stuck, then lot_nr is updated to match tray_uuid → stuck clears on next reconcile."""
+        import time
+        tag = "AABBCCDD00112233"
+        tray_uuid_val = "C482963767A24ACBB858F95D4376A2E5"
+        slot = 1
+        # Initially: lot_nr doesn't match → will trigger stuck
+        spools = [_spool(10, remaining_weight=500, rfid_tag_uid=tag, location="AMS1_Slot1",
+                         lot_nr="WRONG_LOT_NR_00000000000000000000")]
+        filaments = [_bambu_filament()]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(slot)
+        attrs = {
+            "tag_uid": tag,
+            "tray_uuid": tray_uuid_val,
+            "type": "PLA", "color": "ff0000", "name": "Bambu PLA",
+            "filament_id": "bambu", "tray_weight": 1000, "remain": 50,
+        }
+        state_map = {}
+        for s in range(1, 7):
+            state_map[f"input_text.ams_slot_{s}_spool_id"] = str(10) if s == slot else "0"
+            state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{s}_status"] = ""
+            state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+            state_map[f"input_text.ams_slot_{s}_unbound_reason"] = ""
+            if s == slot:
+                state_map[tray_ent] = {"attributes": attrs, "state": "valid"}
+                state_map[f"{tray_ent}::all"] = {"attributes": attrs, "state": "valid"}
+            else:
+                empty_attrs = {"tag_uid": "", "type": "", "color": "", "name": "",
+                               "filament_id": "", "tray_weight": 0, "remain": 0}
+                state_map[_tray_entity(s)] = {"attributes": empty_attrs, "state": "empty"}
+                state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_attrs, "state": "empty"}
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("tray_change")
+        r._rfid_identity_tracker[slot]["change_ts"] = time.time() - (RFID_STUCK_SECONDS + 5)
+        r._helper_writes.clear()
+
+        # First manual reconcile → stuck (lot_nr mismatch)
+        r._run_reconcile("manual_button")
+        status_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"]
+        self.assertGreater(len(status_writes), 0)
+        self.assertEqual(status_writes[-1].get("value"), STATUS_RFID_IDENTITY_STUCK)
+
+        # Now fix lot_nr in Spoolman to match tray_uuid
+        sm.spools[10]["lot_nr"] = tray_uuid_val
+        r._helper_writes.clear()
+
+        # Next manual reconcile → stuck should clear
+        r._run_reconcile("manual_button")
+        status_writes2 = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"]
+        for w in status_writes2:
+            self.assertNotEqual(w.get("value"), STATUS_RFID_IDENTITY_STUCK,
+                                "lot_nr now matches tray_uuid, stuck must clear")
+
 
 class TestStartupWaiter(unittest.TestCase):
     """Startup readiness waiter: timeout (no reconcile), not-ready reasons, and STARTUP_WAIT_HELPERS_READY before reconcile."""
