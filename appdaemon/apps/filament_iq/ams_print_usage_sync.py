@@ -1539,7 +1539,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             self.log(
                 f"ACTIVE_PRINT_PERSISTED job_key={self._job_key} "
                 f"has_3mf={self._threemf_data is not None}",
-                level="DEBUG",
+                level="INFO",
             )
         except Exception as e:
             self.log(f"ACTIVE_PRINT_PERSIST_FAILED: {e}", level="WARNING")
