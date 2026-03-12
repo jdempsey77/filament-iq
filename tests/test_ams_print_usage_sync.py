@@ -1274,7 +1274,7 @@ def test_seed_slot_not_reseeded_at_zero():
 # ── Fix: Rehydrate post-restart tracking ───────────────────────────
 
 def test_rehydrate_sets_rehydrated_flag():
-    """_rehydrate_print_state sets _rehydrated=True and populates _trays_used."""
+    """_rehydrate_print_state sets _rehydrated=True. _trays_used starts empty, populated by events."""
     app = _TestableUsageSync(state_map={})
     # Simulate mid-print state
     app._state_map[app._print_status_entity] = "running"
@@ -1283,10 +1283,10 @@ def test_rehydrate_sets_rehydrated_flag():
     app._lifecycle_phase1 = True
     app._rehydrate_print_state()
     assert app._rehydrated is True, "_rehydrated flag not set"
-    assert app._trays_used == {1, 3}, f"expected {{1, 3}}, got {app._trays_used}"
     assert app._print_active is True
     assert _has_log(app, "REHYDRATE_FLAG_SET")
-    assert _has_log(app, "REHYDRATE_TRAYS_USED")
+    # _trays_used should NOT contain all start_snapshot keys — only active tray (if any)
+    assert app._trays_used != {1, 3}, "_trays_used must not be set from start_snapshot keys"
 
 
 def test_duration_filter_skipped_on_rehydrate():

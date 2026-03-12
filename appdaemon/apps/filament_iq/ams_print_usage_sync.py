@@ -1046,9 +1046,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"REHYDRATE_START_SNAPSHOT_REBUILT from fuel gauges: {self._start_snapshot}",
                     level="INFO",
                 )
-            # Restore tray tracking from start_snapshot keys and seed active trays
-            self._trays_used = set(self._start_snapshot.keys())
-            self.log(f"REHYDRATE_TRAYS_USED slots={self._trays_used}", level="INFO")
+            # Seed active trays — _trays_used starts empty, populated by tray change events
             self._seed_active_trays()
             self._rehydrated = True
             self.log("REHYDRATE_FLAG_SET reason=tray_timing_invalid", level="INFO")
