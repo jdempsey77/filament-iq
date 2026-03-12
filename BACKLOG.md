@@ -7,11 +7,22 @@
 - [ ] Reference Filament IQ dashboard — ship a ready-to-import Lovelace dashboard with slot cards, Filament Library, Spool Inventory, and Printer status. Raw YAML view exists in filament-iq repo (dashboard/filament_iq.yaml) but needs polish for easy import.
 - [ ] Investigate 3MF_UNMATCHED for brief tray activations — tray tracking misses slots used for very short durations. Root cause: active_tray sensor polling interval vs actual extrusion time. Workaround in place (3MF-matched slots merged into active_slots).
 
+### Medium Priority
+- [ ] Manually correct spool 39 consumption in Spoolman (~144g from grid print 2026-03-11 00:08, remaining showed 98.4g which may be stale)
+
 ### Low Priority
 - [ ] 3MF fetch takes 11-15s consistently, triggering "Excessive time spent" warnings — investigate if FTPS listing of 154 files is the bottleneck. Could skip listing and download by constructed filename directly.
 - [ ] Delete remaining obsolete HA helpers: input_number.filament_iq_start/end_slot_N_g (deferred — active test scripts reference them)
+- [ ] Change ACTIVE_PRINT_PERSISTED log level from DEBUG to INFO for visibility in normal monitoring
+- [ ] Investigate stale seen_job_keys.json at /addon_configs/a0d7b954_appdaemon/apps/data/ (should only exist at filament_iq/data/)
+- [ ] Manually correct spool 52 consumption in Spoolman (~143g from grid print 2026-03-12 15:03)
 
 ### Done
+- [x] Coverage push to 75% — 1177 tests, +451 new, per-module: base 100%, threemf 94%, dropdown 87%, weight 83%, guard 81%, usage 73%, reconcile 71% (v0.11.2, RT #3)
+- [x] Hold slot bindings during active prints — reconciler skips re-evaluation of bound slots while print_active (v0.11.1, F4 / RT #6)
+- [x] Persist active print state to disk — active_print.json survives AppDaemon restart (v0.11.0, F3 / RT #2)
+- [x] Fuel gauge availability templates — sensors show "unavailable" instead of 0 when data missing (v0.11.0, F1)
+- [x] Fix end_snapshot 0.0 regression — end snapshot reads fuel gauges correctly (v0.11.0)
 - [x] Phase 1: Print start lifecycle in AppDaemon (job key, start snapshot, tray seeding)
 - [x] Phase 2: Print finish lifecycle in AppDaemon (end snapshot, usage processing, dedup)
 - [x] Phase 3: Debug logging, swap detection, rehydrate mutex, pause-state fix
