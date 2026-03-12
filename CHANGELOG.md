@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.10.1] - 2026-03-12
+
+### Fixed
+- **Write-ahead dedup permanent data loss**: `_persist_seen_job_keys()` was called BEFORE `_spoolman_use()` writes. If Spoolman timed out, the job was permanently deduped with no retry possible — silent consumption loss. Dedup now persists AFTER the write loop, gated on `write_failed == 0`. Failed writes leave the job key unpersisted so the next print-finish event retries all slots.
+
+### Tests
+- 695 tests passing (up from 693 at v0.10.0)
+- 2 new dedup tests: `test_spoolman_failure_does_not_dedup`, `test_spoolman_success_persists_dedup`
+
 ## [0.10.0] - 2026-03-12
 
 ### Fixed
