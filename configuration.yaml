@@ -1484,6 +1484,9 @@ template:
         unit_of_measurement: "g"
         device_class: weight
         state_class: measurement
+        availability: >-
+          {{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'remain') | int(-1) >= 0
+             and state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'tray_weight') | int(0) > 0 }}
         state: >
           {{ [0, (state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_1', 'remain') | float(0) / 100)] | max | round(1) }}
 
@@ -1492,6 +1495,9 @@ template:
         unit_of_measurement: "g"
         device_class: weight
         state_class: measurement
+        availability: >-
+          {{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'remain') | int(-1) >= 0
+             and state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'tray_weight') | int(0) > 0 }}
         state: >
           {{ [0, (state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'remain') | float(0) / 100)] | max | round(1) }}
 
@@ -1500,6 +1506,9 @@ template:
         unit_of_measurement: "g"
         device_class: weight
         state_class: measurement
+        availability: >-
+          {{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'remain') | int(-1) >= 0
+             and state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'tray_weight') | int(0) > 0 }}
         state: >
           {{ [0, (state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_3', 'remain') | float(0) / 100)] | max | round(1) }}
 
@@ -1508,6 +1517,9 @@ template:
         unit_of_measurement: "g"
         device_class: weight
         state_class: measurement
+        availability: >-
+          {{ state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'remain') | int(-1) >= 0
+             and state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'tray_weight') | int(0) > 0 }}
         state: >
           {{ [0, (state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_1_tray_4', 'remain') | float(0) / 100)] | max | round(1) }}
 
@@ -1516,6 +1528,9 @@ template:
         unit_of_measurement: "g"
         device_class: weight
         state_class: measurement
+        availability: >-
+          {{ state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'remain') | int(-1) >= 0
+             and state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'tray_weight') | int(0) > 0 }}
         state: >
           {{ [0, (state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_128_tray_1', 'remain') | float(0) / 100)] | max | round(1) }}
 
@@ -1524,6 +1539,9 @@ template:
         unit_of_measurement: "g"
         device_class: weight
         state_class: measurement
+        availability: >-
+          {{ state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'remain') | int(-1) >= 0
+             and state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'tray_weight') | int(0) > 0 }}
         state: >
           {{ [0, (state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'tray_weight') | float(0) * state_attr('sensor.p1s_01p00c5a3101668_ams_129_tray_1', 'remain') | float(0) / 100)] | max | round(1) }}
 
