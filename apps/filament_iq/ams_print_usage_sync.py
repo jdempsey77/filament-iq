@@ -394,15 +394,8 @@ class AmsPrintUsageSync(FilamentIQBase):
             )
             skipped += 1
 
-        # Write-ahead dedup: persist job_key BEFORE Spoolman writes so a
-        # crash between writes and persist can't cause double-charge on restart.
-        if job_key:
-            self._seen_job_keys[job_key] = True
-            while len(self._seen_job_keys) > MAX_SEEN_JOBS:
-                self._seen_job_keys.popitem(last=False)
-            self._persist_seen_job_keys()
-
         patched = 0
+        write_failed = 0
 
         for slot, spool_id, consumption_g, method in all_results:
             if consumption_g > self.max_consumption_g:
@@ -483,6 +476,19 @@ class AmsPrintUsageSync(FilamentIQBase):
                     )
             else:
                 skipped += 1
+                write_failed += 1
+
+        # Persist dedup AFTER Spoolman writes. Skip dedup if any write failed
+        # so the job can be retried. If crash between write and persist, worst
+        # case is double-charge on restart (extremely unlikely: requires crash
+        # during <400ms write window + event replay). Previous write-ahead
+        # ordering caused permanent data loss on Spoolman timeout (job deduped
+        # but never written — no retry possible).
+        if job_key and write_failed == 0:
+            self._seen_job_keys[job_key] = True
+            while len(self._seen_job_keys) > MAX_SEEN_JOBS:
+                self._seen_job_keys.popitem(last=False)
+            self._persist_seen_job_keys()
 
         total_consumed = sum(c for _, _, c, _ in all_results)
         threemf_count = sum(1 for _, _, _, m in all_results if m == "3mf")

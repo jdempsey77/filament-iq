@@ -368,6 +368,61 @@ def test_dedup_second_event_skipped():
     assert len(app._use_calls) == 1  # no additional call
 
 
+def test_spoolman_failure_does_not_dedup():
+    """If _spoolman_use() fails, job key must NOT be deduped so next event retries."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+    )
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    app._use_fail_spool_ids.add(10)  # simulate Spoolman failure
+
+    _fire(app,
+          job_key="fail_retry_key",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 370.0}',
+          print_weight_g="50")
+    assert len(app._use_calls) == 0  # write failed
+    assert "fail_retry_key" not in app._seen_job_keys  # NOT deduped
+
+    # Retry: remove failure, same job_key → should process (not DEDUP_SKIP)
+    app._use_fail_spool_ids.discard(10)
+    app._log_calls.clear()
+    _fire(app,
+          job_key="fail_retry_key",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 370.0}',
+          print_weight_g="50")
+    assert len(app._use_calls) == 1  # retried successfully
+    assert "fail_retry_key" in app._seen_job_keys  # now deduped
+    assert not _has_log(app, "DEDUP_SKIP")
+
+
+def test_spoolman_success_persists_dedup():
+    """Successful _spoolman_use() must persist job key to dedup set."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({4: 10}),
+    )
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+
+    _fire(app,
+          job_key="success_dedup_key",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 370.0}',
+          print_weight_g="50")
+    assert len(app._use_calls) == 1
+    assert "success_dedup_key" in app._seen_job_keys
+
+    # Fire again → DEDUP_SKIP
+    app._log_calls.clear()
+    _fire(app,
+          job_key="success_dedup_key",
+          start_json='{"4": 420.0}',
+          end_json='{"4": 370.0}',
+          print_weight_g="50")
+    assert len(app._use_calls) == 1  # no additional call
+    assert _has_log(app, "DEDUP_SKIP job_key=success_dedup_key")
+
+
 def test_unbound_slot_skipped():
     """spool_id=0 → USAGE_SKIP reason=UNBOUND."""
     app = _TestableUsageSync(
