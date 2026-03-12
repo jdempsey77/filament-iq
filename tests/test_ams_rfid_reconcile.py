@@ -4388,5 +4388,71 @@ class TestActiveRunResetOnFailure(unittest.TestCase):
         assert "Spoolman unreachable" in error_logs[0][0], "exception message must appear in log"
 
 
+class TestPrintActiveGuard(unittest.TestCase):
+    """Tests for the print-active guard that prevents unbinding during active prints."""
+
+    def _make_reconciler(self, print_active="off"):
+        """Create a TestableReconcile with print_active state."""
+        spoolman = FakeSpoolman([], [])
+        state = {
+            "input_boolean.filament_iq_print_active": print_active,
+            "input_text.ams_slot_1_spool_id": "42",
+            "input_text.ams_slot_1_expected_spool_id": "42",
+            "input_text.ams_slot_1_tray_signature": "sig_1",
+            "input_text.ams_slot_2_spool_id": "99",
+            "input_text.ams_slot_2_expected_spool_id": "99",
+            "input_text.ams_slot_2_tray_signature": "sig_2",
+        }
+        r = TestableReconcile(spoolman, state)
+        r._print_active_entity = "input_boolean.filament_iq_print_active"
+        return r
+
+    def test_binding_held_during_active_print(self):
+        """print_active=on, unbind requested → binding NOT cleared, BINDING_HELD logged."""
+        r = self._make_reconciler(print_active="on")
+        r._force_location_and_helpers(slot=1, spool_id=0, tag_uid="", source="test_unbind")
+        # Binding should NOT have been cleared
+        unbind_writes = [
+            w for w in r._helper_writes
+            if "ams_slot_1_spool_id" in w.get("entity_id", "")
+        ]
+        assert len(unbind_writes) == 0, "binding should not be cleared during active print"
+        held_logs = [msg for msg, lvl in r._log_calls if "BINDING_HELD_DURING_PRINT" in msg and "slot=1" in msg]
+        assert len(held_logs) >= 1, "BINDING_HELD_DURING_PRINT must be logged"
+
+    def test_binding_cleared_when_print_inactive(self):
+        """print_active=off, unbind requested → binding cleared normally."""
+        r = self._make_reconciler(print_active="off")
+        r._force_location_and_helpers(slot=1, spool_id=0, tag_uid="", source="test_unbind")
+        # Binding should have been cleared
+        unbind_writes = [
+            w for w in r._helper_writes
+            if "ams_slot_1_spool_id" in w.get("entity_id", "") and w.get("value") == "0"
+        ]
+        assert len(unbind_writes) >= 1, "binding should be cleared when print is not active"
+        held_logs = [msg for msg, lvl in r._log_calls if "BINDING_HELD_DURING_PRINT" in msg]
+        assert len(held_logs) == 0, "BINDING_HELD should NOT be logged when print inactive"
+
+    def test_reconciler_continues_other_slots_during_print(self):
+        """print_active=on, slot 1 unbind blocked, slot 2 bind proceeds normally."""
+        r = self._make_reconciler(print_active="on")
+        # Attempt to unbind slot 1 (should be blocked)
+        r._force_location_and_helpers(slot=1, spool_id=0, tag_uid="", source="test_unbind")
+        # Bind slot 2 to a new spool (should proceed)
+        r._force_location_and_helpers(slot=2, spool_id=77, tag_uid="AABB", source="test_bind")
+        # Slot 1: no unbind writes
+        slot1_writes = [
+            w for w in r._helper_writes
+            if "ams_slot_1_spool_id" in w.get("entity_id", "")
+        ]
+        assert len(slot1_writes) == 0, "slot 1 unbind should be blocked"
+        # Slot 2: binding written
+        slot2_writes = [
+            w for w in r._helper_writes
+            if "ams_slot_2_spool_id" in w.get("entity_id", "") and w.get("value") == "77"
+        ]
+        assert len(slot2_writes) >= 1, "slot 2 bind should proceed during active print"
+
+
 if __name__ == "__main__":
     unittest.main()

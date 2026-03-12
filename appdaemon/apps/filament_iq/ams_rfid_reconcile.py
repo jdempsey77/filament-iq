@@ -399,6 +399,12 @@ class AmsRfidReconcile(FilamentIQBase):
         self._missing_helper_warned = set()
         self._pending_helper_warned = set()
         self._domain_exception_class_logged = False
+        self._print_active_entity = str(
+            self.args.get(
+                "print_active_entity",
+                "input_boolean.filament_iq_print_active",
+            )
+        ).strip()
         self._ensure_evidence_path_writable()
         if DomainException is not None:
             self.log(
@@ -2320,6 +2326,16 @@ class AmsRfidReconcile(FilamentIQBase):
 
         # Unbind: set helper to 0 and tray_signature to "" then return (no new location write).
         if spool_id == 0:
+            # Guard: do not clear bindings during active print
+            try:
+                if str(self.get_state(self._print_active_entity) or "").lower() == "on":
+                    self.log(
+                        f"BINDING_HELD_DURING_PRINT slot={slot} reason=print_active",
+                        level="INFO",
+                    )
+                    return
+            except Exception:
+                pass  # if entity unavailable, proceed with unbind
             self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
             self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
             self._set_helper(f"input_text.ams_slot_{slot}_tray_signature", "")
