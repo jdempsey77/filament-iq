@@ -355,6 +355,8 @@ deploy_appdaemon() {
     echo "Error: addon restart failed." >&2
     return 1
   fi
+  echo "Command completed successfully."
+  wait_for_appdaemon || return 1
   echo "AppDaemon apps deployed and addon restarted."
   return 0
 }
@@ -365,12 +367,45 @@ restart_appdaemon() {
     echo "Error: AppDaemon addon restart failed." >&2
     return 1
   fi
+  wait_for_appdaemon || return 1
   echo "AppDaemon addon restarted."
   return 0
 }
 
+wait_for_appdaemon() {
+  local slug="${APPDAEMON_ADDON_SLUG:-a0d7b954_appdaemon}"
+  local max_attempts=30
+  local attempt=0
+  local status
+
+  echo "Waiting for AppDaemon addon to start..."
+  while [[ $attempt -lt $max_attempts ]]; do
+    status=$(_do_ssh "$AD_SSH_TARGET" \
+      "ha addons info '${slug}' --raw-json 2>/dev/null" 2>/dev/null \
+      | grep -o '"state":"[^"]*"' | head -1 | cut -d'"' -f4) || true
+
+    if [[ "$status" == "started" ]]; then
+      echo "AppDaemon started (attempt $((attempt+1))/${max_attempts})."
+      return 0
+    fi
+
+    if [[ "$status" == "error" || "$status" == "failed" || "$status" == "unknown" ]]; then
+      echo "AppDaemon failed to start (state=${status})." >&2
+      echo "Check logs: ssh $AD_SSH_TARGET 'tail -50 /addon_configs/${slug}/logs/appdaemon.log'" >&2
+      return 1
+    fi
+
+    attempt=$((attempt+1))
+    sleep 2
+  done
+
+  echo "AppDaemon did not reach 'started' within 60s (last state=${status:-unknown})." >&2
+  return 1
+}
+
 restart_ha_core_then_restart_appdaemon() {
   do_restart
+  wait_for_ha
   restart_appdaemon
 }
 
