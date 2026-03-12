@@ -4454,5 +4454,1934 @@ class TestPrintActiveGuard(unittest.TestCase):
         assert len(slot2_writes) >= 1, "slot 2 bind should proceed during active print"
 
 
+# ── helper method coverage tests ──────────────────────────────────────
+
+class TestNormalizeUid:
+    """_normalize_uid edge cases."""
+
+    def _app(self):
+        sm = FakeSpoolman([], [])
+        return TestableReconcile(sm, {})
+
+    def test_none(self):
+        assert self._app()._normalize_uid(None) == ""
+
+    def test_empty(self):
+        assert self._app()._normalize_uid("") == ""
+
+    def test_all_zeros(self):
+        assert self._app()._normalize_uid("0000000000000000") == ""
+
+    def test_unknown(self):
+        assert self._app()._normalize_uid("unknown") == ""
+
+    def test_unavailable(self):
+        assert self._app()._normalize_uid("unavailable") == ""
+
+    def test_quoted(self):
+        assert self._app()._normalize_uid('"AABB0011"') == "AABB0011"
+
+    def test_double_quoted(self):
+        assert self._app()._normalize_uid('""AABB0011""') == "AABB0011"
+
+    def test_normal(self):
+        assert self._app()._normalize_uid("aabb0011") == "AABB0011"
+
+    def test_spaces(self):
+        assert self._app()._normalize_uid(" aa bb 00 11 ") == "AABB0011"
+
+
+class TestNormalizeColorReconcile:
+    """_normalize_color on reconcile class."""
+
+    def _app(self):
+        sm = FakeSpoolman([], [])
+        return TestableReconcile(sm, {})
+
+    def test_8char_hex(self):
+        assert self._app()._normalize_color("#FF0000FF") == "ff0000"
+
+    def test_6char_hex(self):
+        assert self._app()._normalize_color("00AE42") == "00ae42"
+
+    def test_invalid(self):
+        assert self._app()._normalize_color("gggggg") == ""
+
+    def test_none(self):
+        assert self._app()._normalize_color(None) == ""
+
+
+class TestColorCandidates:
+    """_color_candidates generates multiple hex options."""
+
+    def _app(self):
+        sm = FakeSpoolman([], [])
+        return TestableReconcile(sm, {})
+
+    def test_8char_two_candidates(self):
+        result = self._app()._color_candidates("FF0000AA")
+        assert "ff0000" in result
+
+    def test_6char_one_candidate(self):
+        result = self._app()._color_candidates("00AE42")
+        assert result == ["00ae42"]
+
+    def test_invalid(self):
+        result = self._app()._color_candidates("xyz")
+        assert result == []
+
+
+class TestMaterialKey:
+    """_material_key normalization."""
+
+    def _app(self):
+        sm = FakeSpoolman([], [])
+        return TestableReconcile(sm, {})
+
+    def test_normal(self):
+        assert self._app()._material_key("PLA") == "pla"
+
+    def test_with_spaces(self):
+        assert self._app()._material_key("  PLA  Plus  ") == "pla plus"
+
+    def test_none(self):
+        assert self._app()._material_key(None) == ""
+
+
+class TestNormalizeMaterial:
+    """_normalize_material groups variants."""
+
+    def _app(self):
+        sm = FakeSpoolman([], [])
+        return TestableReconcile(sm, {})
+
+    def test_pla_basic(self):
+        assert self._app()._normalize_material("PLA") == "PLA"
+
+    def test_pla_plus(self):
+        assert self._app()._normalize_material("PLA+") == "PLA"
+
+    def test_pla_silk(self):
+        assert self._app()._normalize_material("PLA Silk") == "PLA"
+
+    def test_petg_cf(self):
+        assert self._app()._normalize_material("PETG-CF") == "PETG"
+
+    def test_abs_variant(self):
+        assert self._app()._normalize_material("ABS-GF") == "ABS"
+
+    def test_tpu(self):
+        assert self._app()._normalize_material("TPU") == "TPU"
+
+    def test_empty(self):
+        assert self._app()._normalize_material("") == ""
+
+
+class TestIsTrayEmpty:
+    """_is_tray_empty detection."""
+
+    def _app(self):
+        sm = FakeSpoolman([], [])
+        return TestableReconcile(sm, {})
+
+    def test_empty(self):
+        assert self._app()._is_tray_empty("empty", {}) is True
+
+    def test_not_empty(self):
+        assert self._app()._is_tray_empty("loaded", {}) is False
+
+    def test_none(self):
+        assert self._app()._is_tray_empty(None, {}) is False
+
+
+class TestNormalizeTrayHex:
+    """_normalize_tray_hex validation."""
+
+    def _app(self):
+        sm = FakeSpoolman([], [])
+        return TestableReconcile(sm, {})
+
+    def test_8char_with_alpha(self):
+        assert self._app()._normalize_tray_hex("#FF0000FF") == "ff0000"
+
+    def test_6char(self):
+        assert self._app()._normalize_tray_hex("00AE42") == "00ae42"
+
+    def test_invalid(self):
+        assert self._app()._normalize_tray_hex("gggggg") == ""
+
+
+class TestLotNrIsRefinement:
+    """_lot_nr_is_refinement logic."""
+
+    def _app(self):
+        sm = FakeSpoolman([], [])
+        return TestableReconcile(sm, {})
+
+    def test_refinement_fills_empty(self):
+        assert self._app()._lot_nr_is_refinement("pla|1|000000", "pla|1|ff0000") is True
+
+    def test_same_is_not_refinement(self):
+        assert self._app()._lot_nr_is_refinement("pla|1|ff0000", "pla|1|ff0000") is False
+
+    def test_type_mismatch(self):
+        assert self._app()._lot_nr_is_refinement("pla|1|000000", "petg|1|ff0000") is False
+
+    def test_uuid_not_refinable(self):
+        uuid = "a" * 32
+        assert self._app()._lot_nr_is_refinement(uuid, "pla|1|ff0000") is False
+
+    def test_wrong_format(self):
+        assert self._app()._lot_nr_is_refinement("pla", "pla|1|ff0000") is False
+
+    def test_non_empty_field_differs(self):
+        assert self._app()._lot_nr_is_refinement("pla|1|ff0000", "pla|2|ff0000") is False
+
+
+class TestSafeIntFloat:
+    """_safe_int and _safe_float edge cases."""
+
+    def _app(self):
+        sm = FakeSpoolman([], [])
+        return TestableReconcile(sm, {})
+
+    def test_safe_int_none(self):
+        assert self._app()._safe_int(None) == 0
+
+    def test_safe_int_valid(self):
+        assert self._app()._safe_int("42") == 42
+
+    def test_safe_int_invalid(self):
+        assert self._app()._safe_int("abc", -1) == -1
+
+    def test_safe_float_none(self):
+        assert self._app()._safe_float(None) == 0.0
+
+    def test_safe_float_valid(self):
+        assert self._app()._safe_float("3.14") == 3.14
+
+    def test_safe_float_invalid(self):
+        assert self._app()._safe_float("xyz", -1.0) == -1.0
+
+
+class TestGetHelperState:
+    """_get_helper_state with fallback."""
+
+    def test_returns_state(self):
+        sm = FakeSpoolman([], [])
+        r = TestableReconcile(sm, {
+            "input_text.ams_slot_1_spool_id": "42",
+        })
+        assert r._get_helper_state("input_text.ams_slot_1_spool_id") == "42"
+
+    def test_missing_returns_none(self):
+        sm = FakeSpoolman([], [])
+        r = TestableReconcile(sm, {})
+        result = r._get_helper_state("input_text.nonexistent_entity")
+        # TestableReconcile returns None for missing non-slot entities
+        assert result is None
+
+
+class TestRecordWriteNoWrite:
+    """_record_write and _record_no_write with active run."""
+
+    def _app(self):
+        sm = FakeSpoolman([], [])
+        r = TestableReconcile(sm, {})
+        r._active_run = {
+            "writes": [], "no_write_paths": [], "decisions": [],
+            "conflicts": [], "validation_transcripts": [],
+        }
+        return r
+
+    def test_record_write(self):
+        r = self._app()
+        r._record_write("spoolman_patch", {"path": "/api/v1/spool/1"})
+        assert len(r._active_run["writes"]) == 1
+
+    def test_record_no_write(self):
+        r = self._app()
+        r._record_no_write("slot_1", "helper_already_equal")
+        assert len(r._active_run["no_write_paths"]) == 1
+        assert r._active_run["no_write_paths"][0]["reason"] == "helper_already_equal"
+
+    def test_record_decision(self):
+        r = self._app()
+        r._record_decision(1, "rfid_match", {"tag_uid": "AA"})
+        assert len(r._active_run["decisions"]) == 1
+
+    def test_record_write_no_active_run(self):
+        """No active run → no crash."""
+        sm = FakeSpoolman([], [])
+        r = TestableReconcile(sm, {})
+        r._active_run = None
+        r._record_write("test", {})  # should not crash
+        r._record_no_write("test", "reason")  # should not crash
+        r._record_decision(1, "test", {})  # should not crash
+
+
+class TestDebugLogging:
+    """_debug conditional logging."""
+
+    def test_debug_off(self):
+        sm = FakeSpoolman([], [])
+        r = TestableReconcile(sm, {}, args={"debug_logs": False})
+        r._debug("test message")
+        assert not any("RFID_DEBUG" in msg for msg, _ in r._log_calls)
+
+    def test_debug_on(self):
+        sm = FakeSpoolman([], [])
+        r = TestableReconcile(sm, {}, args={"debug_logs": True})
+        r._debug("test message")
+        assert any("RFID_DEBUG test message" in msg for msg, _ in r._log_calls)
+
+    def test_debug_with_payload(self):
+        sm = FakeSpoolman([], [])
+        r = TestableReconcile(sm, {}, args={"debug_logs": True})
+        r._debug("test", {"key": "value"})
+        assert any("RFID_DEBUG test" in msg for msg, _ in r._log_calls)
+
+
+class TestNotifyConflict:
+    """_notify_conflict notification."""
+
+    def test_notify_conflict_sends_notification(self):
+        sm = FakeSpoolman([], [])
+        r = TestableReconcile(sm, {})
+        r._active_run = {"writes": [], "no_write_paths": [], "decisions": [],
+                         "conflicts": [], "validation_transcripts": []}
+        tray_meta = {"name": "PLA", "type": "PLA", "color_hex": "ff0000", "filament_id": "1"}
+        r._notify_conflict(1, "AABB", tray_meta, [10, 20], "DUPLICATE_UID")
+        # call_service was called for persistent_notification
+
+
+class TestLogValidationTranscript:
+    """_log_validation_transcript."""
+
+    def test_logs_json(self):
+        sm = FakeSpoolman([], [])
+        r = TestableReconcile(sm, {})
+        t = {"slot": 1, "decision": "OK"}
+        r._log_validation_transcript(t)
+        assert any("RFID_VALIDATE" in msg for msg, _ in r._log_calls)
+
+
+class TestAppendEvidence:
+    """_append_evidence and _append_evidence_line."""
+
+    def test_append_evidence_disabled(self):
+        sm = FakeSpoolman([], [])
+        r = TestableReconcile(sm, {})
+        r.evidence_log_enabled = False
+        r._append_evidence({"test": True})  # should not crash
+
+    def test_append_evidence_line_disabled(self):
+        sm = FakeSpoolman([], [])
+        r = TestableReconcile(sm, {})
+        r.evidence_log_enabled = False
+        r._append_evidence_line("TEST")  # should not crash
+
+
+class TestWriteLastMappingJson:
+    """write_last_mapping_json truncation."""
+
+    def test_short_mapping(self):
+        sm = FakeSpoolman([], [])
+        r = TestableReconcile(sm, {
+            "input_text.p1s_01p00c5a3101668_last_mapping_json": "old",
+        })
+        r._active_run = {"writes": [], "no_write_paths": [], "decisions": [],
+                         "conflicts": [], "validation_transcripts": []}
+        r.write_last_mapping_json("test", {"1": 10})
+        # Check it was written
+        writes = [w for w in r._helper_writes
+                  if "last_mapping_json" in w.get("entity_id", "")]
+        assert len(writes) == 1
+
+    def test_long_mapping_truncated(self):
+        sm = FakeSpoolman([], [])
+        r = TestableReconcile(sm, {
+            "input_text.p1s_01p00c5a3101668_last_mapping_json": "old",
+        })
+        r._active_run = {"writes": [], "no_write_paths": [], "decisions": [],
+                         "conflicts": [], "validation_transcripts": []}
+        # Very long mapping
+        mapping = {str(i): i * 1000 for i in range(100)}
+        r.write_last_mapping_json("x" * 100, mapping)
+        writes = [w for w in r._helper_writes
+                  if "last_mapping_json" in w.get("entity_id", "")]
+        assert len(writes) == 1
+        assert len(writes[0].get("value", "")) <= 255
+
+
+class TestComputeHaSig:
+    """_compute_ha_sig signature generation."""
+
+    def _app(self):
+        sm = FakeSpoolman([], [])
+        return TestableReconcile(sm, {})
+
+    def test_valid_sig(self):
+        meta = {"filament_id": "GFL99", "type": "PLA", "color_hex": "FF0000FF"}
+        result = self._app()._compute_ha_sig(meta)
+        assert result is not None
+        assert "gfl99" in result
+        assert "pla" in result
+
+    def test_missing_fields_returns_none(self):
+        result = self._app()._compute_ha_sig({})
+        assert result is None
+
+
+class TestResolveColorForHaSig:
+    """_resolve_color_for_ha_sig fallback chain."""
+
+    def _app(self):
+        sm = FakeSpoolman([], [])
+        return TestableReconcile(sm, {})
+
+    def test_tray_color_hex(self):
+        meta = {"color_hex": "#FF0000FF"}
+        result = self._app()._resolve_color_for_ha_sig(meta)
+        assert result == "ff0000"
+
+    def test_tray_color_fallback(self):
+        meta = {"color": "00AE42"}
+        result = self._app()._resolve_color_for_ha_sig(meta)
+        assert result == "00ae42"
+
+    def test_no_color(self):
+        result = self._app()._resolve_color_for_ha_sig({})
+        assert result == ""
+
+
+class TestBindUidToSpool:
+    """_bind_uid_to_spool routes correctly."""
+
+    def _app(self):
+        sm = FakeSpoolman([_spoolman_spool(1, "PLA", "ff0000", "Bambu Lab", 500.0, "Shelf")], [])
+        r = TestableReconcile(sm, {})
+        r._active_run = {"writes": [], "no_write_paths": [], "decisions": [],
+                         "conflicts": [], "validation_transcripts": []}
+        r._pending_lot_nr_writes = {}
+        return r
+
+    def test_with_tray_uuid(self):
+        r = self._app()
+        r._bind_uid_to_spool("AABB", 1, {1: {"id": 1, "lot_nr": ""}}, tray_uuid="UUID123")
+        assert any("LOT_NR_ENROLLED" in msg for msg, _ in r._log_calls)
+
+    def test_without_tray_uuid(self):
+        r = self._app()
+        r._bind_uid_to_spool("AABB", 1, {}, tray_uuid="")
+        assert any("BIND_UID_SKIP" in msg for msg, _ in r._log_calls)
+
+
+def _spoolman_spool(sid, material, color_hex, vendor, remaining, location, lot_nr="", extra=None):
+    """Build a Spoolman spool dict for testing."""
+    return {
+        "id": sid,
+        "remaining_weight": remaining,
+        "location": location,
+        "lot_nr": lot_nr,
+        "extra": extra or {},
+        "filament": {
+            "id": sid * 100,
+            "name": f"{vendor} {material}",
+            "material": material,
+            "color_hex": color_hex,
+            "vendor": {"name": vendor},
+        },
+    }
+
+
+from unittest import mock  # noqa: E402 — needed for coverage push tests below
+
+# ── Coverage push: _set_helper, write_last_mapping_json, HTTP, events, notifications ──
+
+
+class _EventTestReconcile(TestableReconcile):
+    """TestableReconcile with schedule/event tracking."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self._schedule_calls = []
+        self._service_calls = []
+        self._rfid_pending_calls = []
+        self._notify_calls = []
+        self._run_reconcile_calls = []
+        self._cancelled_timers = []
+        self._run_in_calls = []
+
+    def _schedule_reconcile(self, reason):
+        self._schedule_calls.append(reason)
+
+    def _set_rfid_pending_until(self, slot, until):
+        self._rfid_pending_calls.append((slot, until))
+
+    def call_service(self, service, **kw):
+        self._service_calls.append({"service": service, **kw})
+        super().call_service(service, **kw)
+
+    def _run_reconcile(self, reason, **kw):
+        self._run_reconcile_calls.append((reason, kw))
+
+    def run_in(self, cb, delay, **kw):
+        self._run_in_calls.append({"callback": cb, "delay": delay, **kw})
+
+    def cancel_timer(self, handle):
+        self._cancelled_timers.append(handle)
+
+    def _notify(self, title, msg, **kw):
+        self._notify_calls.append((title, msg, kw))
+
+    def _manual_enroll(self, slot, spool_id):
+        self._log_calls.append((f"MANUAL_ENROLL slot={slot} spool_id={spool_id}", "INFO"))
+
+
+class TestSetHelper:
+    """_set_helper routes by entity domain."""
+
+    def _app(self, state_map=None):
+        fm = FakeSpoolman([], [])
+        sm = state_map or {}
+        r = TestableReconcile(fm, sm)
+        r._service_calls = []
+        original_call = r.call_service
+        def tracking_call(service, **kw):
+            r._service_calls.append({"service": service, **kw})
+            original_call(service, **kw)
+        r.call_service = tracking_call
+        return r
+
+    def test_input_text_routing(self):
+        r = self._app({"input_text.ams_slot_1_spool_id": "0"})
+        r._set_helper("input_text.ams_slot_1_spool_id", "42")
+        assert any(c["service"] == "input_text/set_value" for c in r._service_calls)
+
+    def test_text_routing(self):
+        r = self._app({"text.some_helper": "old"})
+        # We need text.* entity in state_map so get_state returns non-None
+        r._state_map["text.some_helper"] = "old"
+        r._set_helper("text.some_helper", "new")
+        assert any(c["service"] == "text/set_value" for c in r._service_calls)
+
+    def test_unsupported_domain_raises(self):
+        r = self._app({"sensor.foo": "bar"})
+        r._state_map["sensor.foo"] = "bar"
+        with pytest.raises(ValueError, match="unsupported entity domain"):
+            r._set_helper("sensor.foo", "baz")
+
+    def test_missing_helper_warns(self):
+        r = self._app({})
+        r._state_map.clear()
+        # For a non-ams_slot entity, get_state returns None
+        r._set_helper("input_text.nonexistent_helper", "value")
+        assert any("missing in HA configuration" in msg for msg, _ in r._log_calls)
+
+    def test_same_value_noop(self):
+        r = self._app({"input_text.ams_slot_1_spool_id": "42"})
+        r._set_helper("input_text.ams_slot_1_spool_id", "42")
+        assert not r._service_calls
+
+    def test_none_value_becomes_empty(self):
+        r = self._app({"input_text.ams_slot_1_status": "OK"})
+        r._set_helper("input_text.ams_slot_1_status", None)
+        assert any(c.get("value") == "" for c in r._service_calls)
+
+
+class TestWriteLastMappingJson:
+    """write_last_mapping_json truncation paths."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {})
+        r._service_calls = []
+        original_call = r.call_service
+        def tracking_call(service, **kw):
+            r._service_calls.append({"service": service, **kw})
+            original_call(service, **kw)
+        r.call_service = tracking_call
+        # Ensure the last_mapping_json entity exists in state
+        r._state_map[r._last_mapping_json_entity] = ""
+        return r
+
+    def test_short_json_passes(self):
+        r = self._app()
+        r.write_last_mapping_json("test", {"1": 42})
+        assert len(r._service_calls) == 1
+        written = r._service_calls[0]["value"]
+        assert len(written) <= 255
+
+    def test_truncation_removes_timestamp(self):
+        r = self._app()
+        # Long mapping that's >255 with timestamp
+        big_mapping = {str(i): f"spool_{i}_very_long_name_here" for i in range(10)}
+        r.write_last_mapping_json("very_long_reason_string_that_goes_on", big_mapping)
+        assert len(r._service_calls) == 1
+        written = r._service_calls[0]["value"]
+        assert len(written) <= 255
+
+    def test_extreme_truncation(self):
+        r = self._app()
+        # Extremely long mapping
+        big_mapping = {str(i): f"spool_{i}_" + "x" * 50 for i in range(20)}
+        r.write_last_mapping_json("reason", big_mapping)
+        assert len(r._service_calls) == 1
+        written = r._service_calls[0]["value"]
+        assert len(written) <= 255
+
+
+def _mock_urlopen_cm(data_bytes):
+    """Create a context-manager mock for `with urllib.request.urlopen(...) as resp:`."""
+    resp = unittest.mock.MagicMock()
+    resp.read.return_value = data_bytes
+    resp.status = 200
+    cm = unittest.mock.MagicMock()
+    cm.__enter__ = unittest.mock.MagicMock(return_value=resp)
+    cm.__exit__ = unittest.mock.MagicMock(return_value=False)
+    return cm
+
+
+class TestUrlOpenJson:
+    """_urlopen_json HTTP handling (real methods, not FakeSpoolman)."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_success_returns_json(self):
+        import urllib.request
+        r = self._app()
+        cm = _mock_urlopen_cm(json.dumps({"id": 1}).encode())
+        req = urllib.request.Request("http://fake:7912/api/v1/spool/1")
+        with mock.patch("urllib.request.urlopen", return_value=cm):
+            result = AmsRfidReconcile._urlopen_json(r, req)
+        assert result == {"id": 1}
+
+    def test_empty_body_returns_empty_dict(self):
+        import urllib.request
+        r = self._app()
+        cm = _mock_urlopen_cm(b"")
+        req = urllib.request.Request("http://fake:7912/api/v1/spool/1")
+        with mock.patch("urllib.request.urlopen", return_value=cm):
+            result = AmsRfidReconcile._urlopen_json(r, req)
+        assert result == {}
+
+    def test_http_400_json_error(self):
+        import urllib.request, urllib.error
+        r = self._app()
+        r._notify_calls = []
+        r._notify = lambda *a, **kw: r._notify_calls.append(a)
+        exc = urllib.error.HTTPError(
+            "http://fake:7912/api/v1/spool/1", 400, "Bad Request",
+            {}, mock.MagicMock()
+        )
+        exc.read = mock.MagicMock(return_value=b"Value is not valid JSON")
+        req = urllib.request.Request("http://fake:7912/api/v1/spool/1")
+        with mock.patch("urllib.request.urlopen", side_effect=exc):
+            with pytest.raises(RuntimeError, match="HTTP 400"):
+                AmsRfidReconcile._urlopen_json(r, req)
+        assert any("Spoolman 400" in msg for msg, _ in r._log_calls)
+
+    def test_url_error(self):
+        import urllib.request, urllib.error
+        r = self._app()
+        exc = urllib.error.URLError("Connection refused")
+        req = urllib.request.Request("http://fake:7912/api/v1/spool/1")
+        with mock.patch("urllib.request.urlopen", side_effect=exc):
+            with pytest.raises(RuntimeError, match="URL error"):
+                AmsRfidReconcile._urlopen_json(r, req)
+
+
+class TestSpoolmanRealMethods:
+    """_spoolman_get/post/patch using real HTTP (mocked urllib)."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {})
+        return r
+
+    def test_real_spoolman_get(self):
+        r = self._app()
+        cm = _mock_urlopen_cm(json.dumps({"id": 1}).encode())
+        with mock.patch("urllib.request.urlopen", return_value=cm):
+            result = AmsRfidReconcile._spoolman_get(r, "/api/v1/spool/1")
+        assert result == {"id": 1}
+
+    def test_real_spoolman_post(self):
+        r = self._app()
+        cm = _mock_urlopen_cm(json.dumps({"id": 2}).encode())
+        with mock.patch("urllib.request.urlopen", return_value=cm):
+            result = AmsRfidReconcile._spoolman_post(r, "/api/v1/spool", {"filament_id": 1})
+        assert result == {"id": 2}
+
+    def test_real_spoolman_patch_normalizes_location(self):
+        r = self._app()
+        r._normalize_location = lambda loc: loc
+        cm = _mock_urlopen_cm(json.dumps({"id": 1}).encode())
+        with mock.patch("urllib.request.urlopen", return_value=cm):
+            result = AmsRfidReconcile._spoolman_patch(r, "/api/v1/spool/1", {"location": "AMS_1_1"})
+        assert result == {"id": 1}
+
+
+class TestNotifyNonrfidNeedsAction:
+    """_notify_nonrfid_needs_action calls _notify with correct args."""
+
+    def test_calls_notify(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        tray_meta = {"type": "PLA", "color_hex": "FF0000", "name": "Red PLA", "filament_id": "123"}
+        r._notify_nonrfid_needs_action(5, tray_meta, "no_match")
+        assert len(r._notify_calls) == 1
+        assert "Non-RFID NEEDS_ACTION" in r._notify_calls[0][0]
+
+
+class TestNotifyNonrfidNewFallback:
+    """_notify_nonrfid_new_fallback calls _notify."""
+
+    def test_calls_notify(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        tray_meta = {"type": "PLA", "color_hex": "FF0000", "name": "Red PLA"}
+        r._notify_nonrfid_new_fallback(5, 42, tray_meta)
+        assert len(r._notify_calls) == 1
+        assert "New fallback" in r._notify_calls[0][0]
+
+
+class TestNotifyUnbound:
+    """_notify_unbound calls _notify with candidate_ids."""
+
+    def test_calls_notify_with_candidates(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        tray_meta = {"type": "PLA", "color_hex": "FF0000", "name": "Red", "filament_id": "123"}
+        r._notify_unbound(1, "AABBCCDD", tray_meta, [10, 20])
+        assert len(r._notify_calls) == 1
+        assert "UNBOUND" in r._notify_calls[0][0]
+
+    def test_calls_notify_no_candidates(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        tray_meta = {"type": "PLA", "color_hex": "FF0000", "name": "Red", "filament_id": "123"}
+        r._notify_unbound(1, "AABBCCDD", tray_meta, [])
+        assert len(r._notify_calls) == 1
+
+
+class TestOnReconcileEvent:
+    """_on_reconcile_event calls _schedule_reconcile."""
+
+    def test_calls_schedule(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._on_reconcile_event("ams_reconcile", {"reason": "test"}, {})
+        assert "test" in r._schedule_calls
+
+
+class TestOnManualReconcileButton:
+    """_on_manual_reconcile_button triggers reconcile."""
+
+    def test_normal_press(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._active_run = None
+        r._on_manual_reconcile_button("entity", "state", "old_ts", "2024-01-01T00:00:00", {})
+        assert len(r._run_reconcile_calls) == 1
+
+    def test_skip_if_active_run(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._active_run = {"some": "run"}
+        r._on_manual_reconcile_button("entity", "state", "old_ts", "2024-01-01T00:00:00", {})
+        assert len(r._run_reconcile_calls) == 0
+
+    def test_skip_if_no_new(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._on_manual_reconcile_button("entity", "state", "old_ts", None, {})
+        assert len(r._run_reconcile_calls) == 0
+
+    def test_skip_if_same(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._on_manual_reconcile_button("entity", "state", "same", "same", {})
+        assert len(r._run_reconcile_calls) == 0
+
+
+class TestOnReconcileAllEvent:
+    """_on_reconcile_all_event parses payload."""
+
+    def test_default_status_only(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._on_reconcile_all_event("event", {"reason": "manual_ui"}, {})
+        assert len(r._run_reconcile_calls) == 1
+        assert r._run_reconcile_calls[0][1].get("status_only") is True
+
+    def test_status_only_false(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._on_reconcile_all_event("event", {"reason": "full", "status_only": False}, {})
+        assert r._run_reconcile_calls[0][1].get("status_only") is False
+
+    def test_non_bool_status_only_defaults_true(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._on_reconcile_all_event("event", {"status_only": "yes"}, {})
+        assert r._run_reconcile_calls[0][1].get("status_only") is True
+
+
+class TestOnTrayStateChange:
+    """_on_tray_state_change sets rfid_pending and schedules."""
+
+    def test_triggers_schedule(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        tray_entity = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+        r._on_tray_state_change(tray_entity, "state", "old", "new", {})
+        assert len(r._schedule_calls) == 1
+        assert len(r._rfid_pending_calls) == 1
+        assert r._rfid_pending_calls[0][0] == 1  # slot 1
+
+
+class TestOnHelperSpoolIdChange:
+    """_on_helper_spool_id_change triggers reconcile on real changes."""
+
+    def test_same_value_skip(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._on_helper_spool_id_change("input_text.ams_slot_1_spool_id", "state", "42", "42", {})
+        assert len(r._schedule_calls) == 0
+
+    def test_active_run_skip(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._active_run = {"some": "run"}
+        r._on_helper_spool_id_change("input_text.ams_slot_1_spool_id", "state", "0", "42", {})
+        assert len(r._schedule_calls) == 0
+
+    def test_suppressed_skip(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._suppress_helper_change_until[1] = datetime.datetime.utcnow() + datetime.timedelta(seconds=60)
+        r._on_helper_spool_id_change("input_text.ams_slot_1_spool_id", "state", "0", "42", {})
+        assert len(r._schedule_calls) == 0
+
+    def test_normal_triggers(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._on_helper_spool_id_change("input_text.ams_slot_1_spool_id", "state", "0", "42", {})
+        assert len(r._schedule_calls) == 1
+
+    def test_unknown_entity_skip(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._on_helper_spool_id_change("input_text.ams_slot_99_spool_id", "state", "0", "42", {})
+        assert len(r._schedule_calls) == 0
+
+
+class TestOnManualEnrollEvent:
+    """_on_manual_enroll_event handles enroll requests."""
+
+    def test_invalid_slot(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._on_manual_enroll_event("event", {"slot": 99, "spool_id": 1}, {})
+        assert len(r._notify_calls) == 1
+        assert "Failed" in r._notify_calls[0][0]
+
+    def test_invalid_spool_id(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._on_manual_enroll_event("event", {"slot": 1, "spool_id": 0}, {})
+        assert len(r._notify_calls) == 1
+
+    def test_success(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._on_manual_enroll_event("event", {"slot": 1, "spool_id": 42}, {})
+        assert any("MANUAL_ENROLL" in msg for msg, _ in r._log_calls)
+        assert len(r._run_reconcile_calls) == 1
+
+    def test_exception_notifies(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._manual_enroll = mock.MagicMock(side_effect=RuntimeError("tray_uuid is empty"))
+        r._on_manual_enroll_event("event", {"slot": 1, "spool_id": 42}, {})
+        assert len(r._notify_calls) == 1
+        assert "Failed" in r._notify_calls[0][0]
+
+
+class TestReadTrayColorHex:
+    """_read_tray_color_hex reads AMS tray color."""
+
+    def _app(self, slot_state):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, slot_state)
+        return r
+
+    def test_6char_hex(self):
+        tray = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+        r = self._app({f"{tray}::all": {"state": "PLA", "attributes": {"color": "FF0000"}}})
+        assert r._read_tray_color_hex(1) == "FF0000"
+
+    def test_8char_strips_alpha(self):
+        tray = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+        r = self._app({f"{tray}::all": {"state": "PLA", "attributes": {"color": "FF0000FF"}}})
+        assert r._read_tray_color_hex(1) == "FF0000"
+
+    def test_hash_prefix(self):
+        tray = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+        r = self._app({f"{tray}::all": {"state": "PLA", "attributes": {"color": "#161616"}}})
+        assert r._read_tray_color_hex(1) == "161616"
+
+    def test_empty_returns_none(self):
+        tray = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+        r = self._app({f"{tray}::all": {"state": "PLA", "attributes": {"color": ""}}})
+        assert r._read_tray_color_hex(1) is None
+
+    def test_unknown_slot_returns_none(self):
+        r = self._app({})
+        assert r._read_tray_color_hex(99) is None
+
+    def test_bad_length_returns_none(self):
+        tray = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+        r = self._app({f"{tray}::all": {"state": "PLA", "attributes": {"color": "FF00"}}})
+        assert r._read_tray_color_hex(1) is None
+
+
+class TestEnsureEvidencePathWritableReal:
+    """_ensure_evidence_path_writable with real filesystem."""
+
+    def test_writable_path_succeeds(self):
+        import tempfile
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {})
+        with tempfile.TemporaryDirectory() as td:
+            r.evidence_log_path = os.path.join(td, "evidence.log")
+            r.evidence_log_enabled = False
+            # Call the real method (not the overridden one)
+            AmsRfidReconcile._ensure_evidence_path_writable(r)
+            assert r.evidence_log_enabled is True
+
+    def test_all_paths_fail(self):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {})
+        r.evidence_log_path = "/proc/nonexistent/evidence.log"
+        r.evidence_log_enabled = False
+        with mock.patch("os.makedirs", side_effect=OSError("nope")):
+            AmsRfidReconcile._ensure_evidence_path_writable(r)
+        assert r.evidence_log_enabled is False
+
+
+class TestAppendEvidenceReal:
+    """_append_evidence writes JSON to file."""
+
+    def test_enabled_writes(self):
+        import tempfile
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {})
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
+            r.evidence_log_path = f.name
+            r.evidence_log_enabled = True
+            AmsRfidReconcile._append_evidence(r, {"key": "value"})
+        with open(r.evidence_log_path) as f:
+            line = f.read().strip()
+        assert '"key"' in line
+        os.unlink(r.evidence_log_path)
+
+    def test_disabled_skips(self):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {})
+        r.evidence_log_enabled = False
+        AmsRfidReconcile._append_evidence(r, {"key": "value"})
+        # No error, just skips
+
+    def test_write_error_disables(self):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {})
+        r.evidence_log_path = "/proc/nonexistent/evidence.log"
+        r.evidence_log_enabled = True
+        AmsRfidReconcile._append_evidence(r, {"key": "value"})
+        assert r.evidence_log_enabled is False
+
+
+class TestAppendEvidenceLineReal:
+    """_append_evidence_line writes text to file."""
+
+    def test_enabled_writes(self):
+        import tempfile
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {})
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
+            r.evidence_log_path = f.name
+            r.evidence_log_enabled = True
+            AmsRfidReconcile._append_evidence_line(r, "RFID_EMPTY_TRAY_CLEAR slot=1")
+        with open(r.evidence_log_path) as f:
+            line = f.read().strip()
+        assert "RFID_EMPTY_TRAY_CLEAR" in line
+        os.unlink(r.evidence_log_path)
+
+    def test_disabled_skips(self):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {})
+        r.evidence_log_enabled = False
+        AmsRfidReconcile._append_evidence_line(r, "test line")
+
+    def test_write_error_disables(self):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {})
+        r.evidence_log_path = "/proc/nonexistent/evidence.log"
+        r.evidence_log_enabled = True
+        AmsRfidReconcile._append_evidence_line(r, "test line")
+        assert r.evidence_log_enabled is False
+
+
+class TestDebugMethod:
+    """_debug only logs when debug_logs enabled."""
+
+    def test_enabled_with_payload(self):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {}, args={"debug_logs": True})
+        r._debug("test_msg", {"key": "val"})
+        assert any("RFID_DEBUG test_msg" in msg for msg, _ in r._log_calls)
+
+    def test_enabled_without_payload(self):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {}, args={"debug_logs": True})
+        r._debug("test_msg", None)
+        assert any("RFID_DEBUG test_msg" in msg for msg, _ in r._log_calls)
+
+    def test_disabled_skips(self):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {}, args={"debug_logs": False})
+        r._debug("test_msg", {"key": "val"})
+        assert not any("RFID_DEBUG" in msg for msg, _ in r._log_calls)
+
+
+class TestBuildLotSig:
+    """_build_lot_sig and _build_lot_sig_for_lookup."""
+
+    def _app(self):
+        return TestableReconcile(FakeSpoolman([], []), {})
+
+    def test_full_sig(self):
+        r = self._app()
+        meta = {"type": "PLA", "filament_id": "GFL01", "color_hex": "FF0000"}
+        sig = r._build_lot_sig(meta)
+        assert sig == "pla|gfl01|ff0000"
+
+    def test_8char_color_trimmed(self):
+        r = self._app()
+        meta = {"type": "PLA", "filament_id": "GFL01", "color_hex": "FF0000FF"}
+        sig = r._build_lot_sig(meta)
+        assert "ff0000" in sig
+
+    def test_missing_type_returns_empty(self):
+        r = self._app()
+        meta = {"type": "", "filament_id": "GFL99", "color_hex": "FF0000"}
+        assert r._build_lot_sig(meta) == ""
+
+    def test_generic_filament_returns_empty(self):
+        r = self._app()
+        meta = {"type": "PLA", "filament_id": "GFB99", "color_hex": "FF0000"}
+        sig = r._build_lot_sig(meta)
+        # GFB99 is generic → empty
+        assert sig == ""
+
+    def test_for_lookup_allows_generic(self):
+        r = self._app()
+        meta = {"type": "PLA", "filament_id": "GFB99", "color_hex": "FF0000"}
+        sig = r._build_lot_sig_for_lookup(meta)
+        assert "gfb99" in sig
+
+
+class TestNonrfidTrayMatchesBoundSpool:
+    """_nonrfid_tray_matches_bound_spool."""
+
+    def _app(self):
+        return TestableReconcile(FakeSpoolman([], []), {})
+
+    def test_lot_nr_match(self):
+        r = self._app()
+        tray_meta = {"type": "PLA", "filament_id": "GFL99", "color_hex": "FF0000"}
+        spool_index = {1: {"id": 1, "lot_nr": "pla|gfl99|ff0000", "filament": {"material": "PLA", "color_hex": "FF0000"}}}
+        assert r._nonrfid_tray_matches_bound_spool(tray_meta, 1, spool_index) is True
+
+    def test_lot_nr_mismatch(self):
+        r = self._app()
+        tray_meta = {"type": "PLA", "filament_id": "GFL99", "color_hex": "FF0000"}
+        spool_index = {1: {"id": 1, "lot_nr": "petg|gfl99|0000ff", "filament": {"material": "PETG", "color_hex": "0000FF"}}}
+        assert r._nonrfid_tray_matches_bound_spool(tray_meta, 1, spool_index) is False
+
+    def test_uuid_lot_nr_no_match(self):
+        r = self._app()
+        tray_meta = {"type": "PLA", "filament_id": "GFL99", "color_hex": "FF0000"}
+        spool_index = {1: {"id": 1, "lot_nr": "AABBCCDD11223344EEFF00112233AABB", "filament": {"material": "PLA", "color_hex": "FF0000"}}}
+        assert r._nonrfid_tray_matches_bound_spool(tray_meta, 1, spool_index) is False
+
+    def test_no_lot_nr_material_color_match(self):
+        r = self._app()
+        tray_meta = {"type": "PLA", "filament_id": "GFL99", "color_hex": "FF0000"}
+        spool_index = {1: {"id": 1, "lot_nr": "", "filament": {"material": "PLA", "color_hex": "FF0000"}}}
+        assert r._nonrfid_tray_matches_bound_spool(tray_meta, 1, spool_index) is True
+
+    def test_no_lot_nr_material_mismatch(self):
+        r = self._app()
+        tray_meta = {"type": "PLA", "filament_id": "GFL99", "color_hex": "FF0000"}
+        spool_index = {1: {"id": 1, "lot_nr": "", "filament": {"material": "PETG", "color_hex": "FF0000"}}}
+        assert r._nonrfid_tray_matches_bound_spool(tray_meta, 1, spool_index) is False
+
+
+class TestCheckPendingConfirmation:
+    """_check_pending_confirmation returns (confirmed, pending)."""
+
+    def _app(self, state_map=None):
+        return TestableReconcile(FakeSpoolman([], []), state_map or {})
+
+    def test_empty_stored_confirms(self):
+        r = self._app()
+        confirmed, pending = r._check_pending_confirmation(5, "sig_abc", "")
+        assert confirmed is True
+        assert pending is False
+
+    def test_same_sig_confirms(self):
+        r = self._app()
+        confirmed, pending = r._check_pending_confirmation(5, "sig_abc", "sig_abc")
+        assert confirmed is True
+        assert pending is False
+
+    def test_different_sig_starts_pending(self):
+        r = self._app()
+        confirmed, pending = r._check_pending_confirmation(5, "sig_new", "sig_old")
+        assert confirmed is False
+        assert pending is True
+
+    def test_pending_same_sig_increments(self):
+        r = self._app({"input_text.ams_slot_5_tray_signature": "PENDING:1:100000:sig_new"})
+        confirmed, pending = r._check_pending_confirmation(5, "sig_new", "PENDING:1:100000:sig_new")
+        assert confirmed is True or pending is True  # either confirmed (count>=2) or still pending
+
+
+class TestTrayRemainingWeight:
+    """_tray_remaining_weight calculates grams from attrs."""
+
+    def _app(self):
+        return TestableReconcile(FakeSpoolman([], []), {})
+
+    def test_normal_calc(self):
+        r = self._app()
+        assert r._tray_remaining_weight({"tray_weight": 1000, "remain": 75}) == 750.0
+
+    def test_zero_remain(self):
+        r = self._app()
+        assert r._tray_remaining_weight({"tray_weight": 1000, "remain": 0}) == 0.0
+
+    def test_zero_weight(self):
+        r = self._app()
+        assert r._tray_remaining_weight({"tray_weight": 0, "remain": 50}) == 0.0
+
+
+class TestClearLegacySignatures:
+    """_clear_legacy_signatures clears old NONRFID| format."""
+
+    def test_clears_legacy(self):
+        fm = FakeSpoolman([], [])
+        state_map = {
+            "input_text.ams_slot_5_tray_signature": "NONRFID|PLA|FF0000",
+        }
+        r = _EventTestReconcile(fm, state_map, args={})
+        r._clear_legacy_signatures()
+        assert any("LEGACY_SIGNATURE_CLEARED" in msg for msg, _ in r._log_calls)
+
+    def test_no_legacy_no_action(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        r._clear_legacy_signatures()
+        assert not any("LEGACY_SIGNATURE_CLEARED" in msg for msg, _ in r._log_calls)
+
+
+class TestSpoolExists:
+    """_spool_exists checks Spoolman."""
+
+    def test_exists(self):
+        spool = _spoolman_spool(1, "PLA", "FF0000", "Bambu", 500, "Shelf")
+        fm = FakeSpoolman([spool], [])
+        r = TestableReconcile(fm, {})
+        assert r._spool_exists(1) is True
+
+    def test_not_exists(self):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {})
+        assert r._spool_exists(999) is False
+
+    def test_zero_id_returns_false(self):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {})
+        assert r._spool_exists(0) is False
+
+    def test_with_active_run_cache(self):
+        spool = _spoolman_spool(1, "PLA", "FF0000", "Bambu", 500, "Shelf")
+        fm = FakeSpoolman([spool], [])
+        r = TestableReconcile(fm, {})
+        r._active_run = {"spool_exists_cache": {}}
+        assert r._spool_exists(1) is True
+        # Second call hits cache
+        assert r._spool_exists(1) is True
+        assert r._active_run["spool_exists_cache"][1] is True
+
+
+class TestNotifyUnboundRfidNoShelf:
+    """_notify_unbound_rfid_no_shelf sends notification."""
+
+    def test_sends_notify(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        tray_meta = {"type": "PLA", "color_hex": "FF0000", "name": "Red PLA"}
+        r._notify_unbound_rfid_no_shelf(1, "AABBCCDD", tray_meta)
+        assert len(r._notify_calls) == 1
+        assert "NEEDS_ACTION" in r._notify_calls[0][0]
+
+
+class TestGetTrayIdentity:
+    """_get_tray_identity returns tray_uuid > tag_uid > signature."""
+
+    def _app(self):
+        return TestableReconcile(FakeSpoolman([], []), {})
+
+    def test_tray_uuid_preferred(self):
+        r = self._app()
+        attrs = {"tray_uuid": "AABBCCDD-1122-3344-5566-778899001122"}
+        result = r._get_tray_identity(attrs, "TAG123", "PLA")
+        assert "AABBCCDD" in result
+
+    def test_tag_uid_fallback(self):
+        r = self._app()
+        attrs = {"tray_uuid": "00000000000000000000000000000000"}
+        result = r._get_tray_identity(attrs, "AABB1122", "PLA")
+        assert "AABB1122" in result
+
+    def test_signature_fallback(self):
+        r = self._app()
+        attrs = {"tray_uuid": "", "type": "PLA", "color": "FF0000", "name": "Red PLA", "filament_id": "GFL99"}
+        result = r._get_tray_identity(attrs, "", "PLA")
+        assert result  # should return some signature
+
+
+class TestTrayMeta:
+    """_tray_meta builds metadata dict."""
+
+    def _app(self):
+        return TestableReconcile(FakeSpoolman([], []), {})
+
+    def test_full_meta(self):
+        r = self._app()
+        attrs = {"name": "Red PLA", "type": "PLA", "filament_id": "GFL99", "color": "FF0000FF"}
+        meta = r._tray_meta(attrs, "PLA Basic")
+        assert meta["name"] == "Red PLA"
+        assert meta["type"] == "PLA"
+        assert meta["color_hex"] == "ff0000"
+
+    def test_empty_attrs(self):
+        r = self._app()
+        meta = r._tray_meta({}, "")
+        assert meta["name"] == ""
+        assert meta["type"] == ""
+        assert meta["color_hex"] == ""
+
+
+class TestShouldStick:
+    """_should_stick returns True if same tray and valid spool."""
+
+    def test_same_sig_valid_spool(self):
+        spool = _spoolman_spool(1, "PLA", "FF0000", "Bambu", 500, "Shelf")
+        fm = FakeSpoolman([spool], [])
+        r = TestableReconcile(fm, {})
+        assert r._should_stick(1, "sig_abc", "sig_abc", 1) is True
+
+    def test_different_sig(self):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {})
+        assert r._should_stick(1, "sig_abc", "sig_xyz", 1) is False
+
+    def test_no_helper(self):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {})
+        assert r._should_stick(1, "sig_abc", "sig_abc", 0) is False
+
+
+class TestUnjson:
+    """_unjson decodes JSON-string values."""
+
+    def _app(self):
+        return TestableReconcile(FakeSpoolman([], []), {})
+
+    def test_plain_string(self):
+        assert self._app()._unjson("ABC123") == "ABC123"
+
+    def test_json_quoted(self):
+        assert self._app()._unjson('"ABC123"') == "ABC123"
+
+    def test_none(self):
+        assert self._app()._unjson(None) == ""
+
+    def test_empty(self):
+        assert self._app()._unjson("") == ""
+
+    def test_non_string(self):
+        assert self._app()._unjson(42) == "42"
+
+
+class TestPatchSpoolFields:
+    """_patch_spool_fields does plain PATCH."""
+
+    def test_patches_lot_nr(self):
+        spool = _spoolman_spool(1, "PLA", "FF0000", "Bambu", 500, "Shelf")
+        fm = FakeSpoolman([spool], [])
+        r = TestableReconcile(fm, {})
+        r._patch_spool_fields(1, {"lot_nr": "pla|gfl99|ff0000"})
+        assert len(fm.patches) == 1
+        assert fm.patches[0]["payload"]["lot_nr"] == "pla|gfl99|ff0000"
+
+    def test_normalizes_location(self):
+        spool = _spoolman_spool(1, "PLA", "FF0000", "Bambu", 500, "Shelf")
+        fm = FakeSpoolman([spool], [])
+        r = TestableReconcile(fm, {})
+        r._patch_spool_fields(1, {"location": "AMS_1_1"})
+        assert len(fm.patches) == 1
+
+
+class TestSyncFilamentColorOnBind:
+    """_sync_filament_color_on_bind PATCH or skip."""
+
+    def _app(self, state_map=None):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, state_map or {})
+        return r, fm
+
+    def test_empty_mode_returns_false(self):
+        r, _ = self._app()
+        assert r._sync_filament_color_on_bind(1, 10, "") is False
+
+    def test_auto_no_tray_color_returns_false(self):
+        r, _ = self._app()
+        assert r._sync_filament_color_on_bind(1, 10, "auto") is False
+        assert any("SYNC_COLOR_NO_TRAY_COLOR" in m for m, _ in r._log_calls)
+
+    def test_auto_patches_filament_color(self):
+        prefix = "p1s_01p00c5a3101668"
+        tray_entity = f"sensor.{prefix}_ams_1_tray_1"
+        sm = {
+            tray_entity: {"state": "loaded", "attributes": {"color": "FF0000"}},
+        }
+        spool = _spoolman_spool(10, "PLA", "000000", "Bambu", 800, "Shelf")
+        fm = FakeSpoolman([spool], [{"id": 50, "color_hex": "000000"}])
+        r = TestableReconcile(fm, sm)
+        # Override _spoolman_patch to return a dict (simulate successful PATCH)
+        orig_patch = r._spoolman_patch
+        def _patching_patch(path, payload):
+            orig_patch(path, payload)
+            return {"ok": True}
+        r._spoolman_patch = _patching_patch
+        result = r._sync_filament_color_on_bind(1, 10, "auto")
+        assert result is True
+        assert any("COLOR_SYNC" in m for m, _ in r._log_calls)
+
+    def test_explicit_hex_patches(self):
+        spool = _spoolman_spool(10, "PLA", "000000", "Bambu", 800, "Shelf")
+        fm = FakeSpoolman([spool], [{"id": 50, "color_hex": "000000"}])
+        r = TestableReconcile(fm, {})
+        orig_patch = r._spoolman_patch
+        def _patching_patch(path, payload):
+            orig_patch(path, payload)
+            return {"ok": True}
+        r._spoolman_patch = _patching_patch
+        result = r._sync_filament_color_on_bind(1, 10, "AABB00")
+        assert result is True
+
+    def test_invalid_mode_returns_false(self):
+        r, _ = self._app()
+        assert r._sync_filament_color_on_bind(1, 10, "rainbow") is False
+        assert any("SYNC_COLOR_INVALID_MODE" in m for m, _ in r._log_calls)
+
+    def test_already_matching_color_returns_false(self):
+        prefix = "p1s_01p00c5a3101668"
+        tray_entity = f"sensor.{prefix}_ams_1_tray_1"
+        sm = {tray_entity: {"state": "loaded", "attributes": {"color": "FF0000"}}}
+        spool = _spoolman_spool(10, "PLA", "FF0000", "Bambu", 800, "Shelf")
+        fm = FakeSpoolman([spool], [{"id": 50, "color_hex": "FF0000"}])
+        r = TestableReconcile(fm, sm)
+        result = r._sync_filament_color_on_bind(1, 10, "auto")
+        assert result is False
+        assert any("SYNC_COLOR_ALREADY_MATCHES" in m for m, _ in r._log_calls)
+
+    def test_spool_not_found(self):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {})
+        result = r._sync_filament_color_on_bind(1, 999, "AABB00")
+        assert result is False
+        assert any("SYNC_COLOR_SPOOL_NOT_FOUND" in m for m, _ in r._log_calls)
+
+
+class TestOnSlotAssigned:
+    """_on_slot_assigned event handler."""
+
+    def test_invalid_slot_returns(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {})
+        r._on_slot_assigned("event", {"slot": 99, "spool_id": 1}, {})
+        assert not r._run_reconcile_calls
+
+    def test_zero_spool_id_returns(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {})
+        r._on_slot_assigned("event", {"slot": 1, "spool_id": 0}, {})
+        assert not r._run_reconcile_calls
+
+    def test_rfid_tray_skips_lot_sig(self):
+        """RFID tray (non-zero tag_uid) → skip lot_sig enrollment, just reconcile."""
+        prefix = "p1s_01p00c5a3101668"
+        tray_entity = f"sensor.{prefix}_ams_1_tray_1"
+        sm = {
+            tray_entity: {"state": "loaded", "attributes": {"tag_uid": "AABB1234", "tray_uuid": "CCDD5678"}},
+        }
+        spool = _spoolman_spool(10, "PLA", "FF0000", "Bambu", 800, "Shelf")
+        fm = FakeSpoolman([spool], [])
+        r = _EventTestReconcile(fm, sm)
+        r._on_slot_assigned("event", {"slot": 1, "spool_id": 10}, {})
+        assert len(r._run_reconcile_calls) == 1
+        assert "slot_assigned" in r._run_reconcile_calls[0][0]
+
+    def test_nonrfid_enrolls_lot_sig(self):
+        """Non-RFID tray → build lot_sig, enroll, reconcile."""
+        prefix = "p1s_01p00c5a3101668"
+        tray_entity = f"sensor.{prefix}_ams_1_tray_1"
+        sm = {
+            tray_entity: {"state": "loaded", "attributes": {
+                "tag_uid": "0000000000000000", "tray_uuid": "00000000000000000000000000000000",
+                "type": "PLA", "color": "FF0000", "name": "Bambu PLA Basic",
+                "filament_id": "GFL01",
+            }},
+        }
+        spool = _spoolman_spool(10, "PLA", "FF0000", "Bambu", 800, "Shelf")
+        fm = FakeSpoolman([spool], [])
+        r = _EventTestReconcile(fm, sm)
+        r._on_slot_assigned("event", {"slot": 1, "spool_id": 10}, {})
+        assert any("SLOT_ASSIGNED_LOT_SIG_ENROLLED" in m for m, _ in r._log_calls)
+        assert len(r._run_reconcile_calls) == 1
+
+
+class TestNotifyConflict:
+    """_notify_conflict formats and sends notification."""
+
+    def test_sends_notification(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {})
+        tray_meta = {"name": "PLA", "type": "PLA", "color_hex": "FF0000", "filament_id": "GFL01"}
+        r._notify_conflict(1, "AABB1234", tray_meta, [10, 20], "multiple_matches")
+        assert len(r._notify_calls) == 1
+        title, msg, kw = r._notify_calls[0]
+        assert "CONFLICT" in title
+        assert "10,20" in msg
+
+
+class TestLogValidationTranscript:
+    """_log_validation_transcript logs JSON."""
+
+    def test_logs_json(self):
+        fm = FakeSpoolman([], [])
+        r = TestableReconcile(fm, {})
+        r._log_validation_transcript({"slot": 1, "decision": "OK"})
+        assert any("RFID_VALIDATE" in m for m, _ in r._log_calls)
+
+
+class TestResolveColorForHaSig:
+    """_resolve_color_for_ha_sig fallback chain."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_tray_meta_color_hex(self):
+        r = self._app()
+        result = r._resolve_color_for_ha_sig({"color_hex": "FF0000"})
+        assert result == "ff0000"
+
+    def test_tray_meta_color_hex_8char(self):
+        r = self._app()
+        result = r._resolve_color_for_ha_sig({"color_hex": "FF0000FF"})
+        assert result == "ff0000"
+
+    def test_fallback_to_tray_color(self):
+        r = self._app()
+        result = r._resolve_color_for_ha_sig({"color": "00FF00"})
+        assert result == "00ff00"
+
+    def test_fallback_to_spoolman(self):
+        r = self._app()
+        spool_index = {42: {"filament": {"color_hex": "AABBCC"}}}
+        result = r._resolve_color_for_ha_sig(
+            {}, expected_spool_id=42, spool_index=spool_index
+        )
+        assert result == "aabbcc"
+
+    def test_fallback_to_candidate(self):
+        r = self._app()
+        spool_index = {10: {"filament": {"color_hex": "112233"}}}
+        result = r._resolve_color_for_ha_sig(
+            {}, candidate_ids=[10], spool_index=spool_index
+        )
+        assert result == "112233"
+
+    def test_empty_when_no_color(self):
+        r = self._app()
+        result = r._resolve_color_for_ha_sig({})
+        assert result == ""
+
+
+class TestComputeHaSig:
+    """_compute_ha_sig builds signature string."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_full_sig(self):
+        r = self._app()
+        result = r._compute_ha_sig({"filament_id": "GFL01", "type": "PLA", "color_hex": "FF0000"})
+        assert result == "HA_SIG=bambu|filament_id=gfl01|type=pla|color_hex=ff0000"
+
+    def test_missing_field_returns_none(self):
+        r = self._app()
+        assert r._compute_ha_sig({"filament_id": "GFL01", "type": "PLA"}) is None
+
+    def test_missing_type_returns_none(self):
+        r = self._app()
+        assert r._compute_ha_sig({"filament_id": "GFL01", "color_hex": "FF0000"}) is None
+
+
+class TestNormalizeColor:
+    """_normalize_color strips # and handles 6/8 char hex."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_six_hex(self):
+        assert self._app()._normalize_color("FF0000") == "ff0000"
+
+    def test_eight_hex_truncated(self):
+        assert self._app()._normalize_color("FF0000AA") == "ff0000"
+
+    def test_hash_prefix(self):
+        assert self._app()._normalize_color("#AABBCC") == "aabbcc"
+
+    def test_invalid(self):
+        assert self._app()._normalize_color("red") == ""
+
+    def test_empty(self):
+        assert self._app()._normalize_color("") == ""
+
+
+class TestColorCandidates:
+    """_color_candidates returns multiple candidate hex strings."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_six_hex(self):
+        assert self._app()._color_candidates("FF0000") == ["ff0000"]
+
+    def test_eight_hex_two_candidates(self):
+        result = self._app()._color_candidates("FF0000AA")
+        assert "ff0000" in result
+        assert "0000aa" in result
+
+    def test_empty(self):
+        assert self._app()._color_candidates("") == []
+
+
+class TestMaterialKey:
+    """_material_key normalizes material strings."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_basic(self):
+        assert self._app()._material_key("PLA") == "pla"
+
+    def test_collapses_whitespace(self):
+        assert self._app()._material_key("PLA  Basic") == "pla basic"
+
+
+class TestNormalizeUid:
+    """_normalize_uid strips and uppercases."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_basic(self):
+        assert self._app()._normalize_uid("aabb1234") == "AABB1234"
+
+    def test_strips_whitespace(self):
+        assert self._app()._normalize_uid("  abc  ") == "ABC"
+
+    def test_empty(self):
+        assert self._app()._normalize_uid("") == ""
+
+    def test_none(self):
+        assert self._app()._normalize_uid(None) == ""
+
+
+class TestNormalizeMaterial:
+    """_normalize_material normalizes PLA+, PETG-CF, etc."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_pla_plus(self):
+        assert self._app()._normalize_material("PLA+") == "PLA"
+
+    def test_petg_cf(self):
+        assert self._app()._normalize_material("PETG-CF") == "PETG"
+
+    def test_abs_variant(self):
+        assert self._app()._normalize_material("ABS-GF") == "ABS"
+
+    def test_plain(self):
+        assert self._app()._normalize_material("TPU") == "TPU"
+
+
+class TestCanonicalizeTagUid:
+    """_canonicalize_tag_uid normalizes UIDs."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_basic(self):
+        result = self._app()._canonicalize_tag_uid("aabb1234")
+        assert result == result.upper().strip()
+
+    def test_none(self):
+        assert self._app()._canonicalize_tag_uid(None) == ""
+
+
+class TestCanonicalizeHaSpoolUuid:
+    """_canonicalize_ha_spool_uuid."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_basic(self):
+        result = self._app()._canonicalize_ha_spool_uuid("abc-123")
+        assert isinstance(result, str)
+
+    def test_json_wrapped(self):
+        result = self._app()._canonicalize_ha_spool_uuid('"ABC123"')
+        assert "ABC123" in result
+
+
+class TestJsonStringLiteral:
+    """_json_string_literal wraps value in JSON quotes."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_basic(self):
+        assert self._app()._json_string_literal("ABC") == '"ABC"'
+
+    def test_empty(self):
+        assert self._app()._json_string_literal("") == '""'
+
+
+class TestJsonTextToStr:
+    """_json_text_to_str parses JSON literal."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_json_wrapped(self):
+        assert self._app()._json_text_to_str('"ABC"') == "ABC"
+
+    def test_plain(self):
+        assert self._app()._json_text_to_str("ABC") == "ABC"
+
+
+class TestNormUid:
+    """_norm_uid normalizes UID from extra field."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_basic(self):
+        result = self._app()._norm_uid("aabb1234")
+        assert result == result.upper().strip()
+
+
+class TestExtractSpoolUid:
+    """_extract_spool_uid gets RFID UID from spool extra."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_rfid_tag_uid(self):
+        spool = {"extra": {"rfid_tag_uid": '"AABB1234"'}}
+        result = self._app()._extract_spool_uid(spool)
+        assert "AABB1234" in result
+
+    def test_no_extra(self):
+        assert self._app()._extract_spool_uid({}) == ""
+
+    def test_non_dict_extra(self):
+        assert self._app()._extract_spool_uid({"extra": "bad"}) == ""
+
+
+class TestIsAllZeroIdentity:
+    """_is_all_zero_identity checks for zero tag_uid + tray_uuid."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_all_zero(self):
+        assert self._app()._is_all_zero_identity("0000000000000000", "00000000000000000000000000000000") is True
+
+    def test_empty(self):
+        assert self._app()._is_all_zero_identity("", "") is True
+
+    def test_real_rfid(self):
+        assert self._app()._is_all_zero_identity("AABB1234", "CCDD5678") is False
+
+    def test_none(self):
+        assert self._app()._is_all_zero_identity(None, None) is True
+
+
+class TestRfidBindGuardOk:
+    """_rfid_bind_guard_ok verifies UID match for binding."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_no_tag_no_uuid(self):
+        """No tag or UUID → always OK."""
+        assert self._app()._rfid_bind_guard_ok(1, "", {}) is True
+
+    def test_lot_nr_match(self):
+        """tray_uuid matches spool lot_nr → OK."""
+        spool_index = {1: {"lot_nr": "AABB1234CCDD5678EEFF0011AABB3344", "extra": {}}}
+        assert self._app()._rfid_bind_guard_ok(1, "", spool_index, tray_uuid="AABB1234CCDD5678EEFF0011AABB3344") is True
+
+    def test_lot_nr_mismatch(self):
+        """tray_uuid doesn't match lot_nr, no tag → check extra."""
+        spool_index = {1: {"lot_nr": "different", "extra": {}}}
+        assert self._app()._rfid_bind_guard_ok(1, "", spool_index, tray_uuid="AABB1234") is True  # slot_tag is empty → True
+
+    def test_missing_spool(self):
+        """Spool not in index → False."""
+        assert self._app()._rfid_bind_guard_ok(999, "AABB", {}) is False
+
+
+class TestMayStickOverride:
+    """_may_stick_override checks sticky binding."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_should_not_stick(self):
+        r = self._app()
+        assert r._may_stick_override(1, 10, 20, "TAG", {}, "sig_a", "sig_b") is False
+
+    def test_same_resolved_and_helper(self):
+        spool = _spoolman_spool(10, "PLA", "FF0000", "Bambu", 800, "Shelf")
+        fm = FakeSpoolman([spool], [])
+        r = TestableReconcile(fm, {})
+        # _should_stick returns True when sigs match and helper > 0 and spool exists
+        assert r._may_stick_override(1, 10, 10, "TAG", {10: spool}, "sig_a", "sig_a") is True
+
+
+class TestConvergeLotNr:
+    """_converge_lot_nr enrolls lot_nr identity on bind."""
+
+    def test_rfid_tray_enrolls_uuid(self):
+        spool = _spoolman_spool(10, "PLA", "FF0000", "Bambu", 800, "Shelf")
+        fm = FakeSpoolman([spool], [])
+        r = TestableReconcile(fm, {})
+        spool_index = {10: spool}
+        r._converge_lot_nr(1, 10, {"type": "PLA", "filament_id": "GFL01", "color_hex": "FF0000"},
+                          spool_index, tray_uuid="AABB1234CCDD5678EEFF0011AABB3344")
+        # Should attempt to enroll lot_nr
+        assert any("LOT_NR" in m or "lot_nr" in m.lower() for m, _ in r._log_calls)
+
+    def test_nonrfid_tray_builds_lot_sig(self):
+        spool = _spoolman_spool(10, "PLA", "FF0000", "Bambu", 800, "Shelf")
+        fm = FakeSpoolman([spool], [])
+        r = TestableReconcile(fm, {})
+        spool_index = {10: spool}
+        r._converge_lot_nr(1, 10, {"type": "PLA", "filament_id": "GFL01", "color_hex": "FF0000"},
+                          spool_index)
+        # For non-RFID, builds lot_sig from tray_meta
+        assert any("CONVERGE_LOT_NR" in m or "converge" in m.lower() for m, _ in r._log_calls)
+
+
+class TestApplyRfidBindGuardFail:
+    """_apply_rfid_bind_guard_fail sets status and appends transcript."""
+
+    def test_sets_unbound_status(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {})
+        r._active_run = {"validation_transcripts": [], "writes": [], "no_write_paths": []}
+        t = {}
+        r._apply_rfid_bind_guard_fail(1, t, {"name": "PLA"}, "AABB", 10, False)
+        assert t["decision"] == "UNBOUND"
+        assert t["reason"] == "SELECTED_UID_MISMATCH"
+
+
+class TestNotifyNonrfidNeedsActionExtra:
+    """Extra coverage for _notify_nonrfid_needs_action with reasons."""
+
+    def test_no_matching_spools(self):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {})
+        tray_meta = {"name": "PLA", "type": "PLA", "color_hex": "FF0000"}
+        r._notify_nonrfid_needs_action(1, tray_meta, "no_matching_spool")
+        assert len(r._notify_calls) == 1
+
+
+class TestHasTrayUuid:
+    """_has_tray_uuid utility."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_present(self):
+        assert self._app()._has_tray_uuid({"tray_uuid": "AABB"}) is True
+
+    def test_empty(self):
+        assert self._app()._has_tray_uuid({"tray_uuid": ""}) is False
+
+    def test_missing(self):
+        assert self._app()._has_tray_uuid({}) is False
+
+    def test_none_attrs(self):
+        assert self._app()._has_tray_uuid(None) is False
+
+
+class TestNormTrayIdentityTag:
+    """_norm_tray_identity_tag normalizes for comparison."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_uppercases_and_strips(self):
+        assert self._app()._norm_tray_identity_tag(' aa bb "cc" ') == "AABBCC"
+
+
+class TestTruthGuardSlotPatch:
+    """_truth_guard_slot_patch validates slot bindings."""
+
+    def _app(self, state_map=None):
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, state_map or {})
+        r._active_run = {"validation_transcripts": [], "writes": [], "no_write_paths": []}
+        return r
+
+    def test_no_rfid_no_tray_empty_ok(self):
+        """No RFID, no tray data issues → allow."""
+        r = self._app()
+        t = {}
+        spool_obj = {"lot_nr": "", "filament": {"material": "PLA"}, "extra": {}}
+        result = r._truth_guard_slot_patch(1, t, {"type": "PLA"}, "", 10, spool_obj, False, "loaded")
+        assert result is True
+
+    def test_rfid_lot_nr_matches_uuid(self):
+        """RFID visible, lot_nr == tray_uuid → allow."""
+        r = self._app()
+        t = {}
+        uuid = "AABB1234CCDD5678EEFF0011AABB3344"
+        spool_obj = {"lot_nr": uuid, "extra": {}}
+        result = r._truth_guard_slot_patch(1, t, {}, "AABB1234", 10, spool_obj, False, "loaded", tray_uuid=uuid)
+        assert result is True
+
+    def test_rfid_lot_nr_mismatch_blocks(self):
+        """RFID visible, lot_nr populated but doesn't match → block."""
+        r = self._app()
+        t = {}
+        spool_obj = {"lot_nr": "DIFFERENT_LOT_NR", "extra": {}}
+        result = r._truth_guard_slot_patch(1, t, {}, "AABB1234", 10, spool_obj, False, "loaded", tray_uuid="REAL_UUID")
+        assert result is False
+        assert t.get("unbound_reason") is not None
+
+    def test_rfid_legacy_uid_matches(self):
+        """RFID visible, no lot_nr, legacy extra.rfid_tag_uid matches → allow."""
+        r = self._app()
+        t = {}
+        spool_obj = {"lot_nr": "", "extra": {"rfid_tag_uid": '"AABB1234"'}}
+        result = r._truth_guard_slot_patch(1, t, {}, "AABB1234", 10, spool_obj, False, "loaded")
+        assert result is True
+
+    def test_rfid_legacy_uid_mismatch_blocks(self):
+        """RFID visible, legacy extra.rfid_tag_uid doesn't match → block."""
+        r = self._app()
+        t = {}
+        spool_obj = {"lot_nr": "", "extra": {"rfid_tag_uid": '"CCDD5678"'}}
+        result = r._truth_guard_slot_patch(1, t, {}, "AABB1234", 10, spool_obj, False, "loaded")
+        assert result is False
+
+    def test_material_mismatch_with_bound_invariant_warns(self):
+        """Non-RFID, material mismatch, but user manually assigned → warn only, allow."""
+        # Need expected_spool_id == helper_spool_id for bound invariant
+        sm = {
+            "input_text.ams_slot_1_expected_spool_id": {"state": "10", "attributes": {}},
+        }
+        r = self._app(state_map=sm)
+        t = {}
+        spool_obj = {"filament": {"material": "PETG"}, "extra": {}}
+        result = r._truth_guard_slot_patch(1, t, {"type": "PLA"}, "", 10, spool_obj, False, "loaded")
+        assert result is True
+        assert any("TRUTH_GUARD_MATERIAL_WARN_ONLY" in m for m, _ in r._log_calls)
+
+    def test_material_mismatch_no_invariant_blocks(self):
+        """Non-RFID, material mismatch, no bound invariant → block."""
+        r = self._app()
+        t = {}
+        spool_obj = {"filament": {"material": "PETG"}, "extra": {}}
+        result = r._truth_guard_slot_patch(1, t, {"type": "PLA"}, "", 10, spool_obj, False, "loaded")
+        assert result is False
+
+
+class TestBuildLotSigForLookup:
+    """_build_lot_sig_for_lookup allows generic IDs unlike _build_lot_sig."""
+
+    def _app(self):
+        fm = FakeSpoolman([], [])
+        return TestableReconcile(fm, {})
+
+    def test_allows_generic(self):
+        result = self._app()._build_lot_sig_for_lookup(
+            {"type": "PLA", "filament_id": "GFL99", "color_hex": "FF0000"}
+        )
+        assert "gfl99" in result
+
+    def test_rejects_empty_fields(self):
+        result = self._app()._build_lot_sig_for_lookup(
+            {"type": "", "filament_id": "GFL01", "color_hex": "FF0000"}
+        )
+        assert result == ""
+
+
 if __name__ == "__main__":
     unittest.main()

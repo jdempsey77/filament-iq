@@ -17,6 +17,11 @@ sys.path.insert(
 from filament_iq.threemf_parser import (
     color_distance,
     find_best_3mf,
+    ftps_download_3mf,
+    ftps_download_native,
+    ftps_list_cache,
+    ftps_list_cache_native,
+    ftps_list_dir,
     match_filaments_to_slots,
     normalize_color,
     normalize_material,
@@ -758,3 +763,301 @@ class TestFallbackChainLogic:
         slot_6_share = pool_g * tray_times[6] / total
         assert abs(slot_2_share - 6.67) < 0.1
         assert abs(slot_6_share - 3.33) < 0.1
+
+
+# ── color_distance edge cases ────────────────────────────────────────
+
+class TestColorDistanceEdgeCases:
+    """color_distance error handling."""
+
+    def test_invalid_hex_returns_999(self):
+        from filament_iq.threemf_parser import color_distance
+        assert color_distance("gggggg", "000000") == 999.0
+
+    def test_short_hex_returns_999(self):
+        from filament_iq.threemf_parser import color_distance
+        assert color_distance("fff", "000000") == 999.0
+
+    def test_empty_returns_999(self):
+        from filament_iq.threemf_parser import color_distance
+        assert color_distance("", "000000") == 999.0
+
+    def test_none_returns_999(self):
+        from filament_iq.threemf_parser import color_distance
+        assert color_distance(None, "000000") == 999.0
+
+
+# ── parse_3mf_filaments edge cases ───────────────────────────────────
+
+class TestParse3mfEdgeCases:
+    """parse_3mf_filaments error paths."""
+
+    def test_bad_zipfile(self, tmp_path):
+        bad = tmp_path / "bad.3mf"
+        bad.write_text("not a zip")
+        from filament_iq.threemf_parser import parse_3mf_filaments
+        result = parse_3mf_filaments(str(bad))
+        assert result == []
+
+    def test_zip_without_slice_info(self, tmp_path):
+        import zipfile
+        p = tmp_path / "no_config.3mf"
+        with zipfile.ZipFile(str(p), "w") as zf:
+            zf.writestr("other.txt", "hello")
+        from filament_iq.threemf_parser import parse_3mf_filaments
+        result = parse_3mf_filaments(str(p))
+        assert result == []
+
+    def test_zip_with_alternate_config_name(self, tmp_path):
+        import zipfile
+        xml = '<config><filament id="0" type="PLA" color="#00AE42FF" used_g="1.5" used_m="0.5"/></config>'
+        p = tmp_path / "alt.3mf"
+        with zipfile.ZipFile(str(p), "w") as zf:
+            zf.writestr("Metadata/Slice_info.config", xml)
+        from filament_iq.threemf_parser import parse_3mf_filaments
+        result = parse_3mf_filaments(str(p))
+        assert len(result) == 1
+        assert result[0]["used_g"] == 1.5
+
+    def test_zip_with_fuzzy_config_name(self, tmp_path):
+        """Config found via lowercase 'slice_info' search."""
+        import zipfile
+        xml = '<config><filament id="0" type="PETG" color="#FF0000FF" used_g="2.0" used_m="0.7"/></config>'
+        p = tmp_path / "fuzzy.3mf"
+        with zipfile.ZipFile(str(p), "w") as zf:
+            zf.writestr("Custom/my_slice_info.config", xml)
+        from filament_iq.threemf_parser import parse_3mf_filaments
+        result = parse_3mf_filaments(str(p))
+        assert len(result) == 1
+        assert result[0]["material"] == "petg"
+
+    def test_malformed_filament_element_skipped(self, tmp_path):
+        """Filament with non-numeric used_g → skipped, others parsed."""
+        import zipfile
+        xml = '''<config>
+            <filament id="0" type="PLA" color="#00AE42FF" used_g="1.5" used_m="0.5"/>
+            <filament id="bad" type="PLA" color="#FF0000FF" used_g="not_a_number" used_m="0.0"/>
+            <filament id="2" type="PETG" color="#0000FFFF" used_g="3.0" used_m="1.0"/>
+        </config>'''
+        p = tmp_path / "malformed.3mf"
+        with zipfile.ZipFile(str(p), "w") as zf:
+            zf.writestr("Metadata/slice_info.config", xml)
+        from filament_iq.threemf_parser import parse_3mf_filaments
+        result = parse_3mf_filaments(str(p))
+        assert len(result) == 2  # 1 skipped
+
+
+# ── match_filaments_to_slots lot_nr_color tier ────────────────────────
+
+class TestMatchLotNrColor:
+    """Tier 2.5: lot_nr_color matching."""
+
+    def test_lot_nr_color_match(self):
+        filaments = [
+            {"index": 1, "used_g": 5.0, "color_hex": "ff6a13", "material": "pla"},
+        ]
+        slot_data = {
+            1: {"color_hex": "000000", "material": "pla", "spool_id": 41,
+                "lot_nr_color": "ff6a13"},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data)
+        assert len(matches) == 1
+        assert matches[0]["method"] == "lot_nr_color_material"
+
+    def test_unmatched_filament(self):
+        """Filament with no matching slot → unmatched."""
+        filaments = [
+            {"index": 1, "used_g": 5.0, "color_hex": "abcdef", "material": "petg"},
+        ]
+        slot_data = {
+            1: {"color_hex": "000000", "material": "pla", "spool_id": 41},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data)
+        assert len(matches) == 0
+        assert len(unmatched) == 1
+
+
+# ── Coverage push: FTPS functions, find_best_3mf edges ──────────────
+
+import ftplib
+from unittest import mock
+
+
+class TestFtpsListCacheNative:
+    """ftps_list_cache_native with mocked FTP connection."""
+
+    def test_finds_3mf_files(self):
+        conn = mock.MagicMock()
+        conn.nlst.return_value = ["model.3mf", "readme.txt", "other.3mf"]
+        files, directory = ftps_list_cache_native(conn, search_dirs=["/cache"])
+        assert files == ["model.3mf", "other.3mf"]
+        assert directory == "/cache"
+
+    def test_full_path_entries(self):
+        conn = mock.MagicMock()
+        conn.nlst.return_value = ["/cache/model.3mf", "/cache/test.3mf"]
+        files, directory = ftps_list_cache_native(conn, search_dirs=["/cache"])
+        assert files == ["model.3mf", "test.3mf"]
+
+    def test_empty_directory(self):
+        conn = mock.MagicMock()
+        conn.nlst.return_value = []
+        files, directory = ftps_list_cache_native(conn, search_dirs=["/cache"])
+        assert files == []
+        assert directory is None
+
+    def test_permission_error_continues(self):
+        conn = mock.MagicMock()
+        conn.nlst.side_effect = [ftplib.error_perm("550 not found"), ["file.3mf"]]
+        files, directory = ftps_list_cache_native(conn, search_dirs=["/missing", "/cache"])
+        assert files == ["file.3mf"]
+        assert directory == "/cache"
+
+    def test_no_3mf_returns_empty(self):
+        conn = mock.MagicMock()
+        conn.nlst.return_value = ["readme.txt", "config.json"]
+        files, directory = ftps_list_cache_native(conn, search_dirs=["/cache"])
+        assert files == []
+
+
+class TestFtpsDownloadNative:
+    """ftps_download_native with mocked FTP connection."""
+
+    def test_success(self):
+        import tempfile as _tf, os as _os
+        conn = mock.MagicMock()
+        def fake_retrbinary(cmd, callback):
+            callback(b"fake 3mf data")
+            return "226 Transfer complete"
+        conn.retrbinary.side_effect = fake_retrbinary
+        with _tf.TemporaryDirectory() as td:
+            local_path = _os.path.join(td, "model.3mf")
+            result = ftps_download_native(conn, "/cache", "model.3mf", local_path)
+            assert result == local_path
+            assert _os.path.isfile(local_path)
+
+    def test_failure_returns_none(self):
+        conn = mock.MagicMock()
+        conn.retrbinary.side_effect = Exception("transfer failed")
+        result = ftps_download_native(conn, "/cache", "model.3mf", "/tmp/nonexistent/model.3mf")
+        assert result is None
+
+
+class TestFindBest3mfEdges:
+    """find_best_3mf edge cases."""
+
+    def test_empty_list(self):
+        assert find_best_3mf([], "benchy") is None
+
+    def test_no_task_name_returns_last(self):
+        assert find_best_3mf(["a.3mf", "b.3mf"], "") == "b.3mf"
+
+    def test_exact_match(self):
+        result = find_best_3mf(["benchy.3mf", "other.3mf"], "benchy.gcode.3mf")
+        assert result == "benchy.3mf"
+
+    def test_contains_match(self):
+        result = find_best_3mf(["benchy_v2_plate1.3mf", "other.3mf"], "benchy_v2")
+        assert result == "benchy_v2_plate1.3mf"
+
+    def test_no_match_returns_last(self):
+        result = find_best_3mf(["foo.3mf", "bar.3mf"], "completely_different")
+        assert result == "bar.3mf"
+
+
+class TestFtpsListDir:
+    """ftps_list_dir with mocked subprocess."""
+
+    def test_success(self):
+        result_mock = mock.MagicMock()
+        result_mock.returncode = 0
+        result_mock.stdout = b"model.3mf\ntest.3mf\nreadme.txt\n"
+        result_mock.stderr = b""
+        with mock.patch("subprocess.run", return_value=result_mock):
+            files = ftps_list_dir("192.168.1.1", "code123")
+        assert files == ["model.3mf", "test.3mf"]
+
+    def test_failure_returns_empty(self):
+        result_mock = mock.MagicMock()
+        result_mock.returncode = 7
+        result_mock.stderr = b"connection refused"
+        with mock.patch("subprocess.run", return_value=result_mock):
+            files = ftps_list_dir("192.168.1.1", "code123")
+        assert files == []
+
+    def test_timeout_returns_empty(self):
+        import subprocess
+        with mock.patch("subprocess.run", side_effect=subprocess.TimeoutExpired("curl", 15)):
+            files = ftps_list_dir("192.168.1.1", "code123")
+        assert files == []
+
+    def test_curl_not_found(self):
+        with mock.patch("subprocess.run", side_effect=FileNotFoundError("curl")):
+            files = ftps_list_dir("192.168.1.1", "code123")
+        assert files == []
+
+
+class TestFtpsListCache:
+    """ftps_list_cache searches multiple directories."""
+
+    def test_found_in_first_dir(self):
+        result_mock = mock.MagicMock()
+        result_mock.returncode = 0
+        result_mock.stdout = b"model.3mf\n"
+        result_mock.stderr = b""
+        with mock.patch("subprocess.run", return_value=result_mock):
+            files, directory = ftps_list_cache("192.168.1.1", "code123")
+        assert files == ["model.3mf"]
+        assert directory is not None
+
+    def test_empty_returns_none(self):
+        result_mock = mock.MagicMock()
+        result_mock.returncode = 0
+        result_mock.stdout = b""
+        result_mock.stderr = b""
+        with mock.patch("subprocess.run", return_value=result_mock):
+            files, directory = ftps_list_cache("192.168.1.1", "code123")
+        assert files == []
+        assert directory is None
+
+
+class TestFtpsDownload3mf:
+    """ftps_download_3mf with mocked subprocess."""
+
+    def test_success(self):
+        import tempfile as _tf
+        with _tf.TemporaryDirectory() as td:
+            local_path = os.path.join(td, "model.3mf")
+            # Create the file to simulate curl writing it
+            with open(local_path, "wb") as f:
+                f.write(b"fake 3mf content")
+            result_mock = mock.MagicMock()
+            result_mock.returncode = 0
+            result_mock.stderr = b""
+            with mock.patch("subprocess.run", return_value=result_mock):
+                result = ftps_download_3mf("192.168.1.1", "code123", "model.3mf", td)
+            assert result == local_path
+
+    def test_failure_returns_none(self):
+        import tempfile as _tf
+        with _tf.TemporaryDirectory() as td:
+            result_mock = mock.MagicMock()
+            result_mock.returncode = 7
+            result_mock.stderr = b"connection refused"
+            with mock.patch("subprocess.run", return_value=result_mock):
+                result = ftps_download_3mf("192.168.1.1", "code123", "model.3mf", td)
+            assert result is None
+
+    def test_timeout(self):
+        import subprocess, tempfile as _tf
+        with _tf.TemporaryDirectory() as td:
+            with mock.patch("subprocess.run", side_effect=subprocess.TimeoutExpired("curl", 30)):
+                result = ftps_download_3mf("192.168.1.1", "code123", "model.3mf", td)
+            assert result is None
+
+    def test_curl_not_found(self):
+        import tempfile as _tf
+        with _tf.TemporaryDirectory() as td:
+            with mock.patch("subprocess.run", side_effect=FileNotFoundError("curl")):
+                result = ftps_download_3mf("192.168.1.1", "code123", "model.3mf", td)
+            assert result is None
