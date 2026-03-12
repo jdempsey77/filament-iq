@@ -335,7 +335,21 @@ TRAY_HEX_VALID_PATTERN = re.compile(r"^[0-9a-f]{6}$")
 
 class AmsRfidReconcile(FilamentIQBase):
     def initialize(self):
-        self._validate_config(["spoolman_url", "printer_serial"])
+        self._validate_config(
+            required_keys=["spoolman_url", "printer_serial"],
+            typed_keys={
+                "safety_poll_seconds": (int, 600),
+                "debounce_seconds": (int, 3),
+                "color_distance_threshold": (int, 30),
+                "dry_run": (bool, False),
+            },
+            range_keys={
+                "safety_poll_seconds": (1, None),
+                "debounce_seconds": (1, None),
+                "color_distance_threshold": (0, 255),
+            },
+        )
+        self._check_spoolman_connectivity()
 
         self.log("ams_rfid_reconcile VERSION=2026-02-18 flow-b-ha-sig", level="INFO")
         self.enabled = bool(self.args.get("enabled", True))

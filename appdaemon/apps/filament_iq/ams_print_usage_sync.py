@@ -61,7 +61,23 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     def initialize(self):
         # Validate required config first
-        self._validate_config(["spoolman_url", "printer_serial"])
+        self._validate_config(
+            required_keys=["spoolman_url", "printer_serial"],
+            typed_keys={
+                "max_consumption_g": (float, 1000.0),
+                "min_consumption_g": (float, 2.0),
+                "min_tray_active_seconds": (float, 10.0),
+                "printer_ftps_port": (int, 990),
+                "dry_run": (bool, False),
+            },
+            range_keys={
+                "max_consumption_g": (1.0, None),
+                "min_consumption_g": (0.0, None),
+                "min_tray_active_seconds": (0.0, None),
+                "printer_ftps_port": (1, 65535),
+            },
+        )
+        self._check_spoolman_connectivity()
 
         self.enabled = bool(self.args.get("enabled", True))
         self.spoolman_base_url = str(
