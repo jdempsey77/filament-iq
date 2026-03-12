@@ -1376,7 +1376,7 @@ template:
                 {% set sid = eid | regex_replace('sensor\\.spoolman_spool_', '') %}
                 {% if sid and sid not in ns.seen %}
                   {% set loc = (state_attr(eid, 'location') or '') | string | trim | lower %}
-                  {% if loc not in ['empty', 'new', ''] %}
+                  {% if loc not in ['empty', ''] %}
                     {% set ns.seen = ns.seen + [sid] %}
                   {% endif %}
                 {% endif %}
@@ -1394,7 +1394,7 @@ template:
                   {% set sid = eid | regex_replace('sensor\\.spoolman_spool_', '') %}
                   {% if sid and sid not in ns.seen %}
                     {% set loc = (state_attr(eid, 'location') or '') | string | trim | lower %}
-                    {% if loc not in ['empty', 'new', ''] %}
+                    {% if loc not in ['empty', ''] %}
                       {% set vendor_attr = state_attr(eid, 'vendor') %}
                       {% set v = (state_attr(eid, 'filament_vendor_name') or state_attr(eid, 'vendor_name') or state_attr(eid, 'manufacturer') or (vendor_attr.name | default('') if vendor_attr is mapping else (vendor_attr | string if vendor_attr is string else '')) or '') | string | trim %}
                       {% set n = (state_attr(eid, 'filament_name') or state_attr(eid, 'name') or '') | string | trim %}

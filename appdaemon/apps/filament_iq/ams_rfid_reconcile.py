@@ -913,40 +913,33 @@ class AmsRfidReconcile(FilamentIQBase):
             _prev_entry = _rit.get(slot)
             if _prev_entry is None or _prev_entry["identity"] != current_tray_sig:
                 _rit[slot] = {"identity": current_tray_sig, "change_ts": _time_mod.time()}
-            if (reason.startswith("manual") and rfid_visible and not tray_empty
+            # Check if RFID tag matches the assigned spool (lot_nr == tray_uuid)
+            _stuck_spool_obj = spool_index.get(helper_spool_id) or {}
+            _stuck_lot_nr = (_stuck_spool_obj.get("lot_nr") or "").strip()
+            _stuck_tray_uuid = (tray_uuid or "").strip()
+            _rfid_matches_spool = (
+                helper_spool_id > 0
+                and _stuck_lot_nr
+                and _stuck_tray_uuid
+                and _stuck_lot_nr.upper() == _stuck_tray_uuid.upper()
+            )
+            if _rfid_matches_spool:
+                _rfid_stuck_skip_matched = True
+            elif (reason.startswith("manual") and rfid_visible and not tray_empty
                     and _prev_entry is not None and _prev_entry["identity"] == current_tray_sig
                     and (_time_mod.time() - _prev_entry["change_ts"]) >= RFID_STUCK_SECONDS):
-                # Check if RFID tag actually matches the assigned spool
-                _stuck_spool_obj = spool_index.get(helper_spool_id) or {}
-                _stuck_lot_nr = (_stuck_spool_obj.get("lot_nr") or "").strip()
-                _stuck_tray_uuid = (tray_uuid or "").strip()
-                _rfid_matches_spool = (
-                    helper_spool_id > 0
-                    and _stuck_lot_nr
-                    and _stuck_tray_uuid
-                    and _stuck_lot_nr.upper() == _stuck_tray_uuid.upper()
-                )
-                if _rfid_matches_spool:
-                    self.log(
-                        f"RFID_STUCK_SKIP slot={slot} spool_id={helper_spool_id} "
-                        f"lot_nr_matches_tray_uuid=True",
-                        level="INFO",
-                    )
-                    _rfid_stuck_skip_matched = True
-                    # Fall through to normal RFID matching below — don't flag as stuck
-                else:
-                    status = STATUS_RFID_IDENTITY_STUCK
-                    t["decision"], t["reason"], t["action"] = "STUCK", "rfid_identity_stuck", "rfid_identity_stuck"
-                    t["unbound_reason"] = UNBOUND_RFID_NOT_REFRESHED
-                    self._set_helper(f"input_text.ams_slot_{slot}_status", status)
-                    self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_RFID_NOT_REFRESHED)
-                    self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
-                    t["final_slot_status"], t["final_spool_id"] = status, helper_spool_id
-                    self._active_run["validation_transcripts"].append(t)
-                    if validation_mode:
-                        self._log_validation_transcript(t)
-                    unbound += 1
-                    continue
+                status = STATUS_RFID_IDENTITY_STUCK
+                t["decision"], t["reason"], t["action"] = "STUCK", "rfid_identity_stuck", "rfid_identity_stuck"
+                t["unbound_reason"] = UNBOUND_RFID_NOT_REFRESHED
+                self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_RFID_NOT_REFRESHED)
+                self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
+                t["final_slot_status"], t["final_spool_id"] = status, helper_spool_id
+                self._active_run["validation_transcripts"].append(t)
+                if validation_mode:
+                    self._log_validation_transcript(t)
+                unbound += 1
+                continue
 
             # Skip truth guard when RFID_STUCK_SKIP already verified lot_nr == tray_uuid
             if rfid_visible and helper_spool_id > 0 and not _rfid_stuck_skip_matched:
@@ -1054,7 +1047,7 @@ class AmsRfidReconcile(FilamentIQBase):
                     t["decision"], t["reason"], t["action"] = "PENDING", "rfid_pending", "pending_rfid_read"
                     self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                     self._log_slot_status_change(slot, status, tag_uid or "", 0, tray_meta)
-                    self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str)
+                    self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str, tray_uuid=tray_uuid)
                     t["final_slot_status"] = status
                     self._active_run["validation_transcripts"].append(t)
                     if validation_mode:
@@ -1714,7 +1707,7 @@ class AmsRfidReconcile(FilamentIQBase):
                         t["decision"], t["reason"], t["action"] = "UNBOUND", "nonrfid_ambiguous_shelf", "unbound_needs_action"
                         t["final_slot_status"] = status
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
-                        self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str)
+                        self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str, tray_uuid=tray_uuid)
                         self._notify_nonrfid_needs_action(slot, tray_meta, "Multiple Shelf candidates; tie-break did not pick one.")
                         self._active_run["validation_transcripts"].append(t)
                         if validation_mode:
@@ -1755,7 +1748,7 @@ class AmsRfidReconcile(FilamentIQBase):
                     t["decision"], t["reason"], t["action"] = "UNBOUND", "nonrfid_no_match", "unbound_needs_action"
                     t["final_slot_status"] = status
                     self._set_helper(f"input_text.ams_slot_{slot}_status", status)
-                    self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str)
+                    self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str, tray_uuid=tray_uuid)
                     self._notify_nonrfid_needs_action(slot, tray_meta, reason_detail)
                     self._active_run["validation_transcripts"].append(t)
                     if validation_mode:
@@ -2055,7 +2048,7 @@ class AmsRfidReconcile(FilamentIQBase):
                             self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "AMBIGUOUS_SIG")
                             self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                             self._log_slot_status_change(slot, status, tag_uid, 0, tray_meta)
-                            self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str)
+                            self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str, tray_uuid=tray_uuid)
                             self._active_run["validation_transcripts"].append(t)
                             if validation_mode:
                                 self._log_validation_transcript(t)
@@ -2073,7 +2066,7 @@ class AmsRfidReconcile(FilamentIQBase):
                         self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "NO_CANDIDATE")
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                         self._log_slot_status_change(slot, status, tag_uid, 0, tray_meta)
-                        self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str)
+                        self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str, tray_uuid=tray_uuid)
                         self._active_run["validation_transcripts"].append(t)
                         if validation_mode:
                             self._log_validation_transcript(t)
@@ -2096,7 +2089,7 @@ class AmsRfidReconcile(FilamentIQBase):
                     self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                     self._log_slot_status_change(slot, status, tag_uid, 0, tray_meta)
                     t["final_slot_status"] = status
-                    self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str)
+                    self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str, tray_uuid=tray_uuid)
                     self._active_run["validation_transcripts"].append(t)
                     if validation_mode:
                         self._log_validation_transcript(t)
@@ -2116,7 +2109,7 @@ class AmsRfidReconcile(FilamentIQBase):
 
             t["final_slot_status"] = status
             if status.startswith("UNBOUND"):
-                self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str)
+                self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str, tray_uuid=tray_uuid)
             # v4: lot_nr convergence — enroll identity on every resolved bind
             fid = int(t.get("final_spool_id") or 0)
             if _should_converge_ha_sig(status_only, status, fid):
@@ -3654,7 +3647,7 @@ class AmsRfidReconcile(FilamentIQBase):
             return
         self._set_helper(self._last_mapping_json_entity, out[:self._LAST_MAPPING_JSON_MAX])
 
-    def _apply_unbound_reason(self, slot, t, tray_meta, tag_uid, tray_empty, tray_state_str):
+    def _apply_unbound_reason(self, slot, t, tray_meta, tag_uid, tray_empty, tray_state_str, tray_uuid=""):
         """Set t[\"unbound_reason\"] and t[\"unbound_detail\"], log one INFO line, and write reason to helper."""
         reason, detail = _classify_unbound_reason(
             tray_meta,
@@ -3668,7 +3661,7 @@ class AmsRfidReconcile(FilamentIQBase):
         t["unbound_reason"] = reason
         t["unbound_detail"] = detail
         self.log(
-            f"UNBOUND_REASON slot={slot} reason={reason} tag_uid={tag_uid or ''} detail={detail}",
+            f"UNBOUND_REASON slot={slot} reason={reason} tag_uid={tag_uid or ''} tray_uuid={tray_uuid or ''} detail={detail}",
             level="INFO",
         )
         entity_id = f"input_text.ams_slot_{slot}_unbound_reason"
