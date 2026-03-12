@@ -86,6 +86,24 @@ independently. AppDaemon already has enough responsibility.
 
 ---
 
+## 2026-03-11 — Import paths differ between private and OSS repos
+
+**Decision:** OSS repo (filament-iq) uses `filament_iq.*`
+import and `mock.patch` paths. Private repo (home_assistant)
+uses the same `filament_iq.*` paths — not `appdaemon.apps.filament_iq.*`.
+
+**Why:** pytest runs from the repo root, not from within
+AppDaemon. The `appdaemon/apps/` directory is on `sys.path`
+via conftest.py, so `filament_iq.*` resolves correctly in
+both repos. The `appdaemon.apps` prefix is never correct in
+test mock paths.
+
+**Impact on sync:** `sync-oss.sh --copy` copies files
+verbatim. Since both repos now use `filament_iq.*` paths,
+no post-copy fixup is needed.
+
+---
+
 ## Template for new entries
 
 ## YYYY-MM-DD — [Short decision title]
