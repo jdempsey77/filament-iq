@@ -31,7 +31,18 @@ class ReasonCode:
 
 class AmsRfidGuard(FilamentIQBase):
     def initialize(self):
-        self._validate_config(["spoolman_url"])
+        self._validate_config(
+            required_keys=["spoolman_url"],
+            typed_keys={
+                "scan_interval_seconds": (int, 300),
+                "notify_cooldown_minutes": (int, 360),
+                "dry_run": (bool, False),
+            },
+            range_keys={
+                "scan_interval_seconds": (1, None),
+                "notify_cooldown_minutes": (0, None),
+            },
+        )
 
         self.log("ams_rfid_guard VERSION=2026-02-18", level="INFO")
         self.enabled = bool(self.args.get("enabled", True))

@@ -61,7 +61,23 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     def initialize(self):
         # Validate required config first
-        self._validate_config(["spoolman_url", "printer_serial"])
+        self._validate_config(
+            required_keys=["spoolman_url", "printer_serial"],
+            typed_keys={
+                "max_consumption_g": (float, 1000.0),
+                "min_consumption_g": (float, 2.0),
+                "min_tray_active_seconds": (float, 10.0),
+                "printer_ftps_port": (int, 990),
+                "dry_run": (bool, False),
+            },
+            range_keys={
+                "max_consumption_g": (1.0, None),
+                "min_consumption_g": (0.0, None),
+                "min_tray_active_seconds": (0.0, None),
+                "printer_ftps_port": (1, 65535),
+            },
+        )
+        self._check_spoolman_connectivity()
 
         self.enabled = bool(self.args.get("enabled", True))
         self.spoolman_base_url = str(
@@ -101,6 +117,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._tray_active_times = {}
         self._current_active_slot = None
         self._print_active = False
+        self._rehydrated = False
 
         # Phase 1: Print start lifecycle (absorbs automations A, B, C)
         self._lifecycle_phase1 = bool(self.args.get("lifecycle_phase1_enabled", False))
@@ -375,7 +392,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             start_g = float(start_map.get(str(slot), 0))
             end_g = float(end_map.get(str(slot), 0))
 
-            if is_rfid and start_g > 0 and end_g > 0:
+            if is_rfid and start_g > 0 and end_g >= 0:
                 consumption_g = max(0.0, start_g - end_g)
                 all_results.append((slot, spool_id, consumption_g, "rfid_delta"))
                 self.log(
@@ -579,6 +596,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             self._tray_active_times = {}
             self._current_active_slot = None
             self._print_active = True
+            self._rehydrated = False
             self._seed_active_trays()
             self.log(
                 f"TRAY_TRACKING_START trays_used={self._trays_used}",
@@ -687,14 +705,14 @@ class AmsPrintUsageSync(FilamentIQBase):
             fg = float(self.get_state(fg_entity) or -1)
         except (TypeError, ValueError):
             fg = -1.0
-        if fg > 0:
+        if fg >= 0:
             return fg
         ams_entity = self._ams_remaining_pattern.format(slot=slot)
         try:
             ams = float(self.get_state(ams_entity) or -1)
         except (TypeError, ValueError):
             ams = -1.0
-        return ams if ams > 0 else -1.0
+        return ams if ams >= 0 else -1.0
 
     def _build_start_snapshot(self):
         """Read fuel gauge for all slots, return {slot_int: grams} for slots with valid readings."""
@@ -793,7 +811,7 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     def _seed_slot_start_grams(self, slot):
         """Write-once: seed start grams for a newly-active slot during print."""
-        if slot in self._start_snapshot and self._start_snapshot[slot] > 0:
+        if slot in self._start_snapshot and self._start_snapshot[slot] >= 0:
             return  # already seeded
         grams = self._read_fuel_gauge(slot)
         if grams < 0:
@@ -1044,6 +1062,11 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"REHYDRATE_START_SNAPSHOT_REBUILT from fuel gauges: {self._start_snapshot}",
                     level="INFO",
                 )
+            # Seed active trays — _trays_used starts empty, populated by tray change events
+            self._seed_active_trays()
+            self._rehydrated = True
+            self.log("REHYDRATE_FLAG_SET reason=tray_timing_invalid", level="INFO")
+
             task_name = str(self.get_state(self._task_name_entity) or "")
             self._job_key = task_name.replace(" ", "_")
             try:
@@ -1080,6 +1103,9 @@ class AmsPrintUsageSync(FilamentIQBase):
         Slots with no recorded segments (e.g. seeded at start) are always kept.
         """
         if not self._tray_active_times:
+            return trays_used
+        if self._rehydrated:
+            self.log("TRAY_FILTER_SKIPPED reason=rehydrated_print", level="INFO")
             return trays_used
         filtered = set()
         for slot in trays_used:

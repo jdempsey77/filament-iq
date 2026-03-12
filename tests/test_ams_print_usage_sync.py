@@ -95,6 +95,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self._tray_active_times = {}
         self._current_active_slot = None
         self._print_active = False
+        self._rehydrated = False
         self._threemf_data = None
         self._threemf_filename = None
         self.threemf_enabled = False
@@ -1207,6 +1208,131 @@ def test_depleted_spool_not_detected_with_stale_cache():
         "depleted guard should fire using post-write remaining, not stale cache"
     )
     assert _has_log(app, "remaining=-3.0")
+
+
+# ── Fix: Depleted spool tracking (fuel gauge >= 0) ─────────────────
+
+def test_fuel_gauge_zero_returns_zero():
+    """_read_fuel_gauge with fg=0.0 returns 0.0, not -1.0. 0g is a valid depleted spool."""
+    app = _TestableUsageSync(state_map={})
+    # Set fuel gauge entity for slot 4 to 0.0
+    fg_entity = app._fuel_gauge_pattern.format(slot=4)
+    app._state_map[fg_entity] = "0.0"
+    result = app._read_fuel_gauge(4)
+    assert result == 0.0, f"expected 0.0, got {result}"
+
+
+def test_fuel_gauge_unavailable_still_returns_negative():
+    """_read_fuel_gauge with unavailable state returns -1.0 (unchanged behavior)."""
+    app = _TestableUsageSync(state_map={})
+    fg_entity = app._fuel_gauge_pattern.format(slot=4)
+    app._state_map[fg_entity] = "unavailable"
+    result = app._read_fuel_gauge(4)
+    assert result == -1.0, f"expected -1.0 for unavailable, got {result}"
+
+
+def test_end_snapshot_includes_zero_gram_slot():
+    """Spool at 0g fuel gauge is included in end snapshot (previously excluded)."""
+    app = _TestableUsageSync(state_map={})
+    app._start_snapshot = {1: 800.0, 3: 40.0}
+    # Slot 1: 785g remaining, Slot 3: 0g (depleted)
+    fg1 = app._fuel_gauge_pattern.format(slot=1)
+    fg3 = app._fuel_gauge_pattern.format(slot=3)
+    app._state_map[fg1] = "785.0"
+    app._state_map[fg3] = "0.0"
+    snapshot = app._build_end_snapshot()
+    assert snapshot == {1: 785.0, 3: 0.0}, f"expected slot 3 at 0.0, got {snapshot}"
+
+
+def test_rfid_delta_depleted_spool():
+    """start_g=40, end_g=0, is_rfid=True → consumption=40g written (not USAGE_NO_EVIDENCE)."""
+    app = _TestableUsageSync(state_map=_default_state_map({3: 39}))
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [3]))
+    _fire(app,
+          trays_used="3",
+          start_json='{"3": 40.0}',
+          end_json='{"3": 0.0}',
+          print_weight_g="40")
+    assert len(app._use_calls) == 1, f"expected 1 write, got {len(app._use_calls)}"
+    assert app._use_calls[0]["spool_id"] == 39
+    assert abs(app._use_calls[0]["use_weight"] - 40.0) < 0.01
+    assert _has_log(app, "USAGE_RFID slot=3")
+    assert not _has_log(app, "USAGE_NO_EVIDENCE")
+
+
+def test_seed_slot_not_reseeded_at_zero():
+    """Slot seeded at 0g should not be re-seeded — 0g is a valid locked value."""
+    app = _TestableUsageSync(state_map={})
+    app._lifecycle_phase1 = True
+    app._start_snapshot = {4: 0.0}
+    fg4 = app._fuel_gauge_pattern.format(slot=4)
+    app._state_map[fg4] = "800.0"
+    app._seed_slot_start_grams(4)
+    assert app._start_snapshot[4] == 0.0, "0g seed should be locked, not overwritten"
+
+
+# ── Fix: Rehydrate post-restart tracking ───────────────────────────
+
+def test_rehydrate_sets_rehydrated_flag():
+    """_rehydrate_print_state sets _rehydrated=True. _trays_used starts empty, populated by events."""
+    app = _TestableUsageSync(state_map={})
+    # Simulate mid-print state
+    app._state_map[app._print_status_entity] = "running"
+    app._state_map[app._start_json_entity] = '{"1": 1000.0, "3": 40.0}'
+    app._state_map[app._task_name_entity] = "Crates - All Sizes"
+    app._lifecycle_phase1 = True
+    app._rehydrate_print_state()
+    assert app._rehydrated is True, "_rehydrated flag not set"
+    assert app._print_active is True
+    assert _has_log(app, "REHYDRATE_FLAG_SET")
+    # _trays_used should NOT contain all start_snapshot keys — only active tray (if any)
+    assert app._trays_used != {1, 3}, "_trays_used must not be set from start_snapshot keys"
+
+
+def test_duration_filter_skipped_on_rehydrate():
+    """When _rehydrated=True, duration filter returns all trays unfiltered."""
+    import datetime
+    app = _TestableUsageSync(state_map={})
+    app._rehydrated = True
+    # Slot 3 has only 1.8s — would normally be filtered
+    app._tray_active_times = {
+        3: [{"start": datetime.datetime(2026, 3, 12, 3, 26, 33),
+             "end": datetime.datetime(2026, 3, 12, 3, 26, 34, 800000)}],
+        1: [{"start": datetime.datetime(2026, 3, 12, 3, 26, 33),
+             "end": datetime.datetime(2026, 3, 12, 8, 13, 0)}],
+    }
+    result = app._filter_trays_by_duration({1, 3})
+    assert result == {1, 3}, f"rehydrated print should skip filter, got {result}"
+    assert _has_log(app, "TRAY_FILTER_SKIPPED")
+
+
+def test_rehydrated_flag_reset_on_print_start():
+    """Print start transition resets _rehydrated to False."""
+    app = _TestableUsageSync(state_map={})
+    app._rehydrated = True
+    # Simulate print start transition
+    app._state_map[app._print_status_entity] = "running"
+    app._on_print_status_change(
+        app._print_status_entity, None, "idle", "running", {}
+    )
+    assert app._rehydrated is False, "_rehydrated should reset on print start"
+
+
+def test_duration_filter_still_runs_without_rehydrate():
+    """When _rehydrated=False, duration filter works normally (regression check)."""
+    import datetime
+    app = _TestableUsageSync(state_map={})
+    app._rehydrated = False
+    # Slot 3 has only 1.8s — should be filtered out
+    app._tray_active_times = {
+        3: [{"start": datetime.datetime(2026, 3, 12, 3, 26, 33),
+             "end": datetime.datetime(2026, 3, 12, 3, 26, 34, 800000)}],
+        1: [{"start": datetime.datetime(2026, 3, 12, 3, 26, 33),
+             "end": datetime.datetime(2026, 3, 12, 8, 13, 0)}],
+    }
+    result = app._filter_trays_by_duration({1, 3})
+    assert result == {1}, f"non-rehydrated print should filter slot 3, got {result}"
+    assert not _has_log(app, "TRAY_FILTER_SKIPPED")
 
 
 # ── Fix: FTPS retry window tests ────────────────────────────────────
