@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.10.0] - 2026-03-12
+
+### Fixed
+- **RFID_IDENTITY_STUCK false positive**: enrolled spools with matching `lot_nr == tray_uuid` no longer flagged stuck after AppDaemon restart + 60s. The `_rfid_matches_spool` check now runs before the stuck gate instead of inside it.
+- **Sanity cap blocking large prints**: `max_consumption_g` raised from 300g to 1000g. A 484g Big Crate print was silently skipped. 1000g matches the P1S single spool physical maximum.
+
+### Changed
+- **"New" spools visible in dropdown**: Spools with `location=New` now appear in the slot assign dropdown, allowing fresh spools to be bound without manually editing Spoolman location first.
+- `tray_uuid` added to all `UNBOUND_REASON` log lines alongside `tag_uid` for improved diagnostics.
+- Mock patch paths in tests corrected from `appdaemon.apps.filament_iq.*` to `filament_iq.*` for CI compatibility.
+
+### Tests
+- 693 tests passing (up from 688 at v0.9.0)
+- 3 new RFID stuck detection tests: false positive prevention, unmatched tag fires, stuck clears on match
+- 2 new sanity cap tests: 484g passes, 1001g blocked
+- `conftest.py` added for CI `sys.path` setup
+
 ## [0.9.0] - 2026-03-11
 
 ### Added
