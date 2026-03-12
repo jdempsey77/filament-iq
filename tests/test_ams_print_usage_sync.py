@@ -6,6 +6,7 @@ Run: python -m pytest tests/test_ams_print_usage_sync.py -v
 
 import json
 import os
+import pathlib
 import sys
 import tempfile
 import types
@@ -1852,3 +1853,216 @@ def test_rfid_weight_reconcile_skips_invalid_remain_none():
     app._reconcile_rfid_weights()
     assert len(app._patch_calls) == 0
     assert _has_log(app, "RFID_WEIGHT_INVALID_REMAIN slot=4")
+
+
+# ── active_print.json persistence tests ──────────────────────────────
+
+class TestActivePrintPersistence:
+
+    def _make_app(self, tmp_dir, **extra_args):
+        """Build a testable app with ACTIVE_PRINT_FILE pointed at tmp_dir."""
+        import filament_iq.ams_print_usage_sync as mod
+        self._orig_file = mod.ACTIVE_PRINT_FILE
+        mod.ACTIVE_PRINT_FILE = pathlib.Path(tmp_dir) / "active_print.json"
+        args = {
+            "lifecycle_phase1_enabled": True,
+            "lifecycle_phase2_enabled": True,
+            "lifecycle_phase3_enabled": True,
+        }
+        args.update(extra_args)
+        app = _TestableUsageSync(args=args)
+        return app
+
+    def _cleanup(self):
+        import filament_iq.ams_print_usage_sync as mod
+        if hasattr(self, "_orig_file"):
+            mod.ACTIVE_PRINT_FILE = self._orig_file
+
+    def test_active_print_persisted_on_start(self):
+        """Print starts → active_print.json written with job_key + start_snapshot."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+                mod.ACTIVE_PRINT_FILE = ap_file
+
+                app = _TestableUsageSync(args={
+                    "lifecycle_phase1_enabled": True,
+                })
+                app._job_key = "test_job_123"
+                app._start_snapshot = {1: 500.0, 2: 300.0}
+                app._threemf_data = None
+                app._persist_active_print()
+
+                assert ap_file.exists()
+                data = json.loads(ap_file.read_text())
+                assert data["job_key"] == "test_job_123"
+                assert data["start_snapshot"] == {"1": 500.0, "2": 300.0}
+                assert data["threemf_data"] is None
+            finally:
+                self._cleanup()
+
+    def test_active_print_updated_after_3mf_parse(self):
+        """3MF parsed → active_print.json updated with threemf_data."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+                mod.ACTIVE_PRINT_FILE = ap_file
+
+                app = _TestableUsageSync(args={
+                    "lifecycle_phase1_enabled": True,
+                })
+                app._job_key = "test_job_456"
+                app._start_snapshot = {1: 500.0}
+                threemf = [{"index": 0, "used_g": 12.5, "color_hex": "FF0000", "material": "PLA"}]
+                app._threemf_data = threemf
+                app._persist_active_print()
+
+                data = json.loads(ap_file.read_text())
+                assert data["threemf_data"] == threemf
+                assert data["job_key"] == "test_job_456"
+            finally:
+                self._cleanup()
+
+    def test_active_print_restored_on_rehydrate(self):
+        """active_print.json exists with matching job_key → threemf_data restored."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+                mod.ACTIVE_PRINT_FILE = ap_file
+
+                threemf = [{"index": 0, "used_g": 25.0, "color_hex": "00FF00", "material": "PETG"}]
+                ap_file.write_text(json.dumps({
+                    "job_key": "matching_key",
+                    "start_snapshot": {"1": 400.0},
+                    "threemf_data": threemf,
+                }))
+
+                app = _TestableUsageSync(args={
+                    "lifecycle_phase1_enabled": True,
+                })
+                result = app._load_active_print("matching_key")
+                assert result == threemf
+                assert _has_log(app, "ACTIVE_PRINT_RESTORED")
+            finally:
+                self._cleanup()
+
+    def test_active_print_stale_job_key_ignored(self):
+        """active_print.json has different job_key → returns None, STALE logged."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+                mod.ACTIVE_PRINT_FILE = ap_file
+
+                ap_file.write_text(json.dumps({
+                    "job_key": "old_job",
+                    "start_snapshot": {},
+                    "threemf_data": [{"index": 0, "used_g": 10.0}],
+                }))
+
+                app = _TestableUsageSync(args={
+                    "lifecycle_phase1_enabled": True,
+                })
+                result = app._load_active_print("new_job")
+                assert result is None
+                assert _has_log(app, "ACTIVE_PRINT_STALE")
+            finally:
+                self._cleanup()
+
+    def test_active_print_missing_no_error(self):
+        """active_print.json does not exist → returns None, no exception."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                mod.ACTIVE_PRINT_FILE = pathlib.Path(tmp_dir) / "active_print.json"
+
+                app = _TestableUsageSync(args={
+                    "lifecycle_phase1_enabled": True,
+                })
+                result = app._load_active_print("any_key")
+                assert result is None
+                # No error/warning logged
+                assert not any("FAILED" in msg for msg, _ in app._log_calls)
+            finally:
+                self._cleanup()
+
+    def test_active_print_corrupted_no_error(self):
+        """active_print.json contains invalid JSON → returns None, LOAD_FAILED logged."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+                mod.ACTIVE_PRINT_FILE = ap_file
+                ap_file.write_text("{corrupt json!!")
+
+                app = _TestableUsageSync(args={
+                    "lifecycle_phase1_enabled": True,
+                })
+                result = app._load_active_print("any_key")
+                assert result is None
+                assert _has_log(app, "ACTIVE_PRINT_LOAD_FAILED")
+            finally:
+                self._cleanup()
+
+    def test_active_print_cleared_on_finish(self):
+        """Print finishes → active_print.json deleted."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+                mod.ACTIVE_PRINT_FILE = ap_file
+                ap_file.write_text(json.dumps({"job_key": "done"}))
+                assert ap_file.exists()
+
+                app = _TestableUsageSync(args={
+                    "lifecycle_phase1_enabled": True,
+                })
+                app._clear_active_print()
+                assert not ap_file.exists()
+            finally:
+                self._cleanup()
+
+    def test_3mf_wait_skipped_when_data_present(self):
+        """_threemf_data not None at finish → 3MF_WAIT_DONE logged immediately."""
+        app = _TestableUsageSync(args={
+            "lifecycle_phase1_enabled": True,
+            "lifecycle_phase2_enabled": True,
+        })
+        app._threemf_data = [{"index": 0, "used_g": 15.0}]
+        app._finish_pending = True
+        app._finish_pending_status = "finish"
+        app._finish_wait_count = 0
+        # Mock _do_finish to prevent full execution
+        app._do_finish = mock.MagicMock()
+        app._finish_wait_tick({})
+        assert _has_log(app, "3MF_WAIT_DONE")
+        app._do_finish.assert_called_once_with("finish")
+
+    def test_active_print_atomic_write(self):
+        """Confirm tmp file used and replaced atomically (no .tmp left behind)."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+                mod.ACTIVE_PRINT_FILE = ap_file
+
+                app = _TestableUsageSync(args={
+                    "lifecycle_phase1_enabled": True,
+                })
+                app._job_key = "atomic_test"
+                app._start_snapshot = {1: 100.0}
+                app._threemf_data = None
+                app._persist_active_print()
+
+                # Verify final file exists and is valid
+                assert ap_file.exists()
+                data = json.loads(ap_file.read_text())
+                assert data["job_key"] == "atomic_test"
+                # Verify no .tmp file left behind (atomic replace cleaned it up)
+                tmp_file = ap_file.with_suffix(".tmp")
+                assert not tmp_file.exists()
+            finally:
+                self._cleanup()

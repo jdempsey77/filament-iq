@@ -18,6 +18,7 @@ Dedup:                  job_key set persisted to disk (capped at 50 entries).
 import datetime
 import json
 import os
+import pathlib
 import tempfile
 import time
 import urllib.error
@@ -52,6 +53,7 @@ _APP_DIR = os.path.dirname(os.path.abspath(__file__))
 SEEN_JOBS_PATH = os.path.join(_APP_DIR, "data", "seen_job_keys.json")
 
 MAX_SEEN_JOBS = 50
+ACTIVE_PRINT_FILE = pathlib.Path(_APP_DIR) / "data" / "active_print.json"
 
 # tag_uid values that indicate non-RFID (no chip or empty)
 _INVALID_TAG_UIDS = frozenset({"", "0000000000000000", "unknown", "unavailable"})
@@ -768,6 +770,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             f"start_snapshot={self._start_snapshot}",
             level="INFO",
         )
+        self._persist_active_print()
 
     def _check_unbound_trays(self, kwargs):
         """Warn if any actively-used tray is unbound (delayed check)."""
@@ -1000,6 +1003,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         # Clean up (includes setting print_active off)
         self._end_snapshot = {}
         self._on_print_end()
+        self._clear_active_print()
 
     # ── Phase 3: debug logging, swap detection, rehydrate ──────────
 
@@ -1077,6 +1081,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 )
             except Exception:
                 pass
+            self._threemf_data = self._load_active_print(self._job_key)
 
     def _on_ha_start(self, event_name, data, kwargs):
         """Handle HA restart while AppDaemon is running (replaces automation G)."""
@@ -1247,6 +1252,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 f"breakdown={[(f['index'], f['used_g'], f['color_hex'], f['material']) for f in filaments]}",
                 level="INFO",
             )
+            self._persist_active_print()
 
         except Exception as e:
             self.log(
@@ -1514,6 +1520,62 @@ class AmsPrintUsageSync(FilamentIQBase):
                 os.unlink(SEEN_JOBS_PATH + ".tmp")
             except OSError:
                 pass
+
+    # ── active print persistence ────────────────────────────────────
+
+    def _persist_active_print(self):
+        """Atomic write of active print state to disk."""
+        if not self._job_key:
+            return
+        data = {
+            "job_key": self._job_key,
+            "start_snapshot": self._start_snapshot,
+            "threemf_data": self._threemf_data,
+        }
+        try:
+            tmp = ACTIVE_PRINT_FILE.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data))
+            tmp.replace(ACTIVE_PRINT_FILE)
+            self.log(
+                f"ACTIVE_PRINT_PERSISTED job_key={self._job_key} "
+                f"has_3mf={self._threemf_data is not None}",
+                level="DEBUG",
+            )
+        except Exception as e:
+            self.log(f"ACTIVE_PRINT_PERSIST_FAILED: {e}", level="WARNING")
+
+    def _load_active_print(self, job_key):
+        """Read active_print.json on rehydrate. Returns threemf_data if job_key matches."""
+        try:
+            if not ACTIVE_PRINT_FILE.exists():
+                return None
+            data = json.loads(ACTIVE_PRINT_FILE.read_text())
+            if data.get("job_key") != job_key:
+                self.log(
+                    f"ACTIVE_PRINT_STALE persisted={data.get('job_key')} "
+                    f"current={job_key}",
+                    level="INFO",
+                )
+                return None
+            threemf_data = data.get("threemf_data")
+            self.log(
+                f"ACTIVE_PRINT_RESTORED job_key={job_key} "
+                f"has_3mf={threemf_data is not None}",
+                level="INFO",
+            )
+            return threemf_data
+        except Exception as e:
+            self.log(f"ACTIVE_PRINT_LOAD_FAILED: {e}", level="WARNING")
+            return None
+
+    def _clear_active_print(self):
+        """Delete active_print.json after print finish."""
+        try:
+            if ACTIVE_PRINT_FILE.exists():
+                ACTIVE_PRINT_FILE.unlink()
+                self.log("ACTIVE_PRINT_CLEARED", level="DEBUG")
+        except Exception as e:
+            self.log(f"ACTIVE_PRINT_CLEAR_FAILED: {e}", level="WARNING")
 
     # ── helpers ───────────────────────────────────────────────────────
 
