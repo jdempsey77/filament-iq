@@ -33,8 +33,8 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 
 CURRENT_TOKEN=""
-if grep -q '^HA_TOKEN=' "$ENV_FILE" 2>/dev/null; then
-  CURRENT_TOKEN=$(grep '^HA_TOKEN=' "$ENV_FILE" | head -1 | cut -d= -f2-)
+if grep -q '^HOME_ASSISTANT_TOKEN=' "$ENV_FILE" 2>/dev/null; then
+  CURRENT_TOKEN=$(grep '^HOME_ASSISTANT_TOKEN=' "$ENV_FILE" | head -1 | cut -d= -f2-)
 fi
 
 if [[ -n "$CURRENT_TOKEN" ]]; then
@@ -77,15 +77,15 @@ echo "Updating $ENV_FILE ..."
 TMP_FILE="$ENV_FILE.tmp.$$"
 REPLACED=false
 while IFS= read -r line || [[ -n "$line" ]]; do
-  if [[ "$line" == HA_TOKEN=* ]]; then
-    echo "HA_TOKEN=${NEW_TOKEN}" >> "$TMP_FILE"
+  if [[ "$line" == HOME_ASSISTANT_TOKEN=* ]]; then
+    echo "HOME_ASSISTANT_TOKEN=${NEW_TOKEN}" >> "$TMP_FILE"
     REPLACED=true
   else
     echo "$line" >> "$TMP_FILE"
   fi
 done < "$ENV_FILE"
 if [[ "$REPLACED" == false ]]; then
-  echo "HA_TOKEN=${NEW_TOKEN}" >> "$TMP_FILE"
+  echo "HOME_ASSISTANT_TOKEN=${NEW_TOKEN}" >> "$TMP_FILE"
 fi
 
 mv "$TMP_FILE" "$ENV_FILE"
@@ -101,7 +101,7 @@ REMOTE_SCRIPT='
   set -euo pipefail
   mkdir -p "$HOME/'"$SKA_SECRETS_DIR"'"
   TMP="$HOME/'"$SKA_SECRETS_FILE"'.tmp.$$"
-  echo "HA_TOKEN='"$NEW_TOKEN"'" > "$TMP"
+  echo "HOME_ASSISTANT_TOKEN='"$NEW_TOKEN"'" > "$TMP"
   chmod 600 "$TMP"
   mv "$TMP" "$HOME/'"$SKA_SECRETS_FILE"'"
   chmod 600 "$HOME/'"$SKA_SECRETS_FILE"'"
