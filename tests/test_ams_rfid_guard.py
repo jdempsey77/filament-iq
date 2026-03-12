@@ -292,3 +292,239 @@ class TestReasonCode:
 
     def test_unknown_reason(self):
         assert ReasonCode.resolve("BOGUS") == "UNKNOWN"
+
+
+# ── helper method tests ──────────────────────────────────────────────
+
+class TestJsonTextToStr:
+    """_json_text_to_str edge cases."""
+
+    def test_none_returns_empty(self):
+        app = _TestableGuard()
+        assert app._json_text_to_str(None) == ""
+
+    def test_empty_string_returns_empty(self):
+        app = _TestableGuard()
+        assert app._json_text_to_str("") == ""
+
+    def test_json_encoded_string(self):
+        app = _TestableGuard()
+        assert app._json_text_to_str('"hello"') == "hello"
+
+    def test_json_null_returns_empty(self):
+        app = _TestableGuard()
+        assert app._json_text_to_str("null") == ""
+
+    def test_plain_string(self):
+        app = _TestableGuard()
+        assert app._json_text_to_str("AABB0011") == "AABB0011"
+
+    def test_quoted_string_stripped(self):
+        app = _TestableGuard()
+        result = app._json_text_to_str('"quoted"')
+        assert result == "quoted"
+
+
+class TestSafeInt:
+    """_safe_int edge cases."""
+
+    def test_valid_int(self):
+        app = _TestableGuard()
+        assert app._safe_int("42") == 42
+
+    def test_none_returns_default(self):
+        app = _TestableGuard()
+        assert app._safe_int(None) == 0
+
+    def test_invalid_returns_default(self):
+        app = _TestableGuard()
+        assert app._safe_int("abc", 99) == 99
+
+    def test_float_string_fails(self):
+        app = _TestableGuard()
+        assert app._safe_int("3.14") == 0
+
+
+class TestGetTagUid:
+    """_get_tag_uid edge cases."""
+
+    def test_non_dict_extra(self):
+        app = _TestableGuard()
+        assert app._get_tag_uid("not_a_dict") == ""
+
+    def test_rfid_uid_fallback(self):
+        app = _TestableGuard()
+        assert app._get_tag_uid({"rfid_uid": "AABB"}) == "AABB"
+
+    def test_tag_uid_uppercase(self):
+        app = _TestableGuard()
+        assert app._get_tag_uid({"rfid_tag_uid": "aabb0011"}) == "AABB0011"
+
+
+class TestGetHaSpoolUuid:
+    """_get_ha_spool_uuid edge cases."""
+
+    def test_non_dict_extra(self):
+        app = _TestableGuard()
+        assert app._get_ha_spool_uuid("not_a_dict") == ""
+
+    def test_ha_uuid_fallback(self):
+        app = _TestableGuard()
+        assert app._get_ha_spool_uuid({"ha_uuid": "xyz-123"}) == "xyz-123"
+
+    def test_empty_value(self):
+        app = _TestableGuard()
+        assert app._get_ha_spool_uuid({"ha_spool_uuid": ""}) == ""
+
+
+class TestIsQuarantined:
+    """_is_quarantined detects QUARANTINE location."""
+
+    def test_quarantine_location(self):
+        app = _TestableGuard()
+        assert app._is_quarantined({"location": "QUARANTINE"}) is True
+
+    def test_lowercase_quarantine(self):
+        app = _TestableGuard()
+        assert app._is_quarantined({"location": "quarantine"}) is True
+
+    def test_ams_location_not_quarantined(self):
+        app = _TestableGuard()
+        assert app._is_quarantined({"location": "AMS1_Slot1"}) is False
+
+    def test_none_location(self):
+        app = _TestableGuard()
+        assert app._is_quarantined({"location": None}) is False
+
+
+class TestIsRfidManagedFilament:
+    """_is_rfid_managed_filament detection paths."""
+
+    def test_rfid_managed_extra_flag(self):
+        """extra.rfid_managed=True → RFID managed."""
+        app = _TestableGuard()
+        fil = {"extra": {"rfid_managed": True}, "name": "Generic PLA"}
+        assert app._is_rfid_managed_filament(fil) is True
+
+    def test_vendor_dict_with_name(self):
+        """vendor as dict with name 'Bambu Lab' → RFID managed."""
+        app = _TestableGuard()
+        fil = {"vendor": {"name": "Bambu Lab"}, "name": "PLA"}
+        assert app._is_rfid_managed_filament(fil) is True
+
+    def test_vendor_as_string(self):
+        """vendor as string 'bambu' → RFID managed."""
+        app = _TestableGuard()
+        fil = {"vendor": "bambu lab", "name": "PLA"}
+        assert app._is_rfid_managed_filament(fil) is True
+
+    def test_non_rfid_filament(self):
+        """Non-Bambu vendor, no rfid_managed → NOT managed."""
+        app = _TestableGuard()
+        fil = {"vendor": {"name": "Overture"}, "name": "PLA", "extra": {}}
+        assert app._is_rfid_managed_filament(fil) is False
+
+    def test_non_dict_filament(self):
+        """Non-dict input → False."""
+        app = _TestableGuard()
+        assert app._is_rfid_managed_filament("not_a_dict") is False
+
+    def test_name_pattern_match(self):
+        """Filament name matches rfid_managed_patterns → managed."""
+        app = _TestableGuard()
+        fil = {"name": "Bambu PLA Silk", "vendor": {"name": "Unknown"}}
+        assert app._is_rfid_managed_filament(fil) is True
+
+
+class TestCheckViolationEdgeCases:
+    """_check_violation with non-dict extra/filament."""
+
+    def test_non_dict_extra(self):
+        """Spool with extra as string → treated as empty extra."""
+        app = _TestableGuard()
+        spool = _spool(1, location="AMS1_Slot1")
+        spool["extra"] = "corrupted"
+        result = app._check_violation(spool)
+        # Bambu Lab vendor still triggers violation
+        assert result is not None
+
+    def test_non_dict_filament(self):
+        """Spool with filament as string → treated as empty filament."""
+        app = _TestableGuard()
+        spool = {"id": 1, "location": "AMS1_Slot1", "extra": {},
+                 "filament": "corrupted", "lot_nr": ""}
+        result = app._check_violation(spool)
+        # No Bambu filament, no tag_uid → no violation
+        assert result is None
+
+    def test_none_extra(self):
+        """extra=None → no crash."""
+        app = _TestableGuard()
+        spool = _spool(1, location="AMS1_Slot1")
+        spool["extra"] = None
+        result = app._check_violation(spool)
+        assert result is not None  # Bambu filament with no identity
+
+
+class TestQuarantinePatchFailure:
+    """_quarantine_spool handles PATCH failure."""
+
+    def test_patch_failure_returns_false(self):
+        app = _TestableGuard()
+        def _fail(path, payload):
+            raise ConnectionError("refused")
+        app._spoolman_patch = _fail
+        spool = _spool(1, location="AMS1_Slot1")
+        violation = {"reason": "RFID_TAG_MANUAL", "filament_name": "PLA",
+                     "location": "AMS1_Slot1", "tag_uid": "AA", "ha_spool_uuid": ""}
+        result = app._quarantine_spool(spool, violation)
+        assert result is False
+        assert _has_log(app, "quarantine PATCH failed")
+
+    def test_quarantine_invalid_spool_id(self):
+        app = _TestableGuard()
+        spool = {"id": 0}
+        result = app._quarantine_spool(spool, {"reason": "TEST"})
+        assert result is False
+
+
+class TestDisabledGuard:
+    """Guard disabled via config."""
+
+    def test_disabled_scan_noop(self):
+        """enabled=False → _run_scan does nothing."""
+        spools = [_spool(1, location="AMS1_Slot1")]
+        app = _TestableGuard(args={"enabled": False}, spools=spools)
+        app._run_scan({})
+        assert len(app._patch_calls) == 0
+        # No scan complete log (since it returns early)
+        assert not _has_log(app, "scan complete")
+
+
+class TestScanQuarantinedSkipped:
+    """Quarantined spools are skipped during scan."""
+
+    def test_quarantined_spool_skipped(self):
+        """Spool in QUARANTINE location → skipped, not checked."""
+        spools = [_spool(1, location="QUARANTINE")]
+        app = _TestableGuard(spools=spools)
+        app._run_scan({})
+        assert len(app._patch_calls) == 0
+
+
+class TestMaybeNotifyException:
+    """_maybe_notify handles call_service failure."""
+
+    def test_notify_service_fails(self):
+        """If persistent_notification/create raises, warning logged."""
+        app = _TestableGuard()
+        def _fail(service, **kwargs):
+            raise RuntimeError("HA unavailable")
+        app.call_service = _fail
+        violation = {
+            "reason": "RFID_TAG_MANUAL", "filament_name": "PLA",
+            "violation": "test", "expected": "test", "found": "test",
+            "tag_uid": "AA", "ha_spool_uuid": "",
+        }
+        app._maybe_notify(1, violation)
+        assert _has_log(app, "notify failed")

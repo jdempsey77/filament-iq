@@ -169,3 +169,65 @@ class TestSpoolmanConnectivity:
             "SPOOLMAN_UNREACHABLE" in msg and lvl == "WARNING"
             for lvl, msg in app._log_calls
         )
+
+    def test_spoolman_empty_url_returns_early(self):
+        """Empty spoolman_url → no HTTP call, no log."""
+        app = _TestableBase(args={})
+        app._check_spoolman_connectivity()
+        assert not any("SPOOLMAN" in msg for _, msg in app._log_calls)
+
+
+class TestRangeValidation:
+
+    def test_above_max_rejected(self):
+        """Value above max_val → ValueError."""
+        app = _TestableBase(args={
+            "spoolman_url": "http://192.0.2.1:7912",
+            "printer_ftps_port": 99999,
+        })
+        with pytest.raises(ValueError, match="printer_ftps_port"):
+            app._validate_config(
+                required_keys=["spoolman_url"],
+                typed_keys={"printer_ftps_port": (int, 990)},
+                range_keys={"printer_ftps_port": (1, 65535)},
+            )
+
+    def test_range_with_non_numeric_skipped(self):
+        """Non-numeric value for range check → type error caught, range skipped."""
+        app = _TestableBase(args={
+            "spoolman_url": "http://192.0.2.1:7912",
+            "max_consumption_g": "banana",
+        })
+        with pytest.raises(ValueError, match="max_consumption_g"):
+            app._validate_config(
+                required_keys=["spoolman_url"],
+                typed_keys={"max_consumption_g": (float, 1000.0)},
+                range_keys={"max_consumption_g": (1.0, None)},
+            )
+
+
+class TestEntityPrefix:
+
+    def test_empty_serial_returns_model_only(self):
+        """Missing printer_serial → prefix is just model."""
+        app = _TestableBase(args={"printer_model": "p1s"})
+        assert app._build_entity_prefix() == "p1s"
+
+    def test_build_slot_mappings_instance_method(self):
+        """_build_slot_mappings delegates to module-level function."""
+        app = _TestableBase(args={
+            "printer_model": "p1s",
+            "printer_serial": "01p00c5a3101668",
+        })
+        tray_by_slot, slot_by_tray, ams_tray, canonical = app._build_slot_mappings()
+        assert 1 in tray_by_slot
+        assert 6 in tray_by_slot
+
+    def test_get_all_slots(self):
+        """_get_all_slots returns sorted slot list."""
+        app = _TestableBase(args={
+            "printer_model": "p1s",
+            "printer_serial": "01p00c5a3101668",
+        })
+        slots = app._get_all_slots()
+        assert slots == [1, 2, 3, 4, 5, 6]

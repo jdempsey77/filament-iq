@@ -233,3 +233,264 @@ class TestLabelHelpers:
 
     def test_vendor_from_string(self):
         assert _vendor({"vendor_name": "Overture"}) == "Overture"
+
+    def test_vendor_missing(self):
+        assert _vendor({}) == ""
+
+    def test_material_missing(self):
+        assert _material({}) == ""
+
+    def test_name_missing(self):
+        assert _name({}) == ""
+
+    def test_label_with_none_id(self):
+        f = {"name": "PLA", "material": "PLA"}
+        label = _label(f)
+        assert label.startswith("?")
+
+    def test_label_all_empty_parts(self):
+        f = {"id": 7}
+        label = _label(f)
+        assert "7" in label
+
+    def test_sort_key_ordering(self):
+        f1 = _filament(1, name="A", material="PLA", vendor_name="Z")
+        f2 = _filament(2, name="B", material="PLA", vendor_name="A")
+        assert _sort_key(f2) < _sort_key(f1)
+
+
+class TestIdInt:
+    """_id_int helper edge cases."""
+
+    def test_valid_int(self):
+        from filament_iq.spoolman_dropdown_sync import _id_int
+        assert _id_int({"id": 5}) == 5
+
+    def test_none_id(self):
+        from filament_iq.spoolman_dropdown_sync import _id_int
+        assert _id_int({}) == 0
+
+    def test_invalid_id(self):
+        from filament_iq.spoolman_dropdown_sync import _id_int
+        assert _id_int({"id": "not_a_number"}) == 0
+
+
+class TestWaitThenRefresh:
+    """_wait_then_refresh retry logic."""
+
+    def test_entity_ready_refreshes_immediately(self):
+        """Entity exists on first check → refresh runs."""
+        app = _TestableDropdown(filaments=[_filament(1)])
+        app._state_map[app.dropdown_entity] = "some_value"
+        app._wait_then_refresh({})
+        call = _get_set_options_call(app)
+        assert call is not None
+
+    def test_entity_not_ready_max_attempts(self):
+        """After 10 failed attempts, refresh runs anyway."""
+        app = _TestableDropdown(filaments=[_filament(1)])
+        # Entity not in state map → returns None
+        app._wait_then_refresh({"attempt": 10})
+        call = _get_set_options_call(app)
+        assert call is not None
+        assert _has_log(app, "not ready after 10 attempts")
+
+
+class TestOnRefreshEvent:
+    """_on_refresh_event delegates to _run_refresh."""
+
+    def test_event_triggers_refresh(self):
+        app = _TestableDropdown(filaments=[_filament(1)])
+        app._on_refresh_event("SPOOLMAN_REFRESH_FILAMENT_DROPDOWN", {}, {})
+        call = _get_set_options_call(app)
+        assert call is not None
+        assert _has_log(app, "refresh requested")
+
+
+class TestRefreshLockRetry:
+    """Locked refresh schedules a retry."""
+
+    def test_locked_schedules_retry(self):
+        """If locked and no retry scheduled, sets retry flag."""
+        app = _TestableDropdown(filaments=[_filament(1)])
+        app._refresh_lock = True
+        app._refresh_retry_scheduled = False
+        app._run_refresh()
+        assert app._refresh_retry_scheduled is True
+
+    def test_locked_already_retrying_no_double(self):
+        """If already retrying, doesn't schedule again."""
+        app = _TestableDropdown(filaments=[_filament(1)])
+        app._refresh_lock = True
+        app._refresh_retry_scheduled = True
+        app._run_refresh()
+        # Still True, no crash
+        assert app._refresh_retry_scheduled is True
+
+
+class TestSetOptionsFailure:
+    """set_options service call failure."""
+
+    def test_set_options_error_logged(self):
+        """If call_service raises, error logged, no crash."""
+        filaments = [_filament(1)]
+        app = _TestableDropdown(filaments=filaments)
+        _orig = app.call_service
+        def _fail(service, **kwargs):
+            if service == "input_select/set_options":
+                raise RuntimeError("service unavailable")
+            return _orig(service, **kwargs)
+        app.call_service = _fail
+        app._run_refresh()
+        assert _has_log(app, "set_options failed")
+
+
+class TestNotifyErrorException:
+    """_notify_error handles call_service failure."""
+
+    def test_notify_error_call_fails(self):
+        """If persistent_notification/create fails, warning logged."""
+        app = _TestableDropdown()
+        def _fail(service, **kwargs):
+            raise RuntimeError("HA unreachable")
+        app.call_service = _fail
+        app._notify_error("test error")
+        assert _has_log(app, "could not create notification")
+
+
+class TestWaitThenRefresh:
+    """_wait_then_refresh polling loop."""
+
+    def test_entity_ready_runs_refresh(self):
+        """If dropdown entity is available, refresh runs."""
+        filaments = [_filament(1)]
+        app = _TestableDropdown(filaments=filaments)
+        app._state_map[app.dropdown_entity] = "-- Select filament --"
+        app._wait_then_refresh()
+        call = _get_set_options_call(app)
+        assert call is not None
+
+    def test_entity_not_ready_retries(self):
+        """If entity is None, schedules retry."""
+        app = _TestableDropdown()
+        app._run_in_calls = []
+        def track_run_in(cb, delay, **kw):
+            app._run_in_calls.append({"callback": cb, "delay": delay, **kw})
+        app.run_in = track_run_in
+        app._wait_then_refresh({"attempt": 0})
+        assert len(app._run_in_calls) == 1
+        assert app._run_in_calls[0]["attempt"] == 1
+
+    def test_max_attempts_forces_refresh(self):
+        """After 10 attempts, runs refresh anyway."""
+        filaments = [_filament(1)]
+        app = _TestableDropdown(filaments=filaments)
+        app._wait_then_refresh({"attempt": 10})
+        assert _has_log(app, "entity not ready after 10 attempts")
+        call = _get_set_options_call(app)
+        assert call is not None
+
+
+class TestOnRefreshEvent:
+    """_on_refresh_event triggers refresh."""
+
+    def test_event_triggers_refresh(self):
+        filaments = [_filament(1)]
+        app = _TestableDropdown(filaments=filaments)
+        app._on_refresh_event("FILAMENT_IQ_REFRESH_DROPDOWN", {}, {})
+        assert _has_log(app, "refresh requested")
+        call = _get_set_options_call(app)
+        assert call is not None
+
+
+class TestFetchFilamentsReal:
+    """_fetch_filaments with mocked urllib."""
+
+    def test_http_error(self):
+        from unittest import mock
+        import urllib.error
+        app = _TestableDropdown()
+        # Use a real SpoolmanDropdownSync._fetch_filaments (not the override)
+        app._fetch_filaments = SpoolmanDropdownSync._fetch_filaments.__get__(app)
+        with mock.patch("urllib.request.urlopen") as m:
+            m.side_effect = urllib.error.HTTPError(
+                "http://fake:7912/api/v1/filament", 500, "Internal Server Error", {}, None
+            )
+            with pytest.raises(RuntimeError, match="HTTP 500"):
+                app._fetch_filaments()
+
+    def test_url_error(self):
+        from unittest import mock
+        import urllib.error
+        app = _TestableDropdown()
+        app._fetch_filaments = SpoolmanDropdownSync._fetch_filaments.__get__(app)
+        with mock.patch("urllib.request.urlopen") as m:
+            m.side_effect = urllib.error.URLError("Connection refused")
+            with pytest.raises(RuntimeError, match="URL error"):
+                app._fetch_filaments()
+
+    def test_invalid_json(self):
+        from unittest import mock
+        app = _TestableDropdown()
+        app._fetch_filaments = SpoolmanDropdownSync._fetch_filaments.__get__(app)
+        resp_mock = mock.MagicMock()
+        resp_mock.read.return_value = b"not json"
+        cm = mock.MagicMock()
+        cm.__enter__ = mock.MagicMock(return_value=resp_mock)
+        cm.__exit__ = mock.MagicMock(return_value=False)
+        with mock.patch("urllib.request.urlopen", return_value=cm):
+            with pytest.raises(RuntimeError, match="invalid JSON"):
+                app._fetch_filaments()
+
+    def test_unexpected_type(self):
+        from unittest import mock
+        app = _TestableDropdown()
+        app._fetch_filaments = SpoolmanDropdownSync._fetch_filaments.__get__(app)
+        resp_mock = mock.MagicMock()
+        resp_mock.read.return_value = b'{"not": "a list"}'
+        cm = mock.MagicMock()
+        cm.__enter__ = mock.MagicMock(return_value=resp_mock)
+        cm.__exit__ = mock.MagicMock(return_value=False)
+        with mock.patch("urllib.request.urlopen", return_value=cm):
+            with pytest.raises(RuntimeError, match="unexpected response type"):
+                app._fetch_filaments()
+
+    def test_success(self):
+        from unittest import mock
+        import json
+        app = _TestableDropdown()
+        app._fetch_filaments = SpoolmanDropdownSync._fetch_filaments.__get__(app)
+        data = [{"id": 1, "name": "PLA", "material": "PLA", "vendor": {"name": "Bambu"}}]
+        resp_mock = mock.MagicMock()
+        resp_mock.read.return_value = json.dumps(data).encode()
+        cm = mock.MagicMock()
+        cm.__enter__ = mock.MagicMock(return_value=resp_mock)
+        cm.__exit__ = mock.MagicMock(return_value=False)
+        with mock.patch("urllib.request.urlopen", return_value=cm):
+            result = app._fetch_filaments()
+        assert len(result) == 1
+        assert result[0]["id"] == 1
+
+
+class TestRunRefreshFetchError:
+    """_run_refresh when fetch raises."""
+
+    def test_fetch_error_logged(self):
+        app = _TestableDropdown(fetch_error=RuntimeError("connection refused"))
+        app._run_refresh()
+        assert _has_log(app, "fetch failed")
+        assert app._refresh_lock is False
+
+
+class TestSkipBadFilament:
+    """_run_refresh skips filaments that raise in _label."""
+
+    def test_bad_filament_skipped(self):
+        filaments = [
+            _filament(1, name="Good PLA"),
+            {"id": 2},  # missing vendor/material → _label might fail
+        ]
+        app = _TestableDropdown(filaments=filaments)
+        app._run_refresh()
+        call = _get_set_options_call(app)
+        assert call is not None
