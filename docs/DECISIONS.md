@@ -104,6 +104,49 @@ no post-copy fixup is needed.
 
 ---
 
+## 2026-03-12 — Fix C revert: _trays_used must NOT be seeded from _start_snapshot
+
+**Decision:** Reverted `_trays_used = set(_start_snapshot.keys())` in
+`_rehydrate_print_state()`. On rehydrate, `_trays_used` starts empty
+and is populated only by `_seed_active_trays()` + tray change events.
+
+**Alternatives considered:**
+- Seed from `_start_snapshot.keys()` (Fix C, committed then reverted)
+  — rejected, `_start_snapshot` contains all 6 loaded slots system-wide,
+  not just the ones active in the current print
+- Seed from `input_text.filament_iq_trays_used_this_print` — rejected,
+  that helper is only written at print END (line 605), not during
+
+**Why revert:** Production logs showed `REHYDRATE_TRAYS_USED
+slots={1,2,3,4,5,6}` during a single-color Grid print. All 6 slots
+would have been included in consumption, causing phantom writes.
+Empty set + active tray seeding + events is correct: only trays
+that actually feed filament get included.
+
+**Evidence:** Grid print rehydrate log, commit `d28916c`.
+
+---
+
+## 2026-03-12 — 0g is a valid physical state, not sensor unavailable
+
+**Decision:** Changed all `> 0` guards to `>= 0` for fuel gauge reads,
+RFID delta end checks, and seed slot locks. 0g means depleted spool
+still physically present, not sensor failure.
+
+**Alternatives considered:**
+- Keep `> 0` and treat 0g as unavailable — rejected, P1S returns
+  string "unavailable" on sensor failure, not numeric 0
+- Add a separate `DEPLETED` state — rejected, unnecessary complexity,
+  0g naturally flows through existing math (delta = start - 0 = start)
+
+**Why:** Crates print analysis showed 4 independent failures, all
+rooted in 0g rejection. Asymmetric guard: `start_g > 0` (nothing to
+consume from empty spool) but `end_g >= 0` (fully consumed is valid).
+
+**Evidence:** Crates print prod logs, commit `79c67ef`.
+
+---
+
 ## Template for new entries
 
 ## YYYY-MM-DD — [Short decision title]

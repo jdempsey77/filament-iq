@@ -1,6 +1,6 @@
 # Filament IQ — Backlog
 
-> Full codebase audit: 2026-03-10 | Red team audit: 2026-03-12 | Last updated: 2026-03-12
+> Full codebase audit: 2026-03-10 | Red team audit: 2026-03-12 | Last updated: 2026-03-12 (session 2)
 
 ## Legend
 - 🔴 HIGH — production risk, fix immediately
@@ -27,6 +27,9 @@ _None — all in-progress items completed._
 | 6 | ✅ | `tray_uuid` missing from UNBOUND_REASON log lines — diagnostics gap | Prod | `bb10a74` |
 | 7 | ✅ | Write-ahead dedup: permanent data loss if Spoolman times out (job deduped but never written) | Red team #1 | `02910eb` |
 | 8 | ✅ | CI mock paths: `appdaemon.apps.filament_iq.*` → `filament_iq.*` for both repos | CI fix | `11f9d07` + `b08cf66` |
+| 9 | ✅ | Depleted spool (0g) treated as sensor-unavailable — fuel gauge, RFID delta, seed lock all rejected 0g | Prod bug (Crates print) | `79c67ef` |
+| 10 | ✅ | Mid-print AD restart loses tray timing — duration filter excludes all trays, 0g written | Prod bug (Crates print) | `79c67ef` |
+| 11 | ✅ | Fix C revert: `_trays_used` seeded from `_start_snapshot.keys()` included all 6 slots on rehydrate | Prod bug (Grid print) | `d28916c` |
 
 ---
 
@@ -55,7 +58,7 @@ _None — all in-progress items completed._
 | 2 | `_filter_trays_by_duration` empty set + `start_map` re-inclusion inconsistency | R1 #2 | `ams_print_usage_sync.py:920-927` |
 | 3 | `_finish_wait_tick` double-fire risk if `cancel_timer` silently fails | R1 #3 | `ams_print_usage_sync.py:879-904` |
 | 4 | "offline" status writes RFID delta for incomplete prints — consider `_FAILED_STATES` | R1 #7 | `ams_print_usage_sync.py:946-955` |
-| 5 | `manage_ha.sh` restart sequence missing `wait_for_ha` between HA and AppDaemon restart | R1 #6 | `scripts/manage_ha.sh:372-375` |
+| 5 | ✅ `manage_ha.sh` restart sequence missing `wait_for_ha` between HA and AppDaemon restart — fixed `a6c94b9` | R1 #6 | `scripts/manage_ha.sh:372-375` |
 | 6 | `monitor_print.sh` JSON via string concatenation — unescaped `$state` could produce malformed JSON | R1 #5 | `scripts/monitor_print.sh` |
 | 7 | ✅ Real file I/O in tests — `_persist_seen_job_keys` writes to `data/seen_job_keys.json` on every test | R2 #9 | `tests/test_ams_print_usage_sync.py` — fixed `4368ce5` |
 | 8 | `_check_unbound_trays()` never tested | R2 #10 | `ams_rfid_reconcile.py` |
@@ -73,9 +76,11 @@ _None — all in-progress items completed._
 | 20 | Undocumented config keys in `apps.yaml` | R3 #7 | `appdaemon/apps/apps.yaml` |
 | 21 | Persist in-flight print state to `active_print.json` — mid-print restart loses all consumption data. Write `{job_key, start_snapshot, trays_used}` on print start, resume on restart if print still active, delete on finish. ~20 lines | RT #2 | `ams_print_usage_sync.py` |
 | 22 | Coverage push to 75%+ on critical write paths — `_spoolman_use()` failure/retry, `_handle_finish_event()` end-to-end, reconciler PATCH write-back (0% coverage). Delete 2 fake math tests, unskip/delete 2 skipped pool-logic tests. Target 75% overall, 70%+ per module | RT #3 | `tests/` |
-| 23 | AppDaemon deploy verification — `manage_ha.sh` exits 0 even if addon fails to start. Add `ha addons info` status poll (timeout 60s, exit 1 if not started) | RT #4 | `scripts/manage_ha.sh` |
+| 23 | ✅ AppDaemon deploy verification — `manage_ha.sh` exits 0 even if addon fails to start. Added `ha addons info` status poll — fixed `a6c94b9` | RT #4 | `scripts/manage_ha.sh` |
 | 24 | Duplicate `tray_uuid` detection in reconciler — two slots with same tray_uuid should flag both CONFLICT, log WARNING, notify operator. Prevents double-counting on cloned RFID chips | RT #5 | `ams_rfid_reconcile.py` |
 | 25 | Config validation on startup — add type + range checks: `spoolman_url` (valid URL), `max_consumption_g` (>0), `scan_interval_seconds` (>0), `color_tolerance` (0-255). Log ERROR and refuse to initialize on bad config | RT #6 | All app files |
+| 26 | Reconciler clears slot bindings during active prints — `_check_unbound_trays()` can unbind a slot mid-print, causing RFID delta to skip that slot at finish. Guard reconciler when `_print_active` is True | RT #7 | `ams_rfid_reconcile.py` |
+| 27 | `input_text.filament_iq_trays_used_this_print` only written at print END — cannot be used as rehydrate source for `_trays_used`. Consider writing on tray change events for mid-print restart recovery | RT #8 | `ams_print_usage_sync.py` |
 
 ### LOW
 
@@ -90,6 +95,7 @@ _None — all in-progress items completed._
 | 7 | pause/idle/empty string status never tested | R2 #18 | `tests/test_ams_print_usage_sync.py` |
 | 8 | 0g RFID delta for RFID slot never tested | R2 #19 | `tests/test_ams_print_usage_sync.py` |
 | 9 | `_fetch_3mf_curl()` curl fallback path untested | R2 #20 | `tests/test_threemf_parser.py` |
+| 10 | Add USAGE_RFID_DEPLETED_WARNING log when RFID delta writes 0g because start_g was already 0 — observability for depleted-spool-in-AMS scenarios | Crates analysis | `ams_print_usage_sync.py` |
 
 ---
 
@@ -150,6 +156,7 @@ _None — all in-progress items completed._
 
 | Version | Date | Key Changes |
 |---------|------|-------------|
+| v0.10.2 | 2026-03-12 | Depleted spool 0g fix, rehydrate flag + duration filter skip, Fix C revert (`79c67ef`, `d28916c`) |
 | v0.10.1 | 2026-03-12 | Write-ahead dedup fix — failed Spoolman writes now retryable (`02910eb`, PR #17) |
 | v0.10.0 | 2026-03-12 | RFID stuck false positive, sanity cap 1000g, dropdown New filter, tray_uuid logs, CI mock paths (PR #15, #16) |
 | v0.9.0 | 2026-03-11 | RFID weight reconciler, 3MF race guard, batch Spoolman fetch, smart empty guard, removed pool estimation (PR #14) |

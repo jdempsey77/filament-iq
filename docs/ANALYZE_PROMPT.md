@@ -78,3 +78,28 @@ Full ANALYZE REPORT covering all 7 questions.
 End with recommended architecture and explicit list of
 edge cases the TEST prompt must cover.
 NEXT ACTION: present for approval, then TEST prompt.
+
+---
+
+## Skeptic Pattern (recommended for production bugs)
+
+For high-stakes analysis (production incidents, multi-failure bugs),
+run a two-pass process:
+
+1. **ANALYZE** — standard report using the template above
+2. **SKEPTIC ANALYZE** — peer review of the Round 1 report
+
+The Skeptic pass checks four dimensions:
+- **EVIDENCE CHECK**: Does each claim cite a specific log line, file, or line number?
+- **ASSUMPTION CHECK**: What assumptions were made without evidence?
+- **COMPLETENESS CHECK**: What questions should have been asked but weren't?
+- **RECOMMENDATION CHECK**: Are the proposed fixes sufficient or are there gaps?
+
+Output: confidence level (HIGH/MEDIUM/LOW), list of gaps, revised
+questions for a targeted Round 2.
+
+**Proven value:** Skeptic pass on Crates print analysis caught 3
+critical gaps (missing line 378 fix, over-count risk unassessed,
+1.8s timing anomaly unexplained) that Round 1 missed. Round 2
+with Skeptic-generated questions discovered 4 independent failures
+instead of the original 2.
