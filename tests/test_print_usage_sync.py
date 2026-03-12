@@ -18,7 +18,7 @@ def classify_slot(start_g, end_g):
     """Simulate the fixed RFID vs non-RFID classification.
     Returns ('rfid', consumption_g) or ('nonrfid', None).
     """
-    has_fuel_gauge = start_g > 0 and end_g > 0
+    has_fuel_gauge = start_g > 0 and end_g >= 0
     if has_fuel_gauge:
         consumption_g = max(0.0, start_g - end_g)
         return ("rfid", consumption_g)
@@ -39,7 +39,7 @@ def build_end_json(fuel_gauge_readings, start_json):
     result = {}
     for slot_int, remaining in fuel_gauge_readings.items():
         slot_str = str(slot_int)
-        if remaining > 0 and slot_str in start_json:
+        if remaining >= 0 and slot_str in start_json:
             result[slot_str] = remaining
     return result
 
@@ -59,11 +59,11 @@ class TestSlotClassification:
         assert kind == "rfid"
         assert consumption == 0.0
 
-    def test_nonrfid_slot_no_fuel_gauge(self):
-        """Non-RFID slot: start seeded from Spoolman, end is 0 (no fuel gauge)."""
+    def test_rfid_slot_depleted_spool(self):
+        """Depleted spool: start=1000, end=0 → RFID delta = 1000g (spool fully consumed)."""
         kind, consumption = classify_slot(start_g=1000, end_g=0)
-        assert kind == "nonrfid"
-        assert consumption is None
+        assert kind == "rfid"
+        assert consumption == 1000.0
 
     def test_nonrfid_slot_no_start(self):
         """Slot not active at start (start=0), regardless of end."""
@@ -116,12 +116,12 @@ class TestSanityCap:
 # ── Test: End JSON Builder ──
 
 class TestEndJsonBuilder:
-    def test_only_includes_slots_with_fuel_gauge(self):
-        """Non-RFID slots (fuel gauge = 0 or -1) should be excluded."""
+    def test_includes_zero_excludes_negative(self):
+        """0g (depleted) is valid and included. -1 (unavailable) is excluded."""
         fuel = {1: 785.0, 2: 0.0, 3: -1.0, 4: 0.0, 5: -1.0, 6: 0.0}
         start = {"1": 800, "2": 1000, "3": 500}
         result = build_end_json(fuel, start)
-        assert result == {"1": 785.0}
+        assert result == {"1": 785.0, "2": 0.0}
 
     def test_only_includes_slots_in_start_json(self):
         """Slots not in start_json should be excluded even with valid fuel gauge."""
@@ -144,12 +144,12 @@ class TestEndJsonBuilder:
         result = build_end_json(fuel, start)
         assert result == {"1": 785.0, "2": 950.0, "3": 400.0, "4": 100.0}
 
-    def test_no_fuel_gauge_for_any_slot(self):
-        """All non-RFID → empty end json (consumption handled by estimation)."""
+    def test_zero_fuel_gauge_included_in_end_json(self):
+        """0g fuel gauge is valid (depleted spool). -1 is unavailable (excluded)."""
         fuel = {1: 0.0, 2: 0.0, 3: -1.0}
         start = {"1": 1000, "2": 500, "3": 800}
         result = build_end_json(fuel, start)
-        assert result == {}
+        assert result == {"1": 0.0, "2": 0.0}
 
 
 # ── Test: Full Integration Scenario ──
@@ -164,34 +164,36 @@ class TestIntegrationScenarios:
         fuel_at_end = {1: 785.0, 2: 0.0, 3: 0.0, 4: 0.0, 5: 0.0, 6: 0.0}
 
         end = build_end_json(fuel_at_end, start)
-        assert end == {"1": 785.0}  # only slot 1 has fuel gauge
+        # Slot 1 has fuel gauge at 785g, slot 3 at 0g (depleted, still valid)
+        assert end == {"1": 785.0, "3": 0.0}
 
-        # Slot 1: classified as RFID
+        # Slot 1: classified as RFID, 15g consumed
         kind1, cons1 = classify_slot(800, 785)
         assert kind1 == "rfid"
         assert cons1 == 15.0
 
-        # Slot 3: not in end_json, so end_g = 0 → classified as non-RFID
+        # Slot 3: depleted (end=0), RFID delta = 500g
         kind3, cons3 = classify_slot(500, 0)
-        assert kind3 == "nonrfid"
+        assert kind3 == "rfid"
+        assert cons3 == 500.0
 
-    def test_bug_scenario_nonrfid_spool_drain(self):
+    def test_depleted_spool_in_end_json(self):
         """
-        BEFORE FIX: Slot 2 non-RFID, start=1000, end=0 → consumption=1000 (BUG)
-        AFTER FIX: Slot 2 excluded from end_json → classified as non-RFID → estimated
+        Depleted spool (0g remaining) is now included in end_json.
+        Slot 2 start=1000, end=0 → RFID delta = 1000g (fully consumed).
         """
         start = {"1": 800, "2": 1000}
         fuel_at_end = {1: 785.0, 2: 0.0}
 
-        # Fixed end_json excludes slot 2
+        # Fixed end_json includes slot 2 at 0g
         end = build_end_json(fuel_at_end, start)
-        assert "2" not in end
+        assert end["2"] == 0.0
 
-        # Slot 2 classified as non-RFID (not RFID with 1000g consumption)
+        # Slot 2 classified as RFID with full consumption
         end_g_for_slot2 = end.get("2", 0)
         kind, cons = classify_slot(1000, end_g_for_slot2)
-        assert kind == "nonrfid"
-        assert cons is None  # NOT 1000g!
+        assert kind == "rfid"
+        assert cons == 1000.0
 
     def test_sanity_cap_catches_remaining_edge_cases(self):
         """Even if classification somehow fails, sanity cap prevents damage."""
@@ -465,10 +467,10 @@ def generate_job_key(task_name):
 def read_fuel_gauge(slot, fuel_gauges, ams_remaining):
     """Simulate _read_fuel_gauge: fuel gauge first, ams fallback, else -1."""
     fg = fuel_gauges.get(slot, -1.0)
-    if fg > 0:
+    if fg >= 0:
         return fg
     ams = ams_remaining.get(slot, -1.0)
-    return ams if ams > 0 else -1.0
+    return ams if ams >= 0 else -1.0
 
 
 def build_start_snapshot(slots, fuel_gauges, ams_remaining):
@@ -488,7 +490,7 @@ def snapshot_to_json_dict(snapshot):
 
 def seed_slot_start_grams(snapshot, slot, fuel_gauges, ams_remaining):
     """Simulate write-once seeding. Returns updated snapshot."""
-    if slot in snapshot and snapshot[slot] > 0:
+    if slot in snapshot and snapshot[slot] >= 0:
         return snapshot  # already seeded
     grams = read_fuel_gauge(slot, fuel_gauges, ams_remaining)
     if grams < 0:
@@ -523,10 +525,11 @@ class TestFuelGaugeReading:
         ams = {1: 750.0}
         assert read_fuel_gauge(1, fg, ams) == 800.0
 
-    def test_ams_fallback_when_fg_zero(self):
+    def test_fg_zero_returns_zero_not_fallback(self):
+        """0g fuel gauge is valid (depleted) — returns 0.0, does NOT fall through to AMS."""
         fg = {1: 0.0}
         ams = {1: 750.0}
-        assert read_fuel_gauge(1, fg, ams) == 750.0
+        assert read_fuel_gauge(1, fg, ams) == 0.0
 
     def test_ams_fallback_when_fg_negative(self):
         fg = {1: -1.0}
@@ -541,8 +544,8 @@ class TestFuelGaugeReading:
     def test_returns_negative_when_both_unavailable(self):
         assert read_fuel_gauge(1, {}, {}) == -1.0
 
-    def test_returns_negative_when_both_zero(self):
-        assert read_fuel_gauge(1, {1: 0.0}, {1: 0.0}) == -1.0
+    def test_returns_zero_when_both_zero(self):
+        assert read_fuel_gauge(1, {1: 0.0}, {1: 0.0}) == 0.0
 
 
 class TestBuildStartSnapshot:
@@ -561,11 +564,12 @@ class TestBuildStartSnapshot:
         result = build_start_snapshot([1, 2, 3], {}, {})
         assert result == {}
 
-    def test_zero_grams_clamped(self):
+    def test_zero_grams_included(self):
+        """0g fuel gauge is valid (depleted spool) — included in snapshot."""
         fg = {1: 0.0}
         ams = {1: 0.0}
         result = build_start_snapshot([1], fg, ams)
-        assert result == {}
+        assert result == {1: 0.0}
 
     def test_six_slot_mixed(self):
         """Real scenario: slots 1-4 RFID (fuel gauge), 5-6 non-RFID (ams only)."""
@@ -611,12 +615,12 @@ class TestSeedSlotStartGrams:
         result = seed_slot_start_grams(snapshot, 1, fg, {})
         assert result[1] == 800.0  # original value preserved
 
-    def test_write_once_allows_zero_override(self):
-        """Slot with 0 grams should be overwritable (not a real reading)."""
+    def test_write_once_locks_zero(self):
+        """Slot seeded at 0g is valid (depleted spool) — should not be re-seeded."""
         snapshot = {1: 0.0}
         fg = {1: 800.0}
         result = seed_slot_start_grams(snapshot, 1, fg, {})
-        assert result[1] == 800.0
+        assert result[1] == 0.0  # 0g lock preserved
 
     def test_skips_when_no_reading(self):
         snapshot = {1: 800.0}

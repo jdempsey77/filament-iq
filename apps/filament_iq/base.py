@@ -59,20 +59,90 @@ def build_slot_mappings(prefix: str, ams_units=None):
 class FilamentIQBase(hass.Hass):
     """Base class for FilamentIQ apps. Provides config validation and entity prefix building."""
 
-    def _validate_config(self, required_keys: list) -> None:
-        """Validate that all required config keys are present in self.args.
+    def _validate_config(self, required_keys: list, typed_keys: dict = None,
+                         range_keys: dict = None) -> None:
+        """Validate config: presence, type, and range.
 
-        For each missing key: log error then raise ValueError so AppDaemon marks the app failed.
+        required_keys: list of key names that must be present and truthy.
+        typed_keys: {key: (type_cls, default)} — validate type if key present.
+            For bool: value must be actual bool (not string "yes" or int 1).
+            For int/float: value is cast via type_cls(); ValueError on failure.
+        range_keys: {key: (min_val, max_val)} — validate range after type check.
+            None = no bound on that side.
         """
+        errors = []
+
+        # Phase 1: required keys (presence check)
         missing = [k for k in required_keys if not self.args.get(k)]
         if missing:
             for key in missing:
-                self.log(
-                    f"FilamentIQ config error: missing required key '{key}'",
-                    level="ERROR",
-                )
+                msg = f"Required config key '{key}' is missing"
+                self.log(f"CONFIG_ERROR {msg}", level="ERROR")
+                errors.append(msg)
+
+        # Phase 2: type validation
+        if typed_keys:
+            for key, (type_cls, default) in typed_keys.items():
+                raw = self.args.get(key)
+                if raw is None:
+                    continue  # optional key absent, will use default
+                if type_cls is bool:
+                    if not isinstance(raw, bool):
+                        msg = (f"Config key '{key}' must be bool, "
+                               f"got {type(raw).__name__}: {raw!r}")
+                        self.log(f"CONFIG_ERROR {msg}", level="ERROR")
+                        errors.append(msg)
+                else:
+                    try:
+                        type_cls(raw)
+                    except (ValueError, TypeError):
+                        msg = (f"Config key '{key}' must be {type_cls.__name__}, "
+                               f"got {type(raw).__name__}: {raw!r}")
+                        self.log(f"CONFIG_ERROR {msg}", level="ERROR")
+                        errors.append(msg)
+
+        # Phase 3: range validation
+        if range_keys:
+            for key, (min_val, max_val) in range_keys.items():
+                raw = self.args.get(key)
+                if raw is None:
+                    continue
+                try:
+                    val = float(raw)
+                except (ValueError, TypeError):
+                    continue  # type error already caught above
+                if min_val is not None and val < min_val:
+                    msg = (f"Config key '{key}' must be >= {min_val}, "
+                           f"got {val}")
+                    self.log(f"CONFIG_ERROR {msg}", level="ERROR")
+                    errors.append(msg)
+                if max_val is not None and val > max_val:
+                    msg = (f"Config key '{key}' must be <= {max_val}, "
+                           f"got {val}")
+                    self.log(f"CONFIG_ERROR {msg}", level="ERROR")
+                    errors.append(msg)
+
+        if errors:
             raise ValueError(
-                f"FilamentIQ config error: missing required keys: {missing}"
+                f"FilamentIQ config errors: {'; '.join(errors)}"
+            )
+
+        self.log("CONFIG_VALID", level="INFO")
+
+    def _check_spoolman_connectivity(self) -> None:
+        """Check if Spoolman is reachable. WARNING on failure (non-blocking)."""
+        url = str(self.args.get("spoolman_url", "")).rstrip("/")
+        if not url:
+            return
+        import urllib.request
+        try:
+            req = urllib.request.Request(f"{url}/api/v1/info", method="GET")
+            urllib.request.urlopen(req, timeout=5)
+            self.log(f"SPOOLMAN_REACHABLE url={url}", level="INFO")
+        except Exception as exc:
+            self.log(
+                f"SPOOLMAN_UNREACHABLE url={url} error={exc}",
+                level="WARNING",
             )
 
     def _build_entity_prefix(self) -> str:
