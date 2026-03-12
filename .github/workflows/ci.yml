@@ -1,28 +1,22 @@
 name: CI
-
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install dependencies
         run: pip install appdaemon pytest
-
       - name: Run tests
-        run: python3 -m pytest tests/test_threemf_parser.py tests/test_print_usage_sync.py -q
-
+        run: python3 -m pytest tests/ -q
       - name: Run audit
         run: python3 scripts/audit_config_driven.py
         continue-on-error: true

@@ -29,7 +29,7 @@ if "hassapi" not in sys.modules:
     sys.modules["hassapi"] = _hassapi
 
 # Add appdaemon/apps to path
-_APPS = os.path.join(os.path.dirname(__file__), "..", "apps")
+_APPS = os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps")
 if _APPS not in sys.path:
     sys.path.insert(0, _APPS)
 

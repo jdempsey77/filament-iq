@@ -11,7 +11,7 @@ import zipfile
 import pytest
 
 sys.path.insert(
-    0, os.path.join(os.path.dirname(__file__), "..", "apps")
+    0, os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps")
 )
 
 from filament_iq.threemf_parser import (
