@@ -1,6 +1,6 @@
 # Filament IQ — Backlog
 
-> Full codebase audit: 2026-03-10 | Last updated: 2026-03-11
+> Full codebase audit: 2026-03-10 | Red team audit: 2026-03-12 | Last updated: 2026-03-12
 
 ## Legend
 - 🔴 HIGH — production risk, fix immediately
@@ -21,6 +21,12 @@ _None — all in-progress items completed._
 |---|--------|---------|--------|-----|
 | 1 | ✅ | `_active_run` not reset in finally — Spoolman outage permanently blocks reconciler | R3 #1/#2 | `1713c7b` |
 | 2 | ✅ | `seen_job_keys.json` non-atomic write — crash mid-write corrupts dedup history | R1 #4 | `1713c7b` |
+| 3 | ✅ | USAGE_SANITY_CAP 300g → 1000g — blocked legitimate 484g print | Prod incident | `1bbc233` |
+| 4 | ✅ | RFID_IDENTITY_STUCK false positive on enrolled slots after AppDaemon restart | Prod bug | `bb10a74` |
+| 5 | ✅ | "New" location spools excluded from dropdown — fresh spools unbindable | Prod bug | `bb10a74` |
+| 6 | ✅ | `tray_uuid` missing from UNBOUND_REASON log lines — diagnostics gap | Prod | `bb10a74` |
+| 7 | ✅ | Write-ahead dedup: permanent data loss if Spoolman times out (job deduped but never written) | Red team #1 | `02910eb` |
+| 8 | ✅ | CI mock paths: `appdaemon.apps.filament_iq.*` → `filament_iq.*` for both repos | CI fix | `11f9d07` + `b08cf66` |
 
 ---
 
@@ -39,6 +45,7 @@ _None — all in-progress items completed._
 | 7 | ✅ | `_rehydrate_print_state()` never tested | R2 #4 | 7 tests — `4ce5332` |
 | 8 | ✅ | Negative RFID delta clamping never tested | R2 #6 | 3 tests — `4ce5332` |
 | 9 | ✅ | `_coerce_json_field` None path never tested | R2 #5 | 5 tests — `4ce5332` |
+| 10 | ✅ | Write-ahead dedup ordering — `_persist_seen_job_keys()` before writes causes permanent data loss on Spoolman timeout | RT #1 | `ams_print_usage_sync.py` — fixed `02910eb` |
 
 ### MEDIUM
 
@@ -64,6 +71,11 @@ _None — all in-progress items completed._
 | 18 | `cancel_timer` not wrapped in try/except | R3 #3 | `ams_rfid_reconcile.py:758` |
 | 19 | `_rfid_identity_tracker` initialized via getattr hack, not in `initialize()` | R3 #4 | `ams_rfid_reconcile.py:892-896` |
 | 20 | Undocumented config keys in `apps.yaml` | R3 #7 | `appdaemon/apps/apps.yaml` |
+| 21 | Persist in-flight print state to `active_print.json` — mid-print restart loses all consumption data. Write `{job_key, start_snapshot, trays_used}` on print start, resume on restart if print still active, delete on finish. ~20 lines | RT #2 | `ams_print_usage_sync.py` |
+| 22 | Coverage push to 75%+ on critical write paths — `_spoolman_use()` failure/retry, `_handle_finish_event()` end-to-end, reconciler PATCH write-back (0% coverage). Delete 2 fake math tests, unskip/delete 2 skipped pool-logic tests. Target 75% overall, 70%+ per module | RT #3 | `tests/` |
+| 23 | AppDaemon deploy verification — `manage_ha.sh` exits 0 even if addon fails to start. Add `ha addons info` status poll (timeout 60s, exit 1 if not started) | RT #4 | `scripts/manage_ha.sh` |
+| 24 | Duplicate `tray_uuid` detection in reconciler — two slots with same tray_uuid should flag both CONFLICT, log WARNING, notify operator. Prevents double-counting on cloned RFID chips | RT #5 | `ams_rfid_reconcile.py` |
+| 25 | Config validation on startup — add type + range checks: `spoolman_url` (valid URL), `max_consumption_g` (>0), `scan_interval_seconds` (>0), `color_tolerance` (0-255). Log ERROR and refuse to initialize on bad config | RT #6 | All app files |
 
 ### LOW
 
@@ -131,6 +143,17 @@ _None — all in-progress items completed._
 | 6 | 🔵 OSS prep | Reference dashboard, README, install docs for public release. |
 | 7 | ✅ HA token rotation script | `scripts/rotate-secret.sh` — rotates HA long-lived token on Mac + ska. Committed `efc7cad`. |
 | 8 | ✅ loginctl linger | `deploy-monitor.sh` enables linger so monitor survives SSH disconnect. Fixed `a27569f`. |
+
+---
+
+## Releases
+
+| Version | Date | Key Changes |
+|---------|------|-------------|
+| v0.10.1 | 2026-03-12 | Write-ahead dedup fix — failed Spoolman writes now retryable (`02910eb`, PR #17) |
+| v0.10.0 | 2026-03-12 | RFID stuck false positive, sanity cap 1000g, dropdown New filter, tray_uuid logs, CI mock paths (PR #15, #16) |
+| v0.9.0 | 2026-03-11 | RFID weight reconciler, 3MF race guard, batch Spoolman fetch, smart empty guard, removed pool estimation (PR #14) |
+| v0.8.0 | 2026-03-09 | Native FTPS, phantom consumption fix, slot_position_material match tier |
 
 ---
 
