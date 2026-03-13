@@ -525,63 +525,72 @@ class AmsPrintUsageSync(FilamentIQBase):
             level="INFO",
         )
 
+        # ── Notification — only on terminal print states ────────────
+        _NOTIFY_STATES = {"finish", "finished", "completed", "failed", "error", "cancelled", "canceled"}
+        if print_status not in _NOTIFY_STATES:
+            self._threemf_data = None
+            self._threemf_filename = None
+            return
+
+        # Title based on outcome
+        if print_status in ("finish", "finished", "completed"):
+            notify_title = "\u2705 Print Complete"
+        elif print_status in ("failed", "error"):
+            notify_title = "\u274c Print Failed"
+        else:
+            notify_title = "\u26a0\ufe0f Print Cancelled"
+
+        # Duration
+        if getattr(self, "_print_start_time", None) is not None:
+            elapsed = time.time() - self._print_start_time
+            hours = int(elapsed // 3600)
+            minutes = int((elapsed % 3600) // 60)
+            duration_str = f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
+        else:
+            duration_str = "unknown"
+
         job_label = task_name.replace(".gcode.3mf", "").replace(".3mf", "").strip()
-        lines = [f"Job: {job_label} [{job_key}]", f"Status: {print_status}", ""]
+        lines = [f"Job: {job_label}", f"Duration: {duration_str}", ""]
         for slot, spool_id, consumption_g, method in all_results:
             spool_name = self._get_spool_display_name(spool_id, spools_cache=spools_cache)
             remaining = self._get_spool_remaining(spool_id, spools_cache=spools_cache)
-            in_range = (
-                consumption_g >= self.min_consumption_g
-                and consumption_g <= self.max_consumption_g
+            lines.append(
+                f"Slot {slot} ({spool_name}): {consumption_g:.1f}g "
+                f"remaining \u2192 {remaining:.0f}g [{method}]"
             )
-            was_written = in_range and not self.dry_run
-            if was_written:
-                lines.append(
-                    f"Slot {slot}: {spool_name} — used {consumption_g:.1f}g "
-                    f"({remaining:.0f}g left) [{method}]"
-                )
-            elif in_range and self.dry_run:
-                lines.append(
-                    f"Slot {slot}: {spool_name} — used {consumption_g:.1f}g "
-                    f"({remaining:.0f}g left) [dry run, not written] [{method}]"
-                )
-            elif consumption_g > self.max_consumption_g:
-                lines.append(
-                    f"Slot {slot}: {spool_name} — {consumption_g:.1f}g "
-                    f"SKIPPED (exceeds {self.max_consumption_g:.0f}g cap) [{method}]"
-                )
-            elif consumption_g < self.min_consumption_g:
-                lines.append(
-                    f"Slot {slot}: {spool_name} — {consumption_g:.1f}g "
-                    f"(below {self.min_consumption_g:.0f}g min, not written) [{method}]"
-                )
         if not all_results:
             lines.append("No filament consumption recorded.")
             if not trays_used_set:
-                lines.append("(No tray activity detected)")
-            if not self._threemf_data:
-                lines.append("(3MF data unavailable)")
+                lines.append("Reason: No tray activity detected")
+            elif not self._threemf_data:
+                lines.append("Reason: 3MF data unavailable")
+            else:
+                lines.append("Reason: No RFID delta and no 3MF match")
         lines.append("")
-        lines.append(f"Total: {total_consumed:.1f}g | Slicer estimate: {print_weight_g:.1f}g")
+        lines.append(f"Total: {total_consumed:.1f}g | Estimate: {print_weight_g:.1f}g")
         notification_msg = "\n".join(lines)
         notify_target = self.args.get("notify_target")
+        nid = f"filament_iq_usage_{job_key}"
         try:
             if notify_target:
                 self.call_service(
                     "notify/notify",
                     target=notify_target,
-                    title=f"P1S Filament Usage ({print_status})",
+                    title=notify_title,
                     message=notification_msg,
+                    data={"notification_id": nid},
                 )
             else:
                 self.call_service(
                     "notify/persistent_notification",
-                    title=f"P1S Filament Usage ({print_status})",
+                    title=notify_title,
                     message=notification_msg,
+                    notification_id=nid,
                 )
         except Exception as e:
             self.log(f"USAGE_NOTIFY_FAILED: {e}", level="WARNING")
 
+        self._print_start_time = None
         self._threemf_data = None
         self._threemf_filename = None
 
@@ -743,6 +752,7 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     def _on_print_start(self):
         """Phase 1 print start handler: job key, start snapshot, HA helpers."""
+        self._print_start_time = time.time()
         task_name = str(self.get_state(self._task_name_entity) or "")
         self._job_key = f"{task_name.replace(' ', '_')}_{int(time.time())}"
         self._start_snapshot = self._build_start_snapshot()
