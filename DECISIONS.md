@@ -24,3 +24,22 @@ rehydrate path already uses the same helper-first pattern
 
 **Evidence:** 0.28mm print, 2026-03-13. `ACTIVE_PRINT_PERSISTED`
 `has_3mf=True` at 22:47, AD restart at 00:57, `threemf_file=none` at 01:22.
+
+### 2026-03-14 — RFID reconciler deferred 60s post-print
+
+**Decision:** `_reconcile_rfid_weights()` deferred via `run_in(60s)`
+instead of running synchronously in `_do_finish()`.
+
+**Why:** Bambu MQTT tray sensor (`remain%`) is cached and does not
+refresh immediately after print finish. Synchronous reconcile reads
+stale pre-print weight and patches Spoolman back, undoing the
+consumption write silently.
+
+**Alternatives considered:**
+- Slot exclusion list (skip slots written this pass) — rejected,
+  complex state to maintain, deferred call is simpler and correct
+- Threshold guard — rejected per prior decision (2026-03-11),
+  any real difference should be corrected
+
+**Evidence:** ANALYZE audit 2026-03-14. No production incident yet
+identified but mechanism confirmed in code review.

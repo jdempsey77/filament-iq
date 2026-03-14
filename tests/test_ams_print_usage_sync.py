@@ -2975,6 +2975,53 @@ class TestSpoolmanPatchSync:
         assert any("SPOOLMAN_PATCH_FAILED" in msg for msg, _ in app._log_calls)
 
 
+class TestReconcileRfidWeightsDeferred:
+    """_reconcile_rfid_weights is deferred via run_in in _do_finish."""
+
+    def test_do_finish_defers_reconciler(self):
+        """_do_finish schedules reconciler via run_in, not synchronously."""
+        app = _TestableUsageSync(
+            state_map={
+                **_default_state_map({4: 10}),
+                "sensor.p1s_tray_4_fuel_gauge_remaining": "370.0",
+                "sensor.p1s_01p00c5a3101668_print_weight": "50",
+                "sensor.p1s_01p00c5a3101668_task_name": "test.3mf",
+            },
+            args={
+                "lifecycle_phase1_enabled": True,
+                "lifecycle_phase2_enabled": True,
+            },
+        )
+        app._job_key = "deferred_test"
+        app._start_snapshot = {4: 420.0}
+        app._trays_used = {4}
+        app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+        app._do_finish("finish")
+        # Verify reconciler was scheduled via run_in, not called directly
+        deferred_calls = [
+            c for c in app._run_in_calls
+            if c.get("callback") == app._reconcile_rfid_weights_deferred
+        ]
+        assert len(deferred_calls) == 1, f"expected 1 deferred call, got {deferred_calls}"
+        assert deferred_calls[0]["delay"] == 60
+        assert _has_log(app, "RFID_WEIGHT_RECONCILE_DEFERRED")
+
+    def test_deferred_callback_calls_reconciler(self):
+        """_reconcile_rfid_weights_deferred calls _reconcile_rfid_weights."""
+        app = _TestableUsageSync()
+        app._weight_reconcile_enabled = False
+        app._reconcile_rfid_weights_deferred({})
+        # Should not raise, disabled reconciler is a no-op
+
+    def test_deferred_callback_catches_exception(self):
+        """_reconcile_rfid_weights_deferred catches and logs exceptions."""
+        app = _TestableUsageSync()
+        app._weight_reconcile_enabled = True
+        with mock.patch.object(app, "_reconcile_rfid_weights", side_effect=RuntimeError("boom")):
+            app._reconcile_rfid_weights_deferred({})
+        assert any("RFID_WEIGHT_RECONCILE_ERROR" in msg for msg, _ in app._log_calls)
+
+
 class TestReconcileRfidWeights:
     """_reconcile_rfid_weights iterates slots."""
 
