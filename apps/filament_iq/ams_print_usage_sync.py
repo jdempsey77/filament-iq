@@ -55,6 +55,11 @@ SEEN_JOBS_PATH = os.path.join(_APP_DIR, "data", "seen_job_keys.json")
 MAX_SEEN_JOBS = 50
 ACTIVE_PRINT_FILE = pathlib.Path(_APP_DIR) / "data" / "active_print.json"
 
+# RFID weight reconciler constants
+TRAY_WEIGHT_MIN_G = 50.0    # Bambu AMS Lite spools are 250g; 50g gives safe headroom
+TRAY_WEIGHT_MAX_G = 2000.0  # Largest Bambu spool is 1000g; 2000g catches factory/clone errors
+RECONCILE_MIN_DELTA_G = 5.0 # remain% is integer 0-100; on 1000g spool, resolution = 10g
+
 # tag_uid values that indicate non-RFID (no chip or empty)
 _INVALID_TAG_UIDS = frozenset({"", "0000000000000000", "unknown", "unavailable"})
 
@@ -943,6 +948,17 @@ class AmsPrintUsageSync(FilamentIQBase):
             return
 
         if self._finish_wait_count >= 15:
+            # Last-resort: check disk before giving up
+            recovered = self._load_active_print(self._job_key)
+            if recovered is not None:
+                self._threemf_data = recovered
+                self.log(
+                    f"3MF_RECOVERED_FROM_DISK job_key={self._job_key}",
+                    level="INFO",
+                )
+                self._finish_pending = False
+                self._do_finish(self._finish_pending_status)
+                return
             self.log(
                 f"3MF_DATA_NOT_READY job_key={self._job_key} after 15s "
                 f"— proceeding without 3MF",
@@ -1006,14 +1022,16 @@ class AmsPrintUsageSync(FilamentIQBase):
         # Call usage handler directly (no event roundtrip)
         self._handle_usage_event(None, data, {})
 
-        # RFID weight reconciler — correct Spoolman drift using RFID ground truth
-        try:
-            self._reconcile_rfid_weights()
-        except Exception as exc:
-            self.log(
-                f"RFID_WEIGHT_RECONCILE_ERROR unhandled: {exc}",
-                level="ERROR",
-            )
+        # Defer RFID weight reconciliation to allow printer MQTT sensor
+        # to refresh post-print. Immediate reconcile would read stale
+        # pre-print remain% and undo the consumption write.
+        _RECONCILE_DELAY_SECONDS = 60
+        self.run_in(self._reconcile_rfid_weights_deferred, _RECONCILE_DELAY_SECONDS)
+        self.log(
+            f"RFID_WEIGHT_RECONCILE_DEFERRED job_key={self._job_key} "
+            f"delay={_RECONCILE_DELAY_SECONDS}s",
+            level="INFO",
+        )
 
         # Stamp dedup — only for non-failed prints so a retry with the
         # same job_key after a failure is not incorrectly skipped
@@ -1091,16 +1109,31 @@ class AmsPrintUsageSync(FilamentIQBase):
             self._rehydrated = True
             self.log("REHYDRATE_FLAG_SET reason=tray_timing_invalid", level="INFO")
 
+            # Read full job_key from HA helper — it holds the timestamp-suffixed key
+            # and survives AppDaemon restarts. Only fall back to task_name if empty.
+            # IMPORTANT: do NOT overwrite the helper when it already has the correct key.
             task_name = str(self.get_state(self._task_name_entity) or "")
-            self._job_key = task_name.replace(" ", "_")
-            try:
-                self.call_service(
-                    "input_text/set_value",
-                    entity_id=self._job_key_entity,
-                    value=self._job_key,
+            helper_key = str(self.get_state(self._job_key_entity) or "").strip()
+            if helper_key and helper_key not in ("unknown", "unavailable"):
+                self._job_key = helper_key
+                self.log(
+                    f"REHYDRATE_JOB_KEY_FROM_HELPER job_key={self._job_key}",
+                    level="INFO",
                 )
-            except Exception:
-                pass
+            else:
+                self._job_key = task_name.replace(" ", "_")
+                self.log(
+                    f"REHYDRATE_JOB_KEY_FROM_TASK_NAME job_key={self._job_key}",
+                    level="INFO",
+                )
+                try:
+                    self.call_service(
+                        "input_text/set_value",
+                        entity_id=self._job_key_entity,
+                        value=self._job_key,
+                    )
+                except Exception:
+                    pass
             self._threemf_data = self._load_active_print(self._job_key)
 
     def _on_ha_start(self, event_name, data, kwargs):
@@ -1705,6 +1738,24 @@ class AmsPrintUsageSync(FilamentIQBase):
             )
             return None
 
+    def _reconcile_rfid_weights_deferred(self, kwargs):
+        """Deferred reconcile callback — called via run_in after print finish."""
+        if self._print_active:
+            self.log(
+                "RFID_WEIGHT_RECONCILE_DEFERRED_PRINT_ACTIVE "
+                "— new print active, re-deferring 60s",
+                level="INFO",
+            )
+            self.run_in(self._reconcile_rfid_weights_deferred, 60)
+            return
+        try:
+            self._reconcile_rfid_weights()
+        except Exception as exc:
+            self.log(
+                f"RFID_WEIGHT_RECONCILE_ERROR unhandled: {exc}",
+                level="ERROR",
+            )
+
     def _reconcile_rfid_weights(self):
         """After print finish, correct Spoolman remaining_weight using RFID ground truth."""
         if not self._weight_reconcile_enabled:
@@ -1736,6 +1787,14 @@ class AmsPrintUsageSync(FilamentIQBase):
             return
         if tray_weight <= 0:
             return
+        if tray_weight < TRAY_WEIGHT_MIN_G or tray_weight > TRAY_WEIGHT_MAX_G:
+            self.log(
+                f"RFID_WEIGHT_SKIP_TRAY_WEIGHT slot={slot} "
+                f"tray_weight={tray_weight} "
+                f"reason=outside_sanity_bounds_{TRAY_WEIGHT_MIN_G}_{TRAY_WEIGHT_MAX_G}g",
+                level="WARNING",
+            )
+            return
         # Validate remain value before calculation
         if remain_raw is None or not isinstance(remain_raw, (int, float)):
             try:
@@ -1763,10 +1822,12 @@ class AmsPrintUsageSync(FilamentIQBase):
             )
             return
         spoolman_weight_g = round(float(spool_data.get("remaining_weight", 0)), 1)
-        if rfid_weight_g == spoolman_weight_g:
+        delta = abs(rfid_weight_g - spoolman_weight_g)
+        if delta < RECONCILE_MIN_DELTA_G:
             self.log(
                 f"RFID_WEIGHT_MATCH slot={slot} spool_id={spool_id} "
-                f"rfid={rfid_weight_g}g",
+                f"rfid={rfid_weight_g}g delta={delta:.1f}g < "
+                f"{RECONCILE_MIN_DELTA_G}g threshold",
                 level="DEBUG",
             )
             return
