@@ -35,6 +35,15 @@ refresh immediately after print finish. Synchronous reconcile reads
 stale pre-print weight and patches Spoolman back, undoing the
 consumption write silently.
 
+Research confirmed (docs/research/bambu_rfid_tag_internals.md) that
+remain% and tray_weight are stored in encrypted blocks on the physical
+RFID tag, not computed by the printer. The AMS reads the tag after
+print finish, updates the remain% block, then pushes the new value
+via MQTT to HA. The 60s delay covers the AMS re-read cycle. This is
+not a fixed-interval refresh — it depends on when the AMS next
+interrogates the tag — so 60s is a conservative minimum, not a
+guaranteed safe window.
+
 **Alternatives considered:**
 - Slot exclusion list (skip slots written this pass) — rejected,
   complex state to maintain, deferred call is simpler and correct
