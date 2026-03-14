@@ -8,14 +8,17 @@
 - [ ] Investigate 3MF_UNMATCHED for brief tray activations — tray tracking misses slots used for very short durations. Root cause: active_tray sensor polling interval vs actual extrusion time. Workaround in place (3MF-matched slots merged into active_slots).
 
 ### Medium Priority
-- [ ] start_map fallback over-count — if trays_used empty, active_slots falls back to all start_map keys (all 6 slots). Idle RFID slots with gauge drift could produce phantom writes. Narrow trigger. (Audit Finding A, 2026-03-14)
-- [ ] min_consumption_g discards valid small 3MF matches — slicer-exact 1.5g purge segment silently skipped by 2g minimum. Consider lowering or exempting 3MF path. (Audit Finding F, 2026-03-14)
+- [ ] start_map fallback over-count — if trays_used empty, active_slots falls back to all start_map keys (all 6 slots). Idle RFID slots with gauge drift could produce phantom writes. Narrow trigger. Lines 319-332, both internal tracking and event data empty. (Audit Finding A, 2026-03-14)
+- [ ] min_consumption_g discards valid small 3MF matches — slicer-exact 1.5g purge segment silently skipped by 2g minimum. Lines 439-446, filter applies to all methods including 3MF. Consider lowering or exempting 3MF path. (Audit Finding F, 2026-03-14)
+- [ ] Rehydrated start snapshot from fuel gauges undercounts delta — when HA helper recovery fails, start_snapshot rebuilt from current fuel gauges mid-print. Delta = current - end, not original_start - end. (Audit Finding 8b, 2026-03-14)
 - [ ] Spool_id snapshot at print start — snapshot spool_ids alongside fuel gauge in _start_snapshot or parallel _spool_id_snapshot. Usage sync reads from snapshot at finish instead of live helpers. Eliminates reconciler/usage sync coupling. Principal identified as correct long-term fix (option d).
 - [ ] F1 availability template tolerance — RFID spools report remain=-1 to -2 when nearly depleted. Consider `remain >= -5 OR tray_weight > 0` to avoid falling to AMS remaining for valid near-empty RFID reads.
 - [ ] Manually correct spool 39 consumption in Spoolman (~144g from grid print 2026-03-11 00:08, remaining showed 98.4g which may be stale)
 
 ### Low Priority
 - [ ] Manual correction: spool 38 remaining weight in Spoolman (~110g lost from Gridfinity print 2026-03-13, slot 4 depletion incident)
+- [ ] start_g > 0 guard should be >= 0 — line 407, RFID slot with exactly 0g start excluded from delta path. No practical impact (0g start yields 0g delta, caught by min_consumption_g). (Audit Finding B, 2026-03-14)
+- [ ] remaining_weight default=1 masks depletion detection — line 460, if Spoolman omits remaining_weight in response, default 1 means depleted guard does not fire. Should default to 0. (Audit Finding D, 2026-03-14)
 - [ ] 3MF fetch takes 11-15s consistently, triggering "Excessive time spent" warnings — investigate if FTPS listing of 154 files is the bottleneck. Could skip listing and download by constructed filename directly.
 - [ ] Delete remaining obsolete HA helpers: input_number.filament_iq_start/end_slot_N_g (deferred — active test scripts reference them)
 - [x] Change ACTIVE_PRINT_PERSISTED log level from DEBUG to INFO for visibility in normal monitoring (48f18ff)
@@ -23,8 +26,9 @@
 - [ ] Manually correct spool 52 consumption in Spoolman (~143g from grid print 2026-03-12 15:03)
 
 ### Done
-- [x] RFID reconciler deferred 60s post-print — prevents stale MQTT sensor from undoing consumption writes. (v0.12.2, Audit Finding E)
-- [x] Rehydrate job_key from HA helper — reads full timestamp-suffixed key from input_text helper instead of re-deriving from task_name. Disk fallback in _finish_wait_tick as safety net. (v0.12.1, RT #2 rehydrate fix)
+- [x] 16 E2E pipeline mock tests — full _handle_usage_event decision matrix (8 scenarios) + 6 audit finding tests. 1215 passing. 919b484 (v0.12.3)
+- [x] RFID reconciler deferred 60s post-print — prevents stale MQTT sensor from undoing consumption writes. Synchronous reconcile read cached pre-print RFID remain% and patched Spoolman back. bb4d47b (v0.12.2, Audit Finding E — HIGH, now fixed)
+- [x] Rehydrate job_key from HA helper — reads full timestamp-suffixed key from input_text helper instead of re-deriving from task_name. Disk fallback in _finish_wait_tick as safety net. 474eebb (v0.12.1, RT #2 rehydrate fix). Note: original RT #2 described persisting trays_used; actual fix was reading _job_key from HA helper — active_print.json already persisted threemf_data, the bug was key mismatch on load.
 - [x] Reconciler print-active freeze — full reconcile skip during active prints, 24h watchdog, post-print reconcile trigger, USAGE_SKIP data loss warning. 1194 tests. (v0.12.0)
 - [x] Coverage push to 75% — 1177 tests, +451 new, per-module: base 100%, threemf 94%, dropdown 87%, weight 83%, guard 81%, usage 73%, reconcile 71% (v0.11.2, RT #3)
 - [x] Hold slot bindings during active prints — reconciler skips re-evaluation of bound slots while print_active (v0.11.1, F4 / RT #6)
