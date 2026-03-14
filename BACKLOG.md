@@ -12,14 +12,14 @@
 - [ ] min_consumption_g discards valid small 3MF matches — slicer-exact 1.5g purge segment silently skipped by 2g minimum. Lines 439-446, filter applies to all methods including 3MF. Consider lowering or exempting 3MF path. (Audit Finding F, 2026-03-14)
 - [ ] Rehydrated start snapshot from fuel gauges undercounts delta — when HA helper recovery fails, start_snapshot rebuilt from current fuel gauges mid-print. Delta = current - end, not original_start - end. (Audit Finding 8b, 2026-03-14)
 - [ ] Spool_id snapshot at print start — snapshot spool_ids alongside fuel gauge in _start_snapshot or parallel _spool_id_snapshot. Usage sync reads from snapshot at finish instead of live helpers. Eliminates reconciler/usage sync coupling. Principal identified as correct long-term fix (option d).
-- [ ] F1 availability template tolerance — RFID spools report remain=-1 to -2 when nearly depleted. Consider `remain >= -5 OR tray_weight > 0` to avoid falling to AMS remaining for valid near-empty RFID reads.
+- [x] F1 fuel gauge near-empty tolerance — _read_fuel_gauge now accepts fg >= -5 (was >= 0). Near-empty RFID spools reporting -1 to -5g no longer fall back to AMS remaining. (v0.12.5)
 - [ ] Manually correct spool 39 consumption in Spoolman (~144g from grid print 2026-03-11 00:08, remaining showed 98.4g which may be stale)
 - [ ] Spoolman used_weight invariant break — RFID reconciler PATCHes remaining_weight directly, making `remaining + used != initial`. Benign for Filament IQ today but breaks any Spoolman consumer of used_weight. Track for future. (Skeptic Review, 2026-03-14)
 
 ### Low Priority
 - [ ] Manual correction: spool 38 remaining weight in Spoolman (~110g lost from Gridfinity print 2026-03-13, slot 4 depletion incident)
-- [ ] start_g > 0 guard should be >= 0 — line 407, RFID slot with exactly 0g start excluded from delta path. No practical impact (0g start yields 0g delta, caught by min_consumption_g). (Audit Finding B, 2026-03-14)
-- [ ] remaining_weight default=1 masks depletion detection — line 460, if Spoolman omits remaining_weight in response, default 1 means depleted guard does not fire. Should default to 0. (Audit Finding D, 2026-03-14)
+- [x] start_g >= 0 guard — RFID delta now accepts 0g start. (Audit Finding B, v0.12.5)
+- [x] remaining_weight default=0 — depleted guard now fires on missing Spoolman field. (Audit Finding D, v0.12.5)
 - [ ] 3MF fetch takes 11-15s consistently, triggering "Excessive time spent" warnings — investigate if FTPS listing of 154 files is the bottleneck. Could skip listing and download by constructed filename directly.
 - [ ] Delete remaining obsolete HA helpers: input_number.filament_iq_start/end_slot_N_g (deferred — active test scripts reference them)
 - [x] Change ACTIVE_PRINT_PERSISTED log level from DEBUG to INFO for visibility in normal monitoring (48f18ff)
