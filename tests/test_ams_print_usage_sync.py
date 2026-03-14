@@ -1232,6 +1232,35 @@ def test_fuel_gauge_unavailable_still_returns_negative():
     assert result == -1.0, f"expected -1.0 for unavailable, got {result}"
 
 
+def test_fuel_gauge_near_empty_negative_accepted():
+    """_read_fuel_gauge with fg=-2 returns -2.0 (near-empty RFID tolerance)."""
+    app = _TestableUsageSync(state_map={})
+    fg_entity = app._fuel_gauge_pattern.format(slot=4)
+    app._state_map[fg_entity] = "-2.0"
+    result = app._read_fuel_gauge(4)
+    assert result == -2.0, f"expected -2.0 for near-empty, got {result}"
+
+
+def test_fuel_gauge_minus_5_accepted():
+    """_read_fuel_gauge with fg=-5 returns -5.0 (boundary of tolerance)."""
+    app = _TestableUsageSync(state_map={})
+    fg_entity = app._fuel_gauge_pattern.format(slot=4)
+    app._state_map[fg_entity] = "-5.0"
+    result = app._read_fuel_gauge(4)
+    assert result == -5.0, f"expected -5.0 at boundary, got {result}"
+
+
+def test_fuel_gauge_below_tolerance_falls_back():
+    """_read_fuel_gauge with fg=-6 falls back to ams_remaining."""
+    app = _TestableUsageSync(state_map={})
+    fg_entity = app._fuel_gauge_pattern.format(slot=4)
+    app._state_map[fg_entity] = "-6.0"
+    ams_entity = app._ams_remaining_pattern.format(slot=4)
+    app._state_map[ams_entity] = "15.0"
+    result = app._read_fuel_gauge(4)
+    assert result == 15.0, f"expected 15.0 from ams fallback, got {result}"
+
+
 def test_end_snapshot_includes_zero_gram_slot():
     """Spool at 0g fuel gauge is included in end snapshot (previously excluded)."""
     app = _TestableUsageSync(state_map={})
@@ -4097,8 +4126,8 @@ class TestPipelineE2E:
 
     # ── Finding B: RFID delta with start_g = 0 ──
 
-    def test_finding_b_rfid_start_zero_excluded(self):
-        """RFID slot with start_g=0 is excluded by the > 0 guard."""
+    def test_finding_b_rfid_start_zero_included(self):
+        """RFID slot with start_g=0, end_g=0 → 0g delta, filtered by min_consumption_g."""
         app = self._make_app(
             rfid_slots={1},
             spool_bindings={1: 10},
@@ -4106,13 +4135,14 @@ class TestPipelineE2E:
         _fire(app, job_key="fb_test", trays_used="1",
               start_json='{"1": 0}', end_json='{"1": 0}',
               print_status="finish")
+        # start_g=0 now accepted by >= 0 guard; delta=0g filtered by min_consumption_g
         assert len(app._use_calls) == 0
-        assert _has_log(app, "USAGE_NO_EVIDENCE slot=1")
+        assert _has_log(app, "USAGE_BELOW_MIN slot=1")
 
     # ── Finding D: remaining_weight missing from Spoolman response ──
 
-    def test_finding_d_missing_remaining_weight(self):
-        """Spoolman response without remaining_weight defaults to 1 (not depleted)."""
+    def test_finding_d_missing_remaining_weight_triggers_depleted(self):
+        """Spoolman response without remaining_weight defaults to 0 (depleted path)."""
         app = self._make_app(
             rfid_slots={1},
             spool_bindings={1: 10},
@@ -4120,15 +4150,15 @@ class TestPipelineE2E:
         # Override _spoolman_use to return response without remaining_weight
         def use_no_remaining(spool_id, use_weight_g):
             app._use_calls.append({"spool_id": spool_id, "use_weight": use_weight_g})
-            return {"id": spool_id}  # no remaining_weight
+            return {"id": spool_id}  # no remaining_weight → default 0
         app._spoolman_use = use_no_remaining
         _fire(app, job_key="fd_test", trays_used="1",
               start_json='{"1": 940}', end_json='{"1": 870}',
               print_status="finish")
         assert len(app._use_calls) == 1
         assert _has_log(app, "USAGE_PATCHED slot=1")
-        # Should NOT fire depleted guard (default=1 > 0)
-        assert not _has_log(app, "USAGE_SPOOL_DEPLETED")
+        # Default=0 now triggers depleted guard (auto_empty_spools=False → SKIPPED)
+        assert _has_log(app, "USAGE_SPOOL_DEPLETED_SKIPPED")
 
     # ── Finding 8: rehydrate undercount with stale fuel gauge ──
 

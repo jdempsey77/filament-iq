@@ -409,7 +409,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             start_g = float(start_map.get(str(slot), 0))
             end_g = float(end_map.get(str(slot), 0))
 
-            if is_rfid and start_g > 0 and end_g >= 0:
+            if is_rfid and start_g >= 0 and end_g >= 0:
                 consumption_g = max(0.0, start_g - end_g)
                 all_results.append((slot, spool_id, consumption_g, "rfid_delta"))
                 self.log(
@@ -462,7 +462,7 @@ class AmsPrintUsageSync(FilamentIQBase):
 
             use_result = self._spoolman_use(spool_id, consumption_g)
             if use_result:
-                post_remaining = float(use_result.get("remaining_weight", 1))
+                post_remaining = float(use_result.get("remaining_weight", 0))
                 self.log(
                     f"USAGE_PATCHED slot={slot} spool_id={spool_id} "
                     f"consumption_g={consumption_g:.2f} method={method} "
@@ -728,10 +728,14 @@ class AmsPrintUsageSync(FilamentIQBase):
         """Read fuel gauge for a slot, with ams_remaining fallback. Returns grams or -1."""
         fg_entity = self._fuel_gauge_pattern.format(slot=slot)
         try:
-            fg = float(self.get_state(fg_entity) or -1)
+            raw = self.get_state(fg_entity)
+            if not raw or str(raw).strip().lower() in ("unavailable", "unknown", ""):
+                fg = -999.0
+            else:
+                fg = float(raw)
         except (TypeError, ValueError):
-            fg = -1.0
-        if fg >= 0:
+            fg = -999.0
+        if fg >= -5:
             return fg
         ams_entity = self._ams_remaining_pattern.format(slot=slot)
         try:
