@@ -943,6 +943,17 @@ class AmsPrintUsageSync(FilamentIQBase):
             return
 
         if self._finish_wait_count >= 15:
+            # Last-resort: check disk before giving up
+            recovered = self._load_active_print(self._job_key)
+            if recovered is not None:
+                self._threemf_data = recovered
+                self.log(
+                    f"3MF_RECOVERED_FROM_DISK job_key={self._job_key}",
+                    level="INFO",
+                )
+                self._finish_pending = False
+                self._do_finish(self._finish_pending_status)
+                return
             self.log(
                 f"3MF_DATA_NOT_READY job_key={self._job_key} after 15s "
                 f"— proceeding without 3MF",
@@ -1091,16 +1102,31 @@ class AmsPrintUsageSync(FilamentIQBase):
             self._rehydrated = True
             self.log("REHYDRATE_FLAG_SET reason=tray_timing_invalid", level="INFO")
 
+            # Read full job_key from HA helper — it holds the timestamp-suffixed key
+            # and survives AppDaemon restarts. Only fall back to task_name if empty.
+            # IMPORTANT: do NOT overwrite the helper when it already has the correct key.
             task_name = str(self.get_state(self._task_name_entity) or "")
-            self._job_key = task_name.replace(" ", "_")
-            try:
-                self.call_service(
-                    "input_text/set_value",
-                    entity_id=self._job_key_entity,
-                    value=self._job_key,
+            helper_key = str(self.get_state(self._job_key_entity) or "").strip()
+            if helper_key and helper_key not in ("unknown", "unavailable"):
+                self._job_key = helper_key
+                self.log(
+                    f"REHYDRATE_JOB_KEY_FROM_HELPER job_key={self._job_key}",
+                    level="INFO",
                 )
-            except Exception:
-                pass
+            else:
+                self._job_key = task_name.replace(" ", "_")
+                self.log(
+                    f"REHYDRATE_JOB_KEY_FROM_TASK_NAME job_key={self._job_key}",
+                    level="INFO",
+                )
+                try:
+                    self.call_service(
+                        "input_text/set_value",
+                        entity_id=self._job_key_entity,
+                        value=self._job_key,
+                    )
+                except Exception:
+                    pass
             self._threemf_data = self._load_active_print(self._job_key)
 
     def _on_ha_start(self, event_name, data, kwargs):

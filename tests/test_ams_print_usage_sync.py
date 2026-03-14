@@ -2509,6 +2509,88 @@ class TestRehydratePrintState:
         assert 1 in app._start_snapshot
         assert _has_log(app, "REHYDRATE_START_SNAPSHOT_REBUILT")
 
+    def test_rehydrate_reads_job_key_from_helper(self):
+        """Rehydrate reads full job_key (with timestamp) from HA helper, not task_name."""
+        app = _TestableUsageSync(
+            state_map={
+                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "input_text.filament_iq_start_json": '{"1": 500.0}',
+                "sensor.p1s_01p00c5a3101668_task_name": "test_model",
+                "input_text.filament_iq_active_job_key": "test_model_1773438415",
+            },
+            args={"lifecycle_phase1_enabled": True},
+        )
+        app._rehydrate_print_state()
+        assert app._job_key == "test_model_1773438415"
+        assert _has_log(app, "REHYDRATE_JOB_KEY_FROM_HELPER")
+        # Should NOT overwrite the helper
+        helper_writes = [
+            c for c in app._service_calls
+            if c.get("entity_id") == "input_text.filament_iq_active_job_key"
+        ]
+        assert len(helper_writes) == 0, "should not overwrite helper when it has the correct key"
+
+    def test_rehydrate_falls_back_to_task_name_when_helper_empty(self):
+        """Rehydrate falls back to task_name when helper is empty/unknown."""
+        app = _TestableUsageSync(
+            state_map={
+                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "input_text.filament_iq_start_json": '{"1": 500.0}',
+                "sensor.p1s_01p00c5a3101668_task_name": "test model fallback",
+                "input_text.filament_iq_active_job_key": "unknown",
+            },
+            args={"lifecycle_phase1_enabled": True},
+        )
+        app._rehydrate_print_state()
+        assert app._job_key == "test_model_fallback"
+        assert _has_log(app, "REHYDRATE_JOB_KEY_FROM_TASK_NAME")
+
+    def test_rehydrate_falls_back_when_helper_missing(self):
+        """Rehydrate falls back to task_name when helper entity returns None."""
+        app = _TestableUsageSync(
+            state_map={
+                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "input_text.filament_iq_start_json": '{"1": 500.0}',
+                "sensor.p1s_01p00c5a3101668_task_name": "no helper print",
+            },
+            args={"lifecycle_phase1_enabled": True},
+        )
+        app._rehydrate_print_state()
+        assert app._job_key == "no_helper_print"
+        assert _has_log(app, "REHYDRATE_JOB_KEY_FROM_TASK_NAME")
+
+    def test_rehydrate_helper_key_matches_active_print_json(self):
+        """Full rehydrate chain: helper key matches active_print.json → threemf_data restored."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+                mod.ACTIVE_PRINT_FILE = ap_file
+
+                threemf = [{"index": 0, "used_g": 100.67}]
+                ap_file.write_text(json.dumps({
+                    "job_key": "0.28mm_layer,_2_walls,_15%_infill_1773438415",
+                    "start_snapshot": {"1": 940.0},
+                    "threemf_data": threemf,
+                }))
+
+                app = _TestableUsageSync(
+                    state_map={
+                        "sensor.p1s_01p00c5a3101668_print_status": "running",
+                        "input_text.filament_iq_start_json": '{"1": 940.0}',
+                        "sensor.p1s_01p00c5a3101668_task_name": "0.28mm layer, 2 walls, 15% infill",
+                        "input_text.filament_iq_active_job_key": "0.28mm_layer,_2_walls,_15%_infill_1773438415",
+                    },
+                    args={"lifecycle_phase1_enabled": True},
+                )
+                app._rehydrate_print_state()
+                assert app._job_key == "0.28mm_layer,_2_walls,_15%_infill_1773438415"
+                assert app._threemf_data == threemf
+                assert _has_log(app, "ACTIVE_PRINT_RESTORED")
+                assert not _has_log(app, "ACTIVE_PRINT_STALE")
+            finally:
+                mod.ACTIVE_PRINT_FILE = pathlib.Path(tmp_dir) / "active_print.json"
+
 
 class TestResolveActiveTraySlot:
     """_resolve_active_tray_slot edge cases."""
@@ -2576,6 +2658,66 @@ class TestFinishWaitTick:
         app._finish_wait_count = 3
         app._finish_wait_tick({})
         assert any(c["callback"] == app._finish_wait_tick for c in app._run_in_calls)
+
+    def test_timeout_recovers_from_disk(self):
+        """_finish_wait_tick at 15s timeout loads from active_print.json before giving up."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            import filament_iq.ams_print_usage_sync as mod
+            orig = mod.ACTIVE_PRINT_FILE
+            try:
+                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+                mod.ACTIVE_PRINT_FILE = ap_file
+
+                threemf = [{"index": 0, "used_g": 50.0, "color_hex": "FF0000", "material": "PLA"}]
+                ap_file.write_text(json.dumps({
+                    "job_key": "test_job_12345",
+                    "start_snapshot": {"1": 400.0},
+                    "threemf_data": threemf,
+                }))
+
+                app = _TestableUsageSync(args={
+                    "lifecycle_phase1_enabled": True,
+                    "lifecycle_phase2_enabled": True,
+                })
+                app._job_key = "test_job_12345"
+                app._threemf_data = None
+                app._finish_pending = True
+                app._finish_pending_status = "finish"
+                app._finish_wait_count = 14
+                app._do_finish = mock.MagicMock()
+                app._finish_wait_tick({})
+                assert app._threemf_data == threemf
+                assert _has_log(app, "3MF_RECOVERED_FROM_DISK")
+                assert not _has_log(app, "3MF_DATA_NOT_READY")
+                app._do_finish.assert_called_once_with("finish")
+            finally:
+                mod.ACTIVE_PRINT_FILE = orig
+
+    def test_timeout_no_disk_proceeds_without_3mf(self):
+        """_finish_wait_tick at 15s timeout, no disk file → proceeds without 3MF."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                orig = mod.ACTIVE_PRINT_FILE
+                mod.ACTIVE_PRINT_FILE = pathlib.Path(tmp_dir) / "active_print.json"
+                # No file on disk
+
+                app = _TestableUsageSync(args={
+                    "lifecycle_phase1_enabled": True,
+                    "lifecycle_phase2_enabled": True,
+                })
+                app._job_key = "missing_job"
+                app._threemf_data = None
+                app._finish_pending = True
+                app._finish_pending_status = "finish"
+                app._finish_wait_count = 14
+                app._do_finish = mock.MagicMock()
+                app._finish_wait_tick({})
+                assert app._threemf_data is None
+                assert _has_log(app, "3MF_DATA_NOT_READY")
+                app._do_finish.assert_called_once_with("finish")
+            finally:
+                mod.ACTIVE_PRINT_FILE = orig
 
 
 class TestOnPrintFinishCancelsPrevious:
