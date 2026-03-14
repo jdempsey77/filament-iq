@@ -21,6 +21,7 @@ import math
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -405,6 +406,10 @@ class AmsRfidReconcile(FilamentIQBase):
                 "input_boolean.filament_iq_print_active",
             )
         ).strip()
+        self._print_active_since = None
+        if str(self.get_state(self._print_active_entity) or "").lower() == "on":
+            self._print_active_since = time.time()
+            self.log("PRINT_ACTIVE_FREEZE_START reason=already_on_at_startup", level="INFO")
         self._ensure_evidence_path_writable()
         if DomainException is not None:
             self.log(
@@ -439,6 +444,10 @@ class AmsRfidReconcile(FilamentIQBase):
             self._on_manual_reconcile_button,
             self._reconcile_button_entity,
         )
+        self.listen_state(
+            self._on_print_active_change,
+            self._print_active_entity,
+        )
         self.listen_event(self._on_manual_enroll_event, "bambu_rfid_manual_enroll_tag_to_spool")
         self.listen_event(self._on_slot_assigned, "FILAMENT_IQ_SLOT_ASSIGNED")
         self.listen_event(self._on_validate_event, "AMS_RFID_VALIDATE")
@@ -454,6 +463,21 @@ class AmsRfidReconcile(FilamentIQBase):
 
     def _on_homeassistant_start(self, event_name, data, kwargs):
         self._schedule_reconcile("homeassistant_started")
+
+    def _on_print_active_change(self, entity, attribute, old, new, kwargs):
+        """Track print-active transitions for reconcile freeze/thaw."""
+        new_val = str(new).lower()
+        old_val = str(old).lower()
+        if new_val == "on":
+            self._print_active_since = time.time()
+            self.log("PRINT_ACTIVE_FREEZE_START", level="INFO")
+        elif new_val == "off" and old_val == "on":
+            self._print_active_since = None
+            self.log(
+                "PRINT_ENDED_RECONCILE_TRIGGERED reason=print_active_off",
+                level="INFO",
+            )
+            self._schedule_reconcile("print_ended")
 
     def _run_reconcile_startup(self, kwargs):
         # Suppress HA spool-swap detection for 90s after startup (avoids false positives from bulk helper updates).
@@ -814,6 +838,33 @@ class AmsRfidReconcile(FilamentIQBase):
             slots_to_process = [self._safe_int(s, 0) for s in raw if self._safe_int(s, 0) in self._tray_entity_by_slot]
         else:
             slots_to_process = list(self._tray_entity_by_slot.keys())
+
+        # ── Print-active freeze: skip ALL writes during active prints ──
+        try:
+            print_active = str(
+                self.get_state(self._print_active_entity) or ""
+            ).lower() == "on"
+        except Exception:
+            print_active = False
+
+        if print_active:
+            if (
+                self._print_active_since is not None
+                and time.time() - self._print_active_since > 86400
+            ):
+                self.log(
+                    "PRINT_FREEZE_WATCHDOG print_active on for >24h "
+                    "— proceeding with reconcile",
+                    level="WARNING",
+                )
+            else:
+                self.log(
+                    f"RECONCILE_SKIP_PRINT_ACTIVE reason={reason} "
+                    f"slots={len(slots_to_process)}",
+                    level="INFO",
+                )
+                return
+
         before_slots = {}
         for slot, entity_id in self._tray_entity_by_slot.items():
             if slot in slots_to_process:
