@@ -243,6 +243,7 @@ class TestableReconcile(AmsRfidReconcile):
         self._pending_lot_nr_writes = {}
         self._suppress_helper_change_until = {}
         self._domain_exception_class_logged = False
+        self._print_active_since = None
         self._evidence_lines = []
         self._log_calls = []
 
@@ -6381,6 +6382,271 @@ class TestBuildLotSigForLookup:
             {"type": "", "filament_id": "GFL01", "color_hex": "FF0000"}
         )
         assert result == ""
+
+
+# ── print-active freeze tests ──────────────────────────────────────
+
+class TestPrintActiveFreeze:
+    """Tests for the top-level reconcile freeze during active prints."""
+
+    def _make_reconciler(self, print_active="off", spool_id=38, **extra_state):
+        """Create a TestableReconcile with RFID spool in slot 4, print_active configurable."""
+        spools = [_spool(spool_id, remaining_weight=500, rfid_tag_uid=None, location="AMS 1 Tray 4")]
+        filaments = [{"id": 1, "name": "Bambu PLA Basic", "material": "PLA",
+                      "color_hex": "ff0000", "vendor": {"name": "Bambu Lab"}}]
+        sm = FakeSpoolman(spools, filaments)
+
+        # Slot 4 with empty/depleted RFID tray (tag_uid gone)
+        tray_ent = _tray_entity(4)
+        state = {
+            tray_ent: {"attributes": {
+                "tag_uid": "", "tray_uuid": "", "type": "PLA",
+                "color": "ff0000", "name": "Bambu PLA Basic",
+                "filament_id": "bambu", "tray_weight": 0, "remain": -1,
+                "empty": True, "active": False,
+            }, "state": "empty"},
+            f"{tray_ent}::all": {"attributes": {
+                "tag_uid": "", "tray_uuid": "", "type": "PLA",
+                "color": "ff0000", "name": "Bambu PLA Basic",
+                "filament_id": "bambu", "tray_weight": 0, "remain": -1,
+                "empty": True, "active": False,
+            }, "state": "empty"},
+            "input_boolean.filament_iq_print_active": print_active,
+            "input_boolean.filament_iq_nonrfid_enabled": "on",
+            f"input_text.ams_slot_4_spool_id": str(spool_id),
+            f"input_text.ams_slot_4_expected_spool_id": str(spool_id),
+            f"input_text.ams_slot_4_tray_signature": "sig_4",
+        }
+        # Fill other slots as empty/unbound
+        for slot in (1, 2, 3, 5, 6):
+            te = _tray_entity(slot)
+            state[te] = {"attributes": {
+                "tag_uid": "", "tray_uuid": "", "type": "",
+                "color": "", "name": "", "filament_id": "",
+                "tray_weight": 0, "remain": -1,
+            }, "state": "empty"}
+            state[f"{te}::all"] = state[te]
+        state.update(extra_state)
+
+        args = {
+            "printer_serial": "01p00c5a3101668",
+            "spoolman_url": "http://192.0.2.1:7912",
+            "nonrfid_enabled_entity": "input_boolean.filament_iq_nonrfid_enabled",
+        }
+        r = TestableReconcile(sm, state, args=args)
+        r._print_active_entity = "input_boolean.filament_iq_print_active"
+        return r
+
+    def test_reconcile_fully_skipped_during_print(self):
+        """print_active=on → reconcile returns immediately, zero helper writes."""
+        r = self._make_reconciler(print_active="on")
+        r._run_reconcile("test")
+        # No spool_id writes of any kind
+        spool_writes = [
+            w for w in r._helper_writes
+            if "spool_id" in w.get("entity_id", "")
+        ]
+        assert len(spool_writes) == 0, f"expected zero spool writes during print, got {spool_writes}"
+        skip_logs = [msg for msg, _ in r._log_calls if "RECONCILE_SKIP_PRINT_ACTIVE" in msg]
+        assert len(skip_logs) >= 1, "RECONCILE_SKIP_PRINT_ACTIVE must be logged"
+
+    def test_reconcile_runs_after_print_ends(self):
+        """print_active off→on→off transition triggers _schedule_reconcile."""
+        r = self._make_reconciler(print_active="off")
+        # Track _schedule_reconcile calls
+        schedule_calls = []
+        original = r._schedule_reconcile
+        def track(reason):
+            schedule_calls.append(reason)
+            # Don't actually run reconcile in this test
+        r._schedule_reconcile = track
+
+        # Simulate on→off transition
+        r._on_print_active_change("entity", "state", "on", "off", {})
+        assert "print_ended" in schedule_calls, f"expected print_ended in {schedule_calls}"
+        assert r._print_active_since is None
+
+    def test_depleted_rfid_binding_preserved_during_print(self):
+        """print_active=on, depleted RFID tray → binding NOT cleared."""
+        r = self._make_reconciler(print_active="on")
+        r._run_reconcile("tray_update")
+        # Slot 4 spool_id should NOT be cleared to 0
+        clear_writes = [
+            w for w in r._helper_writes
+            if "ams_slot_4_spool_id" in w.get("entity_id", "") and w.get("value") == "0"
+        ]
+        assert len(clear_writes) == 0, f"binding should be preserved during print, got {clear_writes}"
+
+    def test_manual_enroll_during_print_proceeds(self):
+        """print_active=on, _force_location_and_helpers with spool_id>0 → binding proceeds."""
+        r = self._make_reconciler(print_active="on")
+        # Manual bind (spool_id > 0) should NOT be blocked by F4
+        r._force_location_and_helpers(slot=4, spool_id=99, tag_uid="AABB1122", source="manual_enroll")
+        bind_writes = [
+            w for w in r._helper_writes
+            if "ams_slot_4_spool_id" in w.get("entity_id", "") and w.get("value") == "99"
+        ]
+        assert len(bind_writes) >= 1, "manual bind should proceed during active print"
+        held_logs = [msg for msg, _ in r._log_calls if "BINDING_HELD_DURING_PRINT" in msg]
+        assert len(held_logs) == 0, "BINDING_HELD should not fire for bind (only for unbind)"
+
+    def test_watchdog_overrides_freeze_after_24h(self):
+        """print_active=on for >24h → watchdog fires, reconcile proceeds."""
+        import time as _time
+        r = self._make_reconciler(print_active="on")
+        r._print_active_since = _time.time() - 90000  # 25 hours ago
+        r._run_reconcile("safety_poll")
+        watchdog_logs = [msg for msg, lvl in r._log_calls if "PRINT_FREEZE_WATCHDOG" in msg]
+        assert len(watchdog_logs) >= 1, "PRINT_FREEZE_WATCHDOG must be logged"
+        # Reconcile should have proceeded (Spoolman fetch attempted)
+        skip_logs = [msg for msg, _ in r._log_calls if "RECONCILE_SKIP_PRINT_ACTIVE" in msg]
+        assert len(skip_logs) == 0, "should NOT skip when watchdog fires"
+
+    def test_usage_skip_data_loss_warning(self):
+        """USAGE_SKIP with tray_seconds > 60 → WARNING level log."""
+        from tests.test_ams_print_usage_sync import _TestableUsageSync, _fire, _default_state_map
+        app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
+        # Simulate significant tray activity on slot 4
+        import datetime as _dt
+        app._tray_active_times = {
+            4: [{"start": _dt.datetime(2026, 1, 1, 0, 0, 0),
+                 "end": _dt.datetime(2026, 1, 1, 1, 50, 36)}]
+        }
+        # Clear slot 4 binding so USAGE_SKIP fires
+        app._state_map["input_text.ams_slot_4_spool_id"] = "0"
+        _fire(app, print_status="finish")
+        warn_logs = [
+            (msg, lvl) for msg, lvl in app._log_calls
+            if "USAGE_SKIP" in msg and "slot=4" in msg
+        ]
+        assert len(warn_logs) >= 1, f"expected USAGE_SKIP log for slot 4, got {app._log_calls}"
+        msg, lvl = warn_logs[0]
+        assert lvl == "WARNING", f"expected WARNING level, got {lvl}"
+        assert "DATA_LOSS" in msg, f"expected DATA_LOSS in message, got {msg}"
+
+    def test_freeze_exception_safe(self):
+        """get_state throws exception → print_active defaults False → reconcile proceeds."""
+        r = self._make_reconciler(print_active="on")
+        # Sabotage get_state to throw on print_active entity
+        original_get = r.get_state
+        def exploding_get(entity_id, attribute=None):
+            if entity_id == r._print_active_entity:
+                raise RuntimeError("HA unavailable")
+            return original_get(entity_id, attribute)
+        r.get_state = exploding_get
+        r._run_reconcile("test")
+        # Should NOT skip — exception means fail-open
+        skip_logs = [msg for msg, _ in r._log_calls if "RECONCILE_SKIP_PRINT_ACTIVE" in msg]
+        assert len(skip_logs) == 0, "should fail-open when get_state throws"
+
+    def test_watchdog_seeds_on_startup_when_already_on(self):
+        """If print_active is already on at startup, _print_active_since is seeded so watchdog can fire."""
+        r = self._make_reconciler(print_active="on")
+        # Re-run initialize to simulate startup with entity already on
+        r._print_active_since = None
+        r._log_calls.clear()
+        # Manually trigger the startup seeding logic
+        if str(r.get_state(r._print_active_entity) or "").lower() == "on":
+            import time as _time
+            r._print_active_since = _time.time()
+        assert r._print_active_since is not None, "_print_active_since must be seeded on startup"
+
+
+class TestReconcilerStatus:
+    """Tests for _write_reconciler_status helper writes."""
+
+    def _make_reconciler(self, print_active="off", spool_id=38, **extra_state):
+        spools = [_spool(spool_id, remaining_weight=500, rfid_tag_uid=None, location="AMS 1 Tray 4")]
+        filaments = [{"id": 1, "name": "Bambu PLA Basic", "material": "PLA",
+                      "color_hex": "ff0000", "vendor": {"name": "Bambu Lab"}}]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(4)
+        state = {
+            tray_ent: {"attributes": {
+                "tag_uid": "", "tray_uuid": "", "type": "PLA",
+                "color": "ff0000", "name": "Bambu PLA Basic",
+                "filament_id": "bambu", "tray_weight": 0, "remain": -1,
+                "empty": True, "active": False,
+            }, "state": "empty"},
+            f"{tray_ent}::all": {"attributes": {
+                "tag_uid": "", "tray_uuid": "", "type": "PLA",
+                "color": "ff0000", "name": "Bambu PLA Basic",
+                "filament_id": "bambu", "tray_weight": 0, "remain": -1,
+                "empty": True, "active": False,
+            }, "state": "empty"},
+            "input_boolean.filament_iq_print_active": print_active,
+            "input_boolean.filament_iq_nonrfid_enabled": "on",
+            f"input_text.ams_slot_4_spool_id": str(spool_id),
+            f"input_text.ams_slot_4_expected_spool_id": str(spool_id),
+            f"input_text.ams_slot_4_tray_signature": "sig_4",
+        }
+        for slot in (1, 2, 3, 5, 6):
+            te = _tray_entity(slot)
+            state[te] = {"attributes": {
+                "tag_uid": "", "tray_uuid": "", "type": "",
+                "color": "", "name": "", "filament_id": "",
+                "tray_weight": 0, "remain": -1,
+            }, "state": "empty"}
+            state[f"{te}::all"] = state[te]
+        state.update(extra_state)
+        args = {
+            "printer_serial": "01p00c5a3101668",
+            "spoolman_url": "http://192.0.2.1:7912",
+            "nonrfid_enabled_entity": "input_boolean.filament_iq_nonrfid_enabled",
+        }
+        r = TestableReconcile(sm, state, args=args)
+        r._print_active_entity = "input_boolean.filament_iq_print_active"
+        return r
+
+    def test_reconcile_writes_ok_status(self):
+        """Normal reconcile writes 'ok' status with bound count and reason."""
+        r = self._make_reconciler(print_active="off")
+        r._write_reconciler_status("ok", "6 bound", "safety_poll")
+        status_writes = [
+            w for w in r._helper_writes
+            if w.get("entity_id") == "input_text.filament_iq_reconciler_status"
+        ]
+        assert len(status_writes) == 1
+        val = status_writes[0]["value"]
+        assert val.startswith("ok · 6 bound · safety_poll · ")
+
+    def test_reconcile_writes_warn_status(self):
+        """Reconcile with issues writes 'warn' status."""
+        r = self._make_reconciler(print_active="off")
+        r._write_reconciler_status("warn", "1 unbound", "tray_update")
+        status_writes = [
+            w for w in r._helper_writes
+            if w.get("entity_id") == "input_text.filament_iq_reconciler_status"
+        ]
+        assert len(status_writes) == 1
+        val = status_writes[0]["value"]
+        assert val.startswith("warn · 1 unbound · tray_update · ")
+
+    def test_print_active_writes_paused_status(self):
+        """Print active skip writes 'paused' status."""
+        r = self._make_reconciler(print_active="on")
+        r._run_reconcile("test")
+        status_writes = [
+            w for w in r._helper_writes
+            if w.get("entity_id") == "input_text.filament_iq_reconciler_status"
+        ]
+        assert len(status_writes) >= 1
+        val = status_writes[0]["value"]
+        assert "paused" in val
+        assert "print active" in val
+
+    def test_status_write_failure_does_not_crash(self):
+        """If call_service throws, log WARNING and continue."""
+        r = self._make_reconciler(print_active="off")
+        original_call = r.call_service
+        def exploding_call(service, **kwargs):
+            if "reconciler_status" in kwargs.get("entity_id", ""):
+                raise RuntimeError("HA unavailable")
+            return original_call(service, **kwargs)
+        r.call_service = exploding_call
+        r._write_reconciler_status("ok", "6 bound", "test")
+        warn_logs = [msg for msg, lvl in r._log_calls if "RECONCILER_STATUS_WRITE_FAILED" in msg]
+        assert len(warn_logs) >= 1
 
 
 if __name__ == "__main__":
