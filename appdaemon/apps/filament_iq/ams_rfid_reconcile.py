@@ -863,6 +863,7 @@ class AmsRfidReconcile(FilamentIQBase):
                     f"slots={len(slots_to_process)}",
                     level="INFO",
                 )
+                self._write_reconciler_status("paused", "print active")
                 return
 
         before_slots = {}
@@ -2249,6 +2250,18 @@ class AmsRfidReconcile(FilamentIQBase):
         self.log(
             f"RFID_RECONCILE_SUMMARY reason={reason} ok={ok} unbound={unbound} conflict={conflict} mismatch={mismatch} timestamp={timestamp}"
         )
+        # Write reconciler status to HA helper
+        prefix = "ok" if (unbound == 0 and conflict == 0 and mismatch == 0) else "warn"
+        parts = []
+        if ok > 0:
+            parts.append(f"{ok} bound")
+        if unbound > 0:
+            parts.append(f"{unbound} unbound")
+        if conflict > 0:
+            parts.append(f"{conflict} conflict")
+        if mismatch > 0:
+            parts.append(f"{mismatch} mismatch")
+        self._write_reconciler_status(prefix, " · ".join(parts), reason)
         if status_only and reason == "safety_poll" and (unbound > 0 or conflict > 0 or mismatch > 0):
             self.log(
                 f"SAFETY_POLL_DRIFT detected: one or more slots not OK. Trigger manual reconcile ({self._reconcile_button_entity}) to correct.",
@@ -3904,6 +3917,26 @@ class AmsRfidReconcile(FilamentIQBase):
             self.log(f"RFID_DEBUG {message}")
         else:
             self.log(f"RFID_DEBUG {message} " + json.dumps(payload, sort_keys=True))
+
+    def _write_reconciler_status(self, prefix, detail, reason=None):
+        """Write human-readable status to input_text.filament_iq_reconciler_status."""
+        try:
+            now = self.datetime().strftime("%H:%M")
+            parts = [prefix, detail]
+            if reason:
+                parts.append(reason)
+            parts.append(now)
+            status = " · ".join(parts)
+            self.call_service(
+                "input_text/set_value",
+                entity_id="input_text.filament_iq_reconciler_status",
+                value=status,
+            )
+        except Exception as exc:
+            self.log(
+                f"RECONCILER_STATUS_WRITE_FAILED: {exc}",
+                level="WARNING",
+            )
 
     def _append_evidence(self, summary):
         if not self.evidence_log_enabled:

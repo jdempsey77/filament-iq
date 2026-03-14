@@ -463,6 +463,28 @@ def match_filaments_to_slots(filaments, slot_data, trays_used=None):
             continue
         available_slots[slot] = data
 
+    # Single-filament force match: if exactly one tray active and
+    # exactly one filament in 3MF, match directly — index and color
+    # are irrelevant when there is no ambiguity.
+    active_filaments = [f for f in filaments if f["used_g"] > 0]
+    if (
+        trays_used
+        and len(trays_used) == 1
+        and len(active_filaments) == 1
+        and available_slots
+    ):
+        slot = next(iter(trays_used))
+        if slot in available_slots:
+            fil = active_filaments[0]
+            matches.append({
+                "slot": slot,
+                "spool_id": available_slots[slot]["spool_id"],
+                "used_g": fil["used_g"],
+                "filament_index": fil["index"],
+                "method": "single_filament_force",
+            })
+            return matches, []
+
     for fil in filaments:
         if fil["used_g"] <= 0:
             continue

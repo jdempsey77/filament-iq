@@ -68,6 +68,7 @@ required_helpers:
   - input_text.filament_iq_slot_to_spool_binding_json
   - input_text.filament_iq_start_json
   - input_text.filament_iq_active_job_key
+  - input_text.filament_iq_reconciler_status
   # Test / debug
   - input_text.filament_test_last_result
   # HA watchdog

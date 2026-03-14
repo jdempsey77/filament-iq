@@ -1061,3 +1061,64 @@ class TestFtpsDownload3mf:
             with mock.patch("subprocess.run", side_effect=FileNotFoundError("curl")):
                 result = ftps_download_3mf("192.168.1.1", "code123", "model.3mf", td)
             assert result is None
+
+
+class TestSingleFilamentForceMatch:
+    """Tests for single-filament force match in match_filaments_to_slots."""
+
+    def test_single_tray_single_filament_force_matches(self):
+        """One active tray + one 3MF filament → force match regardless of color/index."""
+        filaments = [{"index": 1, "used_g": 96.5, "color_hex": "ff0000", "material": "pla"}]
+        slot_data = {
+            4: {"color_hex": "00ff00", "material": "petg", "spool_id": 40},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data, trays_used={4})
+        assert len(matches) == 1
+        assert matches[0]["slot"] == 4
+        assert matches[0]["spool_id"] == 40
+        assert abs(matches[0]["used_g"] - 96.5) < 0.1
+        assert matches[0]["method"] == "single_filament_force"
+        assert len(unmatched) == 0
+
+    def test_single_tray_multi_filament_no_force(self):
+        """One active tray + two 3MF filaments → no force match, falls to normal matching."""
+        filaments = [
+            {"index": 0, "used_g": 50.0, "color_hex": "ff0000", "material": "pla"},
+            {"index": 1, "used_g": 30.0, "color_hex": "00ff00", "material": "pla"},
+        ]
+        slot_data = {
+            4: {"color_hex": "ff0000", "material": "pla", "spool_id": 40},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data, trays_used={4})
+        # Should not use force match — multiple filaments
+        for m in matches:
+            assert m["method"] != "single_filament_force"
+
+    def test_multi_tray_single_filament_no_force(self):
+        """Two active trays + one 3MF filament → no force match."""
+        filaments = [{"index": 0, "used_g": 50.0, "color_hex": "ff0000", "material": "pla"}]
+        slot_data = {
+            1: {"color_hex": "ff0000", "material": "pla", "spool_id": 10},
+            3: {"color_hex": "00ff00", "material": "pla", "spool_id": 30},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data, trays_used={1, 3})
+        for m in matches:
+            assert m["method"] != "single_filament_force"
+
+    def test_single_tray_unbound_slot_no_force(self):
+        """One active tray but slot is unbound (spool_id=0) → no force match."""
+        filaments = [{"index": 1, "used_g": 96.5, "color_hex": "ff0000", "material": "pla"}]
+        slot_data = {
+            4: {"color_hex": "00ff00", "material": "petg", "spool_id": 0},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data, trays_used={4})
+        assert len(matches) == 0  # unbound → available_slots empty → no force match
+
+    def test_single_tray_zero_usage_no_force(self):
+        """One active tray + one 3MF filament with 0g usage → no force match."""
+        filaments = [{"index": 1, "used_g": 0.0, "color_hex": "ff0000", "material": "pla"}]
+        slot_data = {
+            4: {"color_hex": "00ff00", "material": "petg", "spool_id": 40},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data, trays_used={4})
+        assert len(matches) == 0  # active_filaments is empty (0g filtered)

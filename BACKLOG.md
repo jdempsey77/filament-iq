@@ -27,7 +27,9 @@
 - [ ] Manually correct spool 52 consumption in Spoolman (~143g from grid print 2026-03-12 15:03)
 
 ### Done
-- [x] RFID reconciler hardening — print_active re-defer, directional guard (never increase weight), tray_weight sanity bounds (50-2000g), 5g minimum delta threshold. 1226 passing. (v0.12.4, Skeptic Review)
+- [x] Reconciler status helper — writes human-readable status to input_text.filament_iq_reconciler_status after each cycle (ok/warn/paused + counts + reason + time). (v0.12.6)
+- [x] 3MF single-filament force match — when trays_used has exactly one slot and 3MF has exactly one filament, match directly regardless of color/index. Fixes slicer index vs physical slot mismatch. (v0.12.6)
+- [x] RFID reconciler hardening — print_active re-defer, tray_weight sanity bounds (50-2000g), 5g minimum delta threshold. 1226 passing. (v0.12.4, Skeptic Review)
 - [x] 16 E2E pipeline mock tests — full _handle_usage_event decision matrix (8 scenarios) + 6 audit finding tests. 1215 passing. 919b484 (v0.12.3)
 - [x] RFID reconciler deferred 60s post-print — prevents stale MQTT sensor from undoing consumption writes. Synchronous reconcile read cached pre-print RFID remain% and patched Spoolman back. bb4d47b (v0.12.2, Audit Finding E — HIGH, now fixed)
 - [x] Rehydrate job_key from HA helper — reads full timestamp-suffixed key from input_text helper instead of re-deriving from task_name. Disk fallback in _finish_wait_tick as safety net. 474eebb (v0.12.1, RT #2 rehydrate fix). Note: original RT #2 described persisting trays_used; actual fix was reading _job_key from HA helper — active_print.json already persisted threemf_data, the bug was key mismatch on load.

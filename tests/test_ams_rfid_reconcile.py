@@ -6552,5 +6552,102 @@ class TestPrintActiveFreeze:
         assert r._print_active_since is not None, "_print_active_since must be seeded on startup"
 
 
+class TestReconcilerStatus:
+    """Tests for _write_reconciler_status helper writes."""
+
+    def _make_reconciler(self, print_active="off", spool_id=38, **extra_state):
+        spools = [_spool(spool_id, remaining_weight=500, rfid_tag_uid=None, location="AMS 1 Tray 4")]
+        filaments = [{"id": 1, "name": "Bambu PLA Basic", "material": "PLA",
+                      "color_hex": "ff0000", "vendor": {"name": "Bambu Lab"}}]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(4)
+        state = {
+            tray_ent: {"attributes": {
+                "tag_uid": "", "tray_uuid": "", "type": "PLA",
+                "color": "ff0000", "name": "Bambu PLA Basic",
+                "filament_id": "bambu", "tray_weight": 0, "remain": -1,
+                "empty": True, "active": False,
+            }, "state": "empty"},
+            f"{tray_ent}::all": {"attributes": {
+                "tag_uid": "", "tray_uuid": "", "type": "PLA",
+                "color": "ff0000", "name": "Bambu PLA Basic",
+                "filament_id": "bambu", "tray_weight": 0, "remain": -1,
+                "empty": True, "active": False,
+            }, "state": "empty"},
+            "input_boolean.filament_iq_print_active": print_active,
+            "input_boolean.filament_iq_nonrfid_enabled": "on",
+            f"input_text.ams_slot_4_spool_id": str(spool_id),
+            f"input_text.ams_slot_4_expected_spool_id": str(spool_id),
+            f"input_text.ams_slot_4_tray_signature": "sig_4",
+        }
+        for slot in (1, 2, 3, 5, 6):
+            te = _tray_entity(slot)
+            state[te] = {"attributes": {
+                "tag_uid": "", "tray_uuid": "", "type": "",
+                "color": "", "name": "", "filament_id": "",
+                "tray_weight": 0, "remain": -1,
+            }, "state": "empty"}
+            state[f"{te}::all"] = state[te]
+        state.update(extra_state)
+        args = {
+            "printer_serial": "01p00c5a3101668",
+            "spoolman_url": "http://192.0.2.1:7912",
+            "nonrfid_enabled_entity": "input_boolean.filament_iq_nonrfid_enabled",
+        }
+        r = TestableReconcile(sm, state, args=args)
+        r._print_active_entity = "input_boolean.filament_iq_print_active"
+        return r
+
+    def test_reconcile_writes_ok_status(self):
+        """Normal reconcile writes 'ok' status with bound count and reason."""
+        r = self._make_reconciler(print_active="off")
+        r._write_reconciler_status("ok", "6 bound", "safety_poll")
+        status_writes = [
+            w for w in r._helper_writes
+            if w.get("entity_id") == "input_text.filament_iq_reconciler_status"
+        ]
+        assert len(status_writes) == 1
+        val = status_writes[0]["value"]
+        assert val.startswith("ok · 6 bound · safety_poll · ")
+
+    def test_reconcile_writes_warn_status(self):
+        """Reconcile with issues writes 'warn' status."""
+        r = self._make_reconciler(print_active="off")
+        r._write_reconciler_status("warn", "1 unbound", "tray_update")
+        status_writes = [
+            w for w in r._helper_writes
+            if w.get("entity_id") == "input_text.filament_iq_reconciler_status"
+        ]
+        assert len(status_writes) == 1
+        val = status_writes[0]["value"]
+        assert val.startswith("warn · 1 unbound · tray_update · ")
+
+    def test_print_active_writes_paused_status(self):
+        """Print active skip writes 'paused' status."""
+        r = self._make_reconciler(print_active="on")
+        r._run_reconcile("test")
+        status_writes = [
+            w for w in r._helper_writes
+            if w.get("entity_id") == "input_text.filament_iq_reconciler_status"
+        ]
+        assert len(status_writes) >= 1
+        val = status_writes[0]["value"]
+        assert "paused" in val
+        assert "print active" in val
+
+    def test_status_write_failure_does_not_crash(self):
+        """If call_service throws, log WARNING and continue."""
+        r = self._make_reconciler(print_active="off")
+        original_call = r.call_service
+        def exploding_call(service, **kwargs):
+            if "reconciler_status" in kwargs.get("entity_id", ""):
+                raise RuntimeError("HA unavailable")
+            return original_call(service, **kwargs)
+        r.call_service = exploding_call
+        r._write_reconciler_status("ok", "6 bound", "test")
+        warn_logs = [msg for msg, lvl in r._log_calls if "RECONCILER_STATUS_WRITE_FAILED" in msg]
+        assert len(warn_logs) >= 1
+
+
 if __name__ == "__main__":
     unittest.main()
