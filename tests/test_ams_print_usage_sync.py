@@ -1772,14 +1772,14 @@ def _reconcile_app(slot=4, spool_id=10, remain=39, tray_weight=1000,
 
 
 def test_rfid_weight_reconcile_corrects_drift():
-    """RFID says 390g, Spoolman says 0g → PATCH called with 390g."""
-    app = _reconcile_app(remain=39, tray_weight=1000, spoolman_remaining=0.0)
+    """RFID says 390g, Spoolman says 500g → PATCH called with 390g (downward correction)."""
+    app = _reconcile_app(remain=39, tray_weight=1000, spoolman_remaining=500.0)
     app._reconcile_rfid_weights()
     assert len(app._patch_calls) == 1
     assert app._patch_calls[0]["spool_id"] == 10
     assert app._patch_calls[0]["data"] == {"remaining_weight": 390.0}
     assert _has_log(app, "RFID_WEIGHT_RECONCILED slot=4 spool_id=10")
-    assert _has_log(app, "rfid=390.0g spoolman_was=0.0g")
+    assert _has_log(app, "rfid=390.0g spoolman_was=500.0g")
 
 
 def test_rfid_weight_reconcile_skips_exact_match():
@@ -1821,12 +1821,12 @@ def test_rfid_weight_reconcile_handles_spoolman_failure():
 
 def test_rfid_weight_reconcile_respects_dry_run():
     """dry_run=True → no PATCH called, DRYRUN logged."""
-    app = _reconcile_app(remain=39, tray_weight=1000, spoolman_remaining=0.0)
+    app = _reconcile_app(remain=39, tray_weight=1000, spoolman_remaining=500.0)
     app.dry_run = True
     app._reconcile_rfid_weights()
     assert len(app._patch_calls) == 0
     assert _has_log(app, "RFID_WEIGHT_RECONCILE_DRYRUN slot=4 spool_id=10")
-    assert _has_log(app, "rfid=390.0g spoolman_was=0.0g")
+    assert _has_log(app, "rfid=390.0g spoolman_was=500.0g")
 
 
 def test_rfid_weight_reconcile_skips_zero_tray_weight():
@@ -3082,25 +3082,26 @@ class TestReconcileRfidWeightSlot:
         app._reconcile_rfid_weight_slot(1)
         assert any("RFID_WEIGHT_INVALID_REMAIN" in msg for msg, _ in app._log_calls)
 
-    def test_weights_match_no_patch(self):
+    def test_weights_within_threshold_no_patch(self):
         app = self._app_with_rfid(remain=50, tray_weight=1000)
-        # rfid_weight = 50/100 * 1000 = 500g; spoolman returns 500g -> match
-        app._spoolman_get_override = lambda path: {"remaining_weight": 500.0}
+        # rfid_weight = 500g; spoolman = 503g -> delta 3g < 5g threshold -> no patch
+        app._spoolman_get_override = lambda path: {"remaining_weight": 503.0}
         app._reconcile_rfid_weight_slot(1)
         assert not app._patch_calls
 
     def test_dry_run_no_patch(self):
         app = self._app_with_rfid(remain=50, tray_weight=1000)
         app.dry_run = True
-        app._spoolman_get_override = lambda path: {"remaining_weight": 400.0}
+        # rfid=500g < spoolman=600g -> downward direction, would patch, but dry_run
+        app._spoolman_get_override = lambda path: {"remaining_weight": 600.0}
         app._reconcile_rfid_weight_slot(1)
         assert not app._patch_calls
         assert any("DRYRUN" in msg for msg, _ in app._log_calls)
 
     def test_actual_patch(self):
         app = self._app_with_rfid(remain=50, tray_weight=1000)
-        # spoolman says 400g, RFID says 500g -> patch
-        app._spoolman_get_override = lambda path: {"remaining_weight": 400.0}
+        # rfid=500g < spoolman=600g -> downward correction, delta=100g > 5g -> patch
+        app._spoolman_get_override = lambda path: {"remaining_weight": 600.0}
         app._reconcile_rfid_weight_slot(1)
         assert len(app._patch_calls) == 1
         assert app._patch_calls[0]["data"]["remaining_weight"] == 500.0
@@ -3113,9 +3114,9 @@ class TestReconcileRfidWeightSlot:
 
     def test_patch_failure_logged(self):
         app = self._app_with_rfid(remain=50, tray_weight=1000)
-        app._spoolman_get_override = lambda path: {"remaining_weight": 400.0}
+        # rfid=500g < spoolman=600g -> downward, delta=100g -> would patch
+        app._spoolman_get_override = lambda path: {"remaining_weight": 600.0}
         # Override _spoolman_patch to return None (simulating failure)
-        original_patch = app._spoolman_patch
         app._spoolman_patch = lambda sid, data: None
         app._reconcile_rfid_weight_slot(1)
         assert any("RFID_WEIGHT_RECONCILE_FAILED" in msg for msg, _ in app._log_calls)
@@ -3123,7 +3124,8 @@ class TestReconcileRfidWeightSlot:
     def test_remain_string_converted(self):
         """remain as string '75' gets converted to float."""
         app = self._app_with_rfid(remain="75", tray_weight=1000)
-        app._spoolman_get_override = lambda path: {"remaining_weight": 700.0}
+        # rfid=750g < spoolman=850g -> downward, delta=100g -> patch
+        app._spoolman_get_override = lambda path: {"remaining_weight": 850.0}
         app._reconcile_rfid_weight_slot(1)
         assert len(app._patch_calls) == 1
         assert app._patch_calls[0]["data"]["remaining_weight"] == 750.0
@@ -3132,6 +3134,123 @@ class TestReconcileRfidWeightSlot:
         app = self._app_with_rfid(remain="banana", tray_weight=1000)
         app._reconcile_rfid_weight_slot(1)
         assert any("RFID_WEIGHT_INVALID_REMAIN" in msg for msg, _ in app._log_calls)
+
+
+class TestReconcilerHardening:
+    """Tests for reconciler hardening guards (v0.12.4)."""
+
+    def _app_with_rfid(self, slot=1, remain=75, tray_weight=1000,
+                       remain_enabled=True, spool_id="42", tag_uid="AABB"):
+        tray_entity = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+        app = _TestableUsageSync(state_map={
+            f"{tray_entity}::tag_uid": tag_uid,
+            f"{tray_entity}::remain": remain,
+            f"{tray_entity}::tray_weight": tray_weight,
+            f"{tray_entity}::remain_enabled": remain_enabled,
+            f"input_text.ams_slot_{slot}_spool_id": spool_id,
+        })
+        app._weight_reconcile_enabled = True
+        return app
+
+    # ── Fix 1: print_active guard in deferred callback ──
+
+    def test_deferred_redefers_when_print_active(self):
+        """If print_active=True when deferred fires, re-defer 60s."""
+        app = self._app_with_rfid()
+        app._print_active = True
+        app._reconcile_rfid_weights_deferred({})
+        assert _has_log(app, "RFID_WEIGHT_RECONCILE_DEFERRED_PRINT_ACTIVE")
+        redefer = [c for c in app._run_in_calls
+                   if c.get("callback") == app._reconcile_rfid_weights_deferred]
+        assert len(redefer) == 1
+        assert redefer[0]["delay"] == 60
+
+    def test_deferred_proceeds_when_not_printing(self):
+        """If print_active=False, deferred fires normally."""
+        app = self._app_with_rfid()
+        app._print_active = False
+        app._spoolman_get_override = lambda path: {"remaining_weight": 900.0}
+        app._reconcile_rfid_weights_deferred({})
+        assert not _has_log(app, "RFID_WEIGHT_RECONCILE_DEFERRED_PRINT_ACTIVE")
+        # Should have attempted reconciliation (patch or match)
+        assert any("RFID_WEIGHT" in msg for msg, _ in app._log_calls)
+
+    # ── Fix 2: directional guard removed — RFID is ground truth ──
+
+    def test_upward_correction_allowed(self):
+        """rfid_weight > spoolman_weight → patch proceeds (RFID is ground truth)."""
+        app = self._app_with_rfid(remain=80, tray_weight=1000)
+        # rfid=800g > spoolman=700g → upward correction allowed
+        app._spoolman_get_override = lambda path: {"remaining_weight": 700.0}
+        app._reconcile_rfid_weight_slot(1)
+        assert len(app._patch_calls) == 1
+        assert app._patch_calls[0]["data"]["remaining_weight"] == 800.0
+
+    def test_downward_correction_allowed(self):
+        """rfid_weight < spoolman_weight → patch proceeds."""
+        app = self._app_with_rfid(remain=50, tray_weight=1000)
+        # rfid=500g < spoolman=600g → downward correction
+        app._spoolman_get_override = lambda path: {"remaining_weight": 600.0}
+        app._reconcile_rfid_weight_slot(1)
+        assert len(app._patch_calls) == 1
+        assert app._patch_calls[0]["data"]["remaining_weight"] == 500.0
+
+    # ── Fix 3: tray_weight sanity bounds ──
+
+    def test_tray_weight_too_large_blocked(self):
+        """tray_weight=10000g → skip (exceeds 2000g cap)."""
+        app = self._app_with_rfid(tray_weight=10000)
+        app._reconcile_rfid_weight_slot(1)
+        assert not app._patch_calls
+        assert _has_log(app, "RFID_WEIGHT_SKIP_TRAY_WEIGHT")
+
+    def test_tray_weight_too_small_blocked(self):
+        """tray_weight=5g → skip (below 50g minimum)."""
+        app = self._app_with_rfid(tray_weight=5)
+        app._reconcile_rfid_weight_slot(1)
+        assert not app._patch_calls
+        assert _has_log(app, "RFID_WEIGHT_SKIP_TRAY_WEIGHT")
+
+    def test_tray_weight_at_min_bound_passes(self):
+        """tray_weight=50g → passes sanity check."""
+        app = self._app_with_rfid(remain=50, tray_weight=50)
+        # rfid=25g < spoolman=30g → downward, delta=5g → patch
+        app._spoolman_get_override = lambda path: {"remaining_weight": 30.0}
+        app._reconcile_rfid_weight_slot(1)
+        assert len(app._patch_calls) == 1
+
+    def test_tray_weight_at_max_bound_passes(self):
+        """tray_weight=2000g → passes sanity check."""
+        app = self._app_with_rfid(remain=50, tray_weight=2000)
+        # rfid=1000g < spoolman=1100g → downward, delta=100g → patch
+        app._spoolman_get_override = lambda path: {"remaining_weight": 1100.0}
+        app._reconcile_rfid_weight_slot(1)
+        assert len(app._patch_calls) == 1
+
+    # ── Fix 4: minimum delta threshold ──
+
+    def test_delta_below_threshold_no_patch(self):
+        """rfid=500g, spoolman=503g → delta=3g < 5g → no patch."""
+        app = self._app_with_rfid(remain=50, tray_weight=1000)
+        app._spoolman_get_override = lambda path: {"remaining_weight": 503.0}
+        app._reconcile_rfid_weight_slot(1)
+        assert not app._patch_calls
+        assert _has_log(app, "RFID_WEIGHT_MATCH")
+
+    def test_delta_at_threshold_no_patch(self):
+        """rfid=500g, spoolman=504.9g → delta=4.9g < 5g → no patch."""
+        app = self._app_with_rfid(remain=50, tray_weight=1000)
+        app._spoolman_get_override = lambda path: {"remaining_weight": 504.9}
+        app._reconcile_rfid_weight_slot(1)
+        assert not app._patch_calls
+
+    def test_delta_above_threshold_patches(self):
+        """rfid=500g, spoolman=510g → delta=10g > 5g, downward → patch."""
+        app = self._app_with_rfid(remain=50, tray_weight=1000)
+        app._spoolman_get_override = lambda path: {"remaining_weight": 510.0}
+        app._reconcile_rfid_weight_slot(1)
+        assert len(app._patch_calls) == 1
+        assert app._patch_calls[0]["data"]["remaining_weight"] == 500.0
 
 
 class TestLoadSeenJobKeys:
