@@ -1831,15 +1831,6 @@ class AmsPrintUsageSync(FilamentIQBase):
                 level="DEBUG",
             )
             return
-        if rfid_weight_g > spoolman_weight_g:
-            self.log(
-                f"RFID_WEIGHT_RECONCILE_SKIP_DIRECTIONAL slot={slot} "
-                f"spool_id={spool_id} rfid={rfid_weight_g}g "
-                f"> spoolman={spoolman_weight_g}g "
-                f"reason=remain_likely_stale",
-                level="WARNING",
-            )
-            return
         if self.dry_run:
             self.log(
                 f"RFID_WEIGHT_RECONCILE_DRYRUN slot={slot} spool_id={spool_id} "

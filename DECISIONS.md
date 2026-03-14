@@ -61,8 +61,11 @@ identified but mechanism confirmed in code review.
 **Why:**
 1. print_active re-defer — deferred reconcile was firing during
    back-to-back prints, reading mid-print sensor values
-2. Directional guard — reconciler must never increase Spoolman weight
-   post-print; upward direction always indicates stale remain%
+2. ~~Directional guard~~ — **Reverted.** Contradicts RFID-as-ground-truth
+   principle. Upward corrections are legitimate when Spoolman has been
+   zeroed by a bug or manual error. Stale remain% is structurally
+   prevented by the print_active re-defer guard (Fix 1), making this
+   guard unnecessary.
 3. tray_weight sanity bounds (50-2000g) — no upper/lower cap allowed
    factory errors or cloned tags to corrupt Spoolman to impossible values
 4. Minimum delta threshold (5g) — integer remain% resolution is 10g on

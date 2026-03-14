@@ -3175,21 +3175,21 @@ class TestReconcilerHardening:
         # Should have attempted reconciliation (patch or match)
         assert any("RFID_WEIGHT" in msg for msg, _ in app._log_calls)
 
-    # ── Fix 2: directional guard ──
+    # ── Fix 2: directional guard removed — RFID is ground truth ──
 
-    def test_directional_guard_blocks_upward_patch(self):
-        """rfid_weight > spoolman_weight → skip (stale remain%)."""
+    def test_upward_correction_allowed(self):
+        """rfid_weight > spoolman_weight → patch proceeds (RFID is ground truth)."""
         app = self._app_with_rfid(remain=80, tray_weight=1000)
-        # rfid=800g > spoolman=700g → upward direction → blocked
+        # rfid=800g > spoolman=700g → upward correction allowed
         app._spoolman_get_override = lambda path: {"remaining_weight": 700.0}
         app._reconcile_rfid_weight_slot(1)
-        assert not app._patch_calls
-        assert _has_log(app, "RFID_WEIGHT_RECONCILE_SKIP_DIRECTIONAL")
+        assert len(app._patch_calls) == 1
+        assert app._patch_calls[0]["data"]["remaining_weight"] == 800.0
 
-    def test_directional_guard_allows_downward_patch(self):
+    def test_downward_correction_allowed(self):
         """rfid_weight < spoolman_weight → patch proceeds."""
         app = self._app_with_rfid(remain=50, tray_weight=1000)
-        # rfid=500g < spoolman=600g → downward → allowed
+        # rfid=500g < spoolman=600g → downward correction
         app._spoolman_get_override = lambda path: {"remaining_weight": 600.0}
         app._reconcile_rfid_weight_slot(1)
         assert len(app._patch_calls) == 1
