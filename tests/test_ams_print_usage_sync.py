@@ -3723,3 +3723,350 @@ class TestNotificationOverhaul:
         call = calls[0]
         nid = call.get("notification_id", "")
         assert nid == "filament_iq_usage_stable_id_test_123"
+
+
+# ── End-to-End Pipeline Tests (Audit 2026-03-14) ─────────────────────
+
+
+class TestPipelineE2E:
+    """End-to-end _handle_usage_event pipeline tests across 8 scenarios
+    plus targeted tests for audit findings A, B, D, F, 8, E."""
+
+    def _make_app(self, rfid_slots=None, spool_bindings=None, threemf=None,
+                  extra_state=None, extra_args=None):
+        """Build a _TestableUsageSync with controllable RFID, bindings, 3MF."""
+        rfid_slots = rfid_slots or set()
+        spool_bindings = spool_bindings or {}
+        state_map = {}
+        for slot, sid in spool_bindings.items():
+            state_map[f"input_text.ams_slot_{slot}_spool_id"] = str(sid)
+
+        app = _TestableUsageSync(
+            state_map=state_map,
+            args={
+                "lifecycle_phase1_enabled": True,
+                "lifecycle_phase2_enabled": True,
+                **(extra_args or {}),
+            },
+        )
+        # Set up RFID tag_uid for designated slots
+        for slot in rfid_slots:
+            entity = app._tray_entity_by_slot.get(slot)
+            if entity:
+                app._state_map[f"{entity}::tag_uid"] = "C7D26F7B00000100"
+
+        # Set up tray color/material for 3MF matching
+        # Note: threemf_data uses normalized lowercase values (e.g., "pla", "ff0000")
+        # Tray entity attributes are raw from printer — normalize_color/material
+        # handles normalization in _build_slot_data. Set raw values here.
+        if threemf:
+            for fil in threemf:
+                idx = fil["index"]
+                entity = app._tray_entity_by_slot.get(idx)
+                if entity:
+                    app._state_map[f"{entity}::color"] = fil.get("color_hex", "")
+                    app._state_map[f"{entity}::type"] = fil.get("material", "pla")
+
+        app._threemf_data = threemf
+        app.threemf_enabled = threemf is not None
+        if extra_state:
+            app._state_map.update(extra_state)
+        return app
+
+    # ── Scenario 1: Single non-RFID, 3MF available, finish ──
+
+    def test_scenario1_single_nonrfid_3mf(self):
+        threemf = [{"index": 3, "used_g": 96.5, "color_hex": "8e9089", "material": "pla"}]
+        app = self._make_app(
+            spool_bindings={3: 30},
+            threemf=threemf,
+        )
+        _fire(app, job_key="s1_test", trays_used="3",
+              start_json='{"3": 725}', end_json='{"3": 725}',
+              print_status="finish")
+        assert len(app._use_calls) == 1
+        assert app._use_calls[0]["spool_id"] == 30
+        assert abs(app._use_calls[0]["use_weight"] - 96.5) < 0.1
+        assert _has_log(app, "USAGE_3MF slot=3")
+        assert "s1_test" in app._seen_job_keys
+
+    # ── Scenario 2: Single RFID, 3MF available, finish ──
+
+    def test_scenario2_single_rfid_3mf(self):
+        threemf = [{"index": 1, "used_g": 50.0, "color_hex": "ff0000", "material": "pla"}]
+        app = self._make_app(
+            rfid_slots={1},
+            spool_bindings={1: 10},
+            threemf=threemf,
+        )
+        _fire(app, job_key="s2_test", trays_used="1",
+              start_json='{"1": 940}', end_json='{"1": 890}',
+              print_status="finish")
+        assert len(app._use_calls) == 1
+        assert abs(app._use_calls[0]["use_weight"] - 50.0) < 0.1
+        # 3MF wins over RFID delta
+        assert _has_log(app, "USAGE_3MF slot=1")
+        assert not _has_log(app, "USAGE_RFID slot=1")
+        assert "s2_test" in app._seen_job_keys
+
+    # ── Scenario 3: Mixed RFID slot 1 + non-RFID slot 3, 3MF ──
+
+    def test_scenario3_mixed_rfid_nonrfid_3mf(self):
+        threemf = [
+            {"index": 1, "used_g": 80.0, "color_hex": "ff0000", "material": "pla"},
+            {"index": 3, "used_g": 45.0, "color_hex": "8e9089", "material": "pla"},
+        ]
+        app = self._make_app(
+            rfid_slots={1},
+            spool_bindings={1: 10, 3: 30},
+            threemf=threemf,
+        )
+        _fire(app, job_key="s3_test", trays_used="1,3",
+              start_json='{"1": 940, "3": 725}', end_json='{"1": 860, "3": 725}',
+              print_status="finish")
+        assert len(app._use_calls) == 2
+        writes = {c["spool_id"]: c["use_weight"] for c in app._use_calls}
+        assert abs(writes[10] - 80.0) < 0.1
+        assert abs(writes[30] - 45.0) < 0.1
+        assert _has_log(app, "USAGE_3MF slot=1")
+        assert _has_log(app, "USAGE_3MF slot=3")
+
+    # ── Scenario 4: Multi-slot RFID, 3MF, slots 1+2+3 ──
+
+    def test_scenario4_multislot_rfid_3mf(self):
+        threemf = [
+            {"index": 1, "used_g": 30.0, "color_hex": "ff0000", "material": "pla"},
+            {"index": 2, "used_g": 40.0, "color_hex": "00ff00", "material": "petg"},
+            {"index": 3, "used_g": 50.0, "color_hex": "0000ff", "material": "pla"},
+        ]
+        app = self._make_app(
+            rfid_slots={1, 2, 3},
+            spool_bindings={1: 10, 2: 20, 3: 30},
+            threemf=threemf,
+        )
+        _fire(app, job_key="s4_test", trays_used="1,2,3",
+              start_json='{"1": 940, "2": 564, "3": 725}',
+              end_json='{"1": 910, "2": 524, "3": 675}',
+              print_status="finish")
+        assert len(app._use_calls) == 3
+        writes = {c["spool_id"]: c["use_weight"] for c in app._use_calls}
+        assert abs(writes[10] - 30.0) < 0.1
+        assert abs(writes[20] - 40.0) < 0.1
+        assert abs(writes[30] - 50.0) < 0.1
+        assert "s4_test" in app._seen_job_keys
+
+    # ── Scenario 5: Multi-slot non-RFID, 3MF, slots 1+3 ──
+
+    def test_scenario5_multislot_nonrfid_3mf(self):
+        threemf = [
+            {"index": 1, "used_g": 60.0, "color_hex": "ff0000", "material": "pla"},
+            {"index": 3, "used_g": 35.0, "color_hex": "8e9089", "material": "pla"},
+        ]
+        app = self._make_app(
+            spool_bindings={1: 10, 3: 30},
+            threemf=threemf,
+        )
+        _fire(app, job_key="s5_test", trays_used="1,3",
+              start_json='{"1": 940, "3": 725}',
+              end_json='{"1": 940, "3": 725}',
+              print_status="finish")
+        assert len(app._use_calls) == 2
+        # Both via 3MF, no RFID delta
+        assert _has_log(app, "USAGE_3MF slot=1")
+        assert _has_log(app, "USAGE_3MF slot=3")
+        assert not _has_log(app, "USAGE_RFID")
+
+    # ── Scenario 6: RFID, no 3MF, finish (RFID delta only) ──
+
+    def test_scenario6_rfid_no_3mf(self):
+        app = self._make_app(
+            rfid_slots={1},
+            spool_bindings={1: 10},
+        )
+        app._threemf_data = None
+        app.threemf_enabled = False
+        _fire(app, job_key="s6_test", trays_used="1",
+              start_json='{"1": 940}', end_json='{"1": 870}',
+              print_status="finish")
+        assert len(app._use_calls) == 1
+        assert app._use_calls[0]["spool_id"] == 10
+        assert abs(app._use_calls[0]["use_weight"] - 70.0) < 0.1
+        assert _has_log(app, "USAGE_RFID slot=1")
+        assert "s6_test" in app._seen_job_keys
+
+    # ── Scenario 7: Cancelled print — RFID delta, 3MF suppressed ──
+
+    def test_scenario7_cancelled_rfid_delta(self):
+        threemf = [{"index": 1, "used_g": 50.0, "color_hex": "ff0000", "material": "pla"}]
+        app = self._make_app(
+            rfid_slots={1},
+            spool_bindings={1: 10},
+            threemf=threemf,
+        )
+        _fire(app, job_key="s7_test", trays_used="1",
+              start_json='{"1": 940}', end_json='{"1": 910}',
+              print_status="canceled")
+        assert len(app._use_calls) == 1
+        assert abs(app._use_calls[0]["use_weight"] - 30.0) < 0.1
+        # 3MF suppressed for non-success status
+        assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
+        assert _has_log(app, "USAGE_RFID slot=1")
+        assert "s7_test" in app._seen_job_keys
+
+    # ── Scenario 8: Failed print — no writes ──
+
+    def test_scenario8_failed_no_writes(self):
+        app = self._make_app(
+            rfid_slots={1},
+            spool_bindings={1: 10},
+        )
+        _fire(app, job_key="s8_test", trays_used="1",
+              start_json='{"1": 940}', end_json='{"1": 910}',
+              print_status="failed")
+        assert len(app._use_calls) == 0
+        assert _has_log(app, "USAGE_SKIP_FAILED_PRINT")
+        assert "s8_test" not in app._seen_job_keys
+
+    # ── Finding A: trays_used empty — only delta slots written ──
+
+    def test_finding_a_empty_trays_used_fallback(self):
+        """Empty trays_used falls back to start_map keys, but only RFID
+        slots with actual delta get writes. Non-RFID slots with no 3MF
+        fall through to NO_EVIDENCE."""
+        app = self._make_app(
+            rfid_slots={1},
+            spool_bindings={1: 10, 2: 20, 3: 30, 5: 50, 6: 60},
+        )
+        app._trays_used = set()  # empty internal tracking
+        _fire(app, job_key="fa_test", trays_used="",
+              start_json='{"1": 940, "2": 564, "3": 725, "5": 869, "6": 533}',
+              end_json='{"1": 870, "2": 564, "3": 725, "5": 869, "6": 533}',
+              print_status="finish")
+        # Only slot 1 has RFID + delta (70g). Others: non-RFID, no 3MF, no evidence.
+        assert len(app._use_calls) == 1
+        assert app._use_calls[0]["spool_id"] == 10
+        assert abs(app._use_calls[0]["use_weight"] - 70.0) < 0.1
+        assert _has_log(app, "USAGE_NO_TRAY_TRACKING")
+
+    # ── Finding F: min_consumption_g filter on 3MF path ──
+
+    def test_finding_f_3mf_below_min_skipped(self):
+        """3MF match with used_g < min_consumption_g is skipped."""
+        threemf = [{"index": 3, "used_g": 1.0, "color_hex": "8e9089", "material": "pla"}]
+        app = self._make_app(
+            spool_bindings={3: 30},
+            threemf=threemf,
+        )
+        _fire(app, job_key="ff_test", trays_used="3",
+              start_json='{"3": 725}', end_json='{"3": 725}',
+              print_status="finish")
+        assert len(app._use_calls) == 0
+        assert _has_log(app, "USAGE_BELOW_MIN slot=3")
+
+    def test_finding_f2_3mf_at_min_threshold_passes(self):
+        """3MF match with used_g == min_consumption_g is written."""
+        threemf = [{"index": 3, "used_g": 2.0, "color_hex": "8e9089", "material": "pla"}]
+        app = self._make_app(
+            spool_bindings={3: 30},
+            threemf=threemf,
+        )
+        _fire(app, job_key="ff2_test", trays_used="3",
+              start_json='{"3": 725}', end_json='{"3": 725}',
+              print_status="finish")
+        assert len(app._use_calls) == 1
+        assert abs(app._use_calls[0]["use_weight"] - 2.0) < 0.1
+
+    # ── Finding B: RFID delta with start_g = 0 ──
+
+    def test_finding_b_rfid_start_zero_excluded(self):
+        """RFID slot with start_g=0 is excluded by the > 0 guard."""
+        app = self._make_app(
+            rfid_slots={1},
+            spool_bindings={1: 10},
+        )
+        _fire(app, job_key="fb_test", trays_used="1",
+              start_json='{"1": 0}', end_json='{"1": 0}',
+              print_status="finish")
+        assert len(app._use_calls) == 0
+        assert _has_log(app, "USAGE_NO_EVIDENCE slot=1")
+
+    # ── Finding D: remaining_weight missing from Spoolman response ──
+
+    def test_finding_d_missing_remaining_weight(self):
+        """Spoolman response without remaining_weight defaults to 1 (not depleted)."""
+        app = self._make_app(
+            rfid_slots={1},
+            spool_bindings={1: 10},
+        )
+        # Override _spoolman_use to return response without remaining_weight
+        def use_no_remaining(spool_id, use_weight_g):
+            app._use_calls.append({"spool_id": spool_id, "use_weight": use_weight_g})
+            return {"id": spool_id}  # no remaining_weight
+        app._spoolman_use = use_no_remaining
+        _fire(app, job_key="fd_test", trays_used="1",
+              start_json='{"1": 940}', end_json='{"1": 870}',
+              print_status="finish")
+        assert len(app._use_calls) == 1
+        assert _has_log(app, "USAGE_PATCHED slot=1")
+        # Should NOT fire depleted guard (default=1 > 0)
+        assert not _has_log(app, "USAGE_SPOOL_DEPLETED")
+
+    # ── Finding 8: rehydrate undercount with stale fuel gauge ──
+
+    def test_finding_8_rehydrate_stale_gauge_undercount(self):
+        """Start snapshot rebuilt from current gauges mid-print undercounts delta."""
+        app = _TestableUsageSync(
+            state_map={
+                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                # No start_json helper — forces rebuild from fuel gauge
+                "sensor.p1s_tray_1_fuel_gauge_remaining": "870.0",  # mid-print value
+                "sensor.p1s_01p00c5a3101668_task_name": "undercount_test",
+                "input_text.ams_slot_1_spool_id": "10",
+            },
+            args={"lifecycle_phase1_enabled": True},
+        )
+        app._state_map.update(_rfid_tag_uid_for_slots(app, [1]))
+        app._rehydrate_print_state()
+        assert app._print_active is True
+        # Start snapshot rebuilt from gauge at 870g (not original 940g)
+        assert app._start_snapshot.get(1) == 870.0
+        assert _has_log(app, "REHYDRATE_START_SNAPSHOT_REBUILT")
+
+    # ── Finding E: reconciler deferred, not synchronous ──
+
+    def test_finding_e_reconciler_deferred_in_do_finish(self):
+        """_do_finish schedules reconciler via run_in(60s), not synchronously."""
+        app = self._make_app(
+            rfid_slots={1},
+            spool_bindings={1: 10},
+        )
+        app._job_key = "e_test"
+        app._start_snapshot = {1: 940.0}
+        app._trays_used = {1}
+        app._state_map["sensor.p1s_tray_1_fuel_gauge_remaining"] = "870.0"
+        app._do_finish("finish")
+        deferred = [
+            c for c in app._run_in_calls
+            if c.get("callback") == app._reconcile_rfid_weights_deferred
+        ]
+        assert len(deferred) == 1
+        assert deferred[0]["delay"] >= 60
+        assert _has_log(app, "RFID_WEIGHT_RECONCILE_DEFERRED")
+
+    # ── Dedup tests ──
+
+    def test_dedup_prevents_double_write(self):
+        """Same job_key fired twice — second call is deduped."""
+        app = self._make_app(
+            rfid_slots={1},
+            spool_bindings={1: 10},
+        )
+        _fire(app, job_key="dedup_test", trays_used="1",
+              start_json='{"1": 940}', end_json='{"1": 870}',
+              print_status="finish")
+        assert len(app._use_calls) == 1
+        _fire(app, job_key="dedup_test", trays_used="1",
+              start_json='{"1": 870}', end_json='{"1": 800}',
+              print_status="finish")
+        assert len(app._use_calls) == 1  # still 1
+        assert _has_log(app, "DEDUP_SKIP")
