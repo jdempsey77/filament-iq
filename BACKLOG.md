@@ -14,6 +14,7 @@
 - [ ] Spool_id snapshot at print start — snapshot spool_ids alongside fuel gauge in _start_snapshot or parallel _spool_id_snapshot. Usage sync reads from snapshot at finish instead of live helpers. Eliminates reconciler/usage sync coupling. Principal identified as correct long-term fix (option d).
 - [ ] F1 availability template tolerance — RFID spools report remain=-1 to -2 when nearly depleted. Consider `remain >= -5 OR tray_weight > 0` to avoid falling to AMS remaining for valid near-empty RFID reads.
 - [ ] Manually correct spool 39 consumption in Spoolman (~144g from grid print 2026-03-11 00:08, remaining showed 98.4g which may be stale)
+- [ ] Spoolman used_weight invariant break — RFID reconciler PATCHes remaining_weight directly, making `remaining + used != initial`. Benign for Filament IQ today but breaks any Spoolman consumer of used_weight. Track for future. (Skeptic Review, 2026-03-14)
 
 ### Low Priority
 - [ ] Manual correction: spool 38 remaining weight in Spoolman (~110g lost from Gridfinity print 2026-03-13, slot 4 depletion incident)
@@ -26,6 +27,7 @@
 - [ ] Manually correct spool 52 consumption in Spoolman (~143g from grid print 2026-03-12 15:03)
 
 ### Done
+- [x] RFID reconciler hardening — print_active re-defer, directional guard (never increase weight), tray_weight sanity bounds (50-2000g), 5g minimum delta threshold. 1226 passing. (v0.12.4, Skeptic Review)
 - [x] 16 E2E pipeline mock tests — full _handle_usage_event decision matrix (8 scenarios) + 6 audit finding tests. 1215 passing. 919b484 (v0.12.3)
 - [x] RFID reconciler deferred 60s post-print — prevents stale MQTT sensor from undoing consumption writes. Synchronous reconcile read cached pre-print RFID remain% and patched Spoolman back. bb4d47b (v0.12.2, Audit Finding E — HIGH, now fixed)
 - [x] Rehydrate job_key from HA helper — reads full timestamp-suffixed key from input_text helper instead of re-deriving from task_name. Disk fallback in _finish_wait_tick as safety net. 474eebb (v0.12.1, RT #2 rehydrate fix). Note: original RT #2 described persisting trays_used; actual fix was reading _job_key from HA helper — active_print.json already persisted threemf_data, the bug was key mismatch on load.

@@ -52,3 +52,22 @@ guaranteed safe window.
 
 **Evidence:** ANALYZE audit 2026-03-14. No production incident yet
 identified but mechanism confirmed in code review.
+
+### 2026-03-14 — RFID reconciler hardening (four guards)
+
+**Decision:** Added four guards to `_reconcile_rfid_weight_slot` and
+`_reconcile_rfid_weights_deferred`.
+
+**Why:**
+1. print_active re-defer — deferred reconcile was firing during
+   back-to-back prints, reading mid-print sensor values
+2. Directional guard — reconciler must never increase Spoolman weight
+   post-print; upward direction always indicates stale remain%
+3. tray_weight sanity bounds (50-2000g) — no upper/lower cap allowed
+   factory errors or cloned tags to corrupt Spoolman to impossible values
+4. Minimum delta threshold (5g) — integer remain% resolution is 10g on
+   1000g spools; 5g threshold eliminates idle slot noise writes
+
+**Evidence:** Skeptic review 2026-03-14. Back-to-back race (HIGH),
+spool swap between write and reconcile (HIGH), tray_weight corruption
+(HIGH), idle slot oscillation (MEDIUM).
