@@ -49,6 +49,10 @@ input_text:
     min: 0
     max: 32
     mode: password
+  filament_iq_reconciler_status:
+    name: Filament IQ Reconciler Status
+    initial: initializing
+    max: 255
   spoolman_base_url:
     name: Spoolman API base URL
     initial: "http://192.168.4.124:7912"
