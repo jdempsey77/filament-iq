@@ -1,0 +1,1312 @@
+# ─── Filament IQ Reference Dashboard ─────────────────────────────────
+# Ready-to-import Lovelace dashboard for Filament IQ.
+# Prerequisites: mushroom cards, card-mod, mod-card, button-card
+#
+# To customize for your printer:
+#   ./dashboards/scripts/configure_filament_iq.sh YOUR_SERIAL
+#
+# Default placeholder: PRINTER_SERIAL (replace with your Bambu serial)
+# ─────────────────────────────────────────────────────────────────────
+views:
+  - title: Filament IQ
+    icon: mdi:printer-3d-nozzle
+    type: sections
+    badges: []
+    sections:
+      # ═══════════════════════════════════════════════════════════════
+      # SECTION 1: AMS Slot Grid (6 cards — 2 rows of 3)
+      # ═══════════════════════════════════════════════════════════════
+      - type: grid
+        cards:
+          - type: grid
+            columns: 3
+            square: false
+            cards:
+              # ── Slot 1 (AMS Pro Tray 1) ──
+              - type: custom:mushroom-template-card
+                entity: sensor.ams_slot_1_name
+                primary: >-
+                  {% set status = states('sensor.ams_slot_1_status') %}
+                  {% if status == 'empty' %}Slot 1 · Empty
+                  {% elif status == 'needs_bind' %}Slot 1 · Needs Binding
+                  {% else %}{{ states('sensor.ams_slot_1_name') }}
+                  {% endif %}
+                secondary: >-
+                  {% set status = states('sensor.ams_slot_1_status') %}
+                  {% if status == 'ok' %}{{ states('sensor.ams_slot_1_material') }} · {{ states('sensor.ams_slot_1_remaining_g') }}g
+                  {% elif status == 'needs_bind' %}
+                    {% set r = states('input_text.ams_slot_1_unbound_reason') %}
+                    {% if 'RFID_NOT_REFRESHED' in r %}Unload & reload for RFID read
+                    {% elif 'NONRFID_NO_MATCH' in r %}No match — select spool below
+                    {% elif 'AMBIGUOUS' in r %}Multiple matches — select spool
+                    {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                    {% elif 'NOT_FOUND' in r %}Spool missing — reassign below
+                    {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                    {% else %}Manual binding required
+                    {% endif %}
+                  {% elif status == 'empty' %}No spool loaded
+                  {% else %}Unknown
+                  {% endif %}
+                icon: >-
+                  {% set status = states('sensor.ams_slot_1_status') %}
+                  {% if status == 'empty' %}mdi:tray-remove
+                  {% elif status == 'needs_bind' %}mdi:alert-circle
+                  {% else %}mdi:printer-3d-nozzle
+                  {% endif %}
+                icon_color: >-
+                  {% set status = states('sensor.ams_slot_1_status') %}
+                  {% if status == 'empty' %}disabled
+                  {% elif status == 'needs_bind' %}red
+                  {% else %}
+                    {% set hex = states('sensor.ams_slot_1_color_hex') %}
+                    {{ '#' ~ hex if hex not in ['000000', 'Unknown'] else 'green' }}
+                  {% endif %}
+                badge_icon: >-
+                  {% if states('sensor.ams_slot_1_status') == 'needs_bind' %}mdi:alert{% endif %}
+                badge_color: >-
+                  {% if states('sensor.ams_slot_1_status') == 'needs_bind' %}red{% endif %}
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: |
+                    ha-card {
+                      {% set status = states('sensor.ams_slot_1_status') %}
+                      {% set hex = states('sensor.ams_slot_1_color_hex') %}
+                      {% if status == 'ok' and hex not in ['000000', 'Unknown'] %}
+                      border-left: 3px solid #{{ hex }};
+                      --ha-card-background: #{{ hex }}15;
+                      {% elif status == 'needs_bind' %}
+                      border-left: 3px solid var(--error-color);
+                      {% elif status == 'empty' %}
+                      opacity: 0.5;
+                      {% endif %}
+                    }
+              # ── Slot 2 (AMS Pro Tray 2) ──
+              - type: custom:mushroom-template-card
+                entity: sensor.ams_slot_2_name
+                primary: >-
+                  {% set status = states('sensor.ams_slot_2_status') %}
+                  {% if status == 'empty' %}Slot 2 · Empty
+                  {% elif status == 'needs_bind' %}Slot 2 · Needs Binding
+                  {% else %}{{ states('sensor.ams_slot_2_name') }}
+                  {% endif %}
+                secondary: >-
+                  {% set status = states('sensor.ams_slot_2_status') %}
+                  {% if status == 'ok' %}{{ states('sensor.ams_slot_2_material') }} · {{ states('sensor.ams_slot_2_remaining_g') }}g
+                  {% elif status == 'needs_bind' %}
+                    {% set r = states('input_text.ams_slot_2_unbound_reason') %}
+                    {% if 'RFID_NOT_REFRESHED' in r %}Unload & reload for RFID read
+                    {% elif 'NONRFID_NO_MATCH' in r %}No match — select spool below
+                    {% elif 'AMBIGUOUS' in r %}Multiple matches — select spool
+                    {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                    {% elif 'NOT_FOUND' in r %}Spool missing — reassign below
+                    {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                    {% else %}Manual binding required
+                    {% endif %}
+                  {% elif status == 'empty' %}No spool loaded
+                  {% else %}Unknown
+                  {% endif %}
+                icon: >-
+                  {% set status = states('sensor.ams_slot_2_status') %}
+                  {% if status == 'empty' %}mdi:tray-remove
+                  {% elif status == 'needs_bind' %}mdi:alert-circle
+                  {% else %}mdi:printer-3d-nozzle
+                  {% endif %}
+                icon_color: >-
+                  {% set status = states('sensor.ams_slot_2_status') %}
+                  {% if status == 'empty' %}disabled
+                  {% elif status == 'needs_bind' %}red
+                  {% else %}
+                    {% set hex = states('sensor.ams_slot_2_color_hex') %}
+                    {{ '#' ~ hex if hex not in ['000000', 'Unknown'] else 'green' }}
+                  {% endif %}
+                badge_icon: >-
+                  {% if states('sensor.ams_slot_2_status') == 'needs_bind' %}mdi:alert{% endif %}
+                badge_color: >-
+                  {% if states('sensor.ams_slot_2_status') == 'needs_bind' %}red{% endif %}
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: |
+                    ha-card {
+                      {% set status = states('sensor.ams_slot_2_status') %}
+                      {% set hex = states('sensor.ams_slot_2_color_hex') %}
+                      {% if status == 'ok' and hex not in ['000000', 'Unknown'] %}
+                      border-left: 3px solid #{{ hex }};
+                      --ha-card-background: #{{ hex }}15;
+                      {% elif status == 'needs_bind' %}
+                      border-left: 3px solid var(--error-color);
+                      {% elif status == 'empty' %}
+                      opacity: 0.5;
+                      {% endif %}
+                    }
+              # ── Slot 3 (AMS Pro Tray 3) ──
+              - type: custom:mushroom-template-card
+                entity: sensor.ams_slot_3_name
+                primary: >-
+                  {% set status = states('sensor.ams_slot_3_status') %}
+                  {% if status == 'empty' %}Slot 3 · Empty
+                  {% elif status == 'needs_bind' %}Slot 3 · Needs Binding
+                  {% else %}{{ states('sensor.ams_slot_3_name') }}
+                  {% endif %}
+                secondary: >-
+                  {% set status = states('sensor.ams_slot_3_status') %}
+                  {% if status == 'ok' %}{{ states('sensor.ams_slot_3_material') }} · {{ states('sensor.ams_slot_3_remaining_g') }}g
+                  {% elif status == 'needs_bind' %}
+                    {% set r = states('input_text.ams_slot_3_unbound_reason') %}
+                    {% if 'RFID_NOT_REFRESHED' in r %}Unload & reload for RFID read
+                    {% elif 'NONRFID_NO_MATCH' in r %}No match — select spool below
+                    {% elif 'AMBIGUOUS' in r %}Multiple matches — select spool
+                    {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                    {% elif 'NOT_FOUND' in r %}Spool missing — reassign below
+                    {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                    {% else %}Manual binding required
+                    {% endif %}
+                  {% elif status == 'empty' %}No spool loaded
+                  {% else %}Unknown
+                  {% endif %}
+                icon: >-
+                  {% set status = states('sensor.ams_slot_3_status') %}
+                  {% if status == 'empty' %}mdi:tray-remove
+                  {% elif status == 'needs_bind' %}mdi:alert-circle
+                  {% else %}mdi:printer-3d-nozzle
+                  {% endif %}
+                icon_color: >-
+                  {% set status = states('sensor.ams_slot_3_status') %}
+                  {% if status == 'empty' %}disabled
+                  {% elif status == 'needs_bind' %}red
+                  {% else %}
+                    {% set hex = states('sensor.ams_slot_3_color_hex') %}
+                    {{ '#' ~ hex if hex not in ['000000', 'Unknown'] else 'green' }}
+                  {% endif %}
+                badge_icon: >-
+                  {% if states('sensor.ams_slot_3_status') == 'needs_bind' %}mdi:alert{% endif %}
+                badge_color: >-
+                  {% if states('sensor.ams_slot_3_status') == 'needs_bind' %}red{% endif %}
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: |
+                    ha-card {
+                      {% set status = states('sensor.ams_slot_3_status') %}
+                      {% set hex = states('sensor.ams_slot_3_color_hex') %}
+                      {% if status == 'ok' and hex not in ['000000', 'Unknown'] %}
+                      border-left: 3px solid #{{ hex }};
+                      --ha-card-background: #{{ hex }}15;
+                      {% elif status == 'needs_bind' %}
+                      border-left: 3px solid var(--error-color);
+                      {% elif status == 'empty' %}
+                      opacity: 0.5;
+                      {% endif %}
+                    }
+              # ── Slot 4 (AMS Pro Tray 4) ──
+              - type: custom:mushroom-template-card
+                entity: sensor.ams_slot_4_name
+                primary: >-
+                  {% set status = states('sensor.ams_slot_4_status') %}
+                  {% if status == 'empty' %}Slot 4 · Empty
+                  {% elif status == 'needs_bind' %}Slot 4 · Needs Binding
+                  {% else %}{{ states('sensor.ams_slot_4_name') }}
+                  {% endif %}
+                secondary: >-
+                  {% set status = states('sensor.ams_slot_4_status') %}
+                  {% if status == 'ok' %}{{ states('sensor.ams_slot_4_material') }} · {{ states('sensor.ams_slot_4_remaining_g') }}g
+                  {% elif status == 'needs_bind' %}
+                    {% set r = states('input_text.ams_slot_4_unbound_reason') %}
+                    {% if 'RFID_NOT_REFRESHED' in r %}Unload & reload for RFID read
+                    {% elif 'NONRFID_NO_MATCH' in r %}No match — select spool below
+                    {% elif 'AMBIGUOUS' in r %}Multiple matches — select spool
+                    {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                    {% elif 'NOT_FOUND' in r %}Spool missing — reassign below
+                    {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                    {% else %}Manual binding required
+                    {% endif %}
+                  {% elif status == 'empty' %}No spool loaded
+                  {% else %}Unknown
+                  {% endif %}
+                icon: >-
+                  {% set status = states('sensor.ams_slot_4_status') %}
+                  {% if status == 'empty' %}mdi:tray-remove
+                  {% elif status == 'needs_bind' %}mdi:alert-circle
+                  {% else %}mdi:printer-3d-nozzle
+                  {% endif %}
+                icon_color: >-
+                  {% set status = states('sensor.ams_slot_4_status') %}
+                  {% if status == 'empty' %}disabled
+                  {% elif status == 'needs_bind' %}red
+                  {% else %}
+                    {% set hex = states('sensor.ams_slot_4_color_hex') %}
+                    {{ '#' ~ hex if hex not in ['000000', 'Unknown'] else 'green' }}
+                  {% endif %}
+                badge_icon: >-
+                  {% if states('sensor.ams_slot_4_status') == 'needs_bind' %}mdi:alert{% endif %}
+                badge_color: >-
+                  {% if states('sensor.ams_slot_4_status') == 'needs_bind' %}red{% endif %}
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: |
+                    ha-card {
+                      {% set status = states('sensor.ams_slot_4_status') %}
+                      {% set hex = states('sensor.ams_slot_4_color_hex') %}
+                      {% if status == 'ok' and hex not in ['000000', 'Unknown'] %}
+                      border-left: 3px solid #{{ hex }};
+                      --ha-card-background: #{{ hex }}15;
+                      {% elif status == 'needs_bind' %}
+                      border-left: 3px solid var(--error-color);
+                      {% elif status == 'empty' %}
+                      opacity: 0.5;
+                      {% endif %}
+                    }
+              # ── Slot 5 (AMS HT Tray 1) ──
+              - type: custom:mushroom-template-card
+                entity: sensor.ams_slot_5_name
+                primary: >-
+                  {% set status = states('sensor.ams_slot_5_status') %}
+                  {% if status == 'empty' %}Slot 5 · Empty
+                  {% elif status == 'needs_bind' %}Slot 5 · Needs Binding
+                  {% else %}{{ states('sensor.ams_slot_5_name') }}
+                  {% endif %}
+                secondary: >-
+                  {% set status = states('sensor.ams_slot_5_status') %}
+                  {% if status == 'ok' %}{{ states('sensor.ams_slot_5_material') }} · {{ states('sensor.ams_slot_5_remaining_g') }}g
+                  {% elif status == 'needs_bind' %}
+                    {% set r = states('input_text.ams_slot_5_unbound_reason') %}
+                    {% if 'RFID_NOT_REFRESHED' in r %}Unload & reload for RFID read
+                    {% elif 'NONRFID_NO_MATCH' in r %}No match — select spool below
+                    {% elif 'AMBIGUOUS' in r %}Multiple matches — select spool
+                    {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                    {% elif 'NOT_FOUND' in r %}Spool missing — reassign below
+                    {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                    {% else %}Manual binding required
+                    {% endif %}
+                  {% elif status == 'empty' %}No spool loaded
+                  {% else %}Unknown
+                  {% endif %}
+                icon: >-
+                  {% set status = states('sensor.ams_slot_5_status') %}
+                  {% if status == 'empty' %}mdi:tray-remove
+                  {% elif status == 'needs_bind' %}mdi:alert-circle
+                  {% else %}mdi:printer-3d-nozzle
+                  {% endif %}
+                icon_color: >-
+                  {% set status = states('sensor.ams_slot_5_status') %}
+                  {% if status == 'empty' %}disabled
+                  {% elif status == 'needs_bind' %}red
+                  {% else %}
+                    {% set hex = states('sensor.ams_slot_5_color_hex') %}
+                    {{ '#' ~ hex if hex not in ['000000', 'Unknown'] else 'green' }}
+                  {% endif %}
+                badge_icon: >-
+                  {% if states('sensor.ams_slot_5_status') == 'needs_bind' %}mdi:alert{% endif %}
+                badge_color: >-
+                  {% if states('sensor.ams_slot_5_status') == 'needs_bind' %}red{% endif %}
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: |
+                    ha-card {
+                      {% set status = states('sensor.ams_slot_5_status') %}
+                      {% set hex = states('sensor.ams_slot_5_color_hex') %}
+                      {% if status == 'ok' and hex not in ['000000', 'Unknown'] %}
+                      border-left: 3px solid #{{ hex }};
+                      --ha-card-background: #{{ hex }}15;
+                      {% elif status == 'needs_bind' %}
+                      border-left: 3px solid var(--error-color);
+                      {% elif status == 'empty' %}
+                      opacity: 0.5;
+                      {% endif %}
+                    }
+              # ── Slot 6 (AMS HT Tray 2) ──
+              - type: custom:mushroom-template-card
+                entity: sensor.ams_slot_6_name
+                primary: >-
+                  {% set status = states('sensor.ams_slot_6_status') %}
+                  {% if status == 'empty' %}Slot 6 · Empty
+                  {% elif status == 'needs_bind' %}Slot 6 · Needs Binding
+                  {% else %}{{ states('sensor.ams_slot_6_name') }}
+                  {% endif %}
+                secondary: >-
+                  {% set status = states('sensor.ams_slot_6_status') %}
+                  {% if status == 'ok' %}{{ states('sensor.ams_slot_6_material') }} · {{ states('sensor.ams_slot_6_remaining_g') }}g
+                  {% elif status == 'needs_bind' %}
+                    {% set r = states('input_text.ams_slot_6_unbound_reason') %}
+                    {% if 'RFID_NOT_REFRESHED' in r %}Unload & reload for RFID read
+                    {% elif 'NONRFID_NO_MATCH' in r %}No match — select spool below
+                    {% elif 'AMBIGUOUS' in r %}Multiple matches — select spool
+                    {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                    {% elif 'NOT_FOUND' in r %}Spool missing — reassign below
+                    {% elif 'UID_NO_MATCH' in r %}RFID tag not recognized
+                    {% else %}Manual binding required
+                    {% endif %}
+                  {% elif status == 'empty' %}No spool loaded
+                  {% else %}Unknown
+                  {% endif %}
+                icon: >-
+                  {% set status = states('sensor.ams_slot_6_status') %}
+                  {% if status == 'empty' %}mdi:tray-remove
+                  {% elif status == 'needs_bind' %}mdi:alert-circle
+                  {% else %}mdi:printer-3d-nozzle
+                  {% endif %}
+                icon_color: >-
+                  {% set status = states('sensor.ams_slot_6_status') %}
+                  {% if status == 'empty' %}disabled
+                  {% elif status == 'needs_bind' %}red
+                  {% else %}
+                    {% set hex = states('sensor.ams_slot_6_color_hex') %}
+                    {{ '#' ~ hex if hex not in ['000000', 'Unknown'] else 'green' }}
+                  {% endif %}
+                badge_icon: >-
+                  {% if states('sensor.ams_slot_6_status') == 'needs_bind' %}mdi:alert{% endif %}
+                badge_color: >-
+                  {% if states('sensor.ams_slot_6_status') == 'needs_bind' %}red{% endif %}
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: |
+                    ha-card {
+                      {% set status = states('sensor.ams_slot_6_status') %}
+                      {% set hex = states('sensor.ams_slot_6_color_hex') %}
+                      {% if status == 'ok' and hex not in ['000000', 'Unknown'] %}
+                      border-left: 3px solid #{{ hex }};
+                      --ha-card-background: #{{ hex }}15;
+                      {% elif status == 'needs_bind' %}
+                      border-left: 3px solid var(--error-color);
+                      {% elif status == 'empty' %}
+                      opacity: 0.5;
+                      {% endif %}
+                    }
+
+      # ═══════════════════════════════════════════════════════════════
+      # SECTION 2: Summary Stats + Actions
+      # ═══════════════════════════════════════════════════════════════
+      - type: grid
+        cards:
+          - type: grid
+            columns: 4
+            square: false
+            cards:
+              # ── Bound Slots ──
+              - type: custom:mushroom-template-card
+                primary: Bound
+                secondary: >-
+                  {% set ns = namespace(count=0) %}
+                  {% for i in [1,2,3,4,5,6] %}
+                    {% if states('sensor.ams_slot_' ~ i ~ '_status') == 'ok' %}
+                      {% set ns.count = ns.count + 1 %}
+                    {% endif %}
+                  {% endfor %}
+                  {{ ns.count }} / 6
+                icon: mdi:check-circle
+                icon_color: green
+                layout: vertical
+                tap_action:
+                  action: none
+                card_mod:
+                  style: |
+                    ha-card {
+                      background: rgba(255,255,255,0.03) !important;
+                      box-shadow: none;
+                      border: 1px solid rgba(255,255,255,0.06) !important;
+                      border-radius: 10px !important;
+                    }
+                    mushroom-shape-icon {
+                      --shape-color: none !important;
+                      --icon-size: 24px !important;
+                    }
+                    .primary { font-size: 12px !important; font-weight: 600 !important; }
+                    .secondary { font-size: 11px !important; color: #9ca3af !important; }
+              # ── Empty Slots ──
+              - type: custom:mushroom-template-card
+                primary: Empty
+                secondary: >-
+                  {% set ns = namespace(count=0) %}
+                  {% for i in [1,2,3,4,5,6] %}
+                    {% if states('sensor.ams_slot_' ~ i ~ '_status') == 'empty' %}
+                      {% set ns.count = ns.count + 1 %}
+                    {% endif %}
+                  {% endfor %}
+                  {{ ns.count }} / 6
+                icon: mdi:tray-remove
+                icon_color: grey
+                layout: vertical
+                tap_action:
+                  action: none
+                card_mod:
+                  style: |
+                    ha-card {
+                      background: rgba(255,255,255,0.03) !important;
+                      box-shadow: none;
+                      border: 1px solid rgba(255,255,255,0.06) !important;
+                      border-radius: 10px !important;
+                    }
+                    mushroom-shape-icon {
+                      --shape-color: none !important;
+                      --icon-size: 24px !important;
+                    }
+                    .primary { font-size: 12px !important; font-weight: 600 !important; }
+                    .secondary { font-size: 11px !important; color: #9ca3af !important; }
+              # ── Total Filament ──
+              - type: custom:mushroom-template-card
+                primary: Filament
+                secondary: >-
+                  {% set ns = namespace(total=0) %}
+                  {% for i in [1,2,3,4,5,6] %}
+                    {% set g = states('sensor.ams_slot_' ~ i ~ '_remaining_g') %}
+                    {% if g not in ['unknown', 'unavailable', '', none] %}
+                      {% set ns.total = ns.total + g | float(0) %}
+                    {% endif %}
+                  {% endfor %}
+                  {{ ns.total | round(0) | int }}g
+                icon: mdi:weight-gram
+                icon_color: cyan
+                layout: vertical
+                tap_action:
+                  action: none
+                card_mod:
+                  style: |
+                    ha-card {
+                      background: rgba(255,255,255,0.03) !important;
+                      box-shadow: none;
+                      border: 1px solid rgba(255,255,255,0.06) !important;
+                      border-radius: 10px !important;
+                    }
+                    mushroom-shape-icon {
+                      --shape-color: none !important;
+                      --icon-size: 24px !important;
+                    }
+                    .primary { font-size: 12px !important; font-weight: 600 !important; }
+                    .secondary { font-size: 11px !important; color: #9ca3af !important; }
+              # ── Alerts ──
+              - type: custom:mushroom-template-card
+                primary: Alerts
+                secondary: >-
+                  {% set ns = namespace(count=0) %}
+                  {% for i in [1,2,3,4,5,6] %}
+                    {% if states('sensor.ams_slot_' ~ i ~ '_status') == 'needs_bind' %}
+                      {% set ns.count = ns.count + 1 %}
+                    {% endif %}
+                  {% endfor %}
+                  {% if ns.count > 0 %}{{ ns.count }} unbound
+                  {% else %}All clear
+                  {% endif %}
+                icon: >-
+                  {% set ns = namespace(count=0) %}
+                  {% for i in [1,2,3,4,5,6] %}
+                    {% if states('sensor.ams_slot_' ~ i ~ '_status') == 'needs_bind' %}
+                      {% set ns.count = ns.count + 1 %}
+                    {% endif %}
+                  {% endfor %}
+                  {% if ns.count > 0 %}mdi:alert-circle{% else %}mdi:shield-check{% endif %}
+                icon_color: >-
+                  {% set ns = namespace(count=0) %}
+                  {% for i in [1,2,3,4,5,6] %}
+                    {% if states('sensor.ams_slot_' ~ i ~ '_status') == 'needs_bind' %}
+                      {% set ns.count = ns.count + 1 %}
+                    {% endif %}
+                  {% endfor %}
+                  {% if ns.count > 0 %}red{% else %}green{% endif %}
+                layout: vertical
+                tap_action:
+                  action: more-info
+                  entity: input_text.filament_iq_reconciler_status
+                card_mod:
+                  style: |
+                    ha-card {
+                      {% set ns = namespace(count=0) %}
+                      {% for i in [1,2,3,4,5,6] %}
+                        {% if states('sensor.ams_slot_' ~ i ~ '_status') == 'needs_bind' %}
+                          {% set ns.count = ns.count + 1 %}
+                        {% endif %}
+                      {% endfor %}
+                      {% if ns.count > 0 %}
+                      background: rgba(244,67,54,0.08) !important;
+                      {% else %}
+                      background: rgba(255,255,255,0.03) !important;
+                      {% endif %}
+                      box-shadow: none;
+                      border: 1px solid rgba(255,255,255,0.06) !important;
+                      border-radius: 10px !important;
+                    }
+                    mushroom-shape-icon {
+                      --shape-color: none !important;
+                      --icon-size: 24px !important;
+                    }
+                    .primary { font-size: 12px !important; font-weight: 600 !important; }
+                    .secondary { font-size: 11px !important; color: #9ca3af !important; }
+          # ── Action Buttons ──
+          - type: horizontal-stack
+            cards:
+              - type: custom:mushroom-template-card
+                primary: Reconcile
+                icon: mdi:sync
+                icon_color: blue
+                layout: vertical
+                tap_action:
+                  action: call-service
+                  service: script.turn_on
+                  target:
+                    entity_id: script.reconcile_all_ams_slots
+                card_mod:
+                  style: |
+                    ha-card {
+                      background: rgba(255,255,255,0.03) !important;
+                      box-shadow: none;
+                      border: 1px solid rgba(255,255,255,0.06) !important;
+                      border-radius: 10px !important;
+                    }
+                    mushroom-shape-icon {
+                      --shape-color: none !important;
+                      --icon-size: 24px !important;
+                    }
+                    .primary { font-size: 12px !important; font-weight: 600 !important; }
+              - type: custom:mushroom-template-card
+                primary: Spoolman
+                icon: mdi:database
+                icon_color: orange
+                layout: vertical
+                tap_action:
+                  action: url
+                  url_path: "http://192.168.4.124:7912"
+                card_mod:
+                  style: |
+                    ha-card {
+                      background: rgba(255,255,255,0.03) !important;
+                      box-shadow: none;
+                      border: 1px solid rgba(255,255,255,0.06) !important;
+                      border-radius: 10px !important;
+                    }
+                    mushroom-shape-icon {
+                      --shape-color: none !important;
+                      --icon-size: 24px !important;
+                    }
+                    .primary { font-size: 12px !important; font-weight: 600 !important; }
+
+      # ═══════════════════════════════════════════════════════════════
+      # SECTION 3: Live Print Monitor
+      # ═══════════════════════════════════════════════════════════════
+      - type: grid
+        cards:
+          - type: custom:mod-card
+            style: |
+              ha-card {
+                background: rgba(255,255,255,0.03) !important;
+                border: 2px solid rgba(255,255,255,0.12) !important;
+                border-radius: 14px !important;
+                box-shadow: 0 6px 16px rgba(0, 0, 0, 0.7) !important;
+                overflow: hidden;
+                padding: 0 !important;
+              }
+            card:
+              type: vertical-stack
+              cards:
+                # ── Status header with model image ──
+                - type: custom:mod-card
+                  style: |
+                    ha-card {
+                      background: rgba(255,255,255,0.03) !important;
+                      border: none !important;
+                      border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+                      border-radius: 0 !important;
+                      box-shadow: none !important;
+                      padding: 0 !important;
+                    }
+                  card:
+                    type: custom:button-card
+                    entity: image.PRINTER_SERIAL_cover_image
+                    show_entity_picture: >
+                      [[[
+                        const status = states['sensor.PRINTER_SERIAL_print_status'].state;
+                        return !['idle', 'offline', 'unavailable', 'unknown'].includes(status);
+                      ]]]
+                    show_icon: >
+                      [[[
+                        const status = states['sensor.PRINTER_SERIAL_print_status'].state;
+                        return ['idle', 'offline', 'unavailable', 'unknown'].includes(status);
+                      ]]]
+                    icon: mdi:printer-3d-nozzle
+                    show_name: true
+                    show_label: true
+                    show_state: false
+                    layout: icon_name_state2nd
+                    name: >
+                      [[[
+                        const status = states['sensor.PRINTER_SERIAL_print_status'].state;
+                        const task = states['sensor.PRINTER_SERIAL_task_name'].state;
+                        let primary = '';
+                        if (status === 'running') primary = 'PRINTING';
+                        else if (status === 'idle') primary = 'IDLE';
+                        else if (status === 'pause') primary = 'PAUSED';
+                        else if (status === 'failed' || status === 'error') primary = 'FAILED';
+                        else if (status === 'finish') primary = 'FINISHED';
+                        else if (status === 'prepare') primary = 'PREPARING';
+                        else if (['offline', 'unavailable', 'unknown'].includes(status)) primary = 'OFFLINE';
+                        else primary = status ? status.toUpperCase() : '—';
+                        if (!['idle', 'offline', 'unavailable', 'unknown'].includes(status) &&
+                            task && !['unknown', 'unavailable', ''].includes(task)) {
+                          primary += ' · ' + task.replace(/_/g, ' ');
+                        }
+                        return primary;
+                      ]]]
+                    label: >
+                      [[[
+                        const status = states['sensor.PRINTER_SERIAL_print_status'].state;
+                        if (['idle', 'offline', 'unavailable', 'unknown'].includes(status))
+                          return 'No active print';
+                        if (['running', 'pause', 'prepare'].includes(status)) {
+                          const pct = parseInt(states['sensor.PRINTER_SERIAL_print_progress'].state) || 0;
+                          const t = parseFloat(states['sensor.PRINTER_SERIAL_remaining_time'].state) || 0;
+                          const h = Math.floor(t);
+                          const m = Math.floor((t - h) * 60);
+                          const cur = states['sensor.PRINTER_SERIAL_current_layer'].state;
+                          const tot = states['sensor.PRINTER_SERIAL_total_layer_count'].state;
+                          let text = pct + '% · ';
+                          if (h > 0) text += h + 'h ';
+                          text += m + 'm left';
+                          if (cur && tot && !['unknown', 'unavailable', ''].includes(cur) &&
+                              !['unknown', 'unavailable', ''].includes(tot)) {
+                            text += ' · Layer ' + cur + '/' + tot;
+                          }
+                          return text;
+                        }
+                        if (status === 'finish') return 'Print complete';
+                        if (status === 'failed' || status === 'error') return 'Print failed';
+                        return '—';
+                      ]]]
+                    tap_action:
+                      action: more-info
+                      entity: sensor.PRINTER_SERIAL_print_status
+                    styles:
+                      grid:
+                        - grid-template-areas: '"i n" "i l"'
+                        - grid-template-columns: min-content 1fr
+                        - grid-template-rows: min-content min-content
+                        - column-gap: 10px
+                      card:
+                        - background: transparent
+                        - box-shadow: none
+                        - padding: 8px 12px
+                        - justify-content: flex-start
+                      img_cell:
+                        - background: '#e8e8e8'
+                        - border-radius: 4px
+                        - width: 56px
+                        - height: 56px
+                        - min-width: 56px
+                        - grid-area: i
+                        - align-self: center
+                      entity_picture:
+                        - object-fit: contain
+                        - padding: 4px
+                        - width: 100%
+                        - height: 100%
+                      icon:
+                        - color: grey
+                        - width: 24px
+                        - height: 24px
+                      name:
+                        - font-size: 15px
+                        - font-weight: 700
+                        - letter-spacing: 0.3px
+                        - text-align: left
+                        - justify-self: start
+                        - white-space: normal
+                        - align-self: end
+                        - grid-area: n
+                      label:
+                        - font-size: 12px
+                        - color: '#9ca3af'
+                        - text-align: left
+                        - justify-self: start
+                        - align-self: start
+                        - grid-area: l
+
+                # ── Progress bar + Active tray (printing only) ──
+                - type: conditional
+                  conditions:
+                    - condition: state
+                      entity: sensor.PRINTER_SERIAL_print_status
+                      state_not: idle
+                    - condition: state
+                      entity: sensor.PRINTER_SERIAL_print_status
+                      state_not: finish
+                    - condition: state
+                      entity: sensor.PRINTER_SERIAL_print_status
+                      state_not: offline
+                    - condition: state
+                      entity: sensor.PRINTER_SERIAL_print_status
+                      state_not: unavailable
+                    - condition: state
+                      entity: sensor.PRINTER_SERIAL_print_status
+                      state_not: unknown
+                  card:
+                    type: custom:mod-card
+                    style: |
+                      ha-card {
+                        background: rgba(255,255,255,0.03) !important;
+                        border: none !important;
+                        border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+                        border-radius: 0 !important;
+                        box-shadow: none !important;
+                        padding: 0 !important;
+                      }
+                    card:
+                      type: vertical-stack
+                      cards:
+                        - type: custom:mod-card
+                          style: |
+                            ha-card {
+                              background: transparent !important;
+                              border: none !important;
+                              border-radius: 0 !important;
+                              box-shadow: none !important;
+                              padding: 8px 12px 4px !important;
+                            }
+                          card:
+                            type: custom:mushroom-template-card
+                            primary: ''
+                            secondary: ''
+                            icon: ''
+                            tap_action:
+                              action: none
+                            card_mod:
+                              style: |
+                                ha-card {
+                                  --ha-card-background: transparent;
+                                  box-shadow: none;
+                                  min-height: 5px !important;
+                                  padding: 0 !important;
+                                }
+                                mushroom-card-content {
+                                  display: none !important;
+                                }
+                                ha-card::before {
+                                  content: '';
+                                  display: block;
+                                  height: 5px;
+                                  border-radius: 3px;
+                                  background: rgba(255,255,255,0.07);
+                                  position: relative;
+                                  overflow: hidden;
+                                }
+                                ha-card::after {
+                                  content: '';
+                                  display: block;
+                                  position: absolute;
+                                  height: 5px;
+                                  border-radius: 3px;
+                                  background: linear-gradient(90deg, #3b9fd8, #63cab7);
+                                  width: {{ states('sensor.PRINTER_SERIAL_print_progress') | int(0) }}%;
+                                  z-index: 1;
+                                }
+                        - type: custom:mushroom-template-card
+                          primary: >-
+                            {% set ai = state_attr('sensor.PRINTER_SERIAL_active_tray', 'ams_index') %}
+                            {% set ti = state_attr('sensor.PRINTER_SERIAL_active_tray', 'tray_index') %}
+                            {% if ai == 0 and ti is not none %}{% set slot = ti + 1 %}
+                            {% elif ai == 128 %}{% set slot = 5 %}
+                            {% elif ai == 129 %}{% set slot = 6 %}
+                            {% else %}{% set slot = 0 %}
+                            {% endif %}
+                            {% if slot >= 1 and slot <= 6 %}
+                              {% set name = states('sensor.ams_slot_' ~ slot ~ '_name') %}
+                              {% set remaining = states('sensor.ams_slot_' ~ slot ~ '_remaining_g') %}
+                              Slot {{ slot }}
+                              {%- if name not in ['unknown', 'unavailable', '', none] %} · {{ name }}{% endif %}
+                              {%- if remaining not in ['unknown', 'unavailable', '', none] %} · {{ remaining | float(0) | round(0) | int }}g{% endif %}
+                            {% else %}No active tray
+                            {% endif %}
+                          icon: >-
+                            {% set ai = state_attr('sensor.PRINTER_SERIAL_active_tray', 'ams_index') %}
+                            {% set ti = state_attr('sensor.PRINTER_SERIAL_active_tray', 'tray_index') %}
+                            {% if ai == 0 and ti is not none %}{% set slot = ti + 1 %}
+                            {% elif ai == 128 %}{% set slot = 5 %}
+                            {% elif ai == 129 %}{% set slot = 6 %}
+                            {% else %}{% set slot = 0 %}
+                            {% endif %}
+                            {% if slot >= 1 and slot <= 6 %}mdi:numeric-{{ slot }}-circle
+                            {% else %}mdi:tray-alert
+                            {% endif %}
+                          icon_color: >-
+                            {% set ai = state_attr('sensor.PRINTER_SERIAL_active_tray', 'ams_index') %}
+                            {% set ti = state_attr('sensor.PRINTER_SERIAL_active_tray', 'tray_index') %}
+                            {% if ai == 0 and ti is not none %}{% set slot = ti + 1 %}
+                            {% elif ai == 128 %}{% set slot = 5 %}
+                            {% elif ai == 129 %}{% set slot = 6 %}
+                            {% else %}{% set slot = 0 %}
+                            {% endif %}
+                            {% if slot >= 1 and slot <= 6 %}
+                              {% set hex = states('sensor.ams_slot_' ~ slot ~ '_color_hex') %}
+                              {% if hex in ['000000', 'unknown', 'unavailable', '', none] %}#555555
+                              {% else %}#{{ hex }}
+                              {% endif %}
+                            {% else %}grey
+                            {% endif %}
+                          layout: horizontal
+                          tap_action:
+                            action: none
+                          card_mod:
+                            style: |
+                              ha-card {
+                                --ha-card-background: transparent;
+                                box-shadow: none;
+                                padding: 0 12px 6px;
+                              }
+                              .primary {
+                                font-size: 12px !important;
+                                color: #9ca3af !important;
+                              }
+                              mushroom-shape-icon {
+                                --icon-size: 18px !important;
+                              }
+
+                # ── Slot chips + reconciler (always shown) ──
+                - type: custom:mod-card
+                  style: |
+                    ha-card {
+                      background: rgba(255,255,255,0.03) !important;
+                      border: none !important;
+                      border-radius: 0 0 14px 14px !important;
+                      box-shadow: none !important;
+                      padding: 0 !important;
+                    }
+                  card:
+                    type: custom:mushroom-chips-card
+                    alignment: center
+                    card_mod:
+                      style: |
+                        ha-card {
+                          --ha-card-background: transparent;
+                          box-shadow: none;
+                          padding: 6px 8px 8px;
+                          --chip-spacing: 4px;
+                        }
+                    chips:
+                      - type: template
+                        icon: mdi:numeric-1-circle
+                        icon_color: >-
+                          {% set s = states('sensor.ams_slot_1_status') %}
+                          {% if s == 'ok' %}green{% elif s == 'empty' %}#3a3d44{% elif s == 'needs_bind' %}red{% else %}orange{% endif %}
+                        content: ''
+                        tap_action:
+                          action: none
+                        card_mod:
+                          style: |
+                            ha-card { --chip-background: transparent; --chip-padding: 0 2px; }
+                      - type: template
+                        icon: mdi:numeric-2-circle
+                        icon_color: >-
+                          {% set s = states('sensor.ams_slot_2_status') %}
+                          {% if s == 'ok' %}green{% elif s == 'empty' %}#3a3d44{% elif s == 'needs_bind' %}red{% else %}orange{% endif %}
+                        content: ''
+                        tap_action:
+                          action: none
+                        card_mod:
+                          style: |
+                            ha-card { --chip-background: transparent; --chip-padding: 0 2px; }
+                      - type: template
+                        icon: mdi:numeric-3-circle
+                        icon_color: >-
+                          {% set s = states('sensor.ams_slot_3_status') %}
+                          {% if s == 'ok' %}green{% elif s == 'empty' %}#3a3d44{% elif s == 'needs_bind' %}red{% else %}orange{% endif %}
+                        content: ''
+                        tap_action:
+                          action: none
+                        card_mod:
+                          style: |
+                            ha-card { --chip-background: transparent; --chip-padding: 0 2px; }
+                      - type: template
+                        icon: mdi:numeric-4-circle
+                        icon_color: >-
+                          {% set s = states('sensor.ams_slot_4_status') %}
+                          {% if s == 'ok' %}green{% elif s == 'empty' %}#3a3d44{% elif s == 'needs_bind' %}red{% else %}orange{% endif %}
+                        content: ''
+                        tap_action:
+                          action: none
+                        card_mod:
+                          style: |
+                            ha-card { --chip-background: transparent; --chip-padding: 0 2px; }
+                      - type: template
+                        icon: mdi:numeric-5-circle
+                        icon_color: >-
+                          {% set s = states('sensor.ams_slot_5_status') %}
+                          {% if s == 'ok' %}green{% elif s == 'empty' %}#3a3d44{% elif s == 'needs_bind' %}red{% else %}orange{% endif %}
+                        content: ''
+                        tap_action:
+                          action: none
+                        card_mod:
+                          style: |
+                            ha-card { --chip-background: transparent; --chip-padding: 0 2px; }
+                      - type: template
+                        icon: mdi:numeric-6-circle
+                        icon_color: >-
+                          {% set s = states('sensor.ams_slot_6_status') %}
+                          {% if s == 'ok' %}green{% elif s == 'empty' %}#3a3d44{% elif s == 'needs_bind' %}red{% else %}orange{% endif %}
+                        content: ''
+                        tap_action:
+                          action: none
+                        card_mod:
+                          style: |
+                            ha-card { --chip-background: transparent; --chip-padding: 0 2px; }
+                      # Reconciler summary chip
+                      - type: template
+                        icon: >-
+                          {% set has_bind = namespace(v=false) %}
+                          {% for i in [1,2,3,4,5,6] %}
+                            {% if states('sensor.ams_slot_' ~ i ~ '_status') == 'needs_bind' %}
+                              {% set has_bind.v = true %}
+                            {% endif %}
+                          {% endfor %}
+                          {% if has_bind.v %}mdi:alert-circle{% else %}mdi:check-circle{% endif %}
+                        icon_color: >-
+                          {% set has_bind = namespace(v=false) %}
+                          {% for i in [1,2,3,4,5,6] %}
+                            {% if states('sensor.ams_slot_' ~ i ~ '_status') == 'needs_bind' %}
+                              {% set has_bind.v = true %}
+                            {% endif %}
+                          {% endfor %}
+                          {% if has_bind.v %}amber{% else %}green{% endif %}
+                        content: >-
+                          {% set ns = namespace(ok=0, empty=0, bind=0) %}
+                          {% for i in [1,2,3,4,5,6] %}
+                            {% set s = states('sensor.ams_slot_' ~ i ~ '_status') %}
+                            {% if s == 'ok' %}{% set ns.ok = ns.ok + 1 %}
+                            {% elif s == 'empty' %}{% set ns.empty = ns.empty + 1 %}
+                            {% elif s == 'needs_bind' %}{% set ns.bind = ns.bind + 1 %}
+                            {% endif %}
+                          {% endfor %}
+                          {% if ns.bind > 0 %}{{ ns.bind }} bind
+                          {% elif ns.empty > 0 %}{{ ns.ok }} ok · {{ ns.empty }} empty
+                          {% else %}{{ ns.ok }} ok
+                          {% endif %}
+                        tap_action:
+                          action: more-info
+                          entity: input_text.filament_iq_reconciler_status
+                        card_mod:
+                          style: |
+                            ha-card {
+                              --chip-background: rgba(255,255,255,0.04);
+                              --chip-padding: 0 6px;
+                              --chip-font-size: 11px;
+                            }
+
+      # ═══════════════════════════════════════════════════════════════
+      # SECTION 4: Printer Controls
+      # ═══════════════════════════════════════════════════════════════
+      - type: grid
+        cards:
+          - type: vertical-stack
+            cards:
+              # ── Row 1: Power, Chamber Light, WiFi ──
+              - type: grid
+                columns: 3
+                square: false
+                cards:
+                  - type: custom:mushroom-template-card
+                    entity: switch.officeoutlet01_3dprinter
+                    primary: Power
+                    secondary: >-
+                      {{ 'On' if is_state('switch.officeoutlet01_3dprinter', 'on') else 'Off' }}
+                    icon: mdi:power
+                    icon_color: >-
+                      {{ 'cyan' if is_state('switch.officeoutlet01_3dprinter', 'on') else 'grey' }}
+                    layout: vertical
+                    tap_action:
+                      action: toggle
+                      confirmation:
+                        text: Toggle printer power?
+                    hold_action:
+                      action: more-info
+                    card_mod:
+                      style: |
+                        ha-card {
+                          {% if is_state('switch.officeoutlet01_3dprinter', 'on') %}
+                          background: rgba(0,188,212,0.08) !important;
+                          {% else %}
+                          background: rgba(255,255,255,0.03) !important;
+                          {% endif %}
+                          box-shadow: none;
+                          border: 1px solid rgba(255,255,255,0.06) !important;
+                          border-radius: 10px !important;
+                        }
+                        mushroom-shape-icon {
+                          --shape-color: none !important;
+                          --icon-size: 24px !important;
+                        }
+                        .primary { font-size: 12px !important; font-weight: 600 !important; }
+                        .secondary { font-size: 11px !important; color: #9ca3af !important; }
+                  - type: custom:mushroom-template-card
+                    entity: light.PRINTER_SERIAL_chamber_light
+                    primary: Light
+                    secondary: >-
+                      {{ 'On' if is_state('light.PRINTER_SERIAL_chamber_light', 'on') else 'Off' }}
+                    icon: mdi:lightbulb
+                    icon_color: >-
+                      {{ 'cyan' if is_state('light.PRINTER_SERIAL_chamber_light', 'on') else 'grey' }}
+                    layout: vertical
+                    tap_action:
+                      action: toggle
+                    hold_action:
+                      action: more-info
+                    card_mod:
+                      style: |
+                        ha-card {
+                          {% if is_state('light.PRINTER_SERIAL_chamber_light', 'on') %}
+                          background: rgba(0,188,212,0.08) !important;
+                          {% else %}
+                          background: rgba(255,255,255,0.03) !important;
+                          {% endif %}
+                          box-shadow: none;
+                          border: 1px solid rgba(255,255,255,0.06) !important;
+                          border-radius: 10px !important;
+                        }
+                        mushroom-shape-icon {
+                          --shape-color: none !important;
+                          --icon-size: 24px !important;
+                        }
+                        .primary { font-size: 12px !important; font-weight: 600 !important; }
+                        .secondary { font-size: 11px !important; color: #9ca3af !important; }
+                  - type: custom:mushroom-template-card
+                    primary: WiFi
+                    secondary: >-
+                      {% set rssi = states('sensor.PRINTER_SERIAL_wi_fi_signal') | int(0) %}
+                      {% if rssi >= -50 %}Excellent
+                      {% elif rssi >= -60 %}Good
+                      {% elif rssi >= -70 %}Fair
+                      {% elif rssi >= -80 %}Weak
+                      {% else %}Poor{% endif %}
+                      · {{ rssi }}dBm
+                    icon: >-
+                      {% set rssi = states('sensor.PRINTER_SERIAL_wi_fi_signal') | int(0) %}
+                      {% if rssi >= -50 %}mdi:wifi-strength-4
+                      {% elif rssi >= -60 %}mdi:wifi-strength-3
+                      {% elif rssi >= -70 %}mdi:wifi-strength-2
+                      {% elif rssi >= -80 %}mdi:wifi-strength-1
+                      {% else %}mdi:wifi-strength-alert-outline{% endif %}
+                    icon_color: >-
+                      {% set rssi = states('sensor.PRINTER_SERIAL_wi_fi_signal') | int(0) %}
+                      {{ 'cyan' if rssi >= -70 else 'grey' }}
+                    layout: vertical
+                    tap_action:
+                      action: none
+                    card_mod:
+                      style: |
+                        ha-card {
+                          {% set rssi = states('sensor.PRINTER_SERIAL_wi_fi_signal') | int(0) %}
+                          {% if rssi >= -70 %}
+                          background: rgba(0,188,212,0.08) !important;
+                          {% else %}
+                          background: rgba(255,255,255,0.03) !important;
+                          {% endif %}
+                          box-shadow: none;
+                          border: 1px solid rgba(255,255,255,0.06) !important;
+                          border-radius: 10px !important;
+                          pointer-events: none;
+                        }
+                        mushroom-shape-icon {
+                          --shape-color: none !important;
+                          --icon-size: 24px !important;
+                        }
+                        .primary { font-size: 12px !important; font-weight: 600 !important; }
+                        .secondary { font-size: 11px !important; color: #9ca3af !important; }
+              # ── Row 2: Fans (read-only) ──
+              - type: grid
+                columns: 3
+                square: false
+                cards:
+                  - type: custom:mushroom-template-card
+                    primary: Chamber
+                    secondary: >-
+                      {% if is_state('fan.PRINTER_SERIAL_chamber_fan', 'on') %}
+                        {{ state_attr('fan.PRINTER_SERIAL_chamber_fan', 'percentage') | int(0) }}%
+                      {% else %}Off{% endif %}
+                    icon: mdi:fan
+                    icon_color: >-
+                      {{ 'cyan' if is_state('fan.PRINTER_SERIAL_chamber_fan', 'on') else 'grey' }}
+                    layout: vertical
+                    tap_action:
+                      action: none
+                    card_mod:
+                      style: |
+                        ha-card {
+                          {% if is_state('fan.PRINTER_SERIAL_chamber_fan', 'on') %}
+                          background: rgba(0,188,212,0.08) !important;
+                          {% else %}
+                          background: rgba(255,255,255,0.03) !important;
+                          {% endif %}
+                          box-shadow: none;
+                          border: 1px solid rgba(255,255,255,0.06) !important;
+                          border-radius: 10px !important;
+                          pointer-events: none;
+                        }
+                        mushroom-shape-icon {
+                          --shape-color: none !important;
+                          --icon-size: 24px !important;
+                          {% if is_state('fan.PRINTER_SERIAL_chamber_fan', 'on') %}
+                          --icon-animation: spin 1s linear infinite;
+                          {% endif %}
+                        }
+                        .primary { font-size: 12px !important; font-weight: 600 !important; }
+                        .secondary { font-size: 11px !important; color: #9ca3af !important; }
+                  - type: custom:mushroom-template-card
+                    primary: Cooling
+                    secondary: >-
+                      {% if is_state('fan.PRINTER_SERIAL_cooling_fan', 'on') %}
+                        {{ state_attr('fan.PRINTER_SERIAL_cooling_fan', 'percentage') | int(0) }}%
+                      {% else %}Off{% endif %}
+                    icon: mdi:fan
+                    icon_color: >-
+                      {{ 'cyan' if is_state('fan.PRINTER_SERIAL_cooling_fan', 'on') else 'grey' }}
+                    layout: vertical
+                    tap_action:
+                      action: none
+                    card_mod:
+                      style: |
+                        ha-card {
+                          {% if is_state('fan.PRINTER_SERIAL_cooling_fan', 'on') %}
+                          background: rgba(0,188,212,0.08) !important;
+                          {% else %}
+                          background: rgba(255,255,255,0.03) !important;
+                          {% endif %}
+                          box-shadow: none;
+                          border: 1px solid rgba(255,255,255,0.06) !important;
+                          border-radius: 10px !important;
+                          pointer-events: none;
+                        }
+                        mushroom-shape-icon {
+                          --shape-color: none !important;
+                          --icon-size: 24px !important;
+                          {% if is_state('fan.PRINTER_SERIAL_cooling_fan', 'on') %}
+                          --icon-animation: spin 1s linear infinite;
+                          {% endif %}
+                        }
+                        .primary { font-size: 12px !important; font-weight: 600 !important; }
+                        .secondary { font-size: 11px !important; color: #9ca3af !important; }
+                  - type: custom:mushroom-template-card
+                    primary: Aux
+                    secondary: >-
+                      {% if is_state('fan.PRINTER_SERIAL_aux_fan', 'on') %}
+                        {{ state_attr('fan.PRINTER_SERIAL_aux_fan', 'percentage') | int(0) }}%
+                      {% else %}Off{% endif %}
+                    icon: mdi:fan
+                    icon_color: >-
+                      {{ 'cyan' if is_state('fan.PRINTER_SERIAL_aux_fan', 'on') else 'grey' }}
+                    layout: vertical
+                    tap_action:
+                      action: none
+                    card_mod:
+                      style: |
+                        ha-card {
+                          {% if is_state('fan.PRINTER_SERIAL_aux_fan', 'on') %}
+                          background: rgba(0,188,212,0.08) !important;
+                          {% else %}
+                          background: rgba(255,255,255,0.03) !important;
+                          {% endif %}
+                          box-shadow: none;
+                          border: 1px solid rgba(255,255,255,0.06) !important;
+                          border-radius: 10px !important;
+                          pointer-events: none;
+                        }
+                        mushroom-shape-icon {
+                          --shape-color: none !important;
+                          --icon-size: 24px !important;
+                          {% if is_state('fan.PRINTER_SERIAL_aux_fan', 'on') %}
+                          --icon-animation: spin 1s linear infinite;
+                          {% endif %}
+                        }
+                        .primary { font-size: 12px !important; font-weight: 600 !important; }
+                        .secondary { font-size: 11px !important; color: #9ca3af !important; }
+              # ── Row 3: Air Purifier, Print Hours, Firmware ──
+              - type: grid
+                columns: 3
+                square: false
+                cards:
+                  - type: custom:mushroom-template-card
+                    entity: fan.office_air_purifier
+                    primary: Purifier
+                    secondary: >-
+                      {% if is_state('fan.office_air_purifier', 'on') %}
+                        {{ state_attr('fan.office_air_purifier', 'percentage') | int(0) }}%
+                      {% else %}Off{% endif %}
+                    icon: mdi:air-filter
+                    icon_color: >-
+                      {{ 'cyan' if is_state('fan.office_air_purifier', 'on') else 'grey' }}
+                    layout: vertical
+                    tap_action:
+                      action: toggle
+                    hold_action:
+                      action: more-info
+                    card_mod:
+                      style: |
+                        ha-card {
+                          {% if is_state('fan.office_air_purifier', 'on') %}
+                          background: rgba(0,188,212,0.08) !important;
+                          {% else %}
+                          background: rgba(255,255,255,0.03) !important;
+                          {% endif %}
+                          box-shadow: none;
+                          border: 1px solid rgba(255,255,255,0.06) !important;
+                          border-radius: 10px !important;
+                        }
+                        mushroom-shape-icon {
+                          --shape-color: none !important;
+                          --icon-size: 24px !important;
+                        }
+                        .primary { font-size: 12px !important; font-weight: 600 !important; }
+                        .secondary { font-size: 11px !important; color: #9ca3af !important; }
+                  - type: custom:mushroom-template-card
+                    primary: Print Hours
+                    secondary: >-
+                      {{ states('sensor.PRINTER_SERIAL_total_usage') | float(0) | round(0) | int }}h
+                    icon: mdi:clock-outline
+                    icon_color: grey
+                    layout: vertical
+                    tap_action:
+                      action: more-info
+                      entity: sensor.PRINTER_SERIAL_total_usage
+                    card_mod:
+                      style: |
+                        ha-card {
+                          background: rgba(255,255,255,0.03) !important;
+                          box-shadow: none;
+                          border: 1px solid rgba(255,255,255,0.06) !important;
+                          border-radius: 10px !important;
+                        }
+                        mushroom-shape-icon {
+                          --shape-color: none !important;
+                          --icon-size: 24px !important;
+                        }
+                        .primary { font-size: 12px !important; font-weight: 600 !important; }
+                        .secondary { font-size: 11px !important; color: #9ca3af !important; }
+                  - type: custom:mushroom-template-card
+                    primary: Firmware
+                    secondary: >-
+                      {% if is_state('binary_sensor.PRINTER_SERIAL_firmware_update', 'on') %}Update available
+                      {% else %}Up to date{% endif %}
+                    icon: >-
+                      {% if is_state('binary_sensor.PRINTER_SERIAL_firmware_update', 'on') %}mdi:cellphone-arrow-down
+                      {% else %}mdi:check-circle-outline{% endif %}
+                    icon_color: >-
+                      {{ 'cyan' if is_state('binary_sensor.PRINTER_SERIAL_firmware_update', 'on') else 'grey' }}
+                    layout: vertical
+                    tap_action:
+                      action: more-info
+                      entity: binary_sensor.PRINTER_SERIAL_firmware_update
+                    card_mod:
+                      style: |
+                        ha-card {
+                          {% if is_state('binary_sensor.PRINTER_SERIAL_firmware_update', 'on') %}
+                          background: rgba(0,188,212,0.08) !important;
+                          {% else %}
+                          background: rgba(255,255,255,0.03) !important;
+                          {% endif %}
+                          box-shadow: none;
+                          border: 1px solid rgba(255,255,255,0.06) !important;
+                          border-radius: 10px !important;
+                        }
+                        mushroom-shape-icon {
+                          --shape-color: none !important;
+                          --icon-size: 24px !important;
+                        }
+                        .primary { font-size: 12px !important; font-weight: 600 !important; }
+                        .secondary { font-size: 11px !important; color: #9ca3af !important; }
