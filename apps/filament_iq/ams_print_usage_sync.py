@@ -372,9 +372,19 @@ class AmsPrintUsageSync(FilamentIQBase):
         for slot in active_slots:
             spool_id = self._read_spool_id(slot)
             if spool_id <= 0:
-                self.log(
-                    f"USAGE_SKIP slot={slot} reason=UNBOUND", level="INFO"
-                )
+                tray_seconds = self._summarize_tray_times().get(slot, 0)
+                if tray_seconds > 60:
+                    self.log(
+                        f"USAGE_SKIP slot={slot} reason=UNBOUND "
+                        f"tray_seconds={tray_seconds:.0f} "
+                        f"DATA_LOSS — significant activity unrecorded",
+                        level="WARNING",
+                    )
+                else:
+                    self.log(
+                        f"USAGE_SKIP slot={slot} reason=UNBOUND",
+                        level="INFO",
+                    )
                 skipped += 1
                 continue
 
