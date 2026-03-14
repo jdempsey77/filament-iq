@@ -55,6 +55,11 @@ SEEN_JOBS_PATH = os.path.join(_APP_DIR, "data", "seen_job_keys.json")
 MAX_SEEN_JOBS = 50
 ACTIVE_PRINT_FILE = pathlib.Path(_APP_DIR) / "data" / "active_print.json"
 
+# RFID weight reconciler constants
+TRAY_WEIGHT_MIN_G = 50.0    # Bambu AMS Lite spools are 250g; 50g gives safe headroom
+TRAY_WEIGHT_MAX_G = 2000.0  # Largest Bambu spool is 1000g; 2000g catches factory/clone errors
+RECONCILE_MIN_DELTA_G = 5.0 # remain% is integer 0-100; on 1000g spool, resolution = 10g
+
 # tag_uid values that indicate non-RFID (no chip or empty)
 _INVALID_TAG_UIDS = frozenset({"", "0000000000000000", "unknown", "unavailable"})
 
@@ -1735,6 +1740,14 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     def _reconcile_rfid_weights_deferred(self, kwargs):
         """Deferred reconcile callback — called via run_in after print finish."""
+        if self._print_active:
+            self.log(
+                "RFID_WEIGHT_RECONCILE_DEFERRED_PRINT_ACTIVE "
+                "— new print active, re-deferring 60s",
+                level="INFO",
+            )
+            self.run_in(self._reconcile_rfid_weights_deferred, 60)
+            return
         try:
             self._reconcile_rfid_weights()
         except Exception as exc:
@@ -1774,6 +1787,14 @@ class AmsPrintUsageSync(FilamentIQBase):
             return
         if tray_weight <= 0:
             return
+        if tray_weight < TRAY_WEIGHT_MIN_G or tray_weight > TRAY_WEIGHT_MAX_G:
+            self.log(
+                f"RFID_WEIGHT_SKIP_TRAY_WEIGHT slot={slot} "
+                f"tray_weight={tray_weight} "
+                f"reason=outside_sanity_bounds_{TRAY_WEIGHT_MIN_G}_{TRAY_WEIGHT_MAX_G}g",
+                level="WARNING",
+            )
+            return
         # Validate remain value before calculation
         if remain_raw is None or not isinstance(remain_raw, (int, float)):
             try:
@@ -1801,10 +1822,12 @@ class AmsPrintUsageSync(FilamentIQBase):
             )
             return
         spoolman_weight_g = round(float(spool_data.get("remaining_weight", 0)), 1)
-        if rfid_weight_g == spoolman_weight_g:
+        delta = abs(rfid_weight_g - spoolman_weight_g)
+        if delta < RECONCILE_MIN_DELTA_G:
             self.log(
                 f"RFID_WEIGHT_MATCH slot={slot} spool_id={spool_id} "
-                f"rfid={rfid_weight_g}g",
+                f"rfid={rfid_weight_g}g delta={delta:.1f}g < "
+                f"{RECONCILE_MIN_DELTA_G}g threshold",
                 level="DEBUG",
             )
             return
