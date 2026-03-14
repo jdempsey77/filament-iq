@@ -8,16 +8,20 @@
 - [ ] Investigate 3MF_UNMATCHED for brief tray activations — tray tracking misses slots used for very short durations. Root cause: active_tray sensor polling interval vs actual extrusion time. Workaround in place (3MF-matched slots merged into active_slots).
 
 ### Medium Priority
+- [ ] Spool_id snapshot at print start — snapshot spool_ids alongside fuel gauge in _start_snapshot or parallel _spool_id_snapshot. Usage sync reads from snapshot at finish instead of live helpers. Eliminates reconciler/usage sync coupling. Principal identified as correct long-term fix (option d).
+- [ ] F1 availability template tolerance — RFID spools report remain=-1 to -2 when nearly depleted. Consider `remain >= -5 OR tray_weight > 0` to avoid falling to AMS remaining for valid near-empty RFID reads.
 - [ ] Manually correct spool 39 consumption in Spoolman (~144g from grid print 2026-03-11 00:08, remaining showed 98.4g which may be stale)
 
 ### Low Priority
+- [ ] Manual correction: spool 38 remaining weight in Spoolman (~110g lost from Gridfinity print 2026-03-13, slot 4 depletion incident)
 - [ ] 3MF fetch takes 11-15s consistently, triggering "Excessive time spent" warnings — investigate if FTPS listing of 154 files is the bottleneck. Could skip listing and download by constructed filename directly.
 - [ ] Delete remaining obsolete HA helpers: input_number.filament_iq_start/end_slot_N_g (deferred — active test scripts reference them)
-- [ ] Change ACTIVE_PRINT_PERSISTED log level from DEBUG to INFO for visibility in normal monitoring
+- [x] Change ACTIVE_PRINT_PERSISTED log level from DEBUG to INFO for visibility in normal monitoring (48f18ff)
 - [ ] Investigate stale seen_job_keys.json at /addon_configs/a0d7b954_appdaemon/apps/data/ (should only exist at filament_iq/data/)
 - [ ] Manually correct spool 52 consumption in Spoolman (~143g from grid print 2026-03-12 15:03)
 
 ### Done
+- [x] Reconciler print-active freeze — full reconcile skip during active prints, 24h watchdog, post-print reconcile trigger, USAGE_SKIP data loss warning. 1194 tests. (v0.12.0)
 - [x] Coverage push to 75% — 1177 tests, +451 new, per-module: base 100%, threemf 94%, dropdown 87%, weight 83%, guard 81%, usage 73%, reconcile 71% (v0.11.2, RT #3)
 - [x] Hold slot bindings during active prints — reconciler skips re-evaluation of bound slots while print_active (v0.11.1, F4 / RT #6)
 - [x] Persist active print state to disk — active_print.json survives AppDaemon restart (v0.11.0, F3 / RT #2)
