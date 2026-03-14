@@ -1017,14 +1017,16 @@ class AmsPrintUsageSync(FilamentIQBase):
         # Call usage handler directly (no event roundtrip)
         self._handle_usage_event(None, data, {})
 
-        # RFID weight reconciler — correct Spoolman drift using RFID ground truth
-        try:
-            self._reconcile_rfid_weights()
-        except Exception as exc:
-            self.log(
-                f"RFID_WEIGHT_RECONCILE_ERROR unhandled: {exc}",
-                level="ERROR",
-            )
+        # Defer RFID weight reconciliation to allow printer MQTT sensor
+        # to refresh post-print. Immediate reconcile would read stale
+        # pre-print remain% and undo the consumption write.
+        _RECONCILE_DELAY_SECONDS = 60
+        self.run_in(self._reconcile_rfid_weights_deferred, _RECONCILE_DELAY_SECONDS)
+        self.log(
+            f"RFID_WEIGHT_RECONCILE_DEFERRED job_key={self._job_key} "
+            f"delay={_RECONCILE_DELAY_SECONDS}s",
+            level="INFO",
+        )
 
         # Stamp dedup — only for non-failed prints so a retry with the
         # same job_key after a failure is not incorrectly skipped
@@ -1730,6 +1732,16 @@ class AmsPrintUsageSync(FilamentIQBase):
                 level="ERROR",
             )
             return None
+
+    def _reconcile_rfid_weights_deferred(self, kwargs):
+        """Deferred reconcile callback — called via run_in after print finish."""
+        try:
+            self._reconcile_rfid_weights()
+        except Exception as exc:
+            self.log(
+                f"RFID_WEIGHT_RECONCILE_ERROR unhandled: {exc}",
+                level="ERROR",
+            )
 
     def _reconcile_rfid_weights(self):
         """After print finish, correct Spoolman remaining_weight using RFID ground truth."""
