@@ -428,6 +428,55 @@ class AmsPrintUsageSync(FilamentIQBase):
             )
             skipped += 1
 
+        # Depleted non-RFID spool pass
+        # Detects spools that ran out mid-print and AMS switched to backup
+        tray_times_summary = self._summarize_tray_times()
+        for slot in sorted(trays_used_set):
+            if slot in threemf_matched_slots:
+                continue
+            if self._is_rfid_slot(slot):
+                continue
+            spool_id = self._read_spool_id(slot)
+            if spool_id <= 0:
+                continue
+            entity = self._tray_entity_by_slot.get(slot)
+            if not entity:
+                continue
+            tray_state = str(self.get_state(entity) or "").strip()
+            if tray_state != "Empty":
+                continue
+            tray_seconds = tray_times_summary.get(slot, 0)
+            if tray_seconds < self.min_tray_active_seconds:
+                self.log(
+                    f"USAGE_DEPLETED_SKIP slot={slot} reason=brief_probe "
+                    f"tray_seconds={tray_seconds:.1f}",
+                    level="DEBUG",
+                )
+                continue
+            spool_data = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+            if not spool_data:
+                self.log(
+                    f"USAGE_DEPLETED_SKIP slot={slot} spool_id={spool_id} "
+                    f"reason=spoolman_fetch_failed",
+                    level="WARNING",
+                )
+                continue
+            remaining = float(spool_data.get("remaining_weight", 0))
+            if remaining <= self.min_consumption_g:
+                self.log(
+                    f"USAGE_DEPLETED_SKIP slot={slot} spool_id={spool_id} "
+                    f"remaining={remaining:.1f}g reason=already_zero",
+                    level="DEBUG",
+                )
+                continue
+            all_results.append((slot, spool_id, remaining, "depleted_nonrfid"))
+            self.log(
+                f"USAGE_DEPLETED_NONRFID slot={slot} spool_id={spool_id} "
+                f"consuming_remaining={remaining:.1f}g "
+                f"tray_seconds={tray_seconds:.1f}",
+                level="INFO",
+            )
+
         patched = 0
         write_failed = 0
 
