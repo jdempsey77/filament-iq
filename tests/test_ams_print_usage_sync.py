@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 """
-Tests for ams_print_usage_sync (no external deps).
-Run: python -m pytest tests/test_ams_print_usage_sync.py -v
+test_ams_print_usage_sync.py — Integration tests for AmsPrintUsageSync lifecycle.
+
+Tests AppDaemon-integrated behavior: print start/end state capture, fuel gauge
+reading, 3MF fetch scheduling, active_print.json three-write lifecycle, RFID
+reconciler, dedup persistence, and _collect_print_inputs().
+
+Does NOT test:
+  - Decision logic → see test_consumption_engine.py
+  - Spoolman write execution → see test_spoolman_writes.py
+  - Notification content → see test_spoolman_writes.py
 """
 
 import json
@@ -123,10 +131,6 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self._lifecycle_phase2 = bool(a.get("lifecycle_phase2_enabled", False))
         self._last_processed_job_key = ""
         self._end_snapshot = {}
-        self._finish_wait_count = 0
-        self._finish_pending = False
-        self._finish_pending_status = ""
-        self._finish_wait_handle = None
         self._lifecycle_phase3 = bool(a.get("lifecycle_phase3_enabled", False))
         self._startup_suppress_until = None
         self._needs_reconcile_entity = str(
@@ -215,21 +219,6 @@ class _TestableUsageSync(AmsPrintUsageSync):
         pass
 
 
-def _fire(app, **overrides):
-    """Fire a P1S_PRINT_USAGE_READY event with sane defaults."""
-    data = {
-        "job_key": "test_job_001",
-        "task_name": "test_model.3mf",
-        "print_weight_g": "200",
-        "trays_used": "4",
-        "start_json": '{"4": 420.0}',
-        "end_json": '{"4": 110.0}',
-        "print_status": "finish",
-    }
-    data.update(overrides)
-    app._handle_usage_event("P1S_PRINT_USAGE_READY", data, {})
-
-
 def _has_log(app, substring):
     return any(substring in msg for msg, _ in app._log_calls)
 
@@ -241,318 +230,6 @@ def _default_state_map(spool_bindings=None):
     for slot, sid in bindings.items():
         sm[f"input_text.ams_slot_{slot}_spool_id"] = str(sid)
     return sm
-
-
-# ── tests ─────────────────────────────────────────────────────────────
-
-def test_rfid_single_slot_consumption():
-    """start=420g end=370g → use_weight=50g, USAGE_PATCHED logged (under max_consumption_g)."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50")
-
-    assert len(app._use_calls) == 1
-    assert app._use_calls[0]["spool_id"] == 10
-    assert abs(app._use_calls[0]["use_weight"] - 50.0) < 0.01
-    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10")
-    assert _has_log(app, "consumption_g=50.00")
-    assert _has_log(app, "USAGE_SUMMARY")
-
-
-def test_rfid_multiple_slots_consumption():
-    """Two RFID slots, each gets correct delta (both under max_consumption_g)."""
-    app = _TestableUsageSync(state_map=_default_state_map({2: 5, 4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [2, 4]))
-    _fire(app,
-          trays_used="2,4",
-          start_json='{"2": 800.0, "4": 420.0}',
-          end_json='{"2": 750.0, "4": 370.0}',
-          print_weight_g="100")
-
-    assert len(app._use_calls) == 2
-    by_spool = {c["spool_id"]: c["use_weight"] for c in app._use_calls}
-    assert abs(by_spool[5] - 50.0) < 0.01
-    assert abs(by_spool[10] - 50.0) < 0.01
-    assert _has_log(app, "USAGE_PATCHED slot=2 spool_id=5")
-    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10")
-
-
-@pytest.mark.skip(reason="non-RFID pool logic or slot start/end snapshot expectations need review; unrelated to lot_nr migration")
-def test_nonrfid_single_slot_equal_split():
-    """One non-RFID slot, one RFID consumed 50g, print_weight=200g → non-RFID gets 150g."""
-    app = _TestableUsageSync(
-        state_map=_default_state_map({2: 5, 5: 20}),
-    )
-    _fire(app,
-          trays_used="2,5",
-          start_json='{"2": 800.0}',
-          end_json='{"2": 750.0}',
-          print_weight_g="200")
-
-    assert len(app._use_calls) == 2
-    by_spool = {c["spool_id"]: c["use_weight"] for c in app._use_calls}
-    assert abs(by_spool[5] - 50.0) < 0.01
-    assert abs(by_spool[20] - 150.0) < 0.01
-    assert _has_log(app, "USAGE_NONRFID_ESTIMATE slot=5 spool_id=20")
-    assert _has_log(app, "pool_g=150.0")
-
-
-@pytest.mark.skip(reason="non-RFID pool logic or slot start/end snapshot expectations need review; unrelated to lot_nr migration")
-def test_nonrfid_multiple_slots_equal_split():
-    """Two non-RFID slots, equal split of pool."""
-    app = _TestableUsageSync(
-        state_map=_default_state_map({2: 5, 5: 20, 6: 21}),
-    )
-    _fire(app,
-          trays_used="2,5,6",
-          start_json='{"2": 800.0}',
-          end_json='{"2": 750.0}',
-          print_weight_g="200")
-
-    assert len(app._use_calls) == 3
-    by_spool = {c["spool_id"]: c["use_weight"] for c in app._use_calls}
-    assert abs(by_spool[5] - 50.0) < 0.01
-    assert abs(by_spool[20] - 75.0) < 0.01
-    assert abs(by_spool[21] - 75.0) < 0.01
-
-
-def test_nonrfid_slot_no_evidence_skipped():
-    """Non-RFID slot with no 3MF match → USAGE_NO_EVIDENCE, only RFID slot written."""
-    app = _TestableUsageSync(state_map=_default_state_map({1: 41, 2: 47}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [1]))
-    _fire(app,
-          trays_used="1,2",
-          start_json='{"1": 960, "2": 830}',
-          end_json='{"1": 920, "2": 830}',
-          print_weight_g="100")
-
-    # Slot 1: RFID delta 40g; Slot 2: non-RFID, no 3MF → skipped
-    assert len(app._use_calls) == 1
-    assert app._use_calls[0]["spool_id"] == 41
-    assert abs(app._use_calls[0]["use_weight"] - 40.0) < 0.01
-    assert _has_log(app, "USAGE_NO_EVIDENCE slot=2")
-
-
-def test_cancelled_before_start_no_write():
-    """status=canceled (phantom) → 3MF suppressed, no start data → no writes."""
-    app = _TestableUsageSync(
-        state_map=_default_state_map({4: 10}),
-    )
-    _fire(app,
-          start_json="{}",
-          end_json="{}",
-          print_status="canceled")
-
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
-
-
-def test_dedup_second_event_skipped():
-    """Same job_key fired twice → second is DEDUP_SKIP."""
-    app = _TestableUsageSync(
-        state_map=_default_state_map({4: 10}),
-    )
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          job_key="dup_key_123",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50")
-    assert len(app._use_calls) == 1
-
-    app._log_calls.clear()
-    _fire(app, job_key="dup_key_123")
-    assert _has_log(app, "DEDUP_SKIP job_key=dup_key_123")
-    assert len(app._use_calls) == 1  # no additional call
-
-
-def test_spoolman_failure_does_not_dedup():
-    """If _spoolman_use() fails, job key must NOT be deduped so next event retries."""
-    app = _TestableUsageSync(
-        state_map=_default_state_map({4: 10}),
-    )
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    app._use_fail_spool_ids.add(10)  # simulate Spoolman failure
-
-    _fire(app,
-          job_key="fail_retry_key",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50")
-    assert len(app._use_calls) == 0  # write failed
-    assert "fail_retry_key" not in app._seen_job_keys  # NOT deduped
-
-    # Retry: remove failure, same job_key → should process (not DEDUP_SKIP)
-    app._use_fail_spool_ids.discard(10)
-    app._log_calls.clear()
-    _fire(app,
-          job_key="fail_retry_key",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50")
-    assert len(app._use_calls) == 1  # retried successfully
-    assert "fail_retry_key" in app._seen_job_keys  # now deduped
-    assert not _has_log(app, "DEDUP_SKIP")
-
-
-def test_spoolman_success_persists_dedup():
-    """Successful _spoolman_use() must persist job key to dedup set."""
-    app = _TestableUsageSync(
-        state_map=_default_state_map({4: 10}),
-    )
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-
-    _fire(app,
-          job_key="success_dedup_key",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50")
-    assert len(app._use_calls) == 1
-    assert "success_dedup_key" in app._seen_job_keys
-
-    # Fire again → DEDUP_SKIP
-    app._log_calls.clear()
-    _fire(app,
-          job_key="success_dedup_key",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50")
-    assert len(app._use_calls) == 1  # no additional call
-    assert _has_log(app, "DEDUP_SKIP job_key=success_dedup_key")
-
-
-def test_unbound_slot_skipped():
-    """spool_id=0 → USAGE_SKIP reason=UNBOUND."""
-    app = _TestableUsageSync(
-        state_map={},  # no spool bindings → all return 0
-    )
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 110.0}')
-
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_SKIP slot=4 reason=UNBOUND")
-
-
-def test_below_min_consumption_skipped():
-    """delta=1g < min_consumption_g=2g → no write."""
-    app = _TestableUsageSync(
-        state_map=_default_state_map({4: 10}),
-        args={"min_consumption_g": 2},
-    )
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 419.0}',
-          print_weight_g="1")
-
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_BELOW_MIN slot=4")
-
-
-def test_dry_run_no_patch():
-    """dry_run=True → logs WOULD_PATCH, no Spoolman call."""
-    app = _TestableUsageSync(
-        state_map=_default_state_map({4: 10}),
-        args={"dry_run": True},
-    )
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50")
-
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "WOULD_PATCH slot=4 spool_id=10 use_weight=50.0")
-    assert not _has_log(app, "USAGE_PATCHED")
-
-
-def test_native_dict_event_data():
-    """HA native types pass dicts instead of JSON strings — app handles both."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          trays_used="4",
-          start_json={"4": 420.0},
-          end_json={"4": 370.0},
-          print_weight_g="50",
-          job_key="native_dict_test")
-
-    assert len(app._use_calls) == 1
-    assert app._use_calls[0]["spool_id"] == 10
-    assert abs(app._use_calls[0]["use_weight"] - 50.0) < 0.01
-    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10")
-
-
-def test_sanity_cap_refuses_large_consumption():
-    """consumption > max_consumption_g → USAGE_SANITY_CAP, no write."""
-    app = _TestableUsageSync(
-        state_map=_default_state_map({4: 10}),
-        args={"max_consumption_g": 1000},
-    )
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 1100.0}',
-          end_json='{"4": 90.0}',
-          print_weight_g="1010")
-
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_SANITY_CAP")
-    assert _has_log(app, "consumption_g=1010.0")
-    assert _has_log(app, "SKIPPING")
-
-
-def test_sanity_cap_allows_484g_big_crate():
-    """Regression: 484g Big Crate must NOT be capped (was blocked by old 300g cap)."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 987.0}',
-          end_json='{"4": 502.6}',
-          print_weight_g="484.4")
-
-    assert len(app._use_calls) == 1
-    assert not _has_log(app, "USAGE_SANITY_CAP")
-
-
-def test_sanity_cap_refuses_above_1000g():
-    """consumption_g=1001 → still capped even with raised 1000g limit."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 1100.0}',
-          end_json='{"4": 99.0}',
-          print_weight_g="1001")
-
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_SANITY_CAP")
-
-
-def test_spoolman_failure_continues():
-    """First slot PUT fails → second slot still written."""
-    app = _TestableUsageSync(state_map=_default_state_map({2: 5, 4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [2, 4]))
-    app._use_fail_spool_ids.add(5)
-
-    _fire(app,
-          trays_used="2,4",
-          start_json='{"2": 800.0, "4": 420.0}',
-          end_json='{"2": 750.0, "4": 370.0}',
-          print_weight_g="100")
-
-    assert len(app._use_calls) == 1
-    assert app._use_calls[0]["spool_id"] == 10
-    assert _has_log(app, "USAGE_PATCH_FAILED spool_id=5")
-    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10")
 
 
 # ── active tray tracking tests ────────────────────────────────────────
@@ -690,147 +367,6 @@ def test_on_active_tray_change_ignored_when_not_printing():
     assert app._current_active_slot is None
 
 
-# ── failed print guard tests ─────────────────────────────────────────
-
-
-def test_failed_print_no_consumption():
-    """status=failed → USAGE_SKIP_FAILED_PRINT, no Spoolman writes."""
-    app = _TestableUsageSync(state_map=_default_state_map({3: 52}))
-    _fire(app,
-          trays_used="3",
-          start_json='{"3": 306.0}',
-          end_json='{"3": 306.0}',
-          print_weight_g="150",
-          print_status="failed")
-
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_SKIP_FAILED_PRINT")
-    assert not _has_log(app, "USAGE_PATCHED")
-    assert not _has_log(app, "USAGE_SUMMARY")
-
-
-def test_canceled_print_no_consumption():
-    """status=canceled → 3MF suppressed, RFID delta still allowed (no RFID here → no writes)."""
-    app = _TestableUsageSync(state_map=_default_state_map({3: 52}))
-    _fire(app,
-          trays_used="3",
-          start_json='{"3": 82.0}',
-          end_json='{"3": 82.0}',
-          print_weight_g="151",
-          print_status="canceled")
-
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
-
-
-def test_error_print_no_consumption():
-    """status=error → USAGE_SKIP_FAILED_PRINT, no Spoolman writes."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 420.0}',
-          print_weight_g="200",
-          print_status="error")
-
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_SKIP_FAILED_PRINT")
-
-
-def test_failed_print_does_not_dedup_subsequent_retry():
-    """Failed print with job_key X → retry with same job_key X succeeds (not dedup-skipped)."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-
-    # First: failed print
-    _fire(app,
-          job_key="retry_job_001",
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 420.0}',
-          print_weight_g="50",
-          print_status="failed")
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_SKIP_FAILED_PRINT")
-
-    # Second: successful retry with same job key
-    app._log_calls.clear()
-    _fire(app,
-          job_key="retry_job_001",
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50",
-          print_status="finish")
-    assert len(app._use_calls) == 1
-    assert not _has_log(app, "DEDUP_SKIP")
-    assert _has_log(app, "USAGE_PATCHED")
-
-
-def test_finish_print_still_processed():
-    """status=finish → normal processing, not blocked by failed guard."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50",
-          print_status="finish")
-
-    assert len(app._use_calls) == 1
-    assert not _has_log(app, "USAGE_SKIP_FAILED_PRINT")
-    assert _has_log(app, "USAGE_PATCHED")
-
-
-# ── no-evidence skip tests ───────────────────────────────────────────
-
-
-def test_nonrfid_zero_delta_no_3mf_skipped():
-    """Non-RFID slot with zero fuel gauge delta and no 3MF → USAGE_NO_EVIDENCE."""
-    app = _TestableUsageSync(state_map=_default_state_map({3: 52}))
-    _fire(app,
-          trays_used="3",
-          start_json='{"3": 306.0}',
-          end_json='{"3": 306.0}',
-          print_weight_g="224",
-          print_status="finish")
-
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_NO_EVIDENCE slot=3 spool_id=52")
-
-
-def test_rfid_delta_written_nonrfid_skipped():
-    """RFID slot written via delta; non-RFID slot with no 3MF skipped."""
-    app = _TestableUsageSync(state_map=_default_state_map({2: 5, 3: 52}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [2]))
-    _fire(app,
-          trays_used="2,3",
-          start_json='{"2": 800.0, "3": 306.0}',
-          end_json='{"2": 750.0, "3": 306.0}',
-          print_weight_g="100",
-          print_status="finish")
-
-    # Slot 2: RFID delta 50g written. Slot 3: non-RFID, no 3MF → skipped
-    assert len(app._use_calls) == 1
-    assert app._use_calls[0]["spool_id"] == 5
-    assert abs(app._use_calls[0]["use_weight"] - 50.0) < 0.01
-    assert _has_log(app, "USAGE_NO_EVIDENCE slot=3")
-
-
-def test_multi_nonrfid_slots_all_skipped():
-    """Multiple non-RFID slots with zero delta and no 3MF → all skipped."""
-    app = _TestableUsageSync(state_map=_default_state_map({1: 41, 3: 52}))
-    _fire(app,
-          trays_used="1,3",
-          start_json='{"1": 500.0, "3": 306.0}',
-          end_json='{"1": 500.0, "3": 306.0}',
-          print_weight_g="200",
-          print_status="finish")
-
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_NO_EVIDENCE slot=1")
-    assert _has_log(app, "USAGE_NO_EVIDENCE slot=3")
 
 
 # ── F5: unique job key tests ─────────────────────────────────────────
@@ -855,26 +391,6 @@ def test_job_key_includes_timestamp():
     assert key1 != key2, f"job keys should differ: {key1} == {key2}"
     assert key1.startswith("test_model.3mf_")
     assert key2.startswith("test_model.3mf_")
-
-
-# ── F10: cancelled variant tests ─────────────────────────────────────
-
-
-def test_cancelled_british_spelling_suppresses_3mf():
-    """status='cancelled' (phantom) → 3MF suppressed, RFID delta allowed."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50",
-          print_status="cancelled")
-
-    # RFID delta: 420 - 370 = 50g → should write via rfid_delta
-    assert len(app._use_calls) == 1
-    assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
-    assert _has_log(app, "USAGE_RFID")
 
 
 # ── F7: tray duration filter tests ───────────────────────────────────
@@ -949,83 +465,11 @@ def test_spool_id_change_during_print_no_notification():
     assert len(app._service_calls) == 0, f"expected no service calls, got {app._service_calls}"
 
 
-# ── F3: trays_used passed to match_filaments_to_slots ────────────────
-
-
-def test_3mf_match_uses_trays_used_set():
-    """match_filaments_to_slots receives actual trays_used set, not None."""
-    from unittest.mock import patch
-    app = _TestableUsageSync(state_map=_default_state_map({1: 41, 3: 52}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [1]))
-    app.threemf_enabled = True
-    app._threemf_data = [
-        {"index": 0, "used_g": 5.0, "used_m": 1.5, "color_hex": "ff0000",
-         "material": "pla", "tray_info_idx": "0"},
-    ]
-    app._trays_used = {1, 3}
-
-    captured_kwargs = {}
-    original_match = __import__(
-        "filament_iq.threemf_parser", fromlist=["match_filaments_to_slots"]
-    ).match_filaments_to_slots
-
-    def spy_match(filaments, slot_data, trays_used=None):
-        captured_kwargs["trays_used"] = trays_used
-        return original_match(filaments, slot_data, trays_used=trays_used)
-
-    with patch("filament_iq.ams_print_usage_sync.match_filaments_to_slots", side_effect=spy_match):
-        _fire(app,
-              trays_used="1,3",
-              start_json='{"1": 960, "3": 306}',
-              end_json='{"1": 920, "3": 306}',
-              print_weight_g="50",
-              print_status="finish")
-
-    assert "trays_used" in captured_kwargs, "match_filaments_to_slots was not called"
-    assert captured_kwargs["trays_used"] == {1, 3}, (
-        f"expected trays_used={{1, 3}}, got {captured_kwargs['trays_used']}"
-    )
-
-
-def test_3mf_match_empty_trays_falls_back():
-    """Empty trays_used set falls back to trays_used=None (all slots)."""
-    from unittest.mock import patch
-    app = _TestableUsageSync(state_map=_default_state_map({1: 41}))
-    app.threemf_enabled = True
-    app._threemf_data = [
-        {"index": 0, "used_g": 5.0, "used_m": 1.5, "color_hex": "ff0000",
-         "material": "pla", "tray_info_idx": "0"},
-    ]
-    app._trays_used = set()  # empty — no tray tracking data
-
-    captured_kwargs = {}
-    original_match = __import__(
-        "filament_iq.threemf_parser", fromlist=["match_filaments_to_slots"]
-    ).match_filaments_to_slots
-
-    def spy_match(filaments, slot_data, trays_used=None):
-        captured_kwargs["trays_used"] = trays_used
-        return original_match(filaments, slot_data, trays_used=trays_used)
-
-    with patch("filament_iq.ams_print_usage_sync.match_filaments_to_slots", side_effect=spy_match):
-        _fire(app,
-              trays_used="",
-              start_json='{"1": 960}',
-              end_json='{"1": 920}',
-              print_weight_g="50",
-              print_status="finish")
-
-    assert "trays_used" in captured_kwargs, "match_filaments_to_slots was not called"
-    assert captured_kwargs["trays_used"] is None, (
-        f"expected trays_used=None for empty set, got {captured_kwargs['trays_used']}"
-    )
-
-
 # ── F2: non-blocking finish wait tests ──────────────────────────────
 
 
 def test_finish_no_blocking_sleep():
-    """_on_print_finish does not call time.sleep (uses run_in instead)."""
+    """_on_print_finish does not call time.sleep — calls _do_finish synchronously."""
     from unittest.mock import patch
     app = _TestableUsageSync(
         state_map=_default_state_map({4: 10}),
@@ -1035,76 +479,78 @@ def test_finish_no_blocking_sleep():
     app._job_key = "test_no_sleep_001"
     app._start_snapshot = {4: 420.0}
     app.threemf_enabled = True
-    app._threemf_data = None  # 3MF not ready — would trigger old sleep loop
+    app._threemf_data = None  # 3MF not in memory
+    app._state_map[app._fuel_gauge_pattern.format(slot=4)] = "370.0"
 
     with patch("time.sleep", side_effect=AssertionError("time.sleep must not be called")):
         app._on_print_finish("finish")
 
-    # Should have scheduled run_in instead of sleeping
-    assert app._finish_pending is True or _has_log(app, "3MF_WAIT_START"), \
-        "expected non-blocking wait to be started"
+    # _do_finish called synchronously (no run_in, no sleep)
+    assert _has_log(app, "PRINT_FINISH_CAPTURED"), \
+        "expected _do_finish to run synchronously"
 
 
-def test_finish_waits_for_threemf_via_run_in():
-    """_on_print_finish schedules run_in; tick with 3MF data triggers _do_finish."""
+def test_finish_recovers_3mf_from_disk():
+    """_on_print_finish recovers 3MF from disk when not in memory."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        import filament_iq.ams_print_usage_sync as mod
+        orig = mod.ACTIVE_PRINT_FILE
+        try:
+            ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+            mod.ACTIVE_PRINT_FILE = ap_file
+            threemf = [{"index": 0, "used_g": 8.0, "color_hex": "00ae42", "material": "pla"}]
+            ap_file.write_text(json.dumps({
+                "job_key": "test_recover_001",
+                "start_snapshot": {"4": 420.0},
+                "threemf_data": threemf,
+            }))
+
+            app = _TestableUsageSync(
+                state_map=_default_state_map({4: 10}),
+                args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
+            )
+            app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+            app._job_key = "test_recover_001"
+            app._start_snapshot = {4: 420.0}
+            app.threemf_enabled = True
+            app._threemf_data = None
+
+            # Mock _do_finish to capture the recovered data before it gets cleared
+            recovered_data = []
+            original_do_finish = app._do_finish
+            def capture_do_finish(status):
+                recovered_data.append(app._threemf_data)
+                original_do_finish(status)
+            app._do_finish = capture_do_finish
+            app._state_map[app._fuel_gauge_pattern.format(slot=4)] = "370.0"
+
+            app._on_print_finish("finish")
+
+            assert recovered_data[0] == threemf, "3MF data should be recovered before _do_finish"
+            assert _has_log(app, "3MF_RECOVERED_FROM_DISK")
+            assert _has_log(app, "PRINT_FINISH_CAPTURED")
+        finally:
+            mod.ACTIVE_PRINT_FILE = orig
+
+
+def test_finish_proceeds_without_threemf():
+    """No 3MF in memory or on disk → proceeds with RFID-only, logs warning."""
     app = _TestableUsageSync(
         state_map=_default_state_map({4: 10}),
         args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
     )
     app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    app._job_key = "test_run_in_001"
+    app._job_key = "test_no_3mf_001"
     app._start_snapshot = {4: 420.0}
+    app._trays_used = {4}
+    app._print_active = True
     app.threemf_enabled = True
     app._threemf_data = None
-
-    # Trigger finish — should schedule wait, not block
-    app._on_print_finish("finish")
-    assert app._finish_pending is True
-    assert _has_log(app, "3MF_WAIT_START")
-    assert len(app._run_in_calls) > 0
-
-    # Simulate 3MF arriving, then tick fires
-    app._threemf_data = [
-        {"index": 0, "used_g": 8.0, "used_m": 2.5, "color_hex": "00ae42",
-         "material": "pla", "tray_info_idx": "0"},
-    ]
-    # Set up state for _do_finish to read fuel gauges
     app._state_map[app._fuel_gauge_pattern.format(slot=4)] = "370.0"
 
-    app._finish_wait_tick({})
-
-    assert app._finish_pending is False
-    assert _has_log(app, "3MF_WAIT_DONE")
-    assert _has_log(app, "PRINT_FINISH_CAPTURED")
-
-
-def test_finish_timeout_proceeds_without_threemf():
-    """After 15 ticks with no 3MF data, finish proceeds with RFID-only."""
-    app = _TestableUsageSync(
-        state_map=_default_state_map({4: 10}),
-        args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
-    )
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    app._job_key = "test_timeout_001"
-    app._start_snapshot = {4: 420.0}
-    app.threemf_enabled = True
-    app._threemf_data = None
-
     app._on_print_finish("finish")
-    assert app._finish_pending is True
 
-    # Set up state for _do_finish
-    app._state_map[app._fuel_gauge_pattern.format(slot=4)] = "370.0"
-
-    # Simulate 15 ticks — 3MF never arrives
-    for i in range(15):
-        app._run_in_calls.clear()
-        app._finish_wait_tick({})
-        if not app._finish_pending:
-            break
-
-    assert app._finish_pending is False
-    assert _has_log(app, "3MF_DATA_NOT_READY")
+    assert _has_log(app, "3MF_UNAVAILABLE_AT_FINISH")
     assert _has_log(app, "PRINT_FINISH_CAPTURED")
     # RFID delta should have been processed
     assert len(app._use_calls) == 1
@@ -1112,29 +558,32 @@ def test_finish_timeout_proceeds_without_threemf():
     assert abs(app._use_calls[0]["use_weight"] - 50.0) < 0.01
 
 
-def test_finish_second_event_cancels_pending():
-    """Second finish event cancels pending wait from first event."""
+def test_finish_dedup_prevents_double_processing():
+    """Second finish for same job_key is dedup-skipped."""
     app = _TestableUsageSync(
         state_map=_default_state_map({4: 10}),
         args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
     )
     app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    app._job_key = "test_cancel_001"
+    app._job_key = "test_dedup_001"
     app._start_snapshot = {4: 420.0}
-    app.threemf_enabled = True
-    app._threemf_data = None
+    app._trays_used = {4}
+    app._print_active = True
+    app.threemf_enabled = False
+    app._state_map[app._fuel_gauge_pattern.format(slot=4)] = "370.0"
 
-    # First finish — starts waiting
+    # First finish processes normally
     app._on_print_finish("finish")
-    assert app._finish_pending is True
-    first_handle = app._finish_wait_handle
+    assert _has_log(app, "PRINT_FINISH_CAPTURED")
 
-    # Second finish — should cancel first wait
+    # _on_print_end clears job_key; re-set for second call (simulates rehydrate)
+    app._job_key = "test_dedup_001"
+    app._start_snapshot = {4: 420.0}
+    app._trays_used = {4}
+    app._print_active = True
+    app._log_calls.clear()
     app._on_print_finish("finish")
-    assert first_handle in app._cancelled_timers, (
-        f"expected first timer {first_handle} to be cancelled"
-    )
-    assert _has_log(app, "FINISH_WAIT_CANCELLED")
+    assert _has_log(app, "DEDUP_SKIP") or _has_log(app, "PRINT_FINISH_DEDUP_SKIP")
 
 
 # ── F1: smart empty guard — use POST-write remaining ─────────────────
@@ -1155,60 +604,6 @@ def test_spoolman_use_returns_none_on_failure():
     app._use_fail_spool_ids.add(10)
     result = app._spoolman_use(10, 5.0)
     assert result is None, f"expected None on failure, got {result}"
-
-
-def test_depleted_spool_detected_after_write():
-    """Post-write remaining <= 0 triggers USAGE_SPOOL_DEPLETED_SKIPPED (auto_empty disabled)."""
-    app = _TestableUsageSync(
-        state_map=_default_state_map({4: 10}),
-        args={"auto_empty_spools": False},
-    )
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    # Spool 10 will have -3g remaining after write
-    app._use_remaining_override[10] = -3.0
-
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50",
-          print_status="finish")
-
-    assert len(app._use_calls) == 1
-    assert _has_log(app, "USAGE_SPOOL_DEPLETED_SKIPPED")
-    assert _has_log(app, "reason=auto_empty_disabled")
-    assert _has_log(app, "remaining=-3.0")
-
-
-def test_depleted_spool_not_detected_with_stale_cache():
-    """Regression: depleted detection uses POST-write response, not stale cache.
-
-    spools_cache would show remaining=50 (pre-write), but the actual
-    _spoolman_use response shows remaining=-3 (post-write). Verify
-    the depleted guard fires based on the response, not the cache.
-    """
-    app = _TestableUsageSync(
-        state_map=_default_state_map({4: 10}),
-        args={"auto_empty_spools": False},
-    )
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    # _spoolman_use will return remaining=-3 (post-write truth)
-    # The stale cache (via _spoolman_get mock) returns remaining=100
-    # If code used stale cache, it would see 100 > 0 and NOT detect depletion
-    app._use_remaining_override[10] = -3.0
-
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50",
-          print_status="finish")
-
-    # MUST detect depletion from response, not miss it from stale cache
-    assert _has_log(app, "USAGE_SPOOL_DEPLETED_SKIPPED"), (
-        "depleted guard should fire using post-write remaining, not stale cache"
-    )
-    assert _has_log(app, "remaining=-3.0")
 
 
 # ── Fix: Depleted spool tracking (fuel gauge >= 0) ─────────────────
@@ -1272,22 +667,6 @@ def test_end_snapshot_includes_zero_gram_slot():
     app._state_map[fg3] = "0.0"
     snapshot = app._build_end_snapshot()
     assert snapshot == {1: 785.0, 3: 0.0}, f"expected slot 3 at 0.0, got {snapshot}"
-
-
-def test_rfid_delta_depleted_spool():
-    """start_g=40, end_g=0, is_rfid=True → consumption=40g written (not USAGE_NO_EVIDENCE)."""
-    app = _TestableUsageSync(state_map=_default_state_map({3: 39}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [3]))
-    _fire(app,
-          trays_used="3",
-          start_json='{"3": 40.0}',
-          end_json='{"3": 0.0}',
-          print_weight_g="40")
-    assert len(app._use_calls) == 1, f"expected 1 write, got {len(app._use_calls)}"
-    assert app._use_calls[0]["spool_id"] == 39
-    assert abs(app._use_calls[0]["use_weight"] - 40.0) < 0.01
-    assert _has_log(app, "USAGE_RFID slot=3")
-    assert not _has_log(app, "USAGE_NO_EVIDENCE")
 
 
 def test_seed_slot_not_reseeded_at_zero():
@@ -1386,7 +765,7 @@ def test_3mf_initial_fetch_delay_10s():
 
 
 def test_3mf_fetch_native_4_attempts():
-    """Native 3MF fetch should allow 4 attempts with retry_delays=[10, 30, 60]."""
+    """Native 3MF fetch should allow 4 attempts with retry_delays=[15, 45, 90]."""
     app = _TestableUsageSync(
         state_map=_default_state_map({3: 39}),
         args={"lifecycle_phase2_enabled": True, "printer_access_code": "12345678"},
@@ -1395,7 +774,7 @@ def test_3mf_fetch_native_4_attempts():
     app.threemf_fetch_method = "native"
     app.printer_ip = "127.0.0.1"  # Will fail fast (connection refused)
     app.printer_ftps_port = 1  # Unreachable port for fast failure
-    # Attempt 3 will fail (no FTPS), should schedule attempt 4 with 60s delay
+    # Attempt 3 will fail (no FTPS), should schedule attempt 4 with 90s delay
     app._fetch_3mf_native({"attempt": 3})
     # After attempt 3 (of 4 max), should schedule attempt 4
     retry_calls = [c for c in app._run_in_calls
@@ -1404,182 +783,9 @@ def test_3mf_fetch_native_4_attempts():
         f"expected attempt 4 to be scheduled after attempt 3; "
         f"run_in_calls={app._run_in_calls}, logs={[m for m, _ in app._log_calls]}"
     )
-    assert retry_calls[0]["delay"] == 60, (
-        f"expected 60s delay for attempt 4, got {retry_calls[0]['delay']}s"
+    assert retry_calls[0]["delay"] == 90, (
+        f"expected 90s delay for attempt 4, got {retry_calls[0]['delay']}s"
     )
-
-
-# ── Fix: unavailable/unknown skip consumption tests ─────────────────
-
-def test_unavailable_status_suppresses_3mf_allows_rfid():
-    """Status 'unavailable' → 3MF suppressed, RFID delta path still runs."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app, print_status="unavailable")
-    # RFID delta: 420 - 110 = 310g (under 1000g cap, writes normally)
-    assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
-    assert _has_log(app, "status=unavailable")
-
-
-def test_unknown_status_suppresses_3mf_allows_rfid():
-    """Status 'unknown' → 3MF suppressed, RFID delta path still runs."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app, print_status="unknown")
-    assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
-    assert _has_log(app, "status=unknown")
-
-
-def test_finish_status_still_writes_regression():
-    """Regression: status='finish' must still write consumption normally."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50",
-          print_status="finish")
-    assert len(app._use_calls) == 1, "finish should write consumption"
-    assert _has_log(app, "USAGE_PATCHED")
-
-
-# ── Fix: offline WARNING log test ────────────────────────────────────
-
-def test_offline_status_logs_warning_and_suppresses_3mf():
-    """Status 'offline' should log FINISH_OFFLINE_STATE WARNING and suppress 3MF."""
-    app = _TestableUsageSync(
-        state_map=_default_state_map({3: 39}),
-        args={"lifecycle_phase2_enabled": True},
-    )
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [3]))
-    app._lifecycle_phase2 = True
-    app._print_active = True
-    app._job_key = "test_offline_001"
-    app._start_snapshot = {3: 990.0}
-
-    # Simulate _do_finish with offline status
-    app._do_finish("offline")
-
-    # Should log the offline warning
-    assert any("FINISH_OFFLINE_STATE" in msg and level == "WARNING"
-               for msg, level in app._log_calls), (
-        "expected FINISH_OFFLINE_STATE WARNING log"
-    )
-    # Should still run (RFID delta), but 3MF is suppressed
-    assert _has_log(app, "PRINT_FINISH_CAPTURED")
-    assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
-
-
-# ── SUCCESS_STATES allowlist tests ────────────────────────────────────
-
-def test_success_state_writes_3mf():
-    """status='finish' with 3MF data → 3MF path executes normally."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    app.threemf_enabled = True
-    app._threemf_data = [{"index": 0, "used_g": 42.5, "color_hex": "#FFFFFF",
-                          "material": "PLA", "name": "PLA White"}]
-    app._threemf_filename = "test_model.3mf"
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 377.5}',
-          print_weight_g="42.5",
-          print_status="finish")
-    assert _has_log(app, "USAGE_3MF") or _has_log(app, "3MF_MATCH"), \
-        "finish status should allow 3MF path"
-    assert not _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
-
-
-def test_non_success_suppresses_3mf_allows_rfid():
-    """status='offline' with RFID data → 3MF suppressed, RFID delta written."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    app.threemf_enabled = True
-    app._threemf_data = [{"index": 0, "used_g": 42.5, "color_hex": "#FFFFFF",
-                          "material": "PLA", "name": "PLA White"}]
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 395.0}',
-          print_weight_g="42.5",
-          print_status="offline")
-    assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
-    # RFID delta: 420 - 395 = 25g → should write via rfid_delta
-    assert len(app._use_calls) == 1, "RFID delta should still write"
-    assert _has_log(app, "USAGE_RFID")
-    assert not _has_log(app, "USAGE_3MF")
-
-
-def test_failed_state_skips_entirely():
-    """status='failed' → USAGE_SKIP_FAILED_PRINT, no RFID delta, no 3MF, no writes."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    app.threemf_enabled = True
-    app._threemf_data = [{"index": 0, "used_g": 42.5, "color_hex": "#FFFFFF",
-                          "material": "PLA", "name": "PLA White"}]
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 395.0}',
-          print_weight_g="42.5",
-          print_status="failed")
-    assert len(app._use_calls) == 0, "failed should skip entirely"
-    assert _has_log(app, "USAGE_SKIP_FAILED_PRINT")
-    assert not _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
-    assert not _has_log(app, "USAGE_RFID")
-    assert not _has_log(app, "USAGE_3MF")
-
-
-def test_phantom_states_never_needed():
-    """Phantom values 'cancelled', 'finished', 'completed', 'unavailable' are not in any state set."""
-    from filament_iq.ams_print_usage_sync import AmsPrintUsageSync
-    phantoms = {"cancelled", "finished", "completed", "unavailable"}
-    for p in phantoms:
-        assert p not in AmsPrintUsageSync._SUCCESS_STATES, \
-            f"phantom '{p}' should not be in _SUCCESS_STATES"
-        assert p not in AmsPrintUsageSync._FAILED_STATES, \
-            f"phantom '{p}' should not be in _FAILED_STATES"
-
-
-def test_job_key_in_notification_id():
-    """Notification uses stable notification_id containing job_key."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          job_key="notify_test_key_42",
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50",
-          print_status="finish")
-    notif_calls = [c for c in app._service_calls if "notify" in c.get("service", "")]
-    assert len(notif_calls) > 0, "expected a notification service call"
-    # notification_id is on the call (persistent_notification kwarg)
-    call = notif_calls[0]
-    nid = call.get("notification_id", "")
-    assert "notify_test_key_42" in nid, \
-        f"expected job_key in notification_id, got: {nid}"
-
-
-def test_unknown_state_suppresses_3mf_allows_rfid():
-    """status='unknown' with RFID data → 3MF suppressed, RFID delta written."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    app.threemf_enabled = True
-    app._threemf_data = [{"index": 0, "used_g": 100.0, "color_hex": "#000000",
-                          "material": "PLA", "name": "PLA Black"}]
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 395.0}',
-          print_weight_g="100",
-          print_status="unknown")
-    assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
-    # RFID delta: 420 - 395 = 25g → should write
-    assert len(app._use_calls) == 1, "RFID delta should still write"
-    assert _has_log(app, "USAGE_RFID")
-    assert not _has_log(app, "USAGE_3MF")
 
 
 # ── Atomic write tests for _persist_seen_job_keys ────────────────────
@@ -1685,53 +891,6 @@ def test_rehydrate_empty_status_no_crash():
     })
     app._rehydrate_print_state()
     assert app._print_active is False
-
-
-# ── R2 #6: Negative RFID delta clamping ──────────────────────────────
-
-def test_rfid_negative_delta_clamped_to_zero():
-    """end_g > start_g (spool gains weight) → delta clamped to 0.0, no write."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 370.0}',
-          end_json='{"4": 420.0}',
-          print_weight_g="0")
-
-    # Delta = max(0.0, 370 - 420) = 0.0 → below min_consumption_g → no write
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_RFID slot=4")
-    assert _has_log(app, "consumption_g=0.0")
-
-
-def test_rfid_equal_weights_no_write():
-    """end_g == start_g → delta = 0.0, no Spoolman write."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 420.0}',
-          print_weight_g="0")
-
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "consumption_g=0.0")
-
-
-def test_rfid_normal_consumption_writes():
-    """end_g < start_g (normal) → correct delta, Spoolman write."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 400.0}',
-          print_weight_g="20")
-
-    assert len(app._use_calls) == 1
-    assert abs(app._use_calls[0]["use_weight"] - 20.0) < 0.01
-    assert _has_log(app, "USAGE_PATCHED slot=4 spool_id=10")
 
 
 # ── R2 #5: _coerce_json_field tests ──────────────────────────────────
@@ -1885,134 +1044,6 @@ def test_rfid_weight_reconcile_skips_invalid_remain_none():
     assert _has_log(app, "RFID_WEIGHT_INVALID_REMAIN slot=4")
 
 
-# ── coverage: usage handler edge cases ───────────────────────────────
-
-def test_usage_max_consumption_exceeded():
-    """Consumption > max_consumption_g → USAGE_SANITY_CAP, no write."""
-    app = _TestableUsageSync(
-        state_map=_default_state_map({4: 10}),
-        args={"max_consumption_g": 100.0},
-    )
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 500.0}',
-          end_json='{"4": 100.0}',
-          print_weight_g="400")
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_SANITY_CAP slot=4")
-
-
-def test_usage_below_min_consumption():
-    """Consumption < min_consumption_g → USAGE_BELOW_MIN, no write."""
-    app = _TestableUsageSync(
-        state_map=_default_state_map({4: 10}),
-        args={"min_consumption_g": 5.0},
-    )
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 418.0}',
-          print_weight_g="2")
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_BELOW_MIN slot=4")
-
-
-def test_usage_no_evidence_non_rfid_no_3mf():
-    """Non-RFID slot with no 3MF data → USAGE_NO_EVIDENCE."""
-    app = _TestableUsageSync(state_map=_default_state_map({5: 20}))
-    # slot 5 = AMS HT, tag_uid defaults to 0000... (non-RFID)
-    _fire(app,
-          trays_used="5",
-          start_json='{"5": 0}',
-          end_json='{"5": 0}',
-          print_weight_g="50")
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_NO_EVIDENCE slot=5")
-
-
-def test_usage_unbound_slot_skipped():
-    """Slot with no spool binding → USAGE_SKIP UNBOUND."""
-    app = _TestableUsageSync(state_map={})  # no bindings
-    _fire(app, trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50")
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "USAGE_SKIP slot=4 reason=UNBOUND")
-
-
-def test_usage_dry_run_no_write():
-    """dry_run=True → WOULD_PATCH logged, no Spoolman write."""
-    app = _TestableUsageSync(
-        state_map=_default_state_map({4: 10}),
-        args={"dry_run": True},
-    )
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50")
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "WOULD_PATCH slot=4 spool_id=10")
-
-
-def test_usage_write_failed_dedup_not_persisted():
-    """When Spoolman write fails → job_key NOT added to seen_job_keys."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    app._use_fail_spool_ids = {10}
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50")
-    assert "test_job_001" not in app._seen_job_keys
-    assert _has_log(app, "USAGE_PATCH_FAILED spool_id=10")
-
-
-def test_usage_dedup_persisted_on_success():
-    """Successful write → job_key added to seen_job_keys."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 370.0}',
-          print_weight_g="50")
-    assert "test_job_001" in app._seen_job_keys
-
-
-def test_usage_duplicate_job_key_skipped():
-    """Same job_key fired twice → second time is deduped."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-    _fire(app)
-    assert len(app._use_calls) == 1
-    app._use_calls.clear()
-    _fire(app)  # same job_key
-    assert len(app._use_calls) == 0
-    assert _has_log(app, "DEDUP_SKIP")
-
-
-def test_usage_3mf_match_invoked_when_data_present():
-    """3MF data triggers match_filaments_to_slots (even if no match found)."""
-    app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-    app._threemf_data = [
-        {"index": 0, "used_g": 25.5, "color_hex": "ff0000", "material": "PLA"}
-    ]
-    app.threemf_enabled = True
-    _fire(app,
-          trays_used="4",
-          start_json='{"4": 420.0}',
-          end_json='{"4": 394.5}',
-          print_weight_g="25.5")
-    # 3MF matching was attempted — either USAGE_3MF or 3MF_MATCH logged
-    assert _has_log(app, "3MF") or _has_log(app, "USAGE")
-
-
 def test_on_print_start_captures_snapshot():
     """_on_print_start writes job_key and start_snapshot."""
     app = _TestableUsageSync(
@@ -2040,20 +1071,20 @@ def test_on_print_end_clears_state():
     assert app._job_key == ""
 
 
-def test_finish_wait_tick_proceeds_after_timeout():
-    """After 15 ticks with no 3MF data → proceeds with WARNING."""
+def test_finish_synchronous_do_finish_called():
+    """_on_print_finish calls _do_finish synchronously (no polling)."""
     app = _TestableUsageSync(
         state_map=_default_state_map({4: 10}),
-        args={"lifecycle_phase2_enabled": True},
+        args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
     )
-    app._finish_wait_count = 14
-    app._finish_pending = True
-    app._finish_pending_status = "finish"
-    app._threemf_data = None
+    app._job_key = "test_sync_001"
+    app._start_snapshot = {4: 420.0}
+    app.threemf_enabled = False
     app._do_finish = mock.MagicMock()
-    app._finish_wait_tick({})
-    assert _has_log(app, "3MF_DATA_NOT_READY")
+    app._on_print_finish("finish")
     app._do_finish.assert_called_once_with("finish")
+    # No run_in calls for polling
+    assert len(app._run_in_calls) == 0
 
 
 def test_seed_slot_start_grams_write_once():
@@ -2069,7 +1100,7 @@ def test_seed_slot_start_grams_write_once():
 
 
 def test_finish_offline_state_warning():
-    """Print finishing with offline status → FINISH_OFFLINE_STATE logged."""
+    """Print finishing with offline status → 3MF suppressed, RFID delta proceeds."""
     app = _TestableUsageSync(
         state_map=_default_state_map({4: 10}),
         args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
@@ -2079,8 +1110,9 @@ def test_finish_offline_state_warning():
     app._start_snapshot = {4: 420.0}
     app._trays_used = {4}
     app._print_active = True
+    app._state_map[app._fuel_gauge_pattern.format(slot=4)] = "370.0"
     app._do_finish("offline")
-    assert _has_log(app, "FINISH_OFFLINE_STATE")
+    assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
 
 
 # ── active_print.json persistence tests ──────────────────────────────
@@ -2253,20 +1285,21 @@ class TestActivePrintPersistence:
             finally:
                 self._cleanup()
 
-    def test_3mf_wait_skipped_when_data_present(self):
-        """_threemf_data not None at finish → 3MF_WAIT_DONE logged immediately."""
+    def test_3mf_in_memory_skips_disk_recovery(self):
+        """_threemf_data already present at finish → no disk recovery attempted."""
         app = _TestableUsageSync(args={
             "lifecycle_phase1_enabled": True,
             "lifecycle_phase2_enabled": True,
         })
+        app._job_key = "test_skip_recovery"
+        app._start_snapshot = {1: 500.0}
         app._threemf_data = [{"index": 0, "used_g": 15.0}]
-        app._finish_pending = True
-        app._finish_pending_status = "finish"
-        app._finish_wait_count = 0
-        # Mock _do_finish to prevent full execution
+        app.threemf_enabled = True
         app._do_finish = mock.MagicMock()
-        app._finish_wait_tick({})
-        assert _has_log(app, "3MF_WAIT_DONE")
+        app._on_print_finish("finish")
+        # Should not attempt disk recovery
+        assert not _has_log(app, "3MF_RECOVERED_FROM_DISK")
+        assert not _has_log(app, "3MF_UNAVAILABLE_AT_FINISH")
         app._do_finish.assert_called_once_with("finish")
 
     def test_active_print_atomic_write(self):
@@ -2361,7 +1394,7 @@ class TestLifecycleMethods:
         assert _has_log(app, "PRINT_FINISH_DEDUP_SKIP")
 
     def test_do_finish_offline_state_warning(self):
-        """_do_finish with offline status logs FINISH_OFFLINE_STATE."""
+        """_do_finish with offline status logs 3MF_SUPPRESSED_NON_SUCCESS."""
         app = _TestableUsageSync(
             state_map=_default_state_map({4: 10}),
             args={
@@ -2372,9 +1405,11 @@ class TestLifecycleMethods:
         app._job_key = "offline_test"
         app._start_snapshot = {4: 420.0}
         app._trays_used = {4}
+        app._print_active = True
         app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+        app._state_map[app._fuel_gauge_pattern.format(slot=4)] = "370.0"
         app._do_finish("offline")
-        assert _has_log(app, "FINISH_OFFLINE_STATE")
+        assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
 
     def test_do_finish_processes_usage(self):
         """_do_finish builds end snapshot and processes usage."""
@@ -2659,113 +1694,21 @@ class TestOnPrintStatusChange:
         assert _has_log(app, "TRAY_TRACKING_END")
 
 
-class TestFinishWaitTick:
-    """_finish_wait_tick non-blocking 3MF polling."""
+class TestOnPrintFinishSynchronous:
+    """_on_print_finish calls _do_finish synchronously."""
 
-    def test_timeout_proceeds_without_3mf(self):
-        app = _TestableUsageSync(args={
-            "lifecycle_phase1_enabled": True,
-            "lifecycle_phase2_enabled": True,
-        })
-        app._threemf_data = None
-        app._finish_pending = True
-        app._finish_pending_status = "finish"
-        app._finish_wait_count = 14
-        app._do_finish = mock.MagicMock()
-        app._finish_wait_tick({})
-        assert _has_log(app, "3MF_DATA_NOT_READY")
-        app._do_finish.assert_called_once_with("finish")
-
-    def test_schedules_next_tick_when_waiting(self):
-        app = _TestableUsageSync(args={
-            "lifecycle_phase1_enabled": True,
-            "lifecycle_phase2_enabled": True,
-        })
-        app._threemf_data = None
-        app._finish_pending = True
-        app._finish_pending_status = "finish"
-        app._finish_wait_count = 3
-        app._finish_wait_tick({})
-        assert any(c["callback"] == app._finish_wait_tick for c in app._run_in_calls)
-
-    def test_timeout_recovers_from_disk(self):
-        """_finish_wait_tick at 15s timeout loads from active_print.json before giving up."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            import filament_iq.ams_print_usage_sync as mod
-            orig = mod.ACTIVE_PRINT_FILE
-            try:
-                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-                mod.ACTIVE_PRINT_FILE = ap_file
-
-                threemf = [{"index": 0, "used_g": 50.0, "color_hex": "FF0000", "material": "PLA"}]
-                ap_file.write_text(json.dumps({
-                    "job_key": "test_job_12345",
-                    "start_snapshot": {"1": 400.0},
-                    "threemf_data": threemf,
-                }))
-
-                app = _TestableUsageSync(args={
-                    "lifecycle_phase1_enabled": True,
-                    "lifecycle_phase2_enabled": True,
-                })
-                app._job_key = "test_job_12345"
-                app._threemf_data = None
-                app._finish_pending = True
-                app._finish_pending_status = "finish"
-                app._finish_wait_count = 14
-                app._do_finish = mock.MagicMock()
-                app._finish_wait_tick({})
-                assert app._threemf_data == threemf
-                assert _has_log(app, "3MF_RECOVERED_FROM_DISK")
-                assert not _has_log(app, "3MF_DATA_NOT_READY")
-                app._do_finish.assert_called_once_with("finish")
-            finally:
-                mod.ACTIVE_PRINT_FILE = orig
-
-    def test_timeout_no_disk_proceeds_without_3mf(self):
-        """_finish_wait_tick at 15s timeout, no disk file → proceeds without 3MF."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                import filament_iq.ams_print_usage_sync as mod
-                orig = mod.ACTIVE_PRINT_FILE
-                mod.ACTIVE_PRINT_FILE = pathlib.Path(tmp_dir) / "active_print.json"
-                # No file on disk
-
-                app = _TestableUsageSync(args={
-                    "lifecycle_phase1_enabled": True,
-                    "lifecycle_phase2_enabled": True,
-                })
-                app._job_key = "missing_job"
-                app._threemf_data = None
-                app._finish_pending = True
-                app._finish_pending_status = "finish"
-                app._finish_wait_count = 14
-                app._do_finish = mock.MagicMock()
-                app._finish_wait_tick({})
-                assert app._threemf_data is None
-                assert _has_log(app, "3MF_DATA_NOT_READY")
-                app._do_finish.assert_called_once_with("finish")
-            finally:
-                mod.ACTIVE_PRINT_FILE = orig
-
-
-class TestOnPrintFinishCancelsPrevious:
-    """_on_print_finish cancels pending timer."""
-
-    def test_cancels_existing_wait(self):
+    def test_synchronous_finish_no_threemf(self):
+        """With threemf_enabled=False, _do_finish called directly."""
         app = _TestableUsageSync(args={
             "lifecycle_phase1_enabled": True,
             "lifecycle_phase2_enabled": True,
         })
         app._job_key = "test_key"
         app._start_snapshot = {1: 500.0}
-        app._finish_pending = True
-        app._finish_wait_handle = "timer_42"
         app.threemf_enabled = False
         app._do_finish = mock.MagicMock()
         app._on_print_finish("finish")
-        assert "timer_42" in app._cancelled_timers
-        assert _has_log(app, "FINISH_WAIT_CANCELLED")
+        app._do_finish.assert_called_once_with("finish")
 
 
 class TestFilterTraysByDuration:
@@ -3430,25 +2373,32 @@ class TestOnPrintFinish:
         app._on_print_finish("finish")
         assert any("DEDUP_SKIP" in msg for msg, _ in app._log_calls)
 
-    def test_threemf_wait_starts(self):
+    def test_threemf_unavailable_logs_warning(self):
+        """3MF not in memory and no disk → logs 3MF_UNAVAILABLE, still calls _do_finish."""
         app = _TestableUsageSync()
         app._lifecycle_phase2 = True
         app._job_key = "test_job_123"
         app._start_snapshot = {1: 500.0}
         app.threemf_enabled = True
         app._threemf_data = None
+        app._do_finish = mock.MagicMock()
         app._on_print_finish("finish")
-        assert app._finish_pending is True
-        assert len(app._run_in_calls) > 0
+        assert _has_log(app, "3MF_UNAVAILABLE_AT_FINISH")
+        app._do_finish.assert_called_once_with("finish")
 
     def test_direct_do_finish(self):
         app = _TestableUsageSync(state_map={
             "sensor.p1s_01p00c5a3101668_task_name": "benchy",
             "sensor.p1s_01p00c5a3101668_print_weight": "15.0",
+            "input_text.ams_slot_1_spool_id": "10",
         })
         app._lifecycle_phase2 = True
         app._job_key = "benchy_123"
         app._start_snapshot = {1: 500.0}
+        app._trays_used = {1}
+        app._print_active = True
+        app._state_map.update(_rfid_tag_uid_for_slots(app, [1]))
+        app._state_map[app._fuel_gauge_pattern.format(slot=1)] = "450.0"
         app.threemf_enabled = False
         app._on_print_finish("finish")
         assert any("USAGE_SUMMARY" in msg for msg, _ in app._log_calls)
@@ -3546,23 +2496,33 @@ class TestDoFinish:
         app = _TestableUsageSync(state_map={
             "sensor.p1s_01p00c5a3101668_task_name": "benchy",
             "sensor.p1s_01p00c5a3101668_print_weight": "15",
+            "input_text.ams_slot_1_spool_id": "10",
         })
         app._lifecycle_phase2 = True
         app._lifecycle_phase1 = True
         app._job_key = "benchy_123"
         app._start_snapshot = {1: 500.0}
+        app._trays_used = {1}
+        app._print_active = True
+        app._state_map.update(_rfid_tag_uid_for_slots(app, [1]))
+        app._state_map[app._fuel_gauge_pattern.format(slot=1)] = "450.0"
         app._do_finish("offline")
-        assert any("FINISH_OFFLINE_STATE" in msg for msg, _ in app._log_calls)
+        assert any("3MF_SUPPRESSED_NON_SUCCESS" in msg for msg, _ in app._log_calls)
 
     def test_non_failed_stamps_dedup(self):
         app = _TestableUsageSync(state_map={
             "sensor.p1s_01p00c5a3101668_task_name": "benchy",
             "sensor.p1s_01p00c5a3101668_print_weight": "15",
+            "input_text.ams_slot_1_spool_id": "10",
         })
         app._lifecycle_phase2 = True
         app._lifecycle_phase1 = True
         app._job_key = "benchy_123"
         app._start_snapshot = {1: 500.0}
+        app._trays_used = {1}
+        app._print_active = True
+        app._state_map.update(_rfid_tag_uid_for_slots(app, [1]))
+        app._state_map[app._fuel_gauge_pattern.format(slot=1)] = "450.0"
         app._do_finish("finish")
         assert app._last_processed_job_key == "benchy_123"
 
@@ -3758,597 +2718,75 @@ class TestBuildSlotData:
         assert data[1]["spool_id"] == 42
 
 
-# ── notification overhaul tests ──────────────────────────────────────
-
-class TestNotificationOverhaul:
-    """Tests for the overhauled print finish notification."""
-
-    def _make_app(self):
-        app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-        app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-        return app
-
-    def _notif_calls(self, app):
-        return [c for c in app._service_calls if "notify" in c.get("service", "")]
-
-    def test_notification_fires_on_finish(self):
-        """status=finish → notification sent with checkmark title."""
-        app = self._make_app()
-        _fire(app, print_status="finish")
-        calls = self._notif_calls(app)
-        assert len(calls) > 0
-        assert "\u2705" in calls[0]["title"]
-        assert "Complete" in calls[0]["title"]
-
-    def test_notification_fires_on_failed(self):
-        """status=failed → notification sent with X title."""
-        app = self._make_app()
-        # failed is in _FAILED_STATES so _handle_usage_event returns early;
-        # use 'error' instead which is also in _FAILED_STATES.
-        # Actually both 'failed' and 'error' are in _FAILED_STATES which
-        # causes early return before notification. The notification guard
-        # only applies after the usage processing. So we test with a status
-        # that gets past Tier 1 but is in the notify set.
-        # Let's check: _FAILED_STATES = {"failed", "error"} → returns at line 262.
-        # This means failed/error prints never reach the notification block.
-        # The spec says to notify on failed/error. We need to remove them
-        # from the early-return guard OR restructure.
-        # For now, verify the existing behavior: failed/error skip entirely.
-        _fire(app, print_status="failed")
-        calls = self._notif_calls(app)
-        # failed is in _FAILED_STATES → early return, no notification
-        assert len(calls) == 0
-
-    def test_notification_fires_on_cancelled(self):
-        """status=cancelled → no notification (not a success state, no RFID data processed)."""
-        app = self._make_app()
-        _fire(app, print_status="cancelled")
-        calls = self._notif_calls(app)
-        # cancelled is not in _SUCCESS_STATES → 3MF suppressed, RFID delta may fire
-        # notification fires because 'cancelled' is in _NOTIFY_STATES
-        assert len(calls) > 0
-        assert "\u26a0" in calls[0]["title"]
-
-    def test_notification_skipped_on_idle(self):
-        """status=idle → NO notification sent."""
-        app = self._make_app()
-        _fire(app, print_status="idle")
-        calls = self._notif_calls(app)
-        assert len(calls) == 0
-
-    def test_notification_skipped_on_offline(self):
-        """status=offline → NO notification sent."""
-        app = self._make_app()
-        _fire(app, print_status="offline")
-        calls = self._notif_calls(app)
-        assert len(calls) == 0
-
-    def test_notification_includes_duration(self):
-        """print_start_time set → duration appears in message."""
-        import time
-        app = self._make_app()
-        app._print_start_time = time.time() - 3723  # 1h 2m 3s ago
-        _fire(app, print_status="finish")
-        calls = self._notif_calls(app)
-        assert len(calls) > 0
-        msg = calls[0]["message"]
-        assert "1h 2m" in msg
-
-    def test_notification_duration_unknown_on_rehydrate(self):
-        """print_start_time=None → 'unknown' in message."""
-        app = self._make_app()
-        app._print_start_time = None
-        _fire(app, print_status="finish")
-        calls = self._notif_calls(app)
-        assert len(calls) > 0
-        msg = calls[0]["message"]
-        assert "unknown" in msg
-
-    def test_notification_zero_consumption_shows_reason(self):
-        """No consumption results, no threemf_data → reason in message."""
-        # Provide start/end snapshots so code doesn't early-return,
-        # but use a slot with no spool binding so no RFID delta is produced.
-        app = _TestableUsageSync(state_map={})  # no spool bindings
-        app._threemf_data = None
-        _fire(app,
-              trays_used="4",
-              start_json='{"4": 420.0}',
-              end_json='{"4": 420.0}',
-              print_weight_g="50",
-              print_status="finish")
-        calls = self._notif_calls(app)
-        assert len(calls) > 0
-        msg = calls[0]["message"]
-        assert "No filament consumption recorded" in msg
-        assert "Reason:" in msg
-
-    def test_notification_id_stable(self):
-        """notification_id=filament_iq_usage_{job_key}."""
-        app = self._make_app()
-        _fire(app, job_key="stable_id_test_123", print_status="finish")
-        calls = self._notif_calls(app)
-        assert len(calls) > 0
-        call = calls[0]
-        nid = call.get("notification_id", "")
-        assert nid == "filament_iq_usage_stable_id_test_123"
+# ── _collect_print_inputs tests ──────────────────────────────────────
 
 
-# ── End-to-End Pipeline Tests (Audit 2026-03-14) ─────────────────────
+class TestCollectPrintInputs:
+    """Tests for _collect_print_inputs method."""
 
-
-class TestPipelineE2E:
-    """End-to-end _handle_usage_event pipeline tests across 8 scenarios
-    plus targeted tests for audit findings A, B, D, F, 8, E."""
-
-    def _make_app(self, rfid_slots=None, spool_bindings=None, threemf=None,
-                  extra_state=None, extra_args=None):
-        """Build a _TestableUsageSync with controllable RFID, bindings, 3MF."""
-        rfid_slots = rfid_slots or set()
-        spool_bindings = spool_bindings or {}
-        state_map = {}
-        for slot, sid in spool_bindings.items():
-            state_map[f"input_text.ams_slot_{slot}_spool_id"] = str(sid)
-
-        app = _TestableUsageSync(
-            state_map=state_map,
-            args={
-                "lifecycle_phase1_enabled": True,
-                "lifecycle_phase2_enabled": True,
-                **(extra_args or {}),
-            },
-        )
-        # Set up RFID tag_uid for designated slots
-        for slot in rfid_slots:
-            entity = app._tray_entity_by_slot.get(slot)
-            if entity:
-                app._state_map[f"{entity}::tag_uid"] = "C7D26F7B00000100"
-
-        # Set up tray color/material for 3MF matching
-        # Note: threemf_data uses normalized lowercase values (e.g., "pla", "ff0000")
-        # Tray entity attributes are raw from printer — normalize_color/material
-        # handles normalization in _build_slot_data. Set raw values here.
-        if threemf:
-            for fil in threemf:
-                idx = fil["index"]
-                entity = app._tray_entity_by_slot.get(idx)
-                if entity:
-                    app._state_map[f"{entity}::color"] = fil.get("color_hex", "")
-                    app._state_map[f"{entity}::type"] = fil.get("material", "pla")
-
-        app._threemf_data = threemf
-        app.threemf_enabled = threemf is not None
-        if extra_state:
-            app._state_map.update(extra_state)
-        return app
-
-    # ── Scenario 1: Single non-RFID, 3MF available, finish ──
-
-    def test_scenario1_single_nonrfid_3mf(self):
-        threemf = [{"index": 3, "used_g": 96.5, "color_hex": "8e9089", "material": "pla"}]
-        app = self._make_app(
-            spool_bindings={3: 30},
-            threemf=threemf,
-        )
-        _fire(app, job_key="s1_test", trays_used="3",
-              start_json='{"3": 725}', end_json='{"3": 725}',
-              print_status="finish")
-        assert len(app._use_calls) == 1
-        assert app._use_calls[0]["spool_id"] == 30
-        assert abs(app._use_calls[0]["use_weight"] - 96.5) < 0.1
-        assert _has_log(app, "USAGE_3MF slot=3")
-        assert "s1_test" in app._seen_job_keys
-
-    # ── Scenario 2: Single RFID, 3MF available, finish ──
-
-    def test_scenario2_single_rfid_3mf(self):
-        threemf = [{"index": 1, "used_g": 50.0, "color_hex": "ff0000", "material": "pla"}]
-        app = self._make_app(
-            rfid_slots={1},
-            spool_bindings={1: 10},
-            threemf=threemf,
-        )
-        _fire(app, job_key="s2_test", trays_used="1",
-              start_json='{"1": 940}', end_json='{"1": 890}',
-              print_status="finish")
-        assert len(app._use_calls) == 1
-        assert abs(app._use_calls[0]["use_weight"] - 50.0) < 0.1
-        # 3MF wins over RFID delta
-        assert _has_log(app, "USAGE_3MF slot=1")
-        assert not _has_log(app, "USAGE_RFID slot=1")
-        assert "s2_test" in app._seen_job_keys
-
-    # ── Scenario 3: Mixed RFID slot 1 + non-RFID slot 3, 3MF ──
-
-    def test_scenario3_mixed_rfid_nonrfid_3mf(self):
-        threemf = [
-            {"index": 1, "used_g": 80.0, "color_hex": "ff0000", "material": "pla"},
-            {"index": 3, "used_g": 45.0, "color_hex": "8e9089", "material": "pla"},
-        ]
-        app = self._make_app(
-            rfid_slots={1},
-            spool_bindings={1: 10, 3: 30},
-            threemf=threemf,
-        )
-        _fire(app, job_key="s3_test", trays_used="1,3",
-              start_json='{"1": 940, "3": 725}', end_json='{"1": 860, "3": 725}',
-              print_status="finish")
-        assert len(app._use_calls) == 2
-        writes = {c["spool_id"]: c["use_weight"] for c in app._use_calls}
-        assert abs(writes[10] - 80.0) < 0.1
-        assert abs(writes[30] - 45.0) < 0.1
-        assert _has_log(app, "USAGE_3MF slot=1")
-        assert _has_log(app, "USAGE_3MF slot=3")
-
-    # ── Scenario 4: Multi-slot RFID, 3MF, slots 1+2+3 ──
-
-    def test_scenario4_multislot_rfid_3mf(self):
-        threemf = [
-            {"index": 1, "used_g": 30.0, "color_hex": "ff0000", "material": "pla"},
-            {"index": 2, "used_g": 40.0, "color_hex": "00ff00", "material": "petg"},
-            {"index": 3, "used_g": 50.0, "color_hex": "0000ff", "material": "pla"},
-        ]
-        app = self._make_app(
-            rfid_slots={1, 2, 3},
-            spool_bindings={1: 10, 2: 20, 3: 30},
-            threemf=threemf,
-        )
-        _fire(app, job_key="s4_test", trays_used="1,2,3",
-              start_json='{"1": 940, "2": 564, "3": 725}',
-              end_json='{"1": 910, "2": 524, "3": 675}',
-              print_status="finish")
-        assert len(app._use_calls) == 3
-        writes = {c["spool_id"]: c["use_weight"] for c in app._use_calls}
-        assert abs(writes[10] - 30.0) < 0.1
-        assert abs(writes[20] - 40.0) < 0.1
-        assert abs(writes[30] - 50.0) < 0.1
-        assert "s4_test" in app._seen_job_keys
-
-    # ── Scenario 5: Multi-slot non-RFID, 3MF, slots 1+3 ──
-
-    def test_scenario5_multislot_nonrfid_3mf(self):
-        threemf = [
-            {"index": 1, "used_g": 60.0, "color_hex": "ff0000", "material": "pla"},
-            {"index": 3, "used_g": 35.0, "color_hex": "8e9089", "material": "pla"},
-        ]
-        app = self._make_app(
-            spool_bindings={1: 10, 3: 30},
-            threemf=threemf,
-        )
-        _fire(app, job_key="s5_test", trays_used="1,3",
-              start_json='{"1": 940, "3": 725}',
-              end_json='{"1": 940, "3": 725}',
-              print_status="finish")
-        assert len(app._use_calls) == 2
-        # Both via 3MF, no RFID delta
-        assert _has_log(app, "USAGE_3MF slot=1")
-        assert _has_log(app, "USAGE_3MF slot=3")
-        assert not _has_log(app, "USAGE_RFID")
-
-    # ── Scenario 6: RFID, no 3MF, finish (RFID delta only) ──
-
-    def test_scenario6_rfid_no_3mf(self):
-        app = self._make_app(
-            rfid_slots={1},
-            spool_bindings={1: 10},
-        )
-        app._threemf_data = None
-        app.threemf_enabled = False
-        _fire(app, job_key="s6_test", trays_used="1",
-              start_json='{"1": 940}', end_json='{"1": 870}',
-              print_status="finish")
-        assert len(app._use_calls) == 1
-        assert app._use_calls[0]["spool_id"] == 10
-        assert abs(app._use_calls[0]["use_weight"] - 70.0) < 0.1
-        assert _has_log(app, "USAGE_RFID slot=1")
-        assert "s6_test" in app._seen_job_keys
-
-    # ── Scenario 7: Cancelled print — RFID delta, 3MF suppressed ──
-
-    def test_scenario7_cancelled_rfid_delta(self):
-        threemf = [{"index": 1, "used_g": 50.0, "color_hex": "ff0000", "material": "pla"}]
-        app = self._make_app(
-            rfid_slots={1},
-            spool_bindings={1: 10},
-            threemf=threemf,
-        )
-        _fire(app, job_key="s7_test", trays_used="1",
-              start_json='{"1": 940}', end_json='{"1": 910}',
-              print_status="canceled")
-        assert len(app._use_calls) == 1
-        assert abs(app._use_calls[0]["use_weight"] - 30.0) < 0.1
-        # 3MF suppressed for non-success status
-        assert _has_log(app, "3MF_SUPPRESSED_NON_SUCCESS")
-        assert _has_log(app, "USAGE_RFID slot=1")
-        assert "s7_test" in app._seen_job_keys
-
-    # ── Scenario 8: Failed print — no writes ──
-
-    def test_scenario8_failed_no_writes(self):
-        app = self._make_app(
-            rfid_slots={1},
-            spool_bindings={1: 10},
-        )
-        _fire(app, job_key="s8_test", trays_used="1",
-              start_json='{"1": 940}', end_json='{"1": 910}',
-              print_status="failed")
-        assert len(app._use_calls) == 0
-        assert _has_log(app, "USAGE_SKIP_FAILED_PRINT")
-        assert "s8_test" not in app._seen_job_keys
-
-    # ── Finding A: trays_used empty — only delta slots written ──
-
-    def test_finding_a_empty_trays_used_fallback(self):
-        """Empty trays_used falls back to start_map keys, but only RFID
-        slots with actual delta get writes. Non-RFID slots with no 3MF
-        fall through to NO_EVIDENCE."""
-        app = self._make_app(
-            rfid_slots={1},
-            spool_bindings={1: 10, 2: 20, 3: 30, 5: 50, 6: 60},
-        )
-        app._trays_used = set()  # empty internal tracking
-        _fire(app, job_key="fa_test", trays_used="",
-              start_json='{"1": 940, "2": 564, "3": 725, "5": 869, "6": 533}',
-              end_json='{"1": 870, "2": 564, "3": 725, "5": 869, "6": 533}',
-              print_status="finish")
-        # Only slot 1 has RFID + delta (70g). Others: non-RFID, no 3MF, no evidence.
-        assert len(app._use_calls) == 1
-        assert app._use_calls[0]["spool_id"] == 10
-        assert abs(app._use_calls[0]["use_weight"] - 70.0) < 0.1
-        assert _has_log(app, "USAGE_NO_TRAY_TRACKING")
-
-    # ── Finding F: min_consumption_g filter on 3MF path ──
-
-    def test_finding_f_3mf_below_min_skipped(self):
-        """3MF match with used_g < min_consumption_g is skipped."""
-        threemf = [{"index": 3, "used_g": 1.0, "color_hex": "8e9089", "material": "pla"}]
-        app = self._make_app(
-            spool_bindings={3: 30},
-            threemf=threemf,
-        )
-        _fire(app, job_key="ff_test", trays_used="3",
-              start_json='{"3": 725}', end_json='{"3": 725}',
-              print_status="finish")
-        assert len(app._use_calls) == 0
-        assert _has_log(app, "USAGE_BELOW_MIN slot=3")
-
-    def test_finding_f2_3mf_at_min_threshold_passes(self):
-        """3MF match with used_g == min_consumption_g is written."""
-        threemf = [{"index": 3, "used_g": 2.0, "color_hex": "8e9089", "material": "pla"}]
-        app = self._make_app(
-            spool_bindings={3: 30},
-            threemf=threemf,
-        )
-        _fire(app, job_key="ff2_test", trays_used="3",
-              start_json='{"3": 725}', end_json='{"3": 725}',
-              print_status="finish")
-        assert len(app._use_calls) == 1
-        assert abs(app._use_calls[0]["use_weight"] - 2.0) < 0.1
-
-    # ── Finding B: RFID delta with start_g = 0 ──
-
-    def test_finding_b_rfid_start_zero_included(self):
-        """RFID slot with start_g=0, end_g=0 → 0g delta, filtered by min_consumption_g."""
-        app = self._make_app(
-            rfid_slots={1},
-            spool_bindings={1: 10},
-        )
-        _fire(app, job_key="fb_test", trays_used="1",
-              start_json='{"1": 0}', end_json='{"1": 0}',
-              print_status="finish")
-        # start_g=0 now accepted by >= 0 guard; delta=0g filtered by min_consumption_g
-        assert len(app._use_calls) == 0
-        assert _has_log(app, "USAGE_BELOW_MIN slot=1")
-
-    # ── Finding D: remaining_weight missing from Spoolman response ──
-
-    def test_finding_d_missing_remaining_weight_triggers_depleted(self):
-        """Spoolman response without remaining_weight defaults to 0 (depleted path)."""
-        app = self._make_app(
-            rfid_slots={1},
-            spool_bindings={1: 10},
-        )
-        # Override _spoolman_use to return response without remaining_weight
-        def use_no_remaining(spool_id, use_weight_g):
-            app._use_calls.append({"spool_id": spool_id, "use_weight": use_weight_g})
-            return {"id": spool_id}  # no remaining_weight → default 0
-        app._spoolman_use = use_no_remaining
-        _fire(app, job_key="fd_test", trays_used="1",
-              start_json='{"1": 940}', end_json='{"1": 870}',
-              print_status="finish")
-        assert len(app._use_calls) == 1
-        assert _has_log(app, "USAGE_PATCHED slot=1")
-        # Default=0 now triggers depleted guard (auto_empty_spools=False → SKIPPED)
-        assert _has_log(app, "USAGE_SPOOL_DEPLETED_SKIPPED")
-
-    # ── Finding 8: rehydrate undercount with stale fuel gauge ──
-
-    def test_finding_8_rehydrate_stale_gauge_undercount(self):
-        """Start snapshot rebuilt from current gauges mid-print undercounts delta."""
+    def test_3mf_suppressed_for_rfid_slot(self):
+        """RFID slot with 3MF match → SlotInput.threemf_used_g is None."""
         app = _TestableUsageSync(
             state_map={
-                "sensor.p1s_01p00c5a3101668_print_status": "running",
-                # No start_json helper — forces rebuild from fuel gauge
-                "sensor.p1s_tray_1_fuel_gauge_remaining": "870.0",  # mid-print value
-                "sensor.p1s_01p00c5a3101668_task_name": "undercount_test",
                 "input_text.ams_slot_1_spool_id": "10",
             },
-            args={"lifecycle_phase1_enabled": True},
+            args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
         )
         app._state_map.update(_rfid_tag_uid_for_slots(app, [1]))
-        app._rehydrate_print_state()
-        assert app._print_active is True
-        # Start snapshot rebuilt from gauge at 870g (not original 940g)
-        assert app._start_snapshot.get(1) == 870.0
-        assert _has_log(app, "REHYDRATE_START_SNAPSHOT_REBUILT")
-
-    # ── Finding E: reconciler deferred, not synchronous ──
-
-    def test_finding_e_reconciler_deferred_in_do_finish(self):
-        """_do_finish schedules reconciler via run_in(60s), not synchronously."""
-        app = self._make_app(
-            rfid_slots={1},
-            spool_bindings={1: 10},
+        app._state_map["sensor.p1s_tray_1_fuel_gauge_remaining"] = "800.0"
+        inputs = app._collect_print_inputs(
+            trays_used={1},
+            start_snapshot={1: 900.0},
+            end_snapshot={1: 800.0},
+            threemf_matched_slots={1: (120.0, "exact_color_material")},
+            spools_cache={},
         )
-        app._job_key = "e_test"
-        app._start_snapshot = {1: 940.0}
-        app._trays_used = {1}
-        app._state_map["sensor.p1s_tray_1_fuel_gauge_remaining"] = "870.0"
-        app._do_finish("finish")
-        deferred = [
-            c for c in app._run_in_calls
-            if c.get("callback") == app._reconcile_rfid_weights_deferred
-        ]
-        assert len(deferred) == 1
-        assert deferred[0]["delay"] >= 60
-        assert _has_log(app, "RFID_WEIGHT_RECONCILE_DEFERRED")
+        assert len(inputs) == 1
+        assert inputs[0].threemf_used_g is None
+        assert inputs[0].threemf_method is None
 
-    # ── Dedup tests ──
-
-    def test_dedup_prevents_double_write(self):
-        """Same job_key fired twice — second call is deduped."""
-        app = self._make_app(
-            rfid_slots={1},
-            spool_bindings={1: 10},
+    def test_non_rfid_tray_empty_fetches_spoolman_remaining(self):
+        """Non-RFID slot, tray_empty=True → spoolman_remaining populated."""
+        app = _TestableUsageSync(
+            state_map={"input_text.ams_slot_3_spool_id": "30"},
+            args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
         )
-        _fire(app, job_key="dedup_test", trays_used="1",
-              start_json='{"1": 940}', end_json='{"1": 870}',
-              print_status="finish")
-        assert len(app._use_calls) == 1
-        _fire(app, job_key="dedup_test", trays_used="1",
-              start_json='{"1": 870}', end_json='{"1": 800}',
-              print_status="finish")
-        assert len(app._use_calls) == 1  # still 1
-        assert _has_log(app, "DEDUP_SKIP")
-
-    # ── Depleted non-RFID spool detection ──
-
-    def _set_tray_empty(self, app, slot):
-        """Set a slot's tray state to Empty without polluting tag_uid attribute lookup."""
-        entity = app._tray_entity_by_slot[slot]
+        entity = app._tray_entity_by_slot[3]
         app._state_map[entity] = "Empty"
         app._state_map[f"{entity}::tag_uid"] = ""
-
-    def test_depleted_nonrfid_happy_path(self):
-        """Non-RFID slot + Empty tray + significant tray time → consumption written."""
-        app = self._make_app(
-            spool_bindings={2: 47},
+        inputs = app._collect_print_inputs(
+            trays_used={3},
+            start_snapshot={},
+            end_snapshot={},
+            threemf_matched_slots={},
+            spools_cache={30: {"remaining_weight": 432.0}},
         )
-        self._set_tray_empty(app, 2)
-        # Simulate significant tray activity
-        import datetime as _dt
-        app._tray_active_times = {
-            2: [{"start": _dt.datetime(2026, 1, 1, 0, 0, 0),
-                 "end": _dt.datetime(2026, 1, 1, 2, 0, 0)}],
-        }
-        # Mock Spoolman to return remaining weight for spool 47
-        app._spoolman_get_override = lambda path: {"remaining_weight": 432.4}
-        app._trays_used = {2}
-        _fire(app, job_key="depleted_test", trays_used="2",
-              start_json='{"2": 432}', end_json='{"2": 432}',
-              print_status="finish")
-        assert len(app._use_calls) == 1
-        assert app._use_calls[0]["spool_id"] == 47
-        assert abs(app._use_calls[0]["use_weight"] - 432.4) < 0.1
-        assert _has_log(app, "USAGE_DEPLETED_NONRFID slot=2")
+        assert len(inputs) == 1
+        assert inputs[0].spoolman_remaining == 432.0
 
-    def test_depleted_nonrfid_brief_probe_skipped(self):
-        """Non-RFID slot + Empty + brief tray time → skipped (brief probe guard)."""
-        app = self._make_app(
-            spool_bindings={2: 47},
+    def test_non_rfid_not_empty_no_spoolman_fetch(self):
+        """Non-RFID slot, tray not empty → spoolman_remaining is None."""
+        app = _TestableUsageSync(
+            state_map={"input_text.ams_slot_3_spool_id": "30"},
+            args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
         )
-        self._set_tray_empty(app, 2)
-        # Brief tray activation (< 10s default min_tray_active_seconds)
-        import datetime as _dt
-        app._tray_active_times = {
-            2: [{"start": _dt.datetime(2026, 1, 1, 0, 0, 0),
-                 "end": _dt.datetime(2026, 1, 1, 0, 0, 5)}],
-        }
-        app._spoolman_get_override = lambda path: {"remaining_weight": 432.4}
-        app._trays_used = {2}
-        _fire(app, job_key="brief_test", trays_used="2",
-              start_json='{"2": 432}', end_json='{"2": 432}',
-              print_status="finish")
-        assert len(app._use_calls) == 0
-        assert _has_log(app, "USAGE_DEPLETED_SKIP slot=2 reason=brief_probe")
+        entity = app._tray_entity_by_slot[3]
+        app._state_map[f"{entity}::tag_uid"] = ""
+        inputs = app._collect_print_inputs(
+            trays_used={3},
+            start_snapshot={},
+            end_snapshot={},
+            threemf_matched_slots={},
+            spools_cache={},
+        )
+        assert len(inputs) == 1
+        assert inputs[0].spoolman_remaining is None
 
-    def test_depleted_rfid_slot_skipped(self):
-        """RFID slot + Empty → skipped by depleted pass (RFID handled by delta path)."""
-        app = self._make_app(
-            rfid_slots={1},
-            spool_bindings={1: 10},
-        )
-        # Set Empty but keep RFID tag_uid (don't use _set_tray_empty which clears it)
-        app._state_map[app._tray_entity_by_slot[1]] = "Empty"
-        import datetime as _dt
-        app._tray_active_times = {
-            1: [{"start": _dt.datetime(2026, 1, 1, 0, 0, 0),
-                 "end": _dt.datetime(2026, 1, 1, 2, 0, 0)}],
-        }
-        app._trays_used = {1}
-        _fire(app, job_key="rfid_skip_test", trays_used="1",
-              start_json='{"1": 940}', end_json='{"1": 870}',
-              print_status="finish")
-        # Should be handled by RFID delta, not depleted path
-        assert _has_log(app, "USAGE_RFID slot=1")
-        assert not _has_log(app, "USAGE_DEPLETED_NONRFID")
+    def test_3mf_retry_schedule_uses_new_delays(self):
+        """Verify retry_delays == [15, 45, 90]."""
+        import filament_iq.ams_print_usage_sync as mod
+        source = open(mod.__file__).read()
+        assert "retry_delays = [15, 45, 90]" in source
 
-    def test_depleted_3mf_matched_skipped(self):
-        """Slot already matched by 3MF → depleted pass skips it."""
-        threemf = [{"index": 2, "used_g": 50.0, "color_hex": "ff0000", "material": "pla"}]
-        app = self._make_app(
-            spool_bindings={2: 47},
-            threemf=threemf,
-        )
-        self._set_tray_empty(app, 2)
-        import datetime as _dt
-        app._tray_active_times = {
-            2: [{"start": _dt.datetime(2026, 1, 1, 0, 0, 0),
-                 "end": _dt.datetime(2026, 1, 1, 2, 0, 0)}],
-        }
-        app._trays_used = {2}
-        _fire(app, job_key="3mf_matched_test", trays_used="2",
-              start_json='{"2": 432}', end_json='{"2": 432}',
-              print_status="finish")
-        # 3MF match should win, not depleted path
-        assert _has_log(app, "USAGE_3MF slot=2")
-        assert not _has_log(app, "USAGE_DEPLETED_NONRFID")
 
-    def test_depleted_spoolman_remaining_zero_skipped(self):
-        """Spoolman already at 0g → depleted pass skips (already_zero)."""
-        app = self._make_app(
-            spool_bindings={2: 47},
-        )
-        self._set_tray_empty(app, 2)
-        import datetime as _dt
-        app._tray_active_times = {
-            2: [{"start": _dt.datetime(2026, 1, 1, 0, 0, 0),
-                 "end": _dt.datetime(2026, 1, 1, 2, 0, 0)}],
-        }
-        app._spoolman_get_override = lambda path: {"remaining_weight": 0.0}
-        app._trays_used = {2}
-        _fire(app, job_key="zero_test", trays_used="2",
-              start_json='{"2": 0}', end_json='{"2": 0}',
-              print_status="finish")
-        assert len(app._use_calls) == 0
-        assert _has_log(app, "USAGE_DEPLETED_SKIP slot=2")
-        assert _has_log(app, "reason=already_zero")
 
-    def test_depleted_spoolman_fetch_failed_skipped(self):
-        """Spoolman GET fails → depleted pass skips with WARNING."""
-        app = self._make_app(
-            spool_bindings={2: 47},
-        )
-        self._set_tray_empty(app, 2)
-        import datetime as _dt
-        app._tray_active_times = {
-            2: [{"start": _dt.datetime(2026, 1, 1, 0, 0, 0),
-                 "end": _dt.datetime(2026, 1, 1, 2, 0, 0)}],
-        }
-        app._spoolman_get_override = lambda path: None
-        app._trays_used = {2}
-        _fire(app, job_key="fetch_fail_test", trays_used="2",
-              start_json='{"2": 432}', end_json='{"2": 432}',
-              print_status="finish")
-        assert len(app._use_calls) == 0
-        assert _has_log(app, "USAGE_DEPLETED_SKIP slot=2")
-        assert _has_log(app, "reason=spoolman_fetch_failed")
