@@ -6504,17 +6504,24 @@ class TestPrintActiveFreeze:
 
     def test_usage_skip_data_loss_warning(self):
         """USAGE_SKIP with tray_seconds > 60 → WARNING level log."""
-        from tests.test_ams_print_usage_sync import _TestableUsageSync, _fire, _default_state_map
-        app = _TestableUsageSync(state_map=_default_state_map({4: 10}))
-        # Simulate significant tray activity on slot 4
+        from tests.test_ams_print_usage_sync import _TestableUsageSync, _default_state_map, _has_log
         import datetime as _dt
+        app = _TestableUsageSync(
+            state_map=_default_state_map({4: 10}),
+            args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
+        )
+        # Simulate significant tray activity on slot 4
         app._tray_active_times = {
             4: [{"start": _dt.datetime(2026, 1, 1, 0, 0, 0),
                  "end": _dt.datetime(2026, 1, 1, 1, 50, 36)}]
         }
         # Clear slot 4 binding so USAGE_SKIP fires
         app._state_map["input_text.ams_slot_4_spool_id"] = "0"
-        _fire(app, print_status="finish")
+        app._job_key = "data_loss_test"
+        app._start_snapshot = {4: 420.0}
+        app._trays_used = {4}
+        app._print_active = True
+        app._do_finish("finish")
         warn_logs = [
             (msg, lvl) for msg, lvl in app._log_calls
             if "USAGE_SKIP" in msg and "slot=4" in msg
