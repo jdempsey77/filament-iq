@@ -4219,3 +4219,136 @@ class TestPipelineE2E:
               print_status="finish")
         assert len(app._use_calls) == 1  # still 1
         assert _has_log(app, "DEDUP_SKIP")
+
+    # ── Depleted non-RFID spool detection ──
+
+    def _set_tray_empty(self, app, slot):
+        """Set a slot's tray state to Empty without polluting tag_uid attribute lookup."""
+        entity = app._tray_entity_by_slot[slot]
+        app._state_map[entity] = "Empty"
+        app._state_map[f"{entity}::tag_uid"] = ""
+
+    def test_depleted_nonrfid_happy_path(self):
+        """Non-RFID slot + Empty tray + significant tray time → consumption written."""
+        app = self._make_app(
+            spool_bindings={2: 47},
+        )
+        self._set_tray_empty(app, 2)
+        # Simulate significant tray activity
+        import datetime as _dt
+        app._tray_active_times = {
+            2: [{"start": _dt.datetime(2026, 1, 1, 0, 0, 0),
+                 "end": _dt.datetime(2026, 1, 1, 2, 0, 0)}],
+        }
+        # Mock Spoolman to return remaining weight for spool 47
+        app._spoolman_get_override = lambda path: {"remaining_weight": 432.4}
+        app._trays_used = {2}
+        _fire(app, job_key="depleted_test", trays_used="2",
+              start_json='{"2": 432}', end_json='{"2": 432}',
+              print_status="finish")
+        assert len(app._use_calls) == 1
+        assert app._use_calls[0]["spool_id"] == 47
+        assert abs(app._use_calls[0]["use_weight"] - 432.4) < 0.1
+        assert _has_log(app, "USAGE_DEPLETED_NONRFID slot=2")
+
+    def test_depleted_nonrfid_brief_probe_skipped(self):
+        """Non-RFID slot + Empty + brief tray time → skipped (brief probe guard)."""
+        app = self._make_app(
+            spool_bindings={2: 47},
+        )
+        self._set_tray_empty(app, 2)
+        # Brief tray activation (< 10s default min_tray_active_seconds)
+        import datetime as _dt
+        app._tray_active_times = {
+            2: [{"start": _dt.datetime(2026, 1, 1, 0, 0, 0),
+                 "end": _dt.datetime(2026, 1, 1, 0, 0, 5)}],
+        }
+        app._spoolman_get_override = lambda path: {"remaining_weight": 432.4}
+        app._trays_used = {2}
+        _fire(app, job_key="brief_test", trays_used="2",
+              start_json='{"2": 432}', end_json='{"2": 432}',
+              print_status="finish")
+        assert len(app._use_calls) == 0
+        assert _has_log(app, "USAGE_DEPLETED_SKIP slot=2 reason=brief_probe")
+
+    def test_depleted_rfid_slot_skipped(self):
+        """RFID slot + Empty → skipped by depleted pass (RFID handled by delta path)."""
+        app = self._make_app(
+            rfid_slots={1},
+            spool_bindings={1: 10},
+        )
+        # Set Empty but keep RFID tag_uid (don't use _set_tray_empty which clears it)
+        app._state_map[app._tray_entity_by_slot[1]] = "Empty"
+        import datetime as _dt
+        app._tray_active_times = {
+            1: [{"start": _dt.datetime(2026, 1, 1, 0, 0, 0),
+                 "end": _dt.datetime(2026, 1, 1, 2, 0, 0)}],
+        }
+        app._trays_used = {1}
+        _fire(app, job_key="rfid_skip_test", trays_used="1",
+              start_json='{"1": 940}', end_json='{"1": 870}',
+              print_status="finish")
+        # Should be handled by RFID delta, not depleted path
+        assert _has_log(app, "USAGE_RFID slot=1")
+        assert not _has_log(app, "USAGE_DEPLETED_NONRFID")
+
+    def test_depleted_3mf_matched_skipped(self):
+        """Slot already matched by 3MF → depleted pass skips it."""
+        threemf = [{"index": 2, "used_g": 50.0, "color_hex": "ff0000", "material": "pla"}]
+        app = self._make_app(
+            spool_bindings={2: 47},
+            threemf=threemf,
+        )
+        self._set_tray_empty(app, 2)
+        import datetime as _dt
+        app._tray_active_times = {
+            2: [{"start": _dt.datetime(2026, 1, 1, 0, 0, 0),
+                 "end": _dt.datetime(2026, 1, 1, 2, 0, 0)}],
+        }
+        app._trays_used = {2}
+        _fire(app, job_key="3mf_matched_test", trays_used="2",
+              start_json='{"2": 432}', end_json='{"2": 432}',
+              print_status="finish")
+        # 3MF match should win, not depleted path
+        assert _has_log(app, "USAGE_3MF slot=2")
+        assert not _has_log(app, "USAGE_DEPLETED_NONRFID")
+
+    def test_depleted_spoolman_remaining_zero_skipped(self):
+        """Spoolman already at 0g → depleted pass skips (already_zero)."""
+        app = self._make_app(
+            spool_bindings={2: 47},
+        )
+        self._set_tray_empty(app, 2)
+        import datetime as _dt
+        app._tray_active_times = {
+            2: [{"start": _dt.datetime(2026, 1, 1, 0, 0, 0),
+                 "end": _dt.datetime(2026, 1, 1, 2, 0, 0)}],
+        }
+        app._spoolman_get_override = lambda path: {"remaining_weight": 0.0}
+        app._trays_used = {2}
+        _fire(app, job_key="zero_test", trays_used="2",
+              start_json='{"2": 0}', end_json='{"2": 0}',
+              print_status="finish")
+        assert len(app._use_calls) == 0
+        assert _has_log(app, "USAGE_DEPLETED_SKIP slot=2")
+        assert _has_log(app, "reason=already_zero")
+
+    def test_depleted_spoolman_fetch_failed_skipped(self):
+        """Spoolman GET fails → depleted pass skips with WARNING."""
+        app = self._make_app(
+            spool_bindings={2: 47},
+        )
+        self._set_tray_empty(app, 2)
+        import datetime as _dt
+        app._tray_active_times = {
+            2: [{"start": _dt.datetime(2026, 1, 1, 0, 0, 0),
+                 "end": _dt.datetime(2026, 1, 1, 2, 0, 0)}],
+        }
+        app._spoolman_get_override = lambda path: None
+        app._trays_used = {2}
+        _fire(app, job_key="fetch_fail_test", trays_used="2",
+              start_json='{"2": 432}', end_json='{"2": 432}',
+              print_status="finish")
+        assert len(app._use_calls) == 0
+        assert _has_log(app, "USAGE_DEPLETED_SKIP slot=2")
+        assert _has_log(app, "reason=spoolman_fetch_failed")
