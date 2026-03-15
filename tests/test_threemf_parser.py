@@ -34,17 +34,23 @@ from filament_iq.threemf_parser import (
 
 
 class TestNormalizeColor:
-    def test_8char_hex_drops_alpha(self):
+    def test_8char_rrggbbaa_drops_trailing_alpha(self):
         assert normalize_color("#00AE42FF") == "00ae42"
+
+    def test_8char_no_hash_drops_trailing_alpha(self):
+        assert normalize_color("161616FF") == "161616"
+
+    def test_8char_zero_alpha(self):
+        assert normalize_color("00AE4200") == "00ae42"
 
     def test_6char_hex(self):
         assert normalize_color("000000") == "000000"
 
+    def test_6char_plain(self):
+        assert normalize_color("00AE42") == "00ae42"
+
     def test_with_hash_6char(self):
         assert normalize_color("#939393") == "939393"
-
-    def test_8char_no_hash(self):
-        assert normalize_color("161616FF") == "161616"
 
     def test_empty_string(self):
         assert normalize_color("") == ""
@@ -61,7 +67,7 @@ class TestNormalizeColor:
     def test_uppercase_normalized_to_lower(self):
         assert normalize_color("#AABBCC") == "aabbcc"
 
-    def test_mixed_case(self):
+    def test_mixed_case_8char(self):
         assert normalize_color("AaBbCcFF") == "aabbcc"
 
     def test_whitespace_stripped(self):
@@ -687,8 +693,8 @@ class TestFallbackChainLogic:
         assert len(matches) == 0
         assert len(unmatched) == 1
 
-    def test_slot_position_material_match_wrong_color(self):
-        """Filament index 2 with wrong color but matching material → slot_position_material."""
+    def test_wrong_color_multiple_slots_same_material_no_match(self):
+        """Filament with wrong color and multiple PLA slots → unmatched (no position tier)."""
         filaments = [
             {"index": 2, "used_g": 2.84, "color_hex": "ff6a13", "material": "pla"},
         ]
@@ -698,14 +704,13 @@ class TestFallbackChainLogic:
             3: {"color_hex": "000000", "material": "pla", "spool_id": 52},
         }
         matches, unmatched = match_filaments_to_slots(filaments, slot_data)
-        assert len(matches) == 1
-        assert matches[0]["slot"] == 2
-        assert matches[0]["spool_id"] == 47
-        assert matches[0]["method"] == "slot_position_material"
-        assert len(unmatched) == 0
+        assert len(matches) == 0
+        assert len(unmatched) == 1
+        # slot_position_material tier is removed — no match by index
+        assert all(m.get("method") != "slot_position_material" for m in matches)
 
-    def test_slot_position_material_wrong_material_no_match(self):
-        """Filament index 2 with wrong color AND wrong material → no match."""
+    def test_wrong_color_wrong_material_no_match(self):
+        """Filament with wrong color AND wrong material → no match."""
         filaments = [
             {"index": 2, "used_g": 2.84, "color_hex": "ff6a13", "material": "petg"},
         ]
@@ -731,8 +736,8 @@ class TestFallbackChainLogic:
         assert matches[0]["slot"] == 2
         assert matches[0]["method"] == "exact_color_material"
 
-    def test_multi_filament_mixed_color_and_position_match(self):
-        """Two filaments: one matches by color (tier 1), one by position (tier 2.75)."""
+    def test_multi_filament_one_color_match_one_unmatched(self):
+        """Two filaments: one matches by color, one has wrong color with multiple PLA → unmatched."""
         filaments = [
             {"index": 1, "used_g": 5.0, "color_hex": "00ae42", "material": "pla"},
             {"index": 2, "used_g": 2.84, "color_hex": "ff6a13", "material": "pla"},
@@ -742,13 +747,11 @@ class TestFallbackChainLogic:
             2: {"color_hex": "bac4c4", "material": "pla", "spool_id": 47},
         }
         matches, unmatched = match_filaments_to_slots(filaments, slot_data)
-        assert len(matches) == 2
-        assert len(unmatched) == 0
-        by_slot = {m["slot"]: m for m in matches}
-        assert by_slot[1]["method"] == "exact_color_material"
-        assert by_slot[1]["spool_id"] == 41
-        assert by_slot[2]["method"] == "slot_position_material"
-        assert by_slot[2]["spool_id"] == 47
+        assert len(matches) == 1
+        assert len(unmatched) == 1
+        assert matches[0]["slot"] == 1
+        assert matches[0]["method"] == "exact_color_material"
+        assert all(m["method"] != "slot_position_material" for m in matches)
 
     def test_3mf_overrides_rfid_fuel_gauge(self):
         threemf_g = 1.29
@@ -1122,3 +1125,37 @@ class TestSingleFilamentForceMatch:
         }
         matches, unmatched = match_filaments_to_slots(filaments, slot_data, trays_used={4})
         assert len(matches) == 0  # active_filaments is empty (0g filtered)
+
+
+class TestSlotPositionMaterialRemoved:
+    """Verify slot_position_material tier is fully removed."""
+
+    def test_no_match_by_index_alone(self):
+        """Filament index matches slot number, same material, wrong color → no match."""
+        filaments = [
+            {"index": 1, "used_g": 50.0, "color_hex": "ff0000", "material": "pla"},
+        ]
+        slot_data = {
+            1: {"color_hex": "00ff00", "material": "pla", "spool_id": 10},
+            2: {"color_hex": "0000ff", "material": "pla", "spool_id": 20},
+        }
+        matches, unmatched = match_filaments_to_slots(filaments, slot_data)
+        # Multiple PLA slots, wrong color → no match without position tier
+        assert len(matches) == 0
+        assert len(unmatched) == 1
+
+    def test_method_never_returned_in_multi_slot(self):
+        """No match result ever uses slot_position_material method."""
+        filaments = [
+            {"index": 1, "used_g": 5.0, "color_hex": "00ae42", "material": "pla"},
+            {"index": 2, "used_g": 2.84, "color_hex": "000000", "material": "pla"},
+            {"index": 3, "used_g": 0.61, "color_hex": "939393", "material": "pla"},
+        ]
+        slot_data = {
+            1: {"color_hex": "00ae42", "material": "pla", "spool_id": 41},
+            2: {"color_hex": "000000", "material": "pla", "spool_id": 31},
+            3: {"color_hex": "1a1a1a", "material": "pla", "spool_id": 52},
+            4: {"color_hex": "8e9089", "material": "pla", "spool_id": 46},
+        }
+        matches, _ = match_filaments_to_slots(filaments, slot_data)
+        assert all(m["method"] != "slot_position_material" for m in matches)
