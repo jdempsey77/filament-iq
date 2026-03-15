@@ -44,7 +44,7 @@ class AmsRfidGuard(FilamentIQBase):
             },
         )
 
-        self.log("ams_rfid_guard VERSION=2026-02-18", level="INFO")
+        self.log("ams_rfid_guard VERSION=1.0.0", level="INFO")
         self.enabled = bool(self.args.get("enabled", True))
         if not self.enabled:
             self.log("RFID Guard disabled by config (enabled=false).")

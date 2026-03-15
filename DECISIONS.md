@@ -1,5 +1,52 @@
 ## Filament IQ Architecture Decisions
 
+### 2026-03-15 — v1.0 consumption pipeline rewrite
+
+**Decision:** Rewrote the consumption pipeline from a monolithic
+`_handle_usage_event()` into five explicit phases: collect, decide, execute,
+notify, finalize. The decision engine (`consumption_engine.py`) is a pure
+function with no AppDaemon dependency.
+
+**Alternatives considered:**
+- Patch the 13 individual bugs — rejected. The bugs are symptoms of unclear
+  data flow, not independent mistakes. Patching would require testing each
+  fix in isolation then testing interactions — effectively a rewrite with
+  more risk and less clarity.
+
+**Why rewrite:**
+The core problem was interleaved I/O, decisions, and writes in a single
+300-line function. The new model makes data flow explicit: all reads happen
+in collect, all logic happens in decide (pure, no I/O), all writes happen
+in execute. The decision engine is testable without any mocking.
+
+**Key decisions within v1.0:**
+
+- 3MF fetched at print START (minimum 10-min runway). No finish-line race.
+  `_finish_wait_tick` polling mechanism deleted entirely.
+
+- RFID delta always wins for RFID spools. Hardware sensor is ground truth.
+  3MF is suppressed in `_collect_print_inputs` for RFID slots. The previous
+  behavior (3MF overriding RFID) was inverted from intent.
+
+- Non-RFID depletion reads Spoolman remaining at decision time (print end),
+  not at print start. Avoids stale baseline if Spoolman corrected mid-print.
+
+- `slot_position_material` matching tier removed. Filament index (0-based
+  slicer) is not the same as slot number (1-based physical AMS position).
+  Was producing wrong matches except by coincidence.
+
+- `active_print.json` has three write points: start, 3MF success, all-fail.
+  Provides crash recovery at any lifecycle stage.
+
+- Print history written to `data/print_history/{job_key}.json` after writes.
+  Last 50 prints retained. Notification built from post-write SlotDecision
+  data, ensuring displayed remaining values are accurate.
+
+- Depleted spool location always PATCHed to Empty, independent of
+  `auto_empty_spools`. That flag only controls slot binding clearance.
+
+**Evidence:** 13 bugs identified in code review 2026-03-15.
+
 ### 2026-03-13 — Rehydrate reads job_key from HA helper, not task_name
 
 **Decision:** `_rehydrate_print_state()` reads `_job_key` from

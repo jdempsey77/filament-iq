@@ -352,7 +352,7 @@ class AmsRfidReconcile(FilamentIQBase):
         )
         self._check_spoolman_connectivity()
 
-        self.log("ams_rfid_reconcile VERSION=2026-02-18 flow-b-ha-sig", level="INFO")
+        self.log("ams_rfid_reconcile VERSION=1.0.0", level="INFO")
         self.enabled = bool(self.args.get("enabled", True))
         if not self.enabled:
             self.log("AMS RFID reconcile disabled by config (enabled=false).")

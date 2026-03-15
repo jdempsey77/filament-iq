@@ -1,5 +1,20 @@
 ## Filament IQ Backlog
 
+## Closed by v1.0 Rewrite
+
+| Item | Closed by |
+|------|-----------|
+| Bug 13: 3MF overrides RFID delta (inverted precedence) | consumption_engine.py RFID guard |
+| Bug 11: slot_position_material index mismatch | threemf_parser.py tier removed |
+| Bug 16: notification shows pre-write remaining | _send_notification rebuilt |
+| Bug 6: _finish_wait_tick 15s timeout too short | mechanism deleted entirely |
+| Bugs 14/15: depleted spool location not updated | _execute_writes depletion handling |
+| MEDIUM #3: _finish_wait_tick double-fire risk | mechanism deleted |
+| MEDIUM #11: _on_print_finish guards untested | test_print_lifecycle.py |
+| MEDIUM #12: empty job_key bypasses dedup | _do_finish explicit guard |
+| LOW #8: 0g RFID delta untested | test_consumption_engine.py |
+| LOW #10: USAGE_RFID_DEPLETED_WARNING observability | rfid_delta_depleted method |
+
 ### In Progress
 - [ ] Verify all 3 lifecycle phases in production — Phases 1-3 coded and enabled, 7 HA automations disabled, monitoring for issues
 
@@ -75,3 +90,16 @@
 - [x] Scoped unbound-slot warning to active trays only
 - [x] Batch Spoolman fetch in usage pipeline (~12 HTTP calls → 1)
 - [x] 3MF fetch race guard — wait up to 15s for data before processing finish
+
+### Releases
+
+| Version | Date | Summary |
+|---------|------|---------|
+| v1.0.0 | 2026-03-15 | Full pipeline rewrite: consumption_engine.py, five-phase architecture, RFID-delta-wins, threemf_parser bug fixes, SpoolmanRecorder test infrastructure, print_history persistence |
+| v0.12.6 | 2026-03-14 | Reconciler status helper + 3MF single-filament force match |
+| v0.12.5 | 2026-03-14 | Three audit fixes (start_g guard, depleted default, fuel gauge tolerance) |
+| v0.12.4 | 2026-03-14 | RFID reconciler hardening (3 guards) |
+| v0.12.3 | 2026-03-14 | 16 E2E pipeline tests from measurement audit |
+| v0.12.2 | 2026-03-14 | Defer RFID reconciler 60s post-print |
+| v0.12.1 | 2026-03-13 | Rehydrate job_key from HA helper |
+| v0.12.0 | 2026-03-13 | Reconciler print-active freeze |
