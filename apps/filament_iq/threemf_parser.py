@@ -23,15 +23,17 @@ logger = logging.getLogger(__name__)
 
 
 def normalize_color(raw):
-    """Normalize color to 6-char lowercase hex. Drops alpha channel.
-    '#00AE42FF' -> '00ae42', '000000' -> '000000', None -> ''
+    """Normalize color to 6-char lowercase hex. Drops trailing alpha channel.
+    '#00AE42FF' -> '00ae42', '161616FF' -> '161616', '000000' -> '000000', None -> ''
     """
     if not raw:
         return ""
-    raw = str(raw).strip().lstrip("#")
+    raw = str(raw).strip().lstrip("#").lower()
     if len(raw) == 8:
-        raw = raw[:6]
-    return raw.lower() if len(raw) == 6 else ""
+        return raw[:6]    # RRGGBBAA — strip trailing alpha byte
+    if len(raw) == 6:
+        return raw
+    return ""
 
 
 def normalize_material(raw):
@@ -527,17 +529,6 @@ def match_filaments_to_slots(filaments, slot_data, trays_used=None):
                     best_method = "lot_nr_color_material"
                     best_distance = 0.0
                     break
-
-        # Tier 2.75: slot_position_material — filament index maps to AMS slot
-        if best_slot is None:
-            position_slot = fil["index"]
-            if (
-                position_slot in available_slots
-                and position_slot not in used_slots
-                and _materials_match(available_slots[position_slot]["material"], fil_material)
-            ):
-                best_slot = position_slot
-                best_method = "slot_position_material"
 
         if best_slot is None:
             material_candidates = [
