@@ -67,6 +67,56 @@ Scripts:
 
 ---
 
+## Print Lifecycle (v1.0)
+
+```
+PRINT START
+  ├── Snapshot RFID fuel gauges → start_snapshot{}
+  ├── Persist active_print.json (Write 1: start_snapshot, threemf_data=null)
+  ├── Begin tray tracking
+  └── Schedule 3MF fetch (+10s delay)
+        ├── Success → active_print.json (Write 2: threemf_data populated)
+        └── All retries fail → active_print.json (Write 3: threemf_unavailable=true)
+             Retry schedule: +10s, +25s, +70s, +160s
+
+PRINT END (status transition detected)
+  ├── Read: tray_state per slot, tray_active_seconds, end_g per RFID slot
+  ├── Load threemf_data from disk if not in memory
+  └── _do_finish() orchestrates five phases:
+       ├── 1. COLLECT  → List[SlotInput]         (all I/O done here)
+       ├── 2. DECIDE   → List[SlotDecision]       (pure, no I/O)
+       ├── 3. EXECUTE  → List[SlotDecision]       (Spoolman /use writes)
+       ├── 4. NOTIFY   → HA notification          (from post-write data)
+       └── 5. FINALIZE → print_history/{job_key}.json, dedup, reconciler
+```
+
+## Decision Engine (consumption_engine.py)
+
+```
+is_rfid?
+├── YES → start_g captured?
+│         ├── NO  → no_evidence  (DATA_LOSS: missed print start)
+│         └── YES → tray_empty OR end_g == 0?
+│                   ├── YES → rfid_delta_depleted  [confidence: high]
+│                   │         consumption = start_g
+│                   └── NO  → end_g available?
+│                             ├── YES → rfid_delta  [confidence: high]
+│                             │         consumption = start_g - end_g
+│                             └── NO  → no_evidence  (DATA_LOSS)
+└── NO  → threemf_used_g available?
+          ├── YES → tray_empty?
+          │         ├── YES → 3mf_depleted  [confidence: medium]
+          │         │         consumption = max(3mf, spoolman_remaining)
+          │         └── NO  → 3mf  [confidence: high or medium]
+          │                   consumption = threemf_used_g
+          └── NO  → tray_empty?
+                    ├── YES → depleted_nonrfid  [confidence: low]
+                    │         consumption = spoolman_remaining
+                    └── NO  → no_evidence  (unresolvable without 3MF)
+
+Confidence: high=✓  medium=~  low=?
+```
+
 ## Print Consumption — 3-Tier State Model
 
 The print usage sync (`ams_print_usage_sync`) gates consumption logic on `gcode_state`, using an allowlist rather than a blocklist. The Bambu `gcode_state` is a closed set of 10 values defined in pybambu (`const.py`): `failed`, `finish`, `idle`, `init`, `offline`, `pause`, `prepare`, `running`, `slicing`, `unknown`.

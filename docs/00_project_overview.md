@@ -33,3 +33,18 @@ This is a stateful system with defined guarantees.
 - State transitions must be explainable
 - Deployments must be guarded and reproducible
 - Secrets stay local (`./scripts/deploy.env.local`)
+
+---
+
+## v1.0 Consumption Pipeline
+
+The consumption pipeline has five explicit phases:
+
+1. COLLECT   All HA sensor reads and Spoolman queries. Produces List[SlotInput].
+2. DECIDE    Pure function, zero I/O. Applies decision tree per slot.
+             Produces List[SlotDecision]. Lives in consumption_engine.py.
+3. EXECUTE   Spoolman /use writes. Fills post_write_remaining.
+             Handles depletion location update.
+4. NOTIFY    Builds notification from post-write SlotDecision data.
+5. FINALIZE  Writes print_history record, persists dedup,
+             schedules RFID reconciler.

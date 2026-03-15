@@ -34,3 +34,28 @@ If a spool’s remaining weight in Spoolman is wrong (e.g. double-counted or wro
 
 ## Recover from double-patch
 If the same print was applied twice to Spoolman (e.g. duplicate P1S_PRINT_USAGE_READY or restart before dedup persisted): (1) Check **seen_job_keys** in `appdaemon/apps/data/seen_job_keys.json` to confirm the job_key was recorded. (2) Correct Spoolman: PATCH the spool’s **used_weight** (or remaining) to the correct value (subtract the duplicate consumption once). (3) Optionally remove that job_key from `seen_job_keys.json` only if you need to re-apply the same print again (rare).
+
+## Review print history
+
+Print history records are stored in `appdaemon/apps/data/print_history/{job_key}.json`. Each record contains: job_key, timestamp, per-slot decisions (method, consumption_g, confidence, pre/post remaining), 3MF metadata, and final status.
+
+To review a specific print:
+1. Find the job_key from AppDaemon logs or HA notification history
+2. Read the file: `cat /addon_configs/a0d7b954_appdaemon/apps/data/print_history/{job_key}.json | python3 -m json.tool`
+3. Check per-slot `method` and `confidence` fields to understand how consumption was calculated
+4. Compare `pre_remaining` and `post_remaining` to verify the write was correct
+
+To list all print history: `ls -lt /addon_configs/a0d7b954_appdaemon/apps/data/print_history/`
+
+## Diagnose no_evidence slot
+
+When a slot reports `no_evidence` in the print history or notification, consumption could not be determined. Common causes:
+
+1. **RFID spool, missed print start** — AppDaemon restarted during a print, so `start_g` was never captured. Check logs for `ACTIVE_PRINT_PERSISTED` at print start. If missing, the start snapshot was lost.
+   - Resolution: No automatic fix. Manually calculate consumption from Bambu slicer estimate or weigh the spool. PATCH Spoolman `used_weight` directly.
+
+2. **Non-RFID spool, no 3MF data** — 3MF fetch failed all retries, and the tray was not empty at print end.
+   - Resolution: Check logs for `3MF_FETCH_FAILED` or `threemf_unavailable`. Verify printer FTPS connectivity (`192.168.4.114:990`). If the print file is still on the SD card, trigger a manual 3MF fetch or calculate from slicer estimate.
+
+3. **Non-RFID spool, tray not empty, no 3MF** — The decision engine cannot resolve consumption without either RFID delta or 3MF data for a non-depleted non-RFID spool.
+   - Resolution: Same as (2). For future prints, ensure 3MF fetch succeeds by verifying FTPS access before printing.

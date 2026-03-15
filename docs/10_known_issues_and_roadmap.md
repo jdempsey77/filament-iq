@@ -1,12 +1,22 @@
 # Current Maturity
 
-System is stable and deployed at v0.9.0. Core reconciliation is hardened with
+System is stable and deployed at v1.0.0. Core reconciliation is hardened with
 full auto-enrollment for both RFID and non-RFID spools. All 6 slots resolve
 automatically on first insert with zero manual intervention required for
 enrolled spools. All three lifecycle phases (identity, usage tracking, weight
 sync) now run in AppDaemon — 7 HA automations replaced.
 
 ## Version History
+
+### v1.0.0 — Five-Phase Consumption Pipeline (2026-03-15)
+- Five-phase pipeline: collect → decide → execute → notify → finalize
+- Decision engine (`consumption_engine.py`) extracted as pure function — zero I/O
+- RFID delta always wins for RFID spools (ground truth rule)
+- Depletion handling: rfid_delta_depleted, 3mf_depleted, depleted_nonrfid
+- Print history records: `appdaemon/apps/data/print_history/{job_key}.json`
+- Confidence levels on every decision (high/medium/low)
+- 3MF Tier 2.75 slot position matching removed (index vs slot mismatch)
+- active_print.json persistence across AppDaemon restarts
 
 ### v0.9.0 — Pool_g Removal + Smart Empty Guard (2026-03-09)
 - Removed pool_g estimation — two write paths only: RFID delta + 3MF match
@@ -70,6 +80,7 @@ sync) now run in AppDaemon — 7 HA automations replaced.
 | Two non-RFID spools with identical type+filament_id+color → AMBIGUOUS_SIG | By design — requires manual bind via dashboard |
 | 3MF_UNMATCHED for brief tray activations | Backlog — short tray activations during print may not match 3MF plate data |
 | Dashboard custom:mod-card not installed | Fixed for AMS Pro card. AMS HT card pending same fix. |
+| print_history directory not auto-created | Directory must exist before first print completes. Created by deploy script or manually: `mkdir -p /addon_configs/a0d7b954_appdaemon/apps/data/print_history` |
 
 ---
 
@@ -116,7 +127,17 @@ Sentinel short-circuit. Bambu vendor exclusion tightened.
 - Smart Empty Guard ✅
 - _SUCCESS_STATES allowlist fix — 3MF path gated to `finish` only ✅
 - Native FTPS fetch ✅
-- 3MF Tier 2.75 slot position matching ✅
+- 3MF Tier 2.75 slot position matching — REMOVED in v1.0 (index vs slot mismatch)
+
+## Phase 2d — v1.0 Consumption Engine
+- Five-phase pipeline (collect/decide/execute/notify/finalize) ✅
+- consumption_engine.py extracted as pure decision function ✅
+- RFID ground truth rule — delta always wins ✅
+- Depletion methods: rfid_delta_depleted, 3mf_depleted, depleted_nonrfid ✅
+- Print history persistence ✅
+- Confidence levels on all decisions ✅
+- 3MF Tier 2.75 removed (index vs slot mismatch) ✅
+- active_print.json disk persistence ✅
 
 ## Phase 2c — Dashboard Polish
 - AMS HT card — fix custom:mod-card wrapper (same fix as AMS Pro)

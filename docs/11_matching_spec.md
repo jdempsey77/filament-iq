@@ -413,17 +413,57 @@ Move to `Shelf` if `remaining_weight > 0`, `Empty` if `remaining_weight <= 0`.
 
 ---
 
+## 3MF Matching Tiers (v1.0)
+
+The 3MF file from the printer's SD card is fetched via FTPS and parsed for per-plate filament usage. Matching assigns 3MF plate filament entries to AMS slots.
+
+### Tier 1 — Material Type Match
+Match 3MF plate filament `type` (e.g. PLA, PETG, ABS) against the tray-reported `type` for each active slot. If exactly one slot matches the material type, assign.
+
+### Tier 2 — Material + Color Match
+When multiple slots share the same material type, use color from the 3MF plate entry to disambiguate. Color comparison uses tolerance-based matching (not exact equality).
+
+### Tier 3 — Unmatched
+If a 3MF plate entry cannot be assigned to any slot after Tier 1 and Tier 2, it is logged as `3MF_UNMATCHED`. No consumption is written for unmatched entries. The slot falls back to RFID delta (if RFID) or `no_evidence` (if non-RFID, non-depleted).
+
+---
+
+## Removed in v1.0
+
+### Tier 2.75 — Slot Position Matching (REMOVED)
+
+Previously, 3MF plate filament entries were matched to slots by array index position (plate filament index 0 → slot 1, index 1 → slot 2, etc.). This was removed in v1.0 because the 3MF plate filament array index does not reliably correspond to the AMS slot number. The array is ordered by the slicer's internal filament list, which may not match physical slot order — especially when not all slots are used or when filaments are reordered in the slicer.
+
+**Migration note:** Any code referencing `slot_position_material` matching or Tier 2.75 should be updated to use Tier 1/Tier 2 only.
+
+---
+
+## Confidence Assignments
+
+Every `SlotDecision` produced by the decision engine includes a `confidence` level:
+
+| Confidence | Symbol | Meaning | Methods |
+|------------|--------|---------|---------|
+| `high` | ✓ | Hardware signal or exact 3MF match | `rfid_delta`, `rfid_delta_depleted`, `3mf` (single material match) |
+| `medium` | ~ | Reasonable estimate with some ambiguity | `3mf` (color tiebreak), `3mf_depleted` |
+| `low` | ? | Best-effort, significant uncertainty | `depleted_nonrfid` |
+| n/a | — | No consumption written | `no_evidence` |
+
+Confidence is included in print history records and HA notifications so operators can assess reliability of each consumption event.
+
+---
+
 ## Print Usage — 3MF Path Gating
 
-The print usage sync applies consumption data after a print completes. The 3MF path (Path B — plate-to-slot matching from 3MF file data) is **only active when `gcode_state == "finish"`**. This is the sole success state in the Bambu `gcode_state` closed set (10 values defined in pybambu `const.py`).
+The print usage sync applies consumption data after a print completes. The 3MF path is **only active when `gcode_state == "finish"`**. This is the sole success state in the Bambu `gcode_state` closed set (10 values defined in pybambu `const.py`).
 
-Non-success terminal states (e.g. idle after cancel, pause) fall back to **RFID delta only** (Path A). Failed/error states skip consumption entirely.
+Non-success terminal states (e.g. idle after cancel, pause) fall back to **RFID delta only**. Failed/error states skip consumption entirely.
 
 Constants governing this behavior:
-- `_SUCCESS_STATES = frozenset({"finish"})` — gates 3MF fetch + Path B
+- `_SUCCESS_STATES = frozenset({"finish"})` — gates 3MF fetch
 - `_FAILED_STATES = frozenset({"failed", "error"})` — skip all consumption
 
-This prevents overcounting when a print is cancelled or interrupted — only a successful `finish` triggers the full two-path consumption pipeline.
+This prevents overcounting when a print is cancelled or interrupted — only a successful `finish` triggers the full five-phase consumption pipeline.
 
 ---
 

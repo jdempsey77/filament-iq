@@ -18,8 +18,7 @@ Restart only when required.
 
 ## Usage Tracking
 
-`dry_run` is **false** as of v0.9.0 — print usage tracking is live. Two write
-paths: RFID delta and 3MF match. `pool_g` estimation path removed.
+v1.0 five-phase pipeline: collect → decide → execute → notify → finalize. Decision engine (consumption_engine.py) is a pure function — no I/O. RFID delta always wins for RFID spools. See docs/06_weight_tracking.md.
 
 ---
 
