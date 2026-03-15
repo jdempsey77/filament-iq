@@ -72,17 +72,64 @@ Knows the AppDaemon threading model. Looks only for:
 | Finding in 3 reviewers | Always HIGH regardless of individual severity |
 | Identical findings | Merge into one entry with "Flagged by: R1, R2, R3" |
 
-## Filament IQ Domain Rules
+## Filament IQ Domain Rules (v1.0)
 
-Applied by all three reviewers as invariants:
+Applied by all three reviewers as domain invariants.
+Any violation is at minimum MEDIUM severity.
 
-- `_spoolman_use` must return dict or None (never bool)
-- `match_filaments_to_slots` must receive `trays_used_set or None` (never hardcoded None)
-- `_on_print_finish` must never call `time.sleep`
-- `_on_spool_id_change` must never fire `persistent_notification` during active print
-- Job keys must include timestamp suffix
-- Post-write `remaining_weight` must come from Spoolman response, not `spools_cache`
-- `_filter_trays_by_duration` must be called before passing `trays_used` to any matching function
+### Architecture invariants
+
+- decide_consumption() must be a pure function with zero I/O.
+  Any urllib, open(), socket, or hassapi call inside consumption_engine.py
+  is HIGH.
+- Phases must not be mixed:
+    _collect_print_inputs() → only HA/Spoolman reads, no decisions
+    decide_consumption()    → only logic, no I/O
+    _execute_writes()       → only Spoolman writes, no HA reads
+  Mixing phases is MEDIUM.
+- RFID slots must never use threemf_used_g as their consumption value.
+  3MF data is input only — RFID delta always wins for RFID spools.
+  Any code path where 3MF overrides RFID delta is HIGH.
+- Notification must be built from SlotDecision.post_write_remaining,
+  never from spools_cache or any pre-write value. Violation is HIGH.
+
+### Write path invariants
+
+- _spoolman_use() must return dict or None (never bool).
+- post_write_remaining must come from _spoolman_use() response, not any cache.
+- Dedup (_persist_seen_job_keys) must only be called after all writes succeed.
+  Write-ahead dedup is HIGH.
+- active_print.json must be written atomically (temp file + os.replace).
+  Non-atomic writes are MEDIUM.
+- Depleted spool (post_write_remaining <= 0) must always receive a location
+  PATCH to "Empty", regardless of auto_empty_spools setting.
+  Missing depletion location update is MEDIUM.
+
+### Lifecycle invariants
+
+- _on_print_finish() must never call time.sleep(). Any sleep is HIGH.
+- 3MF fetch must be scheduled at print START, not polled at print END.
+  Any finish-line polling for 3MF data is MEDIUM.
+- _finish_wait_tick() must not exist. If found in a diff it is HIGH
+  (deleted mechanism reintroduced).
+- _handle_usage_event() must not exist. If found in a diff it is HIGH
+  (deleted entrypoint reintroduced).
+- Job keys must include timestamp suffix.
+
+### Test style invariants (R2 — Tester, in addition to coverage checks)
+
+- Scenario matrices with 6+ similar scenarios must use @pytest.mark.parametrize
+  with id= strings. A class with 8+ nearly-identical test methods is MEDIUM.
+- Shared setup must use pytest fixtures or module-level helpers (_make_slot etc).
+  Duplicated setup boilerplate across 5+ tests is LOW.
+- Write assertions must use SpoolmanRecorder, not log string matching.
+  Log string matching for write verification in new tests is MEDIUM.
+- No test body should exceed ~25 lines including setup and assertions.
+  Tests exceeding this are LOW (suggest fixture extraction).
+- Each new test file must have a module docstring describing its scope.
+  Missing module docstring is LOW.
+- test_rfid_slot_uses_rfid_delta_not_3mf must exist in the test suite.
+  This is the permanent Bug 13 regression guard. If missing it is HIGH.
 
 ## Review Report Format
 

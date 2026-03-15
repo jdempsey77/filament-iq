@@ -20,6 +20,14 @@ CHECKIN trigger received
 [2] Stage files: git add (relevant files, use -f for filament_iq/)
         |
         v
+  Note: For any change touching consumption_engine.py, the staged diff
+  must be verified clean before REVIEW runs:
+    grep -n "urllib\|open(\|socket\|hassapi" \
+      appdaemon/apps/filament_iq/consumption_engine.py
+  Any match is a HIGH finding that blocks commit. This check is part of
+  the ENGINE_CLEAN gate.
+        |
+        v
 [3] Run REVIEW on staged diff (Code Review Agent)
     Three reviewers: Skeptic (R1), Tester (R2), AppDaemon Expert (R3)
         |
@@ -53,6 +61,7 @@ CHECKIN trigger received
 | Gate | Required by | Enforced how |
 |------|-------------|--------------|
 | Clean tree | CHECKIN, DEPLOY | `serious_mode_check.sh` |
+| ENGINE_CLEAN | CHECKIN | grep confirms zero I/O in consumption_engine.py |
 | REVIEW PASS | CHECKIN | Code Review Agent (3 reviewers) |
 | SECURITY PASS | CHECKIN | Security Agent (4 lenses) |
 | TEST PASS | DEPLOY | `skill_test.sh` must have passed on current HEAD |
