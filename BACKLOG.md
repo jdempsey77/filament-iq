@@ -8,6 +8,7 @@
 - [ ] Investigate 3MF_UNMATCHED for brief tray activations — tray tracking misses slots used for very short durations. Root cause: active_tray sensor polling interval vs actual extrusion time. Workaround in place (3MF-matched slots merged into active_slots).
 
 ### Medium Priority
+- [ ] NONRFID_EMPTY_TRAY_CLEAR sets location="Shelf" not "Empty" — reconciler moves depleted non-RFID spool to Shelf instead of Empty because it has no consumption context. Separate fix from depleted detection. (ANALYZE 2026-03-14)
 - [ ] start_map fallback over-count — if trays_used empty, active_slots falls back to all start_map keys (all 6 slots). Idle RFID slots with gauge drift could produce phantom writes. Narrow trigger. Lines 319-332, both internal tracking and event data empty. (Audit Finding A, 2026-03-14)
 - [ ] min_consumption_g discards valid small 3MF matches — slicer-exact 1.5g purge segment silently skipped by 2g minimum. Lines 439-446, filter applies to all methods including 3MF. Consider lowering or exempting 3MF path. (Audit Finding F, 2026-03-14)
 - [ ] Rehydrated start snapshot from fuel gauges undercounts delta — when HA helper recovery fails, start_snapshot rebuilt from current fuel gauges mid-print. Delta = current - end, not original_start - end. (Audit Finding 8b, 2026-03-14)
@@ -27,6 +28,7 @@
 - [ ] Manually correct spool 52 consumption in Spoolman (~143g from grid print 2026-03-12 15:03)
 
 ### Done
+- [x] Depleted non-RFID spool detection — automatic consumption write when non-RFID slot depletes mid-print. Detects via trays_used + tray_state=Empty + tray_seconds guard. Consumes Spoolman remaining_weight to zero. (v0.13.0)
 - [x] Reconciler status helper — writes human-readable status to input_text.filament_iq_reconciler_status after each cycle (ok/warn/paused + counts + reason + time). (v0.12.6)
 - [x] 3MF single-filament force match — when trays_used has exactly one slot and 3MF has exactly one filament, match directly regardless of color/index. Fixes slicer index vs physical slot mismatch. (v0.12.6)
 - [x] RFID reconciler hardening — print_active re-defer, tray_weight sanity bounds (50-2000g), 5g minimum delta threshold. 1226 passing. (v0.12.4, Skeptic Review)
