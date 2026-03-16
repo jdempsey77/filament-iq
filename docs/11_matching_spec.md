@@ -11,16 +11,16 @@ This document is the authoritative specification for how the AMS reconciler iden
 
 ---
 
-## P0 Fix — Canonicalizer Module (MIGRATION-ONLY as of v4)
+## P0 Fix — Canonicalizer Module (RETIRED as of v1.0)
 
-`spoolman_extra_canonicalizer.py` remains deployed but is now **migration-only**. It is used only to read legacy `extra.rfid_tag_uid` and `extra.ha_spool_uuid` values during the migration fallback window. It must not be used for any new writes. Once all spools have `lot_nr` populated, the canonicalizer can be retired (see Legacy Field Cleanup task).
+`spoolman_extra_canonicalizer.py` has been **retired** and moved to `_retired/`.
+It is no longer deployed, imported, or called by any production code path.
+All spools now have `lot_nr` populated — the migration fallback window is closed.
 
-Module-level docstring must read:
-```python
-# MIGRATION ONLY — retire after all spools have lot_nr populated. See Legacy Field Cleanup task.
-```
+The legacy fields `extra.rfid_tag_uid` and `extra.ha_spool_uuid` are no longer
+read or written. The `comment` field is free for human use.
 
-**Do not revert the canonicalizer. Do not add new write paths through it.**
+**Do not reintroduce the canonicalizer or any extra field write paths.**
 
 ---
 
@@ -110,7 +110,7 @@ Examples:
 
 ---
 
-## Identity Resolution — `lot_nr` Primary + Legacy Fallback
+## Identity Resolution — `lot_nr` Primary
 
 ### RFID path
 
@@ -121,10 +121,7 @@ is_rfid = tray_uuid not in (None, "", "00000000000000000000000000000000")
 1. Match tray_uuid against spool.lot_nr
    → Match found: BOUND. Done.
 
-2. Fallback (migration): match tray tag_uid against extra.rfid_tag_uid (via canonicalizer)
-   → Match found: write tray_uuid to lot_nr (plain PATCH). BOUND.
-
-3. No match at any tier: UNBOUND → NEEDS_ACTION
+2. No match: UNBOUND → NEEDS_ACTION
 ```
 
 ### Non-RFID path
@@ -135,18 +132,19 @@ sig = build_lot_sig(type, filament_id, color_hex)  # type|filament_id|color_hex
 1. Match sig against spool.lot_nr
    → Match found: BOUND. Done.
 
-2. Fallback (migration): match computed HA_SIG against spool.comment
-   → Match found: write sig to lot_nr (plain PATCH). BOUND.
-
-3. No match at any tier: UNBOUND → NEEDS_ACTION
+2. No match: UNBOUND → NEEDS_ACTION
 ```
 
-### Migration fallback rules
+### Legacy fallback tiers (RETIRED)
 
-- Fallback paths are **read-only** — they never write to `extra` fields or `comment`
-- Fallback paths **do write `lot_nr`** on successful match, promoting the spool to v4 identity
-- Once `lot_nr` is populated, the fallback paths are never reached for that spool
-- Fallback paths will be removed entirely after Legacy Field Cleanup task completes
+The following fallback tiers existed during the v3→v4 migration period
+and have been removed as of v1.0:
+
+- RFID: match `tag_uid` against `extra.rfid_tag_uid` (via canonicalizer) — **RETIRED**
+- Non-RFID: match computed HA_SIG against `spool.comment` — **RETIRED**
+
+All spools now have `lot_nr` populated. The canonicalizer has been moved
+to `_retired/` and is no longer deployed.
 
 ---
 
@@ -311,9 +309,8 @@ All tiers exhausted → NEEDS_ACTION.
 
 Rules:
 - No canonicalization needed — `lot_nr` is a plain string
-- Spool with empty `lot_nr` is never an RFID candidate via primary path
-- Migration fallback only: if `lot_nr` empty, check `extra.rfid_tag_uid` via canonicalizer (read-only)
-- On successful match via fallback: write `tray_uuid` to `lot_nr`
+- Spool with empty `lot_nr` is never an RFID candidate
+- Migration fallback via canonicalizer is **retired** (v1.0)
 
 ---
 
@@ -327,8 +324,8 @@ Applied in order. Stop at first step that produces exactly one candidate.
 **Step 2 — lot_nr exact match:**
 Compute sig = `type|filament_id|color_hex`. Find spools whose `lot_nr` matches exactly.
 
-**Step 3 — Migration fallback (comment HA_SIG):**
-If no `lot_nr` match, check spool `comment` for legacy HA_SIG match. If found: write sig to `lot_nr`, bind.
+**Step 3 — Migration fallback (comment HA_SIG): RETIRED**
+Legacy path removed in v1.0. Comment field is free for human use.
 
 **Step 4 — filament_id exact match:**
 If `filament_id` is non-generic AND Spoolman `filament.external_id` is populated:
@@ -586,5 +583,5 @@ Until populated, matching falls back to vendor + material + fuzzy color. Generic
 | **P5** | Non-RFID matching improvements | ✅ COMPLETE | filament_id primary signal. Color tiebreaker. Sentinel short-circuit. |
 | **P6** | Three-tier waterfall | ✅ COMPLETE | Tier 2 AMS slot empty-confirmed. |
 | **P7** | Previous occupant clearing guard | ✅ COMPLETE | Prevents irreversible moves of in-use spools. |
-| **P8** | lot_nr identity migration (Spec v4) | ✅ COMPLETE | All identity stored in lot_nr. extra fields retired. canonicalizer migration-only. comment freed. RFID and non-RFID auto-enroll. |
-| **P9** | Legacy field cleanup | **NEXT** | PATCH extra fields to null. Delete extra field definitions in Spoolman UI. Retire canonicalizer entirely. Update test suite. |
+| **P8** | lot_nr identity migration (Spec v4) | ✅ COMPLETE | All identity stored in lot_nr. extra fields retired. Canonicalizer retired (moved to `_retired/`). comment freed. RFID and non-RFID auto-enroll. |
+| **P9** | Legacy field cleanup | **NEXT** | PATCH extra fields to null in Spoolman. Delete extra field definitions in Spoolman UI. Update test suite. |
