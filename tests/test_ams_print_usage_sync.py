@@ -1204,7 +1204,9 @@ class TestActivePrintPersistence:
                     "lifecycle_phase1_enabled": True,
                 })
                 result = app._load_active_print("matching_key")
-                assert result == threemf
+                assert result["threemf_data"] == threemf
+                assert result["trays_used"] == set()
+                assert result["spool_id_snapshot"] == {}
                 assert _has_log(app, "ACTIVE_PRINT_RESTORED")
             finally:
                 self._cleanup()
@@ -1325,6 +1327,81 @@ class TestActivePrintPersistence:
                 # Verify no .tmp file left behind (atomic replace cleaned it up)
                 tmp_file = ap_file.with_suffix(".tmp")
                 assert not tmp_file.exists()
+            finally:
+                self._cleanup()
+
+    def test_persist_active_print_includes_trays_used_and_spool_ids(self):
+        """trays_used and spool_id_snapshot appear in persisted JSON."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+                mod.ACTIVE_PRINT_FILE = ap_file
+
+                app = _TestableUsageSync(args={
+                    "lifecycle_phase1_enabled": True,
+                })
+                app._job_key = "trays_test"
+                app._start_snapshot = {1: 400.0, 5: 200.0}
+                app._trays_used = {1, 5}
+                app._spool_id_snapshot = {1: 61, 5: 29}
+                app._threemf_data = None
+                app._persist_active_print()
+
+                data = json.loads(ap_file.read_text())
+                assert data["trays_used"] == [1, 5]
+                assert data["spool_id_snapshot"] == {"1": 61, "5": 29}
+            finally:
+                self._cleanup()
+
+    def test_load_active_print_returns_full_dict(self):
+        """_load_active_print returns dict with threemf_data, trays_used, spool_id_snapshot."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+                mod.ACTIVE_PRINT_FILE = ap_file
+
+                ap_file.write_text(json.dumps({
+                    "job_key": "full_dict_test",
+                    "start_snapshot": {"1": 400.0},
+                    "trays_used": [1, 5],
+                    "spool_id_snapshot": {"1": 61, "5": 29},
+                    "threemf_data": [{"index": 0, "used_g": 10.0}],
+                }))
+
+                app = _TestableUsageSync(args={
+                    "lifecycle_phase1_enabled": True,
+                })
+                result = app._load_active_print("full_dict_test")
+                assert result is not None
+                assert result["threemf_data"] == [{"index": 0, "used_g": 10.0}]
+                assert result["trays_used"] == {1, 5}
+                assert result["spool_id_snapshot"] == {"1": 61, "5": 29}
+            finally:
+                self._cleanup()
+
+    def test_spool_id_snapshot_captured_at_print_start(self):
+        """_spool_id_snapshot populated after PRINT_START_CAPTURED."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                mod.ACTIVE_PRINT_FILE = pathlib.Path(tmp_dir) / "active_print.json"
+
+                app = _TestableUsageSync(state_map={
+                    "sensor.p1s_01p00c5a3101668_task_name": "test_print",
+                    "sensor.p1s_01p00c5a3101668_print_status": "running",
+                    "input_text.ams_slot_1_spool_id": "61",
+                    "input_text.ams_slot_2_spool_id": "0",
+                    "input_text.ams_slot_3_spool_id": "45",
+                    "input_text.ams_slot_4_spool_id": "",
+                    "input_text.ams_slot_5_spool_id": "29",
+                    "input_text.ams_slot_6_spool_id": "nope",
+                }, args={"lifecycle_phase1_enabled": True})
+                app._on_print_start()
+                assert app._spool_id_snapshot == {1: 61, 3: 45, 5: 29}
+                assert _has_log(app, "PRINT_START_CAPTURED")
+                assert _has_log(app, "spool_ids=3")
             finally:
                 self._cleanup()
 

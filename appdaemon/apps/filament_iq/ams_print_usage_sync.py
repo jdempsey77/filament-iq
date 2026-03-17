@@ -140,6 +140,7 @@ class AmsPrintUsageSync(FilamentIQBase):
 
         # Tray activity tracking (replaces HA automation p1s_record_trays_used_during_print)
         self._trays_used = set()
+        self._spool_id_snapshot = {}
         self._tray_active_times = {}
         self._current_active_slot = None
         self._print_active = False
@@ -594,6 +595,7 @@ class AmsPrintUsageSync(FilamentIQBase):
 
         if new in ("running", "printing") and old not in ("running", "printing"):
             self._trays_used = set()
+            self._spool_id_snapshot = {}
             self._tray_active_times = {}
             self._current_active_slot = None
             self._print_active = True
@@ -769,9 +771,15 @@ class AmsPrintUsageSync(FilamentIQBase):
             self.log(f"LIFECYCLE: Failed to write job_key helper: {e}", level="WARNING")
         self._write_start_json_helper()
 
+        self._spool_id_snapshot = {}
+        for slot in range(1, 7):
+            val = self.get_state(f"input_text.ams_slot_{slot}_spool_id")
+            if val and str(val).isdigit() and int(val) > 0:
+                self._spool_id_snapshot[slot] = int(val)
         self.log(
             f"PRINT_START_CAPTURED job_key={self._job_key} "
-            f"start_snapshot={self._start_snapshot}",
+            f"start_snapshot={self._start_snapshot} "
+            f"spool_ids={len(self._spool_id_snapshot)}",
             level="INFO",
         )
         self._persist_active_print()
@@ -881,9 +889,13 @@ class AmsPrintUsageSync(FilamentIQBase):
         # 3MF was fetched at print start — it is either cached or it is not.
         # If not in memory, attempt disk recovery before proceeding.
         if self.threemf_enabled and self._threemf_data is None:
-            recovered = self._load_active_print(self._job_key)
-            if recovered is not None:
-                self._threemf_data = recovered
+            restored = self._load_active_print(self._job_key)
+            if restored is not None:
+                self._threemf_data = restored["threemf_data"]
+                if restored["trays_used"]:
+                    self._trays_used = restored["trays_used"]
+                if restored["spool_id_snapshot"]:
+                    self._spool_id_snapshot = restored["spool_id_snapshot"]
                 self.log("3MF_RECOVERED_FROM_DISK", level="INFO")
             else:
                 self.log(
@@ -1135,7 +1147,13 @@ class AmsPrintUsageSync(FilamentIQBase):
                     )
                 except Exception:
                     pass
-            self._threemf_data = self._load_active_print(self._job_key)
+            restored = self._load_active_print(self._job_key)
+            if restored is not None:
+                self._threemf_data = restored["threemf_data"]
+                if restored["trays_used"]:
+                    self._trays_used = restored["trays_used"]
+                if restored["spool_id_snapshot"]:
+                    self._spool_id_snapshot = restored["spool_id_snapshot"]
 
     def _on_ha_start(self, event_name, data, kwargs):
         """Handle HA restart while AppDaemon is running (replaces automation G)."""
@@ -1597,6 +1615,8 @@ class AmsPrintUsageSync(FilamentIQBase):
             "task_name": task_name,
             "print_start_time": getattr(self, "_print_start_time", None),
             "start_snapshot": self._start_snapshot,
+            "trays_used": sorted(self._trays_used) if self._trays_used else [],
+            "spool_id_snapshot": self._spool_id_snapshot if hasattr(self, "_spool_id_snapshot") else {},
             "threemf_data": self._threemf_data,
             "threemf_file": self._threemf_filename,
             "threemf_fetched_at": (
@@ -1619,7 +1639,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             self.log(f"ACTIVE_PRINT_PERSIST_FAILED: {e}", level="WARNING")
 
     def _load_active_print(self, job_key):
-        """Read active_print.json on rehydrate. Returns threemf_data if job_key matches."""
+        """Read active_print.json on rehydrate. Returns dict with threemf_data, trays_used, spool_id_snapshot."""
         try:
             if not ACTIVE_PRINT_FILE.exists():
                 return None
@@ -1631,13 +1651,19 @@ class AmsPrintUsageSync(FilamentIQBase):
                     level="INFO",
                 )
                 return None
-            threemf_data = data.get("threemf_data")
+            restored = {
+                "threemf_data": data.get("threemf_data"),
+                "trays_used": set(data.get("trays_used", [])),
+                "spool_id_snapshot": data.get("spool_id_snapshot", {}),
+            }
             self.log(
                 f"ACTIVE_PRINT_RESTORED job_key={job_key} "
-                f"has_3mf={threemf_data is not None}",
+                f"has_3mf={restored['threemf_data'] is not None} "
+                f"trays_used={len(restored['trays_used'])} "
+                f"spool_ids={len(restored['spool_id_snapshot'])}",
                 level="INFO",
             )
-            return threemf_data
+            return restored
         except Exception as e:
             self.log(f"ACTIVE_PRINT_LOAD_FAILED: {e}", level="WARNING")
             return None
