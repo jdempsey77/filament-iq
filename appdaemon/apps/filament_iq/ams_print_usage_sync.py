@@ -572,24 +572,12 @@ class AmsPrintUsageSync(FilamentIQBase):
         )
         message = "\n".join(lines)
 
-        notify_target = self.args.get("notify_target")
-        nid = f"filament_iq_usage_{job_key}"
         try:
-            if notify_target:
-                self.call_service(
-                    "notify/notify",
-                    target=notify_target,
-                    title=title,
-                    message=message,
-                    data={"notification_id": nid},
-                )
-            else:
-                self.call_service(
-                    "notify/persistent_notification",
-                    title=title,
-                    message=message,
-                    notification_id=nid,
-                )
+            self.call_service(
+                "notify/mobile_app_jd_pixel_10xl",
+                title=title,
+                message=message,
+            )
         except Exception as exc:
             self.log(f"USAGE_NOTIFY_FAILED: {exc}", level="WARNING")
 
@@ -812,19 +800,12 @@ class AmsPrintUsageSync(FilamentIQBase):
         self.log(
             f"PRINT_UNBOUND_WARNING slots=[{slots_str}]", level="WARNING",
         )
-        notify_target = self.args.get("notify_target")
         try:
             msg = f"Print started with unbound active slot: {slots_str}"
-            if notify_target:
-                self.call_service(
-                    "notify/notify", target=notify_target,
-                    title="Print With Unbound Slot", message=msg,
-                )
-            else:
-                self.call_service(
-                    "notify/persistent_notification",
-                    title="Print With Unbound Slot", message=msg,
-                )
+            self.call_service(
+                "notify/mobile_app_jd_pixel_10xl",
+                title="Print With Unbound Slot", message=msg,
+            )
         except Exception as e:
             self.log(f"UNBOUND_WARN_NOTIFY_FAILED: {e}", level="WARNING")
 

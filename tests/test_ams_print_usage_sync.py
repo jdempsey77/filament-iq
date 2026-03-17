@@ -2324,9 +2324,10 @@ class TestCheckUnboundTrays:
         app._trays_used = {1}
         app._check_unbound_trays({})
         assert any("PRINT_UNBOUND_WARNING" in msg for msg, _ in app._log_calls)
-        assert any(c["service"] == "notify/persistent_notification" for c in app._service_calls)
+        assert any(c["service"] == "notify/mobile_app_jd_pixel_10xl" for c in app._service_calls)
 
     def test_unbound_with_notify_target(self):
+        """notify_target arg is now ignored; always routes to mobile app."""
         app = _TestableUsageSync(state_map={
             "input_text.ams_slot_1_spool_id": "0",
             "input_text.ams_slot_1_unbound_reason": "NEEDS_ACTION",
@@ -2334,7 +2335,7 @@ class TestCheckUnboundTrays:
         app._print_active = True
         app._trays_used = {1}
         app._check_unbound_trays({})
-        assert any(c["service"] == "notify/notify" for c in app._service_calls)
+        assert any(c["service"] == "notify/mobile_app_jd_pixel_10xl" for c in app._service_calls)
 
     def test_bound_slot_no_warning(self):
         app = _TestableUsageSync(state_map={

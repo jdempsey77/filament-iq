@@ -210,6 +210,7 @@ Report current system maturity:
 - Test script: `./scripts/skill_test.sh`
 - Secrets: `./scripts/deploy.env.local`
 - Job dedup: `appdaemon/apps/data/seen_job_keys.json`
+- AppDaemon apps.yaml: `/addon_configs/a0d7b954_appdaemon/apps/apps.yaml` (NOT `/addon_configs/a0d7b954_appdaemon/apps.yaml`)
 
 **Infrastructure:**
 - HA: `192.168.4.124` / `https://ha.dempsey5.com`
