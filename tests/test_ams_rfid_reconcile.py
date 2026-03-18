@@ -242,6 +242,9 @@ class TestableReconcile(AmsRfidReconcile):
         self._pending_helper_warned = set()
         self._pending_lot_nr_writes = {}
         self._suppress_helper_change_until = {}
+        self._settle_pending = {}
+        self.nonrfid_settle_delay_s = int(a.get("nonrfid_settle_delay_s", 90))
+        self._run_in_calls = []
         self._domain_exception_class_logged = False
         self._print_active_since = None
         self._evidence_lines = []
@@ -314,8 +317,8 @@ class TestableReconcile(AmsRfidReconcile):
         if service == "persistent_notification/create":
             pass
 
-    def run_in(self, callback, delay):
-        pass
+    def run_in(self, callback, delay, **kwargs):
+        self._run_in_calls.append({"callback": callback, "delay": delay, "kwargs": kwargs})
 
     def run_every(self, callback, start, interval):
         pass
@@ -6733,6 +6736,236 @@ def test_set_helper_uses_get_helper_state():
                     and w.get("value") == "42"]
     assert len(spool_writes) == 1, \
         "_set_helper must use _get_helper_state (bypasses stale cache) and write successfully"
+
+
+# ── Partial lot_sig matching for missing color_hex ──
+
+def test_partial_lot_sig_built_when_color_missing():
+    """_build_lot_sig returns partial sig pla|gfl05| when color_hex empty."""
+    sm = FakeSpoolman([], [])
+    state_map = _nonrfid_state_map_standalone(1, _nonrfid_attrs_standalone())
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    meta = {"type": "PLA", "filament_id": "GFL05", "color_hex": ""}
+    assert r._build_lot_sig(meta) == "pla|gfl05|"
+    meta_none = {"type": "PLA", "filament_id": "GFL05", "color_hex": None}
+    assert r._build_lot_sig(meta_none) == "pla|gfl05|"
+
+
+def test_full_lot_sig_unchanged():
+    """_build_lot_sig returns full sig pla|gfl05|bcbcbc when color present."""
+    sm = FakeSpoolman([], [])
+    state_map = _nonrfid_state_map_standalone(1, _nonrfid_attrs_standalone())
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    meta = {"type": "PLA", "filament_id": "GFL05", "color_hex": "bcbcbc"}
+    assert r._build_lot_sig(meta) == "pla|gfl05|bcbcbc"
+
+
+def test_partial_lot_sig_for_lookup_built_when_color_missing():
+    """_build_lot_sig_for_lookup returns partial sig for generic filament_id too."""
+    sm = FakeSpoolman([], [])
+    state_map = _nonrfid_state_map_standalone(1, _nonrfid_attrs_standalone())
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    meta = {"type": "PLA", "filament_id": "GFL99", "color_hex": ""}
+    # _build_lot_sig_for_lookup allows generic IDs
+    assert r._build_lot_sig_for_lookup(meta) == "pla|gfl99|"
+
+
+def test_is_partial_lot_sig():
+    """_is_partial_lot_sig detects partial sigs."""
+    sm = FakeSpoolman([], [])
+    state_map = _nonrfid_state_map_standalone(1, _nonrfid_attrs_standalone())
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    assert r._is_partial_lot_sig("pla|gfl05|") is True
+    assert r._is_partial_lot_sig("pla|gfl05|bcbcbc") is False
+    assert r._is_partial_lot_sig("") is False
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_partial_sig_matches_full_sig_spool(slot):
+    """Spool with lot_nr=pla|gfl05|bcbcbc found via partial lookup pla|gfl05|."""
+    spool_id = 201
+    # Tray has no color_hex — partial sig pla|gfl05|
+    attrs = _nonrfid_attrs_standalone(name="Overture PLA", filament_id="GFL05", tray_type="PLA", color="")
+    # Spool has full lot_nr enrolled from a previous bind
+    spools = [_spool(spool_id, remaining_weight=500, rfid_tag_uid=None, location="Shelf",
+                     color_hex="bcbcbc", vendor_name="Overture", name="Overture PLA",
+                     lot_nr="pla|gfl05|bcbcbc")]
+    sm = FakeSpoolman(spools, [])
+    state_map = _nonrfid_state_map_standalone(slot, attrs)
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("test")
+    status_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"]
+    assert len(status_writes) > 0
+    assert status_writes[-1].get("value") == STATUS_OK_NONRFID, "partial sig must match enrolled spool"
+    logs = [msg for msg, _ in r._log_calls]
+    assert any("NONRFID_PARTIAL_SIG_MATCH" in msg for msg in logs), "must log partial sig match"
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_partial_sig_ambiguous_falls_through(slot):
+    """Two spools with pla|gfl05| prefix -> NEEDS_MANUAL_BIND or tiebreak."""
+    attrs = _nonrfid_attrs_standalone(name="Overture PLA", filament_id="GFL05", tray_type="PLA", color="")
+    spools = [
+        _spool(201, remaining_weight=500, rfid_tag_uid=None, location="Shelf",
+               color_hex="bcbcbc", vendor_name="Overture", name="Overture PLA",
+               lot_nr="pla|gfl05|bcbcbc"),
+        _spool(202, remaining_weight=400, rfid_tag_uid=None, location="Shelf",
+               color_hex="ff0000", vendor_name="Overture", name="Overture PLA Red",
+               lot_nr="pla|gfl05|ff0000"),
+    ]
+    sm = FakeSpoolman(spools, [])
+    state_map = _nonrfid_state_map_standalone(slot, attrs)
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("test")
+    status_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"]
+    assert len(status_writes) > 0
+    # Should either tiebreak or fall through to NEEDS_MANUAL_BIND — not fail
+    final_status = status_writes[-1].get("value")
+    assert final_status in (STATUS_OK_NONRFID, STATUS_NEEDS_MANUAL_BIND, STATUS_LOW_CONFIDENCE), \
+        f"ambiguous partial sig must tiebreak or manual bind, got {final_status}"
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_generic_filament_id_blocked_partial_sig(slot):
+    """GFL99 does not trigger partial sig matching (generic sentinel)."""
+    attrs = _nonrfid_attrs_standalone(name="Generic PLA", filament_id="GFL99", tray_type="PLA", color="")
+    spools = [_spool(201, remaining_weight=500, rfid_tag_uid=None, location="Shelf",
+                     color_hex="bcbcbc", vendor_name="Overture", name="Overture PLA",
+                     lot_nr="pla|gfl99|bcbcbc")]
+    sm = FakeSpoolman(spools, [])
+    state_map = _nonrfid_state_map_standalone(slot, attrs)
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("test")
+    logs = [msg for msg, _ in r._log_calls]
+    assert not any("NONRFID_PARTIAL_SIG_MATCH" in msg for msg in logs), \
+        "generic filament_id must not trigger partial sig matching"
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_filament_id_only_unenrolled_match(slot):
+    """Unenrolled spool matched by filament_id alone when color missing."""
+    spool_id = 301
+    attrs = _nonrfid_attrs_standalone(name="Overture PLA", filament_id="GFL05", tray_type="PLA", color="")
+    # Spool has no lot_nr (unenrolled), external_id matches tray filament_id
+    spools = [_spool(spool_id, remaining_weight=500, rfid_tag_uid=None, location="Shelf",
+                     color_hex="bcbcbc", vendor_name="Overture", name="Overture PLA")]
+    # Set external_id on the filament to match tray filament_id
+    spools[0]["filament"]["external_id"] = "GFL05"
+    sm = FakeSpoolman(spools, [])
+    state_map = _nonrfid_state_map_standalone(slot, attrs)
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("test")
+    status_writes = [w for w in r._helper_writes if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"]
+    assert len(status_writes) > 0
+    assert status_writes[-1].get("value") == STATUS_OK_NONRFID, \
+        "unenrolled spool with matching filament_id must bind when color missing"
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_partial_sig_enrollment(slot):
+    """Enrolled sig is pla|gfl05| (partial) not a fabricated full sig."""
+    spool_id = 401
+    attrs = _nonrfid_attrs_standalone(name="Overture PLA", filament_id="GFL05", tray_type="PLA", color="")
+    spools = [_spool(spool_id, remaining_weight=500, rfid_tag_uid=None, location="Shelf",
+                     color_hex="bcbcbc", vendor_name="Overture", name="Overture PLA")]
+    spools[0]["filament"]["external_id"] = "GFL05"
+    sm = FakeSpoolman(spools, [])
+    state_map = _nonrfid_state_map_standalone(slot, attrs)
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("test")
+    # Check the lot_nr PATCH payload
+    lot_patches = [p for p in sm.patches
+                   if p.get("spool_id") == spool_id and "lot_nr" in (p.get("payload") or {})]
+    assert len(lot_patches) > 0, "must enroll lot_nr"
+    enrolled_sig = lot_patches[0]["payload"]["lot_nr"]
+    assert enrolled_sig == "pla|gfl05|", f"enrolled sig must be partial (pla|gfl05|), got {enrolled_sig}"
+
+
+# ── Auto-reconcile settling delay for non-RFID spools ──
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_settle_timer_scheduled_on_all_zero(slot):
+    """run_in called with correct delay when non-RFID tray is unbound (low confidence or no match)."""
+    # Non-RFID tray (all-zero tag_uid) with unsettled sensor (no color/fid) → LOW_CONFIDENCE
+    attrs = _nonrfid_attrs_standalone(name="Unknown", filament_id="", tray_type="PLA", color="")
+    sm = FakeSpoolman([], [])
+    state_map = _nonrfid_state_map_standalone(slot, attrs)
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("test")
+    # Should have scheduled a settle timer
+    settle_calls = [c for c in r._run_in_calls if c.get("kwargs", {}).get("slot") == slot]
+    assert len(settle_calls) == 1, f"expected 1 settle timer for slot {slot}, got {len(settle_calls)}"
+    assert settle_calls[0]["delay"] == 90, "default settle delay is 90s"
+    logs = [msg for msg, _ in r._log_calls]
+    assert any(f"NONRFID_SETTLE_SCHEDULED slot={slot}" in msg for msg in logs)
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_settle_timer_not_duplicated(slot):
+    """Second unbound eval while timer pending does not schedule another."""
+    attrs = _nonrfid_attrs_standalone(name="Unknown", filament_id="", tray_type="PLA", color="")
+    sm = FakeSpoolman([], [])
+    state_map = _nonrfid_state_map_standalone(slot, attrs)
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("test_1")
+    count_after_first = len([c for c in r._run_in_calls if c.get("kwargs", {}).get("slot") == slot])
+    assert count_after_first == 1
+    # Second reconcile — timer already pending
+    r._run_reconcile("test_2")
+    count_after_second = len([c for c in r._run_in_calls if c.get("kwargs", {}).get("slot") == slot])
+    assert count_after_second == 1, "must not schedule duplicate settle timer"
+
+
+def test_settle_callback_runs_full_reconcile():
+    """Callback calls _run_reconcile with status_only=False."""
+    slot = 1
+    attrs = _nonrfid_attrs_standalone(name="Unknown", filament_id="", tray_type="PLA", color="")
+    sm = FakeSpoolman([], [])
+    state_map = _nonrfid_state_map_standalone(slot, attrs)
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("test")
+    # Verify settle timer was scheduled
+    assert r._settle_pending.get(slot) is True
+    # Simulate callback firing
+    reconcile_reasons = []
+    original_run = r._run_reconcile
+    def capture_run(reason, **kwargs):
+        reconcile_reasons.append((reason, kwargs))
+        original_run(reason, **kwargs)
+    r._run_reconcile = capture_run
+    r._settle_reconcile_callback({"slot": slot})
+    # Verify it ran a full reconcile
+    settle_runs = [(r, kw) for r, kw in reconcile_reasons if "settle" in r]
+    assert len(settle_runs) == 1
+    assert settle_runs[0][1].get("status_only") is False or "status_only" not in settle_runs[0][1], \
+        "settle reconcile must be full (status_only=False)"
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_settle_timer_not_triggered_for_other_unbound_reasons(slot):
+    """UNBOUND_TRAY_EMPTY does not schedule settle timer."""
+    attrs = _nonrfid_attrs_standalone(name="", tray_type="", color="", state="empty")
+    sm = FakeSpoolman([], [])
+    tray_ent = _tray_entity(slot)
+    state_map = {
+        tray_ent: {"attributes": {"tag_uid": "", "empty": True}, "state": "empty"},
+        f"{tray_ent}::all": {"attributes": {"tag_uid": "", "empty": True}, "state": "empty"},
+        "input_boolean.filament_iq_nonrfid_enabled": "on",
+        f"input_text.ams_slot_{slot}_spool_id": "0",
+        f"input_text.ams_slot_{slot}_expected_spool_id": "0",
+        f"input_text.ams_slot_{slot}_status": "",
+        f"input_text.ams_slot_{slot}_tray_signature": "",
+        f"input_text.ams_slot_{slot}_unbound_reason": "",
+    }
+    for s in range(1, 7):
+        if s != slot:
+            other_ent = _tray_entity(s)
+            state_map[other_ent] = {"attributes": {"tag_uid": "", "empty": True}, "state": "empty"}
+            state_map[f"{other_ent}::all"] = {"attributes": {"tag_uid": "", "empty": True}, "state": "empty"}
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("test")
+    settle_calls = [c for c in r._run_in_calls if c.get("kwargs", {}).get("slot") == slot]
+    assert len(settle_calls) == 0, "UNBOUND_TRAY_EMPTY must not schedule settle timer"
 
 
 if __name__ == "__main__":
