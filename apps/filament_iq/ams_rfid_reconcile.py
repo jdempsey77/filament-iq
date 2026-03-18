@@ -397,6 +397,8 @@ class AmsRfidReconcile(FilamentIQBase):
         self._active_run = None
         self._pending_lot_nr_writes = {}
         self._suppress_helper_change_until = {}
+        self._settle_pending = {}
+        self.nonrfid_settle_delay_s = int(self.args.get("nonrfid_settle_delay_s", 90))
         self._missing_helper_warned = set()
         self._pending_helper_warned = set()
         self._domain_exception_class_logged = False
@@ -1326,6 +1328,15 @@ class AmsRfidReconcile(FilamentIQBase):
                 lot_sig = self._build_lot_sig_for_lookup(tray_meta)
                 if lot_sig:
                     lotnr_nonrfid_ids = list(set(lotnr_to_spools.get(lot_sig, [])))
+                    # Partial sig prefix fallback: when color missing, match enrolled spools by type|fid| prefix
+                    if not lotnr_nonrfid_ids and self._is_partial_lot_sig(lot_sig) and not is_generic_filament_id(lot_sig.split("|")[1] if "|" in lot_sig else ""):
+                        prefix_ids = []
+                        for sig, sids in lotnr_to_spools.items():
+                            if sig.startswith(lot_sig) and sig != lot_sig:
+                                prefix_ids.extend(sids)
+                        if prefix_ids:
+                            lotnr_nonrfid_ids = list(set(prefix_ids))
+                            self.log(f"NONRFID_PARTIAL_SIG_MATCH slot={slot} sig={lot_sig} candidates={lotnr_nonrfid_ids}", level="INFO")
                     # Unenrolled fallback runs for all trays (including generic); sentinel skip is last resort when zero candidates
                     unenrolled_ids = self._unenrolled_candidates_for_tray(tray_meta, spools, slot)
                     all_nonrfid_ids = list(set(lotnr_nonrfid_ids) | set(unenrolled_ids))
@@ -1623,6 +1634,11 @@ class AmsRfidReconcile(FilamentIQBase):
                     t["unbound_reason"] = UNBOUND_LOW_CONFIDENCE
                     t["final_spool_id"] = 0
                     unbound += 1
+                    # Schedule settling re-reconcile — sensor may not have populated yet
+                    if not self._settle_pending.get(slot):
+                        self._settle_pending[slot] = True
+                        self.log(f"NONRFID_SETTLE_SCHEDULED slot={slot} delay={self.nonrfid_settle_delay_s}s reason=low_confidence", level="INFO")
+                        self.run_in(self._settle_reconcile_callback, self.nonrfid_settle_delay_s, slot=slot)
                 t["final_slot_status"] = status
                 self._active_run["validation_transcripts"].append(t)
                 if validation_mode:
@@ -3142,17 +3158,20 @@ class AmsRfidReconcile(FilamentIQBase):
 
         Written to Spoolman lot_nr. Distinct from _build_tray_signature which
         is the internal HA helper format (includes name and tag_uid).
-        Returns empty string if any required field is missing or filament_id is generic.
+        Returns empty string if type or filament_id missing, or filament_id is generic.
+        Returns partial sig (type|filament_id|) when color_hex missing.
         """
         typ = (str(tray_meta.get("type", "") or "").strip()).lower()
         fid = (str(tray_meta.get("filament_id", "") or "").strip()).lower()
-        hex_ = (str(tray_meta.get("color_hex", "") or "").strip().replace("#", "").lower())
-        if len(hex_) == 8:
-            hex_ = hex_[:6]
-        if not typ or not fid or not hex_:
+        if not typ or not fid:
             return ""
         if is_generic_filament_id(fid):
             return ""
+        hex_ = (str(tray_meta.get("color_hex", "") or "").strip().replace("#", "").lower())
+        if len(hex_) == 8:
+            hex_ = hex_[:6]
+        if not hex_:
+            return f"{typ}|{fid}|"  # partial sig — color unknown
         return f"{typ}|{fid}|{hex_}"[:255]
 
     def _build_lot_sig_for_lookup(self, tray_meta):
@@ -3160,15 +3179,22 @@ class AmsRfidReconcile(FilamentIQBase):
 
         Used for lot_nr index lookup where even generic filaments may have
         been previously enrolled. Not used for writing new lot_nr values.
+        Returns partial sig (type|filament_id|) when color_hex missing.
         """
         typ = (str(tray_meta.get("type", "") or "").strip()).lower()
         fid = (str(tray_meta.get("filament_id", "") or "").strip()).lower()
+        if not typ or not fid:
+            return ""
         hex_ = (str(tray_meta.get("color_hex", "") or "").strip().replace("#", "").lower())
         if len(hex_) == 8:
             hex_ = hex_[:6]
-        if not typ or not fid or not hex_:
-            return ""
+        if not hex_:
+            return f"{typ}|{fid}|"  # partial sig — color unknown
         return f"{typ}|{fid}|{hex_}"[:255]
+
+    def _is_partial_lot_sig(self, sig):
+        """True when sig is a partial lot_nr sig (missing color_hex)."""
+        return bool(sig) and sig.endswith("|")
 
     def _nonrfid_tray_matches_bound_spool(self, tray_meta, helper_spool_id, spool_index):
         """True if tray's current identity matches the bound spool; False if swapped (trigger rematch).
@@ -3194,11 +3220,15 @@ class AmsRfidReconcile(FilamentIQBase):
 
     def _unenrolled_candidates_for_tray(self, tray_meta, spools, slot):
         """Spools with no lot_nr that match tray material + color_hex. Excludes spools in other AMS slots.
-        Same logic as RFID sig fallback unenrolled search; used by non-RFID and RFID paths."""
+        Same logic as RFID sig fallback unenrolled search; used by non-RFID and RFID paths.
+        When color_hex missing but filament_id present and non-generic, narrows to filament_id match."""
         tray_type_norm = self._normalize_material(tray_meta.get("type", ""))
         tray_hex = (str(tray_meta.get("color_hex") or "").strip().replace("#", "").lower())
         if len(tray_hex) == 8:
             tray_hex = tray_hex[:6]
+        tray_fid = str(tray_meta.get("filament_id", "") or "").strip()
+        # When color missing and filament_id is specific, use filament_id to narrow candidates
+        use_fid_filter = not tray_hex and tray_fid and not is_generic_filament_id(tray_fid)
         unenrolled_ids = []
         for spool in spools:
             if not isinstance(spool, dict):
@@ -3224,6 +3254,9 @@ class AmsRfidReconcile(FilamentIQBase):
             if tray_type_norm and spool_mat and tray_type_norm != spool_mat:
                 continue
             if tray_hex and spool_hex and tray_hex != spool_hex:
+                continue
+            # When color missing, require filament_id match to avoid over-broad material-only matching
+            if use_fid_filter and spool_fid.upper() != tray_fid.upper():
                 continue
             sid = self._safe_int(spool.get("id"), 0)
             if sid > 0:
@@ -3745,6 +3778,21 @@ class AmsRfidReconcile(FilamentIQBase):
         entity_id = f"input_text.ams_slot_{slot}_unbound_reason"
         self.log(f"UNBOUND_HELPER_WRITE_ATTEMPT slot={slot} entity_id={entity_id} value={reason}", level="INFO")
         self._set_helper(entity_id, reason)
+        # Schedule settling re-reconcile for non-RFID trays (sensor needs time to populate)
+        if reason == UNBOUND_NO_RFID_TAG_ALL_ZERO and not self._settle_pending.get(slot):
+            self._settle_pending[slot] = True
+            self.log(
+                f"NONRFID_SETTLE_SCHEDULED slot={slot} delay={self.nonrfid_settle_delay_s}s",
+                level="INFO",
+            )
+            self.run_in(self._settle_reconcile_callback, self.nonrfid_settle_delay_s, slot=slot)
+
+    def _settle_reconcile_callback(self, kwargs):
+        """Deferred full reconcile after non-RFID tray sensor settling."""
+        slot = kwargs.get("slot")
+        self._settle_pending.pop(slot, None)
+        self.log(f"NONRFID_SETTLE_RECONCILE slot={slot}", level="INFO")
+        self._run_reconcile(f"settle_slot_{slot}", status_only=False)
 
     def _log_slot_status_change(self, slot, status, tag_uid, spool_id, tray_meta):
         prev = self.last_slot_status.get(slot)
