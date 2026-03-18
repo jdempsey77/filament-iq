@@ -26,8 +26,9 @@
 - [ ] NONRFID_EMPTY_TRAY_CLEAR sets location="Shelf" not "Empty" — reconciler moves depleted non-RFID spool to Shelf instead of Empty because it has no consumption context. Separate fix from depleted detection. (ANALYZE 2026-03-14)
 - [ ] start_map fallback over-count — if trays_used empty, active_slots falls back to all start_map keys (all 6 slots). Idle RFID slots with gauge drift could produce phantom writes. Narrow trigger. Lines 319-332, both internal tracking and event data empty. (Audit Finding A, 2026-03-14)
 - [x] min_consumption_g exempts 3MF methods — 3mf and 3mf_depleted bypass the 2g floor since slicer data is authoritative. RFID and depleted_nonrfid still subject to floor. (Audit Finding F, v1.0.1)
+- [x] Print completion notifications broken — persistent_notification called with invalid notification_id key, silently failing since v1.0.0. Fixed by switching to notify/mobile_app_jd_pixel_10xl and removing notification_id entirely. (v1.0.2)
 - [ ] Rehydrated start snapshot from fuel gauges undercounts delta — when HA helper recovery fails, start_snapshot rebuilt from current fuel gauges mid-print. Delta = current - end, not original_start - end. (Audit Finding 8b, 2026-03-14)
-- [ ] Spool_id snapshot at print start — snapshot spool_ids alongside fuel gauge in _start_snapshot or parallel _spool_id_snapshot. Usage sync reads from snapshot at finish instead of live helpers. Eliminates reconciler/usage sync coupling. Principal identified as correct long-term fix (option d).
+- [x] Spool_id snapshot at print start — active_print.json now persists trays_used (sorted list) and spool_id_snapshot (slot → spool_id). _load_active_print returns full dict. Both call sites restored on rehydrate. (v1.0.2)
 - [x] F1 fuel gauge near-empty tolerance — _read_fuel_gauge now accepts fg >= -5 (was >= 0). Near-empty RFID spools reporting -1 to -5g no longer fall back to AMS remaining. (v0.12.5)
 - [ ] Manually correct spool 39 consumption in Spoolman (~144g from grid print 2026-03-11 00:08, remaining showed 98.4g which may be stale)
 - [ ] Spoolman used_weight invariant break — RFID reconciler PATCHes remaining_weight directly, making `remaining + used != initial`. Benign for Filament IQ today but breaks any Spoolman consumer of used_weight. Track for future. (Skeptic Review, 2026-03-14)
@@ -95,6 +96,7 @@
 
 | Version | Date | Summary |
 |---------|------|---------|
+| v1.0.2 | 2026-03-17 | Notification fix (mobile_app target, remove invalid notification_id) + active_print.json now persists trays_used and spool_id_snapshot |
 | v1.0.0 | 2026-03-15 | Full pipeline rewrite: consumption_engine.py, five-phase architecture, RFID-delta-wins, threemf_parser bug fixes, SpoolmanRecorder test infrastructure, print_history persistence |
 | v0.12.6 | 2026-03-14 | Reconciler status helper + 3MF single-filament force match |
 | v0.12.5 | 2026-03-14 | Three audit fixes (start_g guard, depleted default, fuel gauge tolerance) |
