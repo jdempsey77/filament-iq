@@ -77,6 +77,8 @@ def _decide_slot(inp: SlotInput, min_g: float, max_g: float) -> SlotDecision:
         decision = _decide_nonrfid(inp)
 
     # Sanity gates
+    _METHODS_EXEMPT_FROM_MIN = frozenset({"3mf", "3mf_depleted"})
+
     if decision.method != "no_evidence":
         if decision.consumption_g > max_g:
             return SlotDecision(
@@ -87,7 +89,10 @@ def _decide_slot(inp: SlotInput, min_g: float, max_g: float) -> SlotDecision:
                 skip_reason=f"SANITY_CAP: {decision.consumption_g:.1f}g > max {max_g:.1f}g",
                 confidence="none",
             )
-        if decision.consumption_g < min_g:
+        if (
+            decision.consumption_g < min_g
+            and decision.method not in _METHODS_EXEMPT_FROM_MIN
+        ):
             return SlotDecision(
                 slot=inp.slot,
                 spool_id=inp.spool_id,

@@ -478,6 +478,8 @@ def test_finish_no_blocking_sleep():
     app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
     app._job_key = "test_no_sleep_001"
     app._start_snapshot = {4: 420.0}
+    app._trays_used = {4}
+    app._print_active = True
     app.threemf_enabled = True
     app._threemf_data = None  # 3MF not in memory
     app._state_map[app._fuel_gauge_pattern.format(slot=4)] = "370.0"
@@ -512,6 +514,8 @@ def test_finish_recovers_3mf_from_disk():
             app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
             app._job_key = "test_recover_001"
             app._start_snapshot = {4: 420.0}
+            app._trays_used = {4}
+            app._print_active = True
             app.threemf_enabled = True
             app._threemf_data = None
 
@@ -1204,7 +1208,9 @@ class TestActivePrintPersistence:
                     "lifecycle_phase1_enabled": True,
                 })
                 result = app._load_active_print("matching_key")
-                assert result == threemf
+                assert result["threemf_data"] == threemf
+                assert result["trays_used"] == set()
+                assert result["spool_id_snapshot"] == {}
                 assert _has_log(app, "ACTIVE_PRINT_RESTORED")
             finally:
                 self._cleanup()
@@ -1325,6 +1331,81 @@ class TestActivePrintPersistence:
                 # Verify no .tmp file left behind (atomic replace cleaned it up)
                 tmp_file = ap_file.with_suffix(".tmp")
                 assert not tmp_file.exists()
+            finally:
+                self._cleanup()
+
+    def test_persist_active_print_includes_trays_used_and_spool_ids(self):
+        """trays_used and spool_id_snapshot appear in persisted JSON."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+                mod.ACTIVE_PRINT_FILE = ap_file
+
+                app = _TestableUsageSync(args={
+                    "lifecycle_phase1_enabled": True,
+                })
+                app._job_key = "trays_test"
+                app._start_snapshot = {1: 400.0, 5: 200.0}
+                app._trays_used = {1, 5}
+                app._spool_id_snapshot = {1: 61, 5: 29}
+                app._threemf_data = None
+                app._persist_active_print()
+
+                data = json.loads(ap_file.read_text())
+                assert data["trays_used"] == [1, 5]
+                assert data["spool_id_snapshot"] == {"1": 61, "5": 29}
+            finally:
+                self._cleanup()
+
+    def test_load_active_print_returns_full_dict(self):
+        """_load_active_print returns dict with threemf_data, trays_used, spool_id_snapshot."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+                mod.ACTIVE_PRINT_FILE = ap_file
+
+                ap_file.write_text(json.dumps({
+                    "job_key": "full_dict_test",
+                    "start_snapshot": {"1": 400.0},
+                    "trays_used": [1, 5],
+                    "spool_id_snapshot": {"1": 61, "5": 29},
+                    "threemf_data": [{"index": 0, "used_g": 10.0}],
+                }))
+
+                app = _TestableUsageSync(args={
+                    "lifecycle_phase1_enabled": True,
+                })
+                result = app._load_active_print("full_dict_test")
+                assert result is not None
+                assert result["threemf_data"] == [{"index": 0, "used_g": 10.0}]
+                assert result["trays_used"] == {1, 5}
+                assert result["spool_id_snapshot"] == {"1": 61, "5": 29}
+            finally:
+                self._cleanup()
+
+    def test_spool_id_snapshot_captured_at_print_start(self):
+        """_spool_id_snapshot populated after PRINT_START_CAPTURED."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                mod.ACTIVE_PRINT_FILE = pathlib.Path(tmp_dir) / "active_print.json"
+
+                app = _TestableUsageSync(state_map={
+                    "sensor.p1s_01p00c5a3101668_task_name": "test_print",
+                    "sensor.p1s_01p00c5a3101668_print_status": "running",
+                    "input_text.ams_slot_1_spool_id": "61",
+                    "input_text.ams_slot_2_spool_id": "0",
+                    "input_text.ams_slot_3_spool_id": "45",
+                    "input_text.ams_slot_4_spool_id": "",
+                    "input_text.ams_slot_5_spool_id": "29",
+                    "input_text.ams_slot_6_spool_id": "nope",
+                }, args={"lifecycle_phase1_enabled": True})
+                app._on_print_start()
+                assert app._spool_id_snapshot == {1: 61, 3: 45, 5: 29}
+                assert _has_log(app, "PRINT_START_CAPTURED")
+                assert _has_log(app, "spool_ids=3")
             finally:
                 self._cleanup()
 
@@ -2324,9 +2405,10 @@ class TestCheckUnboundTrays:
         app._trays_used = {1}
         app._check_unbound_trays({})
         assert any("PRINT_UNBOUND_WARNING" in msg for msg, _ in app._log_calls)
-        assert any(c["service"] == "notify/persistent_notification" for c in app._service_calls)
+        assert any(c["service"] == "notify/mobile_app_jd_pixel_10xl" for c in app._service_calls)
 
     def test_unbound_with_notify_target(self):
+        """notify_target arg is now ignored; always routes to mobile app."""
         app = _TestableUsageSync(state_map={
             "input_text.ams_slot_1_spool_id": "0",
             "input_text.ams_slot_1_unbound_reason": "NEEDS_ACTION",
@@ -2334,7 +2416,7 @@ class TestCheckUnboundTrays:
         app._print_active = True
         app._trays_used = {1}
         app._check_unbound_trays({})
-        assert any(c["service"] == "notify/notify" for c in app._service_calls)
+        assert any(c["service"] == "notify/mobile_app_jd_pixel_10xl" for c in app._service_calls)
 
     def test_bound_slot_no_warning(self):
         app = _TestableUsageSync(state_map={
@@ -2537,6 +2619,167 @@ class TestDoFinish:
         app._start_snapshot = {1: 500.0}
         app._do_finish("failed")
         assert app._last_processed_job_key == ""
+
+
+class TestActiveSlotsNarrowing:
+    """_do_finish narrows active slots to trays_used ∩ start_snapshot."""
+
+    def test_start_map_fallback_no_phantom_writes(self):
+        """Only slot 2 in trays_used — slots 1,3,4,5,6 must not produce writes."""
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_task_name": "narrow_test",
+            "sensor.p1s_01p00c5a3101668_print_weight": "20",
+            "input_text.ams_slot_2_spool_id": "42",
+        })
+        app._lifecycle_phase1 = True
+        app._lifecycle_phase2 = True
+        app._job_key = "narrow_123"
+        app._print_active = True
+        # Start snapshot has all 6 slots (as it would in production)
+        app._start_snapshot = {s: 500.0 for s in range(1, 7)}
+        # But only slot 2 was actually used
+        app._trays_used = {2}
+        # Give slot 2 fuel gauge end reading (non-RFID, no gauge drift issue)
+        app._state_map[app._fuel_gauge_pattern.format(slot=2)] = "480.0"
+        # Give all other RFID slots gauge drift (would produce phantom writes)
+        for s in [1, 3, 4, 5, 6]:
+            app._state_map[f"input_text.ams_slot_{s}_spool_id"] = str(s + 100)
+            app._state_map.update(_rfid_tag_uid_for_slots(app, [s]))
+            app._state_map[app._fuel_gauge_pattern.format(slot=s)] = "495.0"
+        app._do_finish("finish")
+        # Only slot 2 should have been processed — check no writes for other slots
+        written_slots = {c["spool_id"] for c in app._use_calls}
+        # Slots 1,3,4,5,6 spool_ids are 101,103,104,105,106
+        phantom_ids = {101, 103, 104, 105, 106}
+        assert written_slots & phantom_ids == set(), (
+            f"Phantom writes to idle slots: {written_slots & phantom_ids}"
+        )
+
+    def test_empty_trays_used_produces_no_evidence(self):
+        """Empty trays_used at finish → USAGE_SKIP, no writes."""
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_task_name": "empty_trays",
+            "sensor.p1s_01p00c5a3101668_print_weight": "10",
+        })
+        app._lifecycle_phase1 = True
+        app._lifecycle_phase2 = True
+        app._job_key = "empty_123"
+        app._print_active = True
+        app._start_snapshot = {1: 500.0, 2: 400.0}
+        app._trays_used = set()
+        app._do_finish("finish")
+        assert _has_log(app, "USAGE_SKIP")
+        assert _has_log(app, "NO_ACTIVE_SLOTS")
+        assert len(app._use_calls) == 0
+
+    def test_empty_trays_used_rehydrated_warns(self):
+        """Rehydrated print with empty trays_used → WARNING logged."""
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_task_name": "rehydrated_empty",
+            "sensor.p1s_01p00c5a3101668_print_weight": "10",
+        })
+        app._lifecycle_phase1 = True
+        app._lifecycle_phase2 = True
+        app._job_key = "rehydrated_123"
+        app._print_active = True
+        app._rehydrated = True
+        app._start_snapshot = {1: 500.0}
+        app._trays_used = set()
+        app._do_finish("finish")
+        assert any(
+            "NO_ACTIVE_SLOTS" in msg and "rehydrated=True" in msg
+            for msg, level in app._log_calls
+            if level == "WARNING"
+        )
+        assert len(app._use_calls) == 0
+
+    def test_rehydrated_trays_used_restored(self):
+        """After rehydrate from active_print.json, _trays_used is restored."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+                mod.ACTIVE_PRINT_FILE = ap_file
+
+                ap_file.write_text(json.dumps({
+                    "job_key": "rehydrate_test",
+                    "start_snapshot": {"1": 500.0, "5": 200.0},
+                    "trays_used": [1, 5],
+                    "spool_id_snapshot": {"1": 61, "5": 29},
+                    "threemf_data": None,
+                }))
+
+                app = _TestableUsageSync(state_map={
+                    "sensor.p1s_01p00c5a3101668_print_status": "running",
+                    "sensor.p1s_01p00c5a3101668_task_name": "rehydrate_test",
+                    "input_text.filament_iq_active_job_key": "rehydrate_test",
+                    "input_boolean.filament_iq_print_active": "on",
+                }, args={"lifecycle_phase1_enabled": True})
+                app._rehydrate_print_state()
+                assert app._trays_used == {1, 5}
+                assert app._spool_id_snapshot == {"1": 61, "5": 29}
+            finally:
+                orig = getattr(mod, '_ACTIVE_PRINT_FILE_ORIG', None)
+                if orig:
+                    mod.ACTIVE_PRINT_FILE = orig
+                elif ap_file.exists():
+                    ap_file.unlink()
+
+
+class TestExecuteWritesDepletedNonrfid:
+    """_execute_writes depleted_nonrfid location PATCH."""
+
+    def _make_decision(self, slot=1, spool_id=61, consumption_g=200.0,
+                       method="depleted_nonrfid"):
+        from filament_iq.consumption_engine import SlotDecision
+        return SlotDecision(
+            slot=slot, spool_id=spool_id, consumption_g=consumption_g,
+            method=method, skip_reason=None, confidence="high",
+        )
+
+    def test_depleted_nonrfid_sets_location_empty(self):
+        """After depleted_nonrfid write, PATCH location=Empty on the spool."""
+        app = _TestableUsageSync()
+        # Spoolman returns remaining > 0 (stale data), so decision.depleted stays False
+        app._use_remaining_override = {61: 50.0}
+        decision = self._make_decision()
+        app._execute_writes([decision], "test_job")
+        # /use call should have happened
+        assert len(app._use_calls) == 1
+        # location PATCH should have happened via the depleted_nonrfid path
+        location_patches = [
+            p for p in app._patch_calls
+            if p["data"] == {"location": "Empty"} and p["spool_id"] == 61
+        ]
+        assert len(location_patches) == 1
+        assert _has_log(app, "NONRFID_DEPLETED_LOCATION_SET")
+
+    def test_depleted_nonrfid_location_patch_failure_does_not_fail_write(self):
+        """If location PATCH fails, the overall result is still success."""
+        app = _TestableUsageSync()
+        app._use_remaining_override = {61: 50.0}
+        # Make _spoolman_patch raise
+        def _failing_patch(spool_id, data):
+            raise RuntimeError("Spoolman down")
+        app._spoolman_patch = _failing_patch
+        decision = self._make_decision()
+        decisions, patched, failed = app._execute_writes([decision], "test_job")
+        assert patched == 1
+        assert failed == 0
+        assert _has_log(app, "NONRFID_DEPLETED_LOCATION_FAILED")
+
+    def test_non_depleted_nonrfid_method_no_location_patch(self):
+        """3mf method should not trigger the depleted_nonrfid location PATCH."""
+        app = _TestableUsageSync()
+        app._use_remaining_override = {61: 50.0}
+        decision = self._make_decision(method="3mf")
+        app._execute_writes([decision], "test_job")
+        location_patches = [
+            p for p in app._patch_calls
+            if p["data"] == {"location": "Empty"}
+        ]
+        assert len(location_patches) == 0
+        assert not _has_log(app, "NONRFID_DEPLETED_LOCATION_SET")
 
 
 class TestOnActiveTrayChange:

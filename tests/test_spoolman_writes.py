@@ -251,7 +251,7 @@ def test_mixed_rfid_nonrfid_correct_methods():
     app._threemf_data = [{"index": 3, "used_g": 45.0, "color_hex": "8e9089", "material": "pla"}]
     app.threemf_enabled = True
     app._job_key = "mixed_test"
-    app._start_snapshot = {1: 900.0}
+    app._start_snapshot = {1: 900.0, 3: 725.0}
     app._trays_used = {1, 3}
     app._print_active = True
 
