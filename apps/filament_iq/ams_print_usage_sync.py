@@ -20,6 +20,7 @@ import json
 import os
 import pathlib
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -919,6 +920,12 @@ class AmsPrintUsageSync(FilamentIQBase):
                     self._trays_used = restored["trays_used"]
                 if restored["spool_id_snapshot"]:
                     self._spool_id_snapshot = restored["spool_id_snapshot"]
+                if restored.get("print_start_time") is not None:
+                    self._print_start_time = restored["print_start_time"]
+                    self.log(
+                        f"REHYDRATE_PRINT_START_TIME t={self._print_start_time:.0f}",
+                        level="DEBUG",
+                    )
                 self.log("3MF_RECOVERED_FROM_DISK", level="INFO")
             else:
                 self.log(
@@ -1203,6 +1210,12 @@ class AmsPrintUsageSync(FilamentIQBase):
                     self._trays_used = restored["trays_used"]
                 if restored["spool_id_snapshot"]:
                     self._spool_id_snapshot = restored["spool_id_snapshot"]
+                if restored.get("print_start_time") is not None:
+                    self._print_start_time = restored["print_start_time"]
+                    self.log(
+                        f"REHYDRATE_PRINT_START_TIME t={self._print_start_time:.0f}",
+                        level="DEBUG",
+                    )
 
     def _on_ha_start(self, event_name, data, kwargs):
         """Handle HA restart while AppDaemon is running (replaces automation G)."""
@@ -1261,16 +1274,9 @@ class AmsPrintUsageSync(FilamentIQBase):
         return code if code else None
 
     def _fetch_3mf_background(self, kwargs):
-        """Fetch and parse a 3MF file from the printer with retry + multi-directory fallback."""
-        if self.threemf_fetch_method == "native":
-            return self._fetch_3mf_native(kwargs)
-        return self._fetch_3mf_curl(kwargs)
-
-    def _fetch_3mf_native(self, kwargs):
-        """Fetch 3MF via ftplib — single TLS handshake for list + download."""
+        """Gather state on event loop, dispatch FTPS work to background thread."""
         attempt = kwargs.get("attempt", 1)
         max_attempts = 4
-        retry_delays = [15, 45, 90]
 
         if attempt == 1:
             self._threemf_data = None
@@ -1287,120 +1293,147 @@ class AmsPrintUsageSync(FilamentIQBase):
             self.log("3MF_FETCH: printer_ip not configured", level="WARNING")
             return
 
+        method = self.threemf_fetch_method
         self.log(
-            f"3MF_FETCH: attempt {attempt}/{max_attempts} method=native "
+            f"3MF_FETCH: attempt {attempt}/{max_attempts} method={method} "
             f"for task={task_name}",
             level="INFO",
         )
 
+        t = threading.Thread(
+            target=self._fetch_3mf_thread,
+            kwargs={
+                "attempt": attempt,
+                "access_code": access_code,
+                "task_name": task_name,
+                "printer_ip": self.printer_ip,
+                "ftps_port": self.printer_ftps_port,
+                "method": method,
+                "job_key": self._job_key,
+            },
+            daemon=True,
+            name=f"3mf-fetch-{attempt}",
+        )
+        t.start()
+
+    def _fetch_3mf_thread(self, attempt, access_code, task_name,
+                           printer_ip, ftps_port, method, job_key):
+        """Background thread: blocking FTPS I/O + parse.
+
+        No AppDaemon API calls (get_state, call_service, log) — those are
+        not thread-safe.  Delivers result to event loop via run_in.
+        """
+        result = {
+            "job_key": job_key,
+            "attempt": attempt,
+            "status": None,
+            "filaments": None,
+            "filename": None,
+            "found_dir": None,
+            "file_count": 0,
+            "task_name": task_name,
+            "file_list": [],
+            "error": None,
+            "timing": {},
+        }
+
+        t0 = time.monotonic()
         conn = None
         try:
-            conn = ftps_connect(
-                self.printer_ip, access_code, self.printer_ftps_port
-            )
+            if method == "native":
+                conn = ftps_connect(printer_ip, access_code, ftps_port)
+                t_connect = time.monotonic()
+                result["timing"]["connect"] = t_connect - t0
 
-            file_list, found_dir = ftps_list_cache_native(conn)
-            if not file_list:
-                if attempt < max_attempts:
-                    delay = retry_delays[attempt - 1]
-                    self.log(
-                        f"3MF_FETCH: No .3mf files found (attempt {attempt}), "
-                        f"retrying in {delay}s",
-                        level="WARNING",
-                    )
-                    self.run_in(
-                        self._fetch_3mf_background, delay, attempt=attempt + 1
-                    )
+                file_list, found_dir = ftps_list_cache_native(conn)
+                t_list = time.monotonic()
+                result["timing"]["list"] = t_list - t_connect
+                result["file_count"] = len(file_list)
+                result["file_list"] = file_list
+
+                if not file_list:
+                    result["status"] = "no_files"
                     return
-                self.log(
-                    "3MF_FETCH: No .3mf files found after all retries",
-                    level="WARNING",
-                )
-                self._persist_active_print(threemf_unavailable=True)
-                return
 
-            best_file = find_best_3mf(file_list, task_name)
-            if not best_file:
-                self.log(
-                    f"3MF_FETCH: No match for task={task_name} in {file_list}",
-                    level="WARNING",
-                )
-                self._persist_active_print(threemf_unavailable=True)
-                return
+                best_file = find_best_3mf(file_list, task_name)
+                if not best_file:
+                    result["status"] = "no_match"
+                    return
 
-            self.log(
-                f"3MF_FETCH: downloading {best_file} from {found_dir}",
-                level="INFO",
-            )
+                result["filename"] = best_file
+                result["found_dir"] = found_dir
 
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                local_path = ftps_download_native(
-                    conn, found_dir, best_file,
-                    os.path.join(tmp_dir, best_file),
-                )
-                if not local_path:
-                    if attempt < max_attempts:
-                        delay = retry_delays[attempt - 1]
-                        self.log(
-                            f"3MF_FETCH: Download failed (attempt {attempt}), "
-                            f"retrying in {delay}s",
-                            level="WARNING",
-                        )
-                        self.run_in(
-                            self._fetch_3mf_background, delay,
-                            attempt=attempt + 1,
-                        )
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    local_path = ftps_download_native(
+                        conn, found_dir, best_file,
+                        os.path.join(tmp_dir, best_file),
+                    )
+                    t_download = time.monotonic()
+                    result["timing"]["download"] = t_download - t_list
+
+                    if not local_path:
+                        result["status"] = "download_failed"
                         return
-                    self.log(
-                        f"3MF_FETCH: Download failed for {best_file} "
-                        f"after all retries",
-                        level="ERROR",
-                    )
-                    self._persist_active_print(threemf_unavailable=True)
-                    return
 
-                filaments = parse_3mf_filaments(local_path)
+                    filaments = parse_3mf_filaments(local_path)
+                    result["timing"]["parse"] = time.monotonic() - t_download
+
                 if not filaments:
-                    self.log(
-                        f"3MF_FETCH: No filament data in {best_file}",
-                        level="WARNING",
-                    )
-                    self._persist_active_print(threemf_unavailable=True)
+                    result["status"] = "no_filaments"
                     return
 
-            self._threemf_data = filaments
-            self._threemf_filename = best_file
-            total_g = sum(f["used_g"] for f in filaments)
-            self.log(
-                f"3MF_PARSED file={best_file} dir={found_dir} "
-                f"filaments={len(filaments)} total_g={total_g:.2f} "
-                f"breakdown={[(f['index'], f['used_g'], f['color_hex'], f['material']) for f in filaments]}",
-                level="INFO",
-            )
-            self._persist_active_print()
+                result["status"] = "success"
+                result["filaments"] = filaments
+
+            else:
+                # curl subprocess path
+                file_list, found_dir = ftps_list_cache(
+                    printer_ip, access_code, ftps_port
+                )
+                t_list = time.monotonic()
+                result["timing"]["list"] = t_list - t0
+                result["file_count"] = len(file_list)
+                result["file_list"] = file_list
+
+                if not file_list:
+                    result["status"] = "no_files"
+                    return
+
+                best_file = find_best_3mf(file_list, task_name)
+                if not best_file:
+                    result["status"] = "no_match"
+                    return
+
+                result["filename"] = best_file
+                result["found_dir"] = found_dir
+
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    local_path = ftps_download_3mf(
+                        printer_ip, access_code, best_file,
+                        tmp_dir, ftps_port, directory=found_dir,
+                    )
+                    t_download = time.monotonic()
+                    result["timing"]["download"] = t_download - t_list
+
+                    if not local_path:
+                        result["status"] = "download_failed"
+                        return
+
+                    filaments = parse_3mf_filaments(local_path)
+                    result["timing"]["parse"] = time.monotonic() - t_download
+
+                if not filaments:
+                    result["status"] = "no_filaments"
+                    return
+
+                result["status"] = "success"
+                result["filaments"] = filaments
 
         except Exception as e:
-            self.log(
-                f"3MF_FETCH_NATIVE_ERROR attempt={attempt} error={e}",
-                level="ERROR",
-            )
-            if attempt < max_attempts:
-                delay = retry_delays[attempt - 1]
-                self.log(
-                    f"3MF_FETCH: Connection failed (attempt {attempt}), "
-                    f"retrying in {delay}s",
-                    level="WARNING",
-                )
-                self.run_in(
-                    self._fetch_3mf_background, delay, attempt=attempt + 1
-                )
-            else:
-                self.log(
-                    "3MF_FETCH: All attempts failed (native)",
-                    level="ERROR",
-                )
-                self._persist_active_print(threemf_unavailable=True)
+            result["status"] = "error"
+            result["error"] = str(e)
         finally:
+            result["timing"]["total"] = time.monotonic() - t0
             if conn is not None:
                 try:
                     conn.quit()
@@ -1409,38 +1442,61 @@ class AmsPrintUsageSync(FilamentIQBase):
                         conn.close()
                     except Exception:
                         pass
+            # Deliver result to event loop
+            self.run_in(self._on_3mf_fetched, 0, fetch_result=result)
 
-    def _fetch_3mf_curl(self, kwargs):
-        """Fetch 3MF via curl subprocesses (legacy fallback)."""
-        attempt = kwargs.get("attempt", 1)
+    def _on_3mf_fetched(self, kwargs):
+        """Event loop callback: process 3MF fetch result from background thread."""
+        result = kwargs.get("fetch_result", {})
+        job_key = result.get("job_key")
+        attempt = result.get("attempt", 1)
+        status = result.get("status")
+        task_name = result.get("task_name", "")
         max_attempts = 4
         retry_delays = [15, 45, 90]
 
-        if attempt == 1:
-            self._threemf_data = None
-            self._threemf_filename = None
-
-        access_code = self._get_access_code()
-        if not access_code:
-            self.log("3MF_FETCH: No access code available", level="ERROR")
+        # Stale job check — a new print may have started during fetch
+        if job_key != self._job_key:
+            self.log(
+                f"3MF_FETCH_STALE fetched_for={job_key} "
+                f"current={self._job_key} — discarding",
+                level="INFO",
+            )
             return
 
-        task_name = str(self.get_state(self._task_name_entity) or "")
-
-        if not self.printer_ip:
-            self.log("3MF_FETCH: printer_ip not configured", level="WARNING")
-            return
-
+        # Log timing
+        timing = result.get("timing", {})
+        file_count = result.get("file_count", 0)
+        t_parts = []
+        for key in ("connect", "list", "download", "parse"):
+            if key in timing:
+                t_parts.append(f"{key}={timing[key]:.1f}s")
+        total = timing.get("total", 0)
         self.log(
-            f"3MF_FETCH: attempt {attempt}/{max_attempts} method=curl "
-            f"for task={task_name}",
+            f"3MF_TIMING {' '.join(t_parts)} total={total:.1f}s "
+            f"files={file_count} status={status} attempt={attempt}",
             level="INFO",
         )
 
-        file_list, found_dir = ftps_list_cache(
-            self.printer_ip, access_code, self.printer_ftps_port
-        )
-        if not file_list:
+        if status == "success":
+            filaments = result["filaments"]
+            best_file = result["filename"]
+            found_dir = result["found_dir"]
+            self._threemf_data = filaments
+            self._threemf_filename = best_file
+            total_g = sum(f["used_g"] for f in filaments)
+            self.log(
+                f"3MF_PARSED file={best_file} dir={found_dir} "
+                f"filaments={len(filaments)} total_g={total_g:.2f} "
+                f"breakdown="
+                f"{[(f['index'], f['used_g'], f['color_hex'], f['material']) for f in filaments]}",
+                level="INFO",
+            )
+            self._persist_active_print()
+            return
+
+        # ── failure paths ────────────────────────────────────────────
+        if status == "no_files":
             if attempt < max_attempts:
                 delay = retry_delays[attempt - 1]
                 self.log(
@@ -1457,69 +1513,66 @@ class AmsPrintUsageSync(FilamentIQBase):
                 level="WARNING",
             )
             self._persist_active_print(threemf_unavailable=True)
-            return
 
-        best_file = find_best_3mf(file_list, task_name)
-        if not best_file:
+        elif status == "no_match":
+            file_list = result.get("file_list", [])
             self.log(
-                f"3MF_FETCH: No match for task={task_name} in {file_list}",
+                f"3MF_FETCH: No match for task={task_name} "
+                f"in {file_list}",
                 level="WARNING",
             )
             self._persist_active_print(threemf_unavailable=True)
-            return
 
-        self.log(
-            f"3MF_FETCH: downloading {best_file} from {found_dir}",
-            level="INFO",
-        )
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            local_path = ftps_download_3mf(
-                self.printer_ip,
-                access_code,
-                best_file,
-                tmp_dir,
-                self.printer_ftps_port,
-                directory=found_dir,
-            )
-            if not local_path:
-                if attempt < max_attempts:
-                    delay = retry_delays[attempt - 1]
-                    self.log(
-                        f"3MF_FETCH: Download failed (attempt {attempt}), "
-                        f"retrying in {delay}s",
-                        level="WARNING",
-                    )
-                    self.run_in(
-                        self._fetch_3mf_background, delay, attempt=attempt + 1
-                    )
-                    return
+        elif status == "download_failed":
+            best_file = result.get("filename", "")
+            if attempt < max_attempts:
+                delay = retry_delays[attempt - 1]
                 self.log(
-                    f"3MF_FETCH: Download failed for {best_file} after all retries",
+                    f"3MF_FETCH: Download failed (attempt {attempt}), "
+                    f"retrying in {delay}s",
+                    level="WARNING",
+                )
+                self.run_in(
+                    self._fetch_3mf_background, delay, attempt=attempt + 1
+                )
+                return
+            self.log(
+                f"3MF_FETCH: Download failed for {best_file} "
+                f"after all retries",
+                level="ERROR",
+            )
+            self._persist_active_print(threemf_unavailable=True)
+
+        elif status == "no_filaments":
+            best_file = result.get("filename", "")
+            self.log(
+                f"3MF_FETCH: No filament data in {best_file}",
+                level="WARNING",
+            )
+            self._persist_active_print(threemf_unavailable=True)
+
+        elif status == "error":
+            error = result.get("error", "unknown")
+            self.log(
+                f"3MF_FETCH_ERROR attempt={attempt} error={error}",
+                level="ERROR",
+            )
+            if attempt < max_attempts:
+                delay = retry_delays[attempt - 1]
+                self.log(
+                    f"3MF_FETCH: Connection failed (attempt {attempt}), "
+                    f"retrying in {delay}s",
+                    level="WARNING",
+                )
+                self.run_in(
+                    self._fetch_3mf_background, delay, attempt=attempt + 1
+                )
+            else:
+                self.log(
+                    "3MF_FETCH: All attempts failed",
                     level="ERROR",
                 )
                 self._persist_active_print(threemf_unavailable=True)
-                return
-
-            filaments = parse_3mf_filaments(local_path)
-            if not filaments:
-                self.log(
-                    f"3MF_FETCH: No filament data in {best_file}",
-                    level="WARNING",
-                )
-                self._persist_active_print(threemf_unavailable=True)
-                return
-
-        self._threemf_data = filaments
-        self._threemf_filename = best_file
-        total_g = sum(f["used_g"] for f in filaments)
-        self.log(
-            f"3MF_PARSED file={best_file} dir={found_dir} filaments={len(filaments)} "
-            f"total_g={total_g:.2f} "
-            f"breakdown={[(f['index'], f['used_g'], f['color_hex'], f['material']) for f in filaments]}",
-            level="INFO",
-        )
-        self._persist_active_print()
 
     def _fetch_spools_cache(self):
         """Batch-fetch all spools from Spoolman. Returns {spool_id: spool_dict}."""
@@ -1704,6 +1757,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 "threemf_data": data.get("threemf_data"),
                 "trays_used": set(data.get("trays_used", [])),
                 "spool_id_snapshot": data.get("spool_id_snapshot", {}),
+                "print_start_time": data.get("print_start_time"),
             }
             self.log(
                 f"ACTIVE_PRINT_RESTORED job_key={job_key} "

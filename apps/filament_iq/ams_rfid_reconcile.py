@@ -1361,16 +1361,16 @@ class AmsRfidReconcile(FilamentIQBase):
                             self.log(f"NONRFID_UNENROLLED_MATCH slot={slot} spool_id={resolved} sig={lot_sig}", level="INFO")
                         else:
                             self.log(f"NONRFID_AUTO_MATCH slot={slot} spool_id={resolved} sig={lot_sig}", level="INFO")
-                        if not status_only:
-                            source = "nonrfid_unenrolled_match" if from_unenrolled else "nonrfid_lot_nr_match"
-                            self._force_location_and_helpers(
-                                slot, resolved, "", source=source,
-                                tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_sig,
-                                previous_helper_spool_id=previous_helper_spool_id,
-                                spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
-                            )
-                            reason = "nonrfid_unenrolled_match" if from_unenrolled else "nonrfid_lot_nr_match"
-                            self._enroll_lot_nr(resolved, lot_sig, spool_index, reason=reason)
+                        # Deterministic unique match — always write (idempotent, safe on safety_poll)
+                        source = "nonrfid_unenrolled_match" if from_unenrolled else "nonrfid_lot_nr_match"
+                        self._force_location_and_helpers(
+                            slot, resolved, "", source=source,
+                            tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_sig,
+                            previous_helper_spool_id=previous_helper_spool_id,
+                            spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
+                        )
+                        reason = "nonrfid_unenrolled_match" if from_unenrolled else "nonrfid_lot_nr_match"
+                        self._enroll_lot_nr(resolved, lot_sig, spool_index, reason=reason)
                         status = STATUS_OK_NONRFID
                         ok += 1
                         t["decision"], t["reason"], t["action"] = "NON_RFID", "lot_nr_match", "nonrfid_auto_match"
@@ -1430,16 +1430,16 @@ class AmsRfidReconcile(FilamentIQBase):
                                 from_unenrolled = resolved in set(unenrolled_ids)
                                 if from_unenrolled:
                                     self.log(f"NONRFID_UNENROLLED_MATCH slot={slot} spool_id={resolved} sig={lot_sig}", level="INFO")
-                                if not status_only:
-                                    source = "nonrfid_unenrolled_match" if from_unenrolled else "nonrfid_lot_nr_tiebreak"
-                                    self._force_location_and_helpers(
-                                        slot, resolved, "", source=source,
-                                        tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_sig,
-                                        previous_helper_spool_id=previous_helper_spool_id,
-                                        spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
-                                    )
-                                    reason = "nonrfid_unenrolled_match" if from_unenrolled else "nonrfid_lot_nr_tiebreak"
-                                    self._enroll_lot_nr(resolved, lot_sig, spool_index, reason=reason)
+                                # Deterministic tiebreak match — always write (idempotent, safe on safety_poll)
+                                source = "nonrfid_unenrolled_match" if from_unenrolled else "nonrfid_lot_nr_tiebreak"
+                                self._force_location_and_helpers(
+                                    slot, resolved, "", source=source,
+                                    tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_sig,
+                                    previous_helper_spool_id=previous_helper_spool_id,
+                                    spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
+                                )
+                                reason = "nonrfid_unenrolled_match" if from_unenrolled else "nonrfid_lot_nr_tiebreak"
+                                self._enroll_lot_nr(resolved, lot_sig, spool_index, reason=reason)
                                 status = STATUS_OK_NONRFID
                                 ok += 1
                                 t["decision"], t["reason"], t["action"] = "NON_RFID", "lot_nr_tiebreak", "nonrfid_auto_match"
@@ -3651,25 +3651,11 @@ class AmsRfidReconcile(FilamentIQBase):
 
     def _set_helper(self, entity_id, value):
         next_value = "" if value is None else str(value).strip()
-        if "unbound_reason" in entity_id:
-            self.log(f"_SET_HELPER_ENTER entity_id={entity_id} next_value={next_value}", level="INFO")
-        if DomainException is not None:
-            try:
-                state_raw = self.get_state(entity_id)
-            except DomainException as e:
-                if not self._domain_exception_class_logged:
-                    self.log(
-                        f"domain not available (first occurrence) exception_class={type(e).__module__}.{type(e).__name__}",
-                        level="WARNING",
-                    )
-                    self._domain_exception_class_logged = True
-                self._record_no_write(entity_id, "domain_not_available", {"entity_id": entity_id})
-                return
-        else:
-            state_raw = self.get_state(entity_id)
+        self.log(f"_SET_HELPER_ENTER entity_id={entity_id} next_value={next_value}", level="DEBUG")
+        # Use _get_helper_state (attribute='all') to bypass AppDaemon stale-cache bug
+        state_raw = self._get_helper_state(entity_id)
         if state_raw is None:
-            if "unbound_reason" in entity_id:
-                self.log(f"_SET_HELPER_SKIP_MISSING entity_id={entity_id}", level="INFO")
+            self.log(f"_SET_HELPER_SKIP_MISSING entity_id={entity_id}", level="WARNING")
             if entity_id not in self._missing_helper_warned:
                 self.log(f"helper {entity_id} missing in HA configuration", level="WARNING")
                 self._missing_helper_warned.add(entity_id)
@@ -3697,8 +3683,7 @@ class AmsRfidReconcile(FilamentIQBase):
                     return
             else:
                 self.call_service("input_text/set_value", entity_id=entity_id, value=next_value)
-            if "unbound_reason" in entity_id:
-                self.log(f"_SET_HELPER_WROTE entity_id={entity_id} service=input_text/set_value value={next_value}", level="INFO")
+            self.log(f"_SET_HELPER_WROTE entity_id={entity_id} service=input_text/set_value value={next_value}", level="DEBUG")
             self._record_write("ha_helper_set", {"entity_id": entity_id, "value": next_value})
             return
         if entity_id.startswith("text."):
@@ -3716,8 +3701,7 @@ class AmsRfidReconcile(FilamentIQBase):
                     return
             else:
                 self.call_service("text/set_value", entity_id=entity_id, value=next_value)
-            if "unbound_reason" in entity_id:
-                self.log(f"_SET_HELPER_WROTE entity_id={entity_id} service=text/set_value value={next_value}", level="INFO")
+            self.log(f"_SET_HELPER_WROTE entity_id={entity_id} service=text/set_value value={next_value}", level="DEBUG")
             self._record_write("ha_helper_set", {"entity_id": entity_id, "value": next_value})
             return
         raise ValueError(f"_set_helper: unsupported entity domain for entity_id={entity_id}")

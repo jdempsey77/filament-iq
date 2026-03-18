@@ -17,6 +17,7 @@ import os
 import pathlib
 import sys
 import tempfile
+import threading
 import types
 from unittest import mock
 
@@ -768,28 +769,123 @@ def test_3mf_initial_fetch_delay_10s():
     )
 
 
-def test_3mf_fetch_native_4_attempts():
-    """Native 3MF fetch should allow 4 attempts with retry_delays=[15, 45, 90]."""
+def test_3mf_fetch_retry_scheduled_from_callback():
+    """Error result delivered to _on_3mf_fetched schedules retry via run_in."""
     app = _TestableUsageSync(
         state_map=_default_state_map({3: 39}),
+        args={"lifecycle_phase2_enabled": True},
+    )
+    app.threemf_enabled = True
+    app._job_key = "test_job"
+    # Simulate attempt 3 error result from background thread
+    result = {
+        "job_key": "test_job",
+        "attempt": 3,
+        "status": "error",
+        "error": "Connection refused",
+        "filaments": None,
+        "filename": None,
+        "found_dir": None,
+        "file_count": 0,
+        "task_name": "benchy",
+        "file_list": [],
+        "timing": {"total": 0.5},
+    }
+    app._on_3mf_fetched({"fetch_result": result})
+    # Should schedule attempt 4 with 90s delay
+    retry_calls = [c for c in app._run_in_calls
+                   if c.get("attempt") == 4]
+    assert len(retry_calls) == 1, (
+        f"expected attempt 4 to be scheduled; "
+        f"run_in_calls={app._run_in_calls}"
+    )
+    assert retry_calls[0]["delay"] == 90
+    assert _has_log(app, "3MF_FETCH_ERROR")
+
+
+def test_3mf_fetch_runs_in_thread():
+    """_fetch_3mf_background spawns a daemon thread, not blocking event loop."""
+    app = _TestableUsageSync(
+        state_map={
+            "sensor.p1s_01p00c5a3101668_task_name": "benchy",
+        },
         args={"lifecycle_phase2_enabled": True, "printer_access_code": "12345678"},
     )
     app.threemf_enabled = True
     app.threemf_fetch_method = "native"
-    app.printer_ip = "127.0.0.1"  # Will fail fast (connection refused)
-    app.printer_ftps_port = 1  # Unreachable port for fast failure
-    # Attempt 3 will fail (no FTPS), should schedule attempt 4 with 90s delay
-    app._fetch_3mf_native({"attempt": 3})
-    # After attempt 3 (of 4 max), should schedule attempt 4
-    retry_calls = [c for c in app._run_in_calls
-                   if c.get("attempt") == 4]
-    assert len(retry_calls) == 1, (
-        f"expected attempt 4 to be scheduled after attempt 3; "
-        f"run_in_calls={app._run_in_calls}, logs={[m for m, _ in app._log_calls]}"
-    )
-    assert retry_calls[0]["delay"] == 90, (
-        f"expected 90s delay for attempt 4, got {retry_calls[0]['delay']}s"
-    )
+    app.printer_ip = "192.0.2.1"
+    app._job_key = "test_job"
+    threads_before = set(threading.enumerate())
+    with mock.patch("threading.Thread") as mock_thread:
+        mock_thread.return_value = mock.MagicMock()
+        app._fetch_3mf_background({"attempt": 1})
+        mock_thread.assert_called_once()
+        call_kwargs = mock_thread.call_args
+        assert call_kwargs.kwargs["daemon"] is True
+        assert call_kwargs.kwargs["target"] == app._fetch_3mf_thread
+
+
+def test_3mf_fetch_stale_job_key_discarded():
+    """If job_key changes during fetch, result is discarded."""
+    app = _TestableUsageSync()
+    app._job_key = "new_print_456"
+    result = {
+        "job_key": "old_print_123",
+        "attempt": 1,
+        "status": "success",
+        "filaments": [{"index": 0, "used_g": 10.0, "color_hex": "ff0000", "material": "pla"}],
+        "filename": "test.3mf",
+        "found_dir": "/cache",
+        "file_count": 5,
+        "task_name": "test",
+        "file_list": [],
+        "timing": {"total": 3.0},
+    }
+    app._on_3mf_fetched({"fetch_result": result})
+    assert app._threemf_data is None
+    assert _has_log(app, "3MF_FETCH_STALE")
+
+
+def test_3mf_fetch_result_persisted_on_success():
+    """Successful fetch updates _threemf_data and calls _persist_active_print."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        try:
+            import filament_iq.ams_print_usage_sync as mod
+            mod.ACTIVE_PRINT_FILE = pathlib.Path(tmp_dir) / "active_print.json"
+
+            app = _TestableUsageSync(
+                state_map={
+                    "sensor.p1s_01p00c5a3101668_task_name": "benchy",
+                },
+                args={"lifecycle_phase1_enabled": True},
+            )
+            app._job_key = "success_test"
+            filaments = [
+                {"index": 0, "used_g": 12.5, "color_hex": "00ae42", "material": "pla"},
+            ]
+            result = {
+                "job_key": "success_test",
+                "attempt": 1,
+                "status": "success",
+                "filaments": filaments,
+                "filename": "benchy.gcode.3mf",
+                "found_dir": "/cache",
+                "file_count": 42,
+                "task_name": "benchy",
+                "file_list": [],
+                "timing": {"connect": 1.2, "list": 0.8, "download": 2.1, "parse": 0.1, "total": 4.2},
+            }
+            app._on_3mf_fetched({"fetch_result": result})
+            assert app._threemf_data == filaments
+            assert app._threemf_filename == "benchy.gcode.3mf"
+            assert _has_log(app, "3MF_PARSED")
+            assert _has_log(app, "3MF_TIMING")
+            assert _has_log(app, "total=4.2s")
+            assert _has_log(app, "ACTIVE_PRINT_PERSISTED")
+        finally:
+            orig = getattr(mod, '_ACTIVE_PRINT_FILE_ORIG', None)
+            if orig:
+                mod.ACTIVE_PRINT_FILE = orig
 
 
 # ── Atomic write tests for _persist_seen_job_keys ────────────────────
@@ -2718,6 +2814,68 @@ class TestActiveSlotsNarrowing:
                 app._rehydrate_print_state()
                 assert app._trays_used == {1, 5}
                 assert app._spool_id_snapshot == {"1": 61, "5": 29}
+            finally:
+                orig = getattr(mod, '_ACTIVE_PRINT_FILE_ORIG', None)
+                if orig:
+                    mod.ACTIVE_PRINT_FILE = orig
+                elif ap_file.exists():
+                    ap_file.unlink()
+
+    def test_rehydrate_restores_print_start_time(self):
+        """_print_start_time is restored from active_print.json on rehydrate."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+                mod.ACTIVE_PRINT_FILE = ap_file
+
+                ap_file.write_text(json.dumps({
+                    "job_key": "start_time_test",
+                    "start_snapshot": {"1": 500.0},
+                    "trays_used": [1],
+                    "spool_id_snapshot": {"1": 61},
+                    "print_start_time": 1710700000.0,
+                    "threemf_data": None,
+                }))
+
+                app = _TestableUsageSync(state_map={
+                    "sensor.p1s_01p00c5a3101668_print_status": "running",
+                    "sensor.p1s_01p00c5a3101668_task_name": "start_time_test",
+                    "input_text.filament_iq_active_job_key": "start_time_test",
+                    "input_boolean.filament_iq_print_active": "on",
+                }, args={"lifecycle_phase1_enabled": True})
+                app._rehydrate_print_state()
+                assert app._print_start_time == 1710700000.0
+            finally:
+                orig = getattr(mod, '_ACTIVE_PRINT_FILE_ORIG', None)
+                if orig:
+                    mod.ACTIVE_PRINT_FILE = orig
+                elif ap_file.exists():
+                    ap_file.unlink()
+
+    def test_duration_unknown_when_start_time_missing(self):
+        """Missing print_start_time from disk leaves _print_start_time as None."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                import filament_iq.ams_print_usage_sync as mod
+                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+                mod.ACTIVE_PRINT_FILE = ap_file
+
+                ap_file.write_text(json.dumps({
+                    "job_key": "no_start_time",
+                    "start_snapshot": {"1": 500.0},
+                    "threemf_data": None,
+                }))
+
+                app = _TestableUsageSync(state_map={
+                    "sensor.p1s_01p00c5a3101668_print_status": "running",
+                    "sensor.p1s_01p00c5a3101668_task_name": "no_start_time",
+                    "input_text.filament_iq_active_job_key": "no_start_time",
+                    "input_boolean.filament_iq_print_active": "on",
+                }, args={"lifecycle_phase1_enabled": True})
+                app._print_start_time = None
+                app._rehydrate_print_state()
+                assert app._print_start_time is None
             finally:
                 orig = getattr(mod, '_ACTIVE_PRINT_FILE_ORIG', None)
                 if orig:

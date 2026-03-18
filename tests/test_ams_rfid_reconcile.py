@@ -6656,5 +6656,84 @@ class TestReconcilerStatus:
         assert len(warn_logs) >= 1
 
 
+# ── Fix: NONRFID_UNENROLLED_MATCH writes on safety_poll (status_only gate) ──
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_safety_poll_nonrfid_unenrolled_match_writes_bind(slot):
+    """status_only=True + NONRFID_UNENROLLED_MATCH -> spool_id written, lot_nr enrolled, location updated."""
+    spool_id = 65
+    # filament_id must be non-empty for lot_sig lookup; spool has lot_nr=None (unenrolled)
+    attrs = _nonrfid_attrs_standalone(name="Overture PLA", filament_id="gfsnl02", tray_type="PLA", color="161616")
+    spools = [_spool(spool_id, remaining_weight=500, rfid_tag_uid=None, location="Shelf",
+                     color_hex="161616", vendor_name="Overture", name="Overture PLA", lot_nr=None)]
+    sm = FakeSpoolman(spools, [])
+    state_map = _nonrfid_state_map_standalone(slot, attrs)
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("safety_poll", status_only=True)
+    logs = [msg for msg, _ in r._log_calls]
+    assert any("NONRFID_UNENROLLED_MATCH" in msg for msg in logs), "must reach NONRFID_UNENROLLED_MATCH path"
+    # spool_id helper must be written
+    spool_id_writes = [w for w in r._helper_writes
+                       if w.get("entity_id") == f"input_text.ams_slot_{slot}_spool_id"
+                       and w.get("value") == str(spool_id)]
+    assert len(spool_id_writes) > 0, "safety_poll must write spool_id for deterministic unenrolled match"
+    # lot_nr must be enrolled via Spoolman PATCH
+    lot_patches = [p for p in sm.patches
+                   if p.get("spool_id") == spool_id and "lot_nr" in (p.get("payload") or {})]
+    assert len(lot_patches) > 0, "safety_poll must enroll lot_nr for unenrolled match"
+    # Spoolman location must be updated
+    expected_loc = CANONICAL_LOCATION_BY_SLOT[slot]
+    loc_patches = [p for p in sm.patches
+                   if p.get("spool_id") == spool_id
+                   and (p.get("payload") or {}).get("location") == expected_loc]
+    assert len(loc_patches) > 0, f"safety_poll must PATCH spool location to {expected_loc}"
+
+
+@pytest.mark.parametrize("slot", _ALL_SLOTS)
+def test_safety_poll_ambiguous_match_still_skips_writes(slot):
+    """status_only=True + ambiguous candidates -> no Spoolman writes (gate still active)."""
+    attrs = _nonrfid_attrs_standalone(name="Overture PLA", filament_id="", tray_type="PLA", color="ff0000")
+    # Two identical spools on Shelf -> ambiguous
+    spools = [
+        _spool(101, remaining_weight=500, rfid_tag_uid=None, location="Shelf",
+               color_hex="ff0000", vendor_name="Overture", name="Overture PLA"),
+        _spool(102, remaining_weight=400, rfid_tag_uid=None, location="Shelf",
+               color_hex="ff0000", vendor_name="Overture", name="Overture PLA"),
+    ]
+    sm = FakeSpoolman(spools, [])
+    state_map = _nonrfid_state_map_standalone(slot, attrs)
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("safety_poll", status_only=True)
+    # No location writes should happen for ambiguous matches on safety_poll
+    loc_patches = [p for p in sm.patches if (p.get("payload") or {}).get("location")]
+    assert len(loc_patches) == 0, "safety_poll must not write location for ambiguous match"
+
+
+def test_set_helper_uses_get_helper_state():
+    """_set_helper must use _get_helper_state (attribute='all') not plain get_state."""
+    slot = 1
+    attrs = _nonrfid_attrs_standalone(name="Test", tray_type="PLA", color="ff0000")
+    sm = FakeSpoolman([], [])
+    state_map = _nonrfid_state_map_standalone(slot, attrs)
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._active_run = {"reason": "test", "writes": [], "decisions": [], "no_write_paths": [],
+                     "conflicts": [], "unknown_tags": [], "auto_registers": [],
+                     "validation_transcripts": [], "spool_exists_cache": {}}
+    # Make plain get_state return None (simulating stale cache) but _get_helper_state return "0"
+    original_get_state = r.get_state
+    def patched_get_state(entity_id, attribute=None):
+        if attribute is None and "spool_id" in entity_id:
+            return None  # stale cache
+        return original_get_state(entity_id, attribute=attribute)
+    r.get_state = patched_get_state
+    # _set_helper should use _get_helper_state (attribute='all') which returns "0", not None
+    r._set_helper(f"input_text.ams_slot_{slot}_spool_id", "42")
+    spool_writes = [w for w in r._helper_writes
+                    if w.get("entity_id") == f"input_text.ams_slot_{slot}_spool_id"
+                    and w.get("value") == "42"]
+    assert len(spool_writes) == 1, \
+        "_set_helper must use _get_helper_state (bypasses stale cache) and write successfully"
+
+
 if __name__ == "__main__":
     unittest.main()

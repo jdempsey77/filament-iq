@@ -171,6 +171,57 @@ class TestSanityGates:
         d = decide_consumption([inp], max_consumption_g=1000.0)[0]
         assert d.method != "no_evidence"
 
+    # ── 3MF exempt from min_consumption_g ──
+
+    def test_3mf_below_min_still_writes(self):
+        """3MF match at 0.5g → write proceeds (exempt from floor)."""
+        inp = _make_slot(is_rfid=False, tray_empty=False,
+                         threemf_used_g=0.5, threemf_method="exact_color_material")
+        d = decide_consumption([inp])[0]
+        assert d.method == "3mf"
+        assert abs(d.consumption_g - 0.5) < 0.01
+
+    def test_3mf_depleted_below_min_still_writes(self):
+        """3MF depleted at 1.0g → write proceeds (exempt from floor)."""
+        inp = _make_slot(is_rfid=False, tray_empty=True,
+                         threemf_used_g=1.0, threemf_method="exact_color_material",
+                         spoolman_remaining=1.0)
+        d = decide_consumption([inp])[0]
+        assert d.method == "3mf_depleted"
+        assert abs(d.consumption_g - 1.0) < 0.01
+
+    def test_rfid_delta_below_min_suppressed(self):
+        """RFID delta at 0.5g → suppressed by floor."""
+        inp = _make_slot(is_rfid=True, start_g=900, end_g=899.5)
+        d = decide_consumption([inp])[0]
+        assert d.method == "no_evidence"
+        assert "BELOW_MIN" in d.skip_reason
+
+    def test_rfid_delta_depleted_below_min_suppressed(self):
+        """RFID depleted at 0.5g start → suppressed by floor."""
+        inp = _make_slot(is_rfid=True, tray_empty=True, start_g=0.5, end_g=0.0)
+        d = decide_consumption([inp])[0]
+        assert d.method == "no_evidence"
+        assert "BELOW_MIN" in d.skip_reason
+
+    def test_depleted_nonrfid_below_min_suppressed(self):
+        """depleted_nonrfid at 0.5g → suppressed by floor."""
+        inp = _make_slot(is_rfid=False, tray_empty=True,
+                         threemf_used_g=None, spoolman_remaining=0.5)
+        d = decide_consumption([inp])[0]
+        assert d.method == "no_evidence"
+        assert "BELOW_MIN" in d.skip_reason
+
+    def test_3mf_at_zero_still_passes(self):
+        """3MF match at 0.0g → passes min gate but filtered by used_g <= 0 in parser."""
+        # Note: 0g 3MF entries are filtered by the parser (used_g <= 0 skipped).
+        # If one reaches the engine, it should still not be suppressed by min_g.
+        inp = _make_slot(is_rfid=False, tray_empty=False,
+                         threemf_used_g=0.0, threemf_method="exact_color_material")
+        d = decide_consumption([inp])[0]
+        assert d.method == "3mf"
+        assert d.consumption_g == 0.0
+
 
 # ── Confidence levels ────────────────────────────────────────────────
 
