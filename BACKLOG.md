@@ -31,10 +31,13 @@
 - [x] F1 fuel gauge near-empty tolerance — _read_fuel_gauge now accepts fg >= -5 (was >= 0). Near-empty RFID spools reporting -1 to -5g no longer fall back to AMS remaining. (v0.12.5)
 - [ ] Manually correct spool 39 consumption in Spoolman (~144g from grid print 2026-03-11 00:08, remaining showed 98.4g which may be stale)
 - [ ] Spoolman used_weight invariant break — RFID reconciler PATCHes remaining_weight directly, making `remaining + used != initial`. Benign for Filament IQ today but breaks any Spoolman consumer of used_weight. Track for future. (Skeptic Review, 2026-03-14)
+- [ ] Partial lot_sig matching for missing color_hex — Bambu firmware stopped reporting color_hex for third-party filament profiles (confirmed Overture GFL05, Sunlu GFSNL0x). _build_lot_sig fails closed when color_hex missing, returning empty string and skipping all lot_nr matching. Fix: allow partial sig type|filament_id| when color_hex absent, with single-candidate-only auto-bind guard. ANALYZE complete, implementation prompt ready. (2026-03-18)
 
 ### Low Priority
 - [x] start_g >= 0 guard — RFID delta now accepts 0g start. (Audit Finding B, v0.12.5)
 - [x] remaining_weight default=0 — depleted guard now fires on missing Spoolman field. (Audit Finding D, v0.12.5)
+- [ ] Auto-reconcile settling delay for new non-RFID spools — when UNBOUND_NO_RFID_TAG_ALL_ZERO detected, schedule automatic re-reconcile after ~60-120s. Tray sensor needs time to settle after spool load before color_hex and filament_id are populated. Currently requires manual reconcile trigger or waiting for next 5-min safety poll. (2026-03-18)
+- [ ] Monitor pre_weights accuracy on mid-print rehydration — when monitor restarts mid-print and rehydrates, pre_weights snapshot reflects mid-print Spoolman values not true print-start values. Weight deltas in artifact will be understated. Low impact since rare. (2026-03-18)
 - [ ] 3MF fetch Phase 3 optimization — event loop blocking fixed (v1.0.4). Timing data shows connect=2.0s list=5.5s download=4.3s total=11.9s. Direct RETR optimization would save ~5.5s (skip listing). Deferred — no longer blocks prints since fetch runs in background thread.
 - [x] Delete remaining obsolete HA helpers: input_number.filament_iq_start/end_slot_N_g — helpers deleted from configuration.yaml. test_scenario_1, test_scenario_4, test_clear_binding, p1s_debug_force_finish_path scripts removed from scripts.yaml. input_boolean.filament_iq_debug_finish_trigger and associated automations removed. HA config valid, core restarted clean. (v1.0.3)
 - [x] Change ACTIVE_PRINT_PERSISTED log level from DEBUG to INFO for visibility in normal monitoring (48f18ff)
@@ -98,6 +101,7 @@
 
 | Version | Date | Summary |
 |---------|------|---------|
+| v1.0.5 | 2026-03-18 | Monitor added to repo (config-driven, deploy script) + rehydration job mismatch fix |
 | v1.0.4 | 2026-03-18 | NONRFID safety_poll bind fix + FTPS fetch off event loop + print duration rehydrate |
 | v1.0.3 | 2026-03-17 | start_map phantom write fix + depleted_nonrfid sets location=Empty + HA helper cleanup |
 | v1.0.2 | 2026-03-17 | Print notifications fixed (mobile_app) + active_print.json spool_id snapshot |
