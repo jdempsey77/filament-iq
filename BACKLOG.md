@@ -18,6 +18,7 @@
 ### In Progress
 
 ### High Priority
+- [ ] Multi-spool runout split for single-color prints — when a non-RFID spool depletes mid-print and Bambu auto-swaps to a second slot to finish, the 3MF single-filament force match assigns all consumption to the finishing slot and writes zero to the depleted spool. Fix requires: (1) persist `active_times` dict to `active_print.json` alongside `trays_used` so it survives AppDaemon restarts, (2) when `len(trays_used) > 1` but 3MF has only one filament entry, split total 3MF weight proportionally by `active_times` across all active slots, (3) ensure depleted spool gets its share written even if it's no longer in the tray at finish time. Confirmed live: 2026-03-19 Desk Organizer print, slot 4 (spool 58) depleted and swapped to slot 3 (spool 65), all 160.72g written to slot 3, spool 58 shows 100g remaining in Spoolman but is actually empty.
 - [ ] Reference Filament IQ dashboard — ship a ready-to-import Lovelace dashboard with slot cards, Filament Library, Spool Inventory, and Printer status. Raw YAML view exists in filament-iq repo (dashboard/filament_iq.yaml) but needs polish for easy import.
 - [ ] Investigate 3MF_UNMATCHED for brief tray activations — tray tracking misses slots used for very short durations. Root cause: active_tray sensor polling interval vs actual extrusion time. Workaround in place (3MF-matched slots merged into active_slots).
 
