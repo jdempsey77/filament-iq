@@ -32,6 +32,7 @@
 - [ ] Manually correct spool 39 consumption in Spoolman (~144g from grid print 2026-03-11 00:08, remaining showed 98.4g which may be stale)
 - [ ] Spoolman used_weight invariant break — RFID reconciler PATCHes remaining_weight directly, making `remaining + used != initial`. Benign for Filament IQ today but breaks any Spoolman consumer of used_weight. Track for future. (Skeptic Review, 2026-03-14)
 - [x] Partial lot_sig matching for missing color_hex — _build_lot_sig returns partial sig type|filament_id| when color_hex absent. Lot_nr index prefix-match fallback + filament_id-only unenrolled filter added. Generic filament IDs (98/99) blocked. Single-candidate-only auto-bind guard. Note: color was never missing from reconciler — ha-bambulab exposes color as "color" attribute (#RRGGBBAA), reconciler reads correctly. Partial sig is a genuine safety net. (v1.0.6, commit beadf76)
+- [x] Multi-spool runout split — when non-RFID spool depletes mid-print and Bambu auto-swaps, all consumption was written to finishing slot (zero to depleted spool). Fixed via remaining-based split in `_detect_runout_split()`: depleted slot gets `min(spoolman_remaining, total_3mf_g)`, finishing slot gets remainder. `SPOOL_ID_FROM_SNAPSHOT` fallback recovers depleted slot spool_id after reconciler clears live helper. `active_slots` fix admits non-RFID snapshot slots excluded by start_snapshot intersection. (v1.0.7, commit 9e13513)
 
 ### Low Priority
 - [x] start_g >= 0 guard — RFID delta now accepts 0g start. (Audit Finding B, v0.12.5)
@@ -101,6 +102,7 @@
 
 | Version | Date | Summary |
 |---------|------|---------|
+| v1.0.7 | 2026-03-19 | Multi-spool runout split — remaining-based distribution, spool_id snapshot fallback |
 | v1.0.6 | 2026-03-18 | Partial lot_sig matching + auto-reconcile settling delay |
 | v1.0.5 | 2026-03-18 | Monitor added to repo (config-driven, deploy script) + rehydration job mismatch fix |
 | v1.0.4 | 2026-03-18 | NONRFID safety_poll bind fix + FTPS fetch off event loop + print duration rehydrate |

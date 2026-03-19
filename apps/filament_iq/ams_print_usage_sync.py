@@ -277,6 +277,81 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     # ── collect phase ────────────────────────────────────────────────
 
+    def _detect_runout_split(
+        self,
+        threemf_matched_slots: dict,
+        spools_cache: dict,
+    ) -> dict:
+        """Detect single-color multi-spool runout and redistribute 3MF consumption.
+
+        When one spool depletes mid-print and Bambu auto-swaps to a second slot,
+        the 3MF has one filament entry matched to the finishing slot only.
+        This method detects that condition and injects a split entry for the
+        depleted slot using remaining-based distribution.
+
+        Returns updated threemf_matched_slots dict (may be unchanged).
+        """
+        if len(self._trays_used) <= 1:
+            return threemf_matched_slots
+        if len(threemf_matched_slots) != 1:
+            return threemf_matched_slots
+
+        finishing_slot = next(iter(threemf_matched_slots))
+        total_3mf_g, method = threemf_matched_slots[finishing_slot]
+
+        depleted_slots = []
+        for slot in self._trays_used:
+            if slot == finishing_slot:
+                continue
+            entity = self._tray_entity_by_slot.get(slot)
+            tray_state = str(self.get_state(entity) or "").strip() if entity else ""
+            if tray_state != "Empty":
+                continue
+            spool_id = self._read_spool_id(slot)
+            if spool_id <= 0:
+                spool_id = self._spool_id_snapshot.get(slot, 0)
+            if spool_id <= 0:
+                continue
+            depleted_slots.append((slot, spool_id))
+
+        if not depleted_slots:
+            return threemf_matched_slots
+
+        if len(depleted_slots) != 1:
+            self.log(
+                f"RUNOUT_SPLIT_SKIP reason=multiple_depleted_slots "
+                f"depleted={[s for s, _ in depleted_slots]}",
+                level="WARNING",
+            )
+            return threemf_matched_slots
+
+        depleted_slot, depleted_spool_id = depleted_slots[0]
+
+        cached = spools_cache.get(depleted_spool_id)
+        if cached:
+            spoolman_remaining = float(cached.get("remaining_weight") or 0)
+        else:
+            fetched = self._spoolman_get(f"/api/v1/spool/{depleted_spool_id}")
+            spoolman_remaining = float(fetched.get("remaining_weight") or 0) if fetched else 0.0
+
+        depleted_share = min(spoolman_remaining, total_3mf_g)
+        finishing_share = total_3mf_g - depleted_share
+
+        self.log(
+            f"RUNOUT_SPLIT_DETECTED "
+            f"finishing_slot={finishing_slot} depleted_slot={depleted_slot} "
+            f"total_3mf_g={total_3mf_g:.2f} "
+            f"spoolman_remaining={spoolman_remaining:.2f} "
+            f"depleted_share={depleted_share:.2f} "
+            f"finishing_share={finishing_share:.2f}",
+            level="INFO",
+        )
+
+        updated = dict(threemf_matched_slots)
+        updated[finishing_slot] = (finishing_share, "runout_split")
+        updated[depleted_slot] = (depleted_share, "runout_split_depleted")
+        return updated
+
     def _collect_print_inputs(
         self,
         trays_used: set,
@@ -296,6 +371,13 @@ class AmsPrintUsageSync(FilamentIQBase):
 
         for slot in sorted(trays_used):
             spool_id = self._read_spool_id(slot)
+            if spool_id <= 0 and self._spool_id_snapshot.get(slot, 0) > 0:
+                spool_id = self._spool_id_snapshot[slot]
+                self.log(
+                    f"SPOOL_ID_FROM_SNAPSHOT slot={slot} spool_id={spool_id} "
+                    f"— live helper cleared (depleted slot)",
+                    level="INFO",
+                )
             if spool_id <= 0:
                 tray_seconds = self._summarize_tray_times().get(slot, 0)
                 if tray_seconds > 60:
@@ -341,9 +423,13 @@ class AmsPrintUsageSync(FilamentIQBase):
                 else:
                     threemf_used_g, threemf_method = threemf_matched_slots[slot]
 
-            # Spoolman remaining — only for non-RFID depleted cases
+            # Spoolman remaining — only for non-RFID depleted cases.
+            # For runout_split_depleted slots, use threemf_used_g directly
+            # as spoolman_remaining so the engine's max() is a no-op.
             spoolman_remaining = None
-            if not is_rfid and tray_empty:
+            if threemf_method == "runout_split_depleted":
+                spoolman_remaining = threemf_used_g
+            elif not is_rfid and tray_empty:
                 cached = spools_cache.get(spool_id)
                 if cached:
                     spoolman_remaining = float(cached.get("remaining_weight") or 0)
@@ -960,13 +1046,17 @@ class AmsPrintUsageSync(FilamentIQBase):
             )
         self._trays_used = filtered_trays
 
-        # Narrow active slots to intersection of trays_used and start_snapshot
-        active_slots = self._trays_used & set(self._start_snapshot.keys())
+        # Narrow active slots to intersection of trays_used and start_snapshot.
+        # Slots in spool_id_snapshot were confirmed bound at print start —
+        # admit them even if absent from start_snapshot (non-RFID slots
+        # have no fuel gauge entry).
+        snapshot_slots = set(self._spool_id_snapshot.keys()) & self._trays_used
+        active_slots = (self._trays_used & set(self._start_snapshot.keys())) | snapshot_slots
         if active_slots != self._trays_used:
             self.log(
-                f"ACTIVE_SLOTS_NARROWED from={len(self._trays_used)} "
-                f"to={len(active_slots)} "
-                f"trays_used={sorted(self._trays_used)}",
+                f"ACTIVE_SLOTS_NARROWED from={sorted(self._trays_used)} "
+                f"to={sorted(active_slots)} "
+                f"snapshot_slots={sorted(snapshot_slots)}",
                 level="INFO",
             )
         if not active_slots:
@@ -1025,6 +1115,12 @@ class AmsPrintUsageSync(FilamentIQBase):
             f"end_snapshot={self._end_snapshot} status={status}",
             level="INFO",
         )
+
+        # Detect and handle single-color multi-spool runout
+        if self._threemf_data and len(threemf_matched_slots) > 0:
+            threemf_matched_slots = self._detect_runout_split(
+                threemf_matched_slots, spools_cache
+            )
 
         # Dedup guard
         if self._job_key and self._job_key in self._seen_job_keys:
@@ -1753,10 +1849,11 @@ class AmsPrintUsageSync(FilamentIQBase):
                     level="INFO",
                 )
                 return None
+            raw_snapshot = data.get("spool_id_snapshot", {})
             restored = {
                 "threemf_data": data.get("threemf_data"),
                 "trays_used": set(data.get("trays_used", [])),
-                "spool_id_snapshot": data.get("spool_id_snapshot", {}),
+                "spool_id_snapshot": {int(k): int(v) for k, v in raw_snapshot.items()},
                 "print_start_time": data.get("print_start_time"),
             }
             self.log(

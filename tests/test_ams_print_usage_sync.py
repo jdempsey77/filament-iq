@@ -109,6 +109,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self._threemf_data = None
         self._threemf_filename = None
         self.threemf_enabled = False
+        self._spool_id_snapshot = {}
 
         # Lifecycle phase flags (must mirror ams_print_usage_sync.py init)
         self._lifecycle_phase1 = bool(a.get("lifecycle_phase1_enabled", False))
@@ -1477,7 +1478,7 @@ class TestActivePrintPersistence:
                 assert result is not None
                 assert result["threemf_data"] == [{"index": 0, "used_g": 10.0}]
                 assert result["trays_used"] == {1, 5}
-                assert result["spool_id_snapshot"] == {"1": 61, "5": 29}
+                assert result["spool_id_snapshot"] == {1: 61, 5: 29}
             finally:
                 self._cleanup()
 
@@ -2813,7 +2814,7 @@ class TestActiveSlotsNarrowing:
                 }, args={"lifecycle_phase1_enabled": True})
                 app._rehydrate_print_state()
                 assert app._trays_used == {1, 5}
-                assert app._spool_id_snapshot == {"1": 61, "5": 29}
+                assert app._spool_id_snapshot == {1: 61, 5: 29}
             finally:
                 orig = getattr(mod, '_ACTIVE_PRINT_FILE_ORIG', None)
                 if orig:
