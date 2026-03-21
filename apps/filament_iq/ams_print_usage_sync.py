@@ -327,20 +327,38 @@ class AmsPrintUsageSync(FilamentIQBase):
 
         depleted_slot, depleted_spool_id = depleted_slots[0]
 
-        cached = spools_cache.get(depleted_spool_id)
-        if cached:
-            spoolman_remaining = float(cached.get("remaining_weight") or 0)
-        else:
-            fetched = self._spoolman_get(f"/api/v1/spool/{depleted_spool_id}")
-            spoolman_remaining = float(fetched.get("remaining_weight") or 0) if fetched else 0.0
+        # Time-weighted split when active_times available for depleted slot.
+        # Falls back to remaining-based when depleted slot has no post-restart timing
+        # (common when spool depleted before AppDaemon restart).
+        tray_times = self._summarize_tray_times()
+        depleted_seconds = tray_times.get(depleted_slot, 0.0)
+        finishing_seconds = tray_times.get(finishing_slot, 0.0)
+        total_seconds = depleted_seconds + finishing_seconds
 
-        depleted_share = min(spoolman_remaining, total_3mf_g)
-        finishing_share = total_3mf_g - depleted_share
+        if depleted_seconds > 0 and total_seconds > 0:
+            depleted_share = round((depleted_seconds / total_seconds) * total_3mf_g, 2)
+            finishing_share = round(total_3mf_g - depleted_share, 2)
+            split_method = "time_weighted"
+            spoolman_remaining = depleted_share  # make max() in engine a no-op
+        else:
+            # Fallback: remaining-based
+            cached = spools_cache.get(depleted_spool_id)
+            if cached:
+                spoolman_remaining = float(cached.get("remaining_weight") or 0)
+            else:
+                fetched = self._spoolman_get(f"/api/v1/spool/{depleted_spool_id}")
+                spoolman_remaining = float(fetched.get("remaining_weight") or 0) if fetched else 0.0
+            depleted_share = min(spoolman_remaining, total_3mf_g)
+            finishing_share = total_3mf_g - depleted_share
+            split_method = "remaining_based"
 
         self.log(
             f"RUNOUT_SPLIT_DETECTED "
             f"finishing_slot={finishing_slot} depleted_slot={depleted_slot} "
             f"total_3mf_g={total_3mf_g:.2f} "
+            f"split_method={split_method} "
+            f"depleted_seconds={depleted_seconds:.1f} "
+            f"finishing_seconds={finishing_seconds:.1f} "
             f"spoolman_remaining={spoolman_remaining:.2f} "
             f"depleted_share={depleted_share:.2f} "
             f"finishing_share={finishing_share:.2f}",

@@ -1,0 +1,11 @@
+{
+  "domain": "filament_iq_proxy",
+  "name": "Filament IQ Proxy",
+  "documentation": "https://github.com/jdempsey77/filament-iq",
+  "issue_tracker": "https://github.com/jdempsey77/filament-iq/issues",
+  "dependencies": [],
+  "codeowners": ["@jdempsey77"],
+  "requirements": [],
+  "version": "1.0.0",
+  "iot_class": "local_push"
+}

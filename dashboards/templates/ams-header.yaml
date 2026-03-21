@@ -1,0 +1,47 @@
+          - type: custom:mod-card
+            style: |
+              ha-card {
+                background: #2c2c2e !important;
+                border: 1px solid #3a3a3c !important;
+                border-radius: 14px !important;
+                box-shadow: 0 6px 16px rgba(0, 0, 0, 0.7) !important;
+                overflow: hidden;
+                padding: 0 !important;
+              }
+            card:
+              type: vertical-stack
+              cards:
+                - type: custom:mod-card
+                  style: |
+                    ha-card {
+                      background: #2c2c2e !important;
+                      border: none !important;
+                      border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+                      border-radius: 0 !important;
+                      box-shadow: none !important;
+                      padding: 0 !important;
+                    }
+                  card:
+                    type: custom:mushroom-template-card
+                    primary: AMS_DISPLAY_NAME
+                    secondary: >-
+                      {% set h =
+                      states('sensor.p1s_your_printer_serial_AMS_SENSOR_PREFIXhumidity') %} {%
+                      set t =
+                      states('sensor.p1s_your_printer_serial_AMS_SENSOR_PREFIXtemperature') %}
+                      {% if h in ['unavailable', 'unknown', ''] %}Disconnected
+                      {% else %}{{ h }}% humidity · {{ t }}°C{% endif %}
+                    icon: mdi:printer-3d
+                    icon_color: >-
+                      {% if states('sensor.p1s_your_printer_serial_AMS_SENSOR_PREFIXhumidity')
+                      in ['unavailable', 'unknown', ''] %}red{% else %}green{%
+                      endif %}
+                    tap_action:
+                      action: none
+                    card_mod:
+                      style: |
+                        ha-card {
+                          --ha-card-background: transparent;
+                          box-shadow: none;
+                          padding: 8px 12px;
+                        }

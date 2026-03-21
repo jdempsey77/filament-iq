@@ -1,0 +1,211 @@
+                # NOTE: "Too Generic to auto-match" means a non-RFID spool couldn't be
+                # uniquely identified. Tap the slot to manually assign a spool from
+                # Spoolman. This is expected when multiple spools share material + color.
+                - type: custom:mushroom-template-card
+                  entity: sensor.ams_slot_SLOT_NUM_status
+                  primary: >-
+                    {% set ams_ok =
+                    states('sensor.p1s_your_printer_serial_AMS_SENSOR_PREFIXhumidity') not in
+                    ['unavailable', 'unknown', ''] %} {% set status =
+                    states('sensor.ams_slot_SLOT_NUM_status') %} {% set r =
+                    states('input_text.ams_slot_SLOT_NUM_unbound_reason') %} {% if not
+                    ams_ok %}AMS Offline {% elif 'RFID_NOT_REFRESHED' in r
+                    %}Reload Spool {% elif status == 'empty' %}Empty {% elif
+                    status == 'needs_bind' %}
+                      {% if 'NONRFID_NO_MATCH' in r %}No Match Found
+                      {% elif 'AMBIGUOUS' in r %}Multiple Matches
+                      {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too Generic
+                      {% elif 'NOT_FOUND' in r %}Spool Missing
+                      {% elif 'UID_NO_MATCH' in r %}RFID Not Recognized
+                      {% else %}Needs Binding
+                      {% endif %}
+                    {% else %}{{ states('sensor.ams_slot_SLOT_NUM_vendor') }} · {{
+                    states('sensor.ams_slot_SLOT_NUM_material') }} {% endif %}
+                  secondary: >-
+                    {% set ams_ok =
+                    states('sensor.p1s_your_printer_serial_AMS_SENSOR_PREFIXhumidity') not in
+                    ['unavailable', 'unknown', ''] %} {% set status =
+                    states('sensor.ams_slot_SLOT_NUM_status') %} {% set r =
+                    states('input_text.ams_slot_SLOT_NUM_unbound_reason') %} {% if not
+                    ams_ok %}AMS_DISPLAY_NAME disconnected {% elif 'RFID_NOT_REFRESHED'
+                    in r %}{{ states('sensor.ams_slot_SLOT_NUM_name') }} · RFID not
+                    refreshed {% elif status == 'empty' %}No spool loaded {%
+                    elif status == 'needs_bind' %}
+                      {% if 'NONRFID_NO_MATCH' in r %}Tap to select spool
+                      {% elif 'AMBIGUOUS' in r %}Tap to select spool
+                      {% elif 'GENERIC' in r or 'LOW_CONFIDENCE' in r %}Too generic to auto-match
+                      {% elif 'NOT_FOUND' in r %}Tap to reassign
+                      {% elif 'UID_NO_MATCH' in r %}Tap to select spool
+                      {% else %}Tap to bind manually
+                      {% endif %}
+                    {% else %}
+                      {% set name = states('sensor.ams_slot_SLOT_NUM_name') %}
+                      {% set id = states('input_text.ams_slot_SLOT_NUM_spool_id') %}
+                      {% set g = states('sensor.ams_slot_SLOT_NUM_remaining_g') | float(0) | round(0) | int %}
+                      {{ name }} · #{{ id }} · {{ g }}g
+                    {% endif %}
+                  icon: >-
+                    {% set status = states('sensor.ams_slot_SLOT_NUM_status') %} {% set
+                    r = states('input_text.ams_slot_SLOT_NUM_unbound_reason') %} {% if
+                    status == 'empty' %}ICON_OUTLINE {% elif
+                    'RFID_NOT_REFRESHED' in r %}mdi:alert-circle {% elif status
+                    == 'needs_bind' %}mdi:alert-circle {% else
+                    %}ICON_FILLED {% endif %}
+                  icon_color: >-
+                    {% set ams_ok =
+                    states('sensor.p1s_your_printer_serial_AMS_SENSOR_PREFIXhumidity') not in
+                    ['unavailable', 'unknown', ''] %} {% set status =
+                    states('sensor.ams_slot_SLOT_NUM_status') %} {% set r =
+                    states('input_text.ams_slot_SLOT_NUM_unbound_reason') %} {% if not
+                    ams_ok %}#555555 {% elif status == 'empty' %}#3a3d44 {% elif
+                    'RFID_NOT_REFRESHED' in r %}#FF9800 {% elif status ==
+                    'needs_bind' %}#ef5350 {% else %}
+                      {% set hex = states('sensor.ams_slot_SLOT_NUM_color_hex') %}
+                      {% if hex in ['000000', 'unknown', 'unavailable', ''] %}#555555
+                      {% else %}#{{ hex }}{% endif %}
+                    {% endif %}
+                  badge_icon: >-
+                    {% set printing =
+                    states('sensor.p1s_your_printer_serial_current_stage') ==
+                    'printing' %} {% set active_ams =
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
+                    'ams_index') %} {% set active_tray =
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
+                    'tray_index') %} {% set is_active = printing and active_ams
+                    == 0 and active_tray == 0 %} {% set status =
+                    states('sensor.ams_slot_SLOT_NUM_status') %} {% if is_active and
+                    status == 'ok' %}mdi:printer-3d-nozzle{% else %}{% endif %}
+                  badge_color: >-
+                    {% set printing =
+                    states('sensor.p1s_your_printer_serial_current_stage') ==
+                    'printing' %} {% set active_ams =
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
+                    'ams_index') %} {% set active_tray =
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
+                    'tray_index') %} {% set is_active = printing and active_ams
+                    == 0 and active_tray == 0 %} {% set status =
+                    states('sensor.ams_slot_SLOT_NUM_status') %} {% if is_active and
+                    status == 'ok' %}#63cab7{% else %}transparent{% endif %}
+                  tap_action:
+                    action: fire-dom-event
+                    browser_mod:
+                      service: browser_mod.popup
+                      data:
+                        title: Slot SLOT_NUM
+                        size: wide
+                        content:
+                          type: vertical-stack
+                          cards:
+                            - type: markdown
+                              content: >-
+                                {% set r =
+                                states('input_text.ams_slot_SLOT_NUM_unbound_reason')
+                                %} {% set status =
+                                states('sensor.ams_slot_SLOT_NUM_status') %} {% if
+                                'RFID_NOT_REFRESHED' in r %}### RFID Refresh
+                                Needed
+
+                                **{{ states('sensor.ams_slot_SLOT_NUM_name') }}**
+                                (spool #{{
+                                states('input_text.ams_slot_SLOT_NUM_spool_id') }}) is
+                                correctly assigned but the AMS hasn't read the
+                                RFID tag.
+
+                                **To fix:** Unload the spool from slot 1, then
+                                reload it. After reloading, tap **Reconcile**
+                                below. {% elif status == 'ok' %}### {{
+                                states('sensor.ams_slot_SLOT_NUM_name') }}
+
+                                {{ states('sensor.ams_slot_SLOT_NUM_vendor') }} - {{
+                                states('sensor.ams_slot_SLOT_NUM_material') }}
+
+                                Remaining: {{
+                                states('sensor.ams_slot_SLOT_NUM_remaining_g') }}g ·
+                                Spool #{{
+                                states('input_text.ams_slot_SLOT_NUM_spool_id') }} {%
+                                elif status == 'needs_bind' %}### Binding
+                                Required
+
+                                {% if 'NONRFID_NO_MATCH' in r %}This slot has a
+                                spool that doesn't match anything in Spoolman.
+                                {% elif 'AMBIGUOUS' in r %}Multiple spools match
+                                this slot's signature. {% elif 'NOT_FOUND' in r
+                                %}The previously assigned spool was not found.
+                                {% elif 'UID_NO_MATCH' in r %}The RFID tag isn't
+                                recognized. {% else %}This slot needs manual
+                                binding. {% endif %}
+
+                                Select a spool below and tap **Assign & Bind**.
+                                {% elif status == 'empty' %}### Empty Slot
+
+                                No spool is loaded in this slot. {% endif %}
+                            - type: entities
+                              entities:
+                                - entity: input_select.ams_slot_SLOT_NUM_select_spool
+                            - type: custom:mushroom-template-card
+                              primary: Assign & Bind
+                              icon: mdi:link-variant
+                              icon_color: blue
+                              layout: horizontal
+                              tap_action:
+                                action: call-service
+                                service: script.ams_slot_assign_and_update
+                                data:
+                                  slot: 'SLOT_NUM'
+                              card_mod:
+                                style: |
+                                  ha-card { --ha-card-padding: 4px; }
+                                  mushroom-shape-icon { --icon-size: 24px; }
+                  card_mod:
+                    style: |
+                      ha-card {
+                        border: none !important;
+                        border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+                        border-radius: 0 !important;
+                        box-shadow: none !important;
+                        background: transparent !important;
+                        {% set status = states('sensor.ams_slot_SLOT_NUM_status') %}
+                        {% set r = states('input_text.ams_slot_SLOT_NUM_unbound_reason') %}
+                        {% set active_ams = state_attr('sensor.p1s_your_printer_serial_active_tray', 'ams_index') %}
+                        {% set active_tray = state_attr('sensor.p1s_your_printer_serial_active_tray', 'tray_index') %}
+                        {% set printing = states('sensor.p1s_your_printer_serial_current_stage') == 'printing' %}
+                        {% set is_active = printing and active_ams == AMS_INDEX_NUM and active_tray == TRAY_INDEX %}
+                        {% set hex = states('sensor.ams_slot_SLOT_NUM_color_hex') %}
+                        {% set safe_hex = hex if hex not in ['unknown', 'unavailable', ''] else '3b9fd8' %}
+                        {% if is_active and status == 'ok' %}
+                        background: rgba(255,255,255,0.06) !important;
+                        {% elif status == 'empty' %}opacity: 0.4;
+                        {% elif 'RFID_NOT_REFRESHED' in r %}background: rgba(255,152,0,0.05) !important;
+                        {% elif status == 'needs_bind' %}background: rgba(239,83,80,0.05) !important;
+                        {% endif %}
+                        {% set g = states('sensor.ams_slot_SLOT_NUM_remaining_g') | float(0) %}
+                        {% set pct = [0, [100, (g / 1000 * 100) | round(0) | int] | min] | max %}
+                        {% if status != 'empty' %}
+                        background-image: linear-gradient(to right, rgba(255,255,255,0.7) {{ pct }}%, rgba(255,255,255,0.1) {{ pct }}%) !important;
+                        background-position: bottom !important;
+                        background-size: 100% 3px !important;
+                        background-repeat: no-repeat !important;
+                        {% endif %}
+                      }
+                      .primary {
+                        {% set status = states('sensor.ams_slot_SLOT_NUM_status') %}
+                        {% set r = states('input_text.ams_slot_SLOT_NUM_unbound_reason') %}
+                        {% set active_ams = state_attr('sensor.p1s_your_printer_serial_active_tray', 'ams_index') %}
+                        {% set active_tray = state_attr('sensor.p1s_your_printer_serial_active_tray', 'tray_index') %}
+                        {% set printing = states('sensor.p1s_your_printer_serial_current_stage') == 'printing' %}
+                        {% set is_active = printing and active_ams == AMS_INDEX_NUM and active_tray == TRAY_INDEX %}
+                        {% set hex = states('sensor.ams_slot_SLOT_NUM_color_hex') %}
+                        {% set safe_hex = hex if hex not in ['unknown', 'unavailable', ''] else '3b9fd8' %}
+                        {% if is_active and status == 'ok' %}color: #{{ safe_hex }} !important;
+                        {% elif 'RFID_NOT_REFRESHED' in r %}color: #FF9800 !important;
+                        {% elif status == 'needs_bind' %}color: #ef5350 !important;
+                        {% endif %}
+                      }
+                      .secondary {
+                        {% set status = states('sensor.ams_slot_SLOT_NUM_status') %}
+                        {% set r = states('input_text.ams_slot_SLOT_NUM_unbound_reason') %}
+                        {% if 'RFID_NOT_REFRESHED' in r %}color: #a06a06 !important;
+                        {% elif status == 'needs_bind' %}color: #a04040 !important;
+                        {% endif %}
+                      }
+                - type: custom:mushroom-template-card

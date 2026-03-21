@@ -1,0 +1,36 @@
+api_call:
+  name: API Call
+  description: Proxy a REST API call to Spoolman and fire a response event.
+  fields:
+    request_id:
+      name: Request ID
+      description: Unique identifier to match this request with its response event.
+      required: true
+      example: "550e8400-e29b-41d4-a716-446655440000"
+      selector:
+        text:
+    method:
+      name: Method
+      description: HTTP method (GET, POST, PATCH, DELETE).
+      required: true
+      example: "GET"
+      selector:
+        select:
+          options:
+            - GET
+            - POST
+            - PATCH
+            - DELETE
+    path:
+      name: Path
+      description: Spoolman API path (e.g. /api/v1/spool).
+      required: true
+      example: "/api/v1/spool"
+      selector:
+        text:
+    body:
+      name: Body
+      description: Optional JSON body for POST/PATCH requests.
+      required: false
+      selector:
+        object:

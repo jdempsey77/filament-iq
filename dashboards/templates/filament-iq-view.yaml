@@ -1,0 +1,7 @@
+  - title: Filament IQ
+    path: filament-manager
+    icon: mdi:brain
+    type: panel
+    subview: true
+    cards:
+      - type: custom:filament-iq-manager
