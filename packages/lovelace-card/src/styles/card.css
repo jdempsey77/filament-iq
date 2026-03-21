@@ -1,0 +1,584 @@
+.fiq-card {
+  --bg-0: #111113;
+  --bg-1: #1c1c1e;
+  --bg-2: #2c2c2e;
+  --border: #3a3a3c;
+  --text: #e8e8ea;
+  --muted: #9a9a9e;
+  --hint: #6e6e73;
+  --accent: #0a84ff;
+  --danger: #ff3b30;
+  --success: #4caf7d;
+  --warn: #ff9f0a;
+  background: var(--bg-0);
+  border-radius: 14px;
+  overflow: hidden;
+  position: relative;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* ── Topbar ──────────────────────────────────────────── */
+.fiq-topbar {
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--bg-2);
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.fiq-title {
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.fiq-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  display: inline-block;
+}
+.fiq-btn-refresh {
+  background: transparent;
+  border: none;
+  color: var(--hint);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 5px;
+  line-height: 1;
+  font-family: inherit;
+}
+.fiq-btn-refresh:hover {
+  background: var(--bg-2);
+  color: var(--text);
+}
+
+/* ── Tabs ────────────────────────────────────────────── */
+.fiq-tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-0);
+  padding: 2px;
+  border-radius: 8px;
+}
+.fiq-tab {
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--hint);
+  cursor: pointer;
+  font-family: inherit;
+}
+.fiq-tab.active {
+  background: var(--bg-2);
+  color: var(--text);
+}
+
+/* ── Stats ───────────────────────────────────────────── */
+.fiq-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-bottom: 1px solid var(--bg-2);
+}
+.fiq-stat {
+  padding: 8px 0;
+  text-align: center;
+  background: var(--bg-0);
+  border-left: 1px solid var(--bg-2);
+}
+.fiq-stat:first-child { border-left: none; }
+.fiq-stat-n {
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+}
+.fiq-stat-l {
+  font-size: 10px;
+  color: var(--hint);
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.fiq-stat-n.s-active { color: var(--success); }
+.fiq-stat-n.s-warn   { color: var(--warn); }
+.fiq-stat-n.s-empty  { color: var(--hint); }
+
+/* ── Body / toolbar ──────────────────────────────────── */
+.fiq-body { padding: 12px 14px; }
+.fiq-toolbar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.fiq-search {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: var(--text);
+  font-family: inherit;
+  outline: none;
+  width: 110px;
+}
+.fiq-search:focus { border-color: var(--accent); }
+.fiq-filter {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 5px 8px;
+  font-size: 11px;
+  color: var(--text);
+  font-family: inherit;
+}
+.fiq-spacer { flex: 1; }
+.fiq-btn-add {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: 5px 11px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.fiq-btn-archive {
+  background: rgba(255, 159, 10, 0.1);
+  color: var(--warn);
+  border: 1px solid rgba(255, 159, 10, 0.25);
+  border-radius: 7px;
+  padding: 5px 11px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+/* ── Rows ────────────────────────────────────────────── */
+.fiq-table { display: flex; flex-direction: column; gap: 3px; }
+.fiq-row {
+  border-radius: 9px;
+  margin-bottom: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  cursor: pointer;
+}
+.fiq-row.expanded { border-color: var(--accent); }
+.fiq-row-main {
+  display: grid;
+  grid-template-columns: 14px minmax(0,1.8fr) minmax(0,1fr) 60px 36px 60px 44px;
+  gap: 8px;
+  padding: 8px 10px;
+  align-items: center;
+}
+.fiq-color-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.fiq-fname {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fiq-row.expanded .fiq-fname { color: var(--accent); }
+.fiq-pbar {
+  height: 2px;
+  background: var(--border);
+  border-radius: 1px;
+  margin-top: 4px;
+  width: 100%;
+  overflow: hidden;
+}
+.fiq-pfill { height: 100%; border-radius: 1px; }
+.fiq-row-sub-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  flex-wrap: wrap;
+}
+.fiq-fsub {
+  font-size: 9px;
+  color: var(--hint);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fiq-cell {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fiq-cell.right { text-align: right; }
+.fiq-cell.low { color: var(--danger); font-weight: 500; text-align: right; }
+.fiq-cell.weight { color: var(--text); font-weight: 500; text-align: right; }
+
+/* Material badges */
+.fiq-mat-badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-weight: 500;
+  white-space: nowrap;
+  display: inline-block;
+}
+.fiq-mat-pla  { background: #1e3a2e; color: #4caf7d; }
+.fiq-mat-petg { background: #1a2a3a; color: #4a9fd4; }
+.fiq-mat-abs  { background: #2a1a3a; color: #a47ad4; }
+.fiq-mat-tpu  { background: #3a2a1a; color: #d4a44a; }
+.fiq-mat-pla-plus { background: #1e3a2e; color: #4caf7d; }
+.fiq-mat-other { background: var(--bg-2); color: var(--muted); }
+
+/* ID badge */
+.fiq-id-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: #1c1c1e;
+  color: var(--hint);
+  font-family: monospace;
+  font-weight: 500;
+  display: inline-block;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+/* Row action icons */
+.fiq-row-acts { display: flex; gap: 3px; justify-content: flex-end; }
+.fiq-icon-btn {
+  background: transparent;
+  border: none;
+  padding: 3px 5px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--hint);
+  line-height: 1;
+  font-family: inherit;
+}
+.fiq-icon-btn:hover { background: var(--border); color: var(--text); }
+.fiq-icon-btn.icon-active { color: var(--accent); }
+
+/* ── Edit panel ──────────────────────────────────────── */
+.fiq-edit-panel {
+  background: #0d0d0f;
+  border-top: 1px solid var(--bg-2);
+  padding: 11px 12px;
+}
+.fiq-identity {
+  background: var(--bg-1);
+  border-radius: 6px;
+  padding: 7px 9px;
+  margin-bottom: 9px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+.fiq-id-key {
+  font-size: 9px;
+  color: var(--hint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.fiq-id-val {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+.fiq-fields {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  margin-bottom: 9px;
+}
+.fiq-field-label {
+  font-size: 10px;
+  color: var(--hint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 3px;
+}
+.fiq-input {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--text);
+  width: 100%;
+  font-family: inherit;
+  outline: none;
+  box-sizing: border-box;
+}
+.fiq-input:focus { border-color: var(--accent); }
+.fiq-select {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 11px;
+  color: var(--text);
+  width: 100%;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.fiq-color-preview {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+/* Panel footer */
+.fiq-panel-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.fiq-btn-del {
+  background: rgba(255,59,48,0.1);
+  color: var(--danger);
+  border: 1px solid rgba(255,59,48,0.2);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.fiq-btn-save {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+.fiq-btn-cancel {
+  background: var(--border);
+  color: var(--text);
+  border: none;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.fiq-btn-group { display: flex; gap: 6px; }
+
+/* ── Add row ─────────────────────────────────────────── */
+.fiq-add-row {
+  background: var(--bg-1);
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+  padding: 11px 12px;
+  margin-bottom: 6px;
+}
+.fiq-add-title {
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+.fiq-add-fields {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr 1fr;
+  gap: 7px;
+  margin-bottom: 8px;
+}
+
+/* ── Confirm overlay ─────────────────────────────────── */
+.fiq-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+.fiq-confirm-box {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px;
+  max-width: 320px;
+  text-align: center;
+}
+.fiq-confirm-msg {
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 14px;
+  line-height: 1.4;
+}
+.fiq-confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+/* ── Status states ───────────────────────────────────── */
+.fiq-loading, .fiq-error, .fiq-empty {
+  padding: 32px;
+  text-align: center;
+  color: var(--hint);
+  font-size: 13px;
+}
+.fiq-error { color: var(--danger); }
+
+/* Vendor / filament row grids */
+.fiq-row-main.cols-4 {
+  grid-template-columns: minmax(0,2fr) minmax(0,1fr) 80px 44px;
+}
+.fiq-row-main.cols-6 {
+  grid-template-columns: 14px minmax(0,1.5fr) minmax(0,1fr) 60px 60px 44px;
+}
+
+/* ── Import panel ───────────────────────────────────── */
+.fiq-btn-import {
+  background: rgba(10, 132, 255, 0.1);
+  color: var(--accent);
+  border: 1px solid rgba(10, 132, 255, 0.25);
+  border-radius: 7px;
+  padding: 5px 11px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+.fiq-import-panel {
+  background: var(--bg-1);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.fiq-import-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.fiq-import-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+}
+.fiq-import-search {
+  width: 100%;
+  background: var(--bg-2);
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--text);
+  font-family: inherit;
+  outline: none;
+  margin-bottom: 8px;
+  box-sizing: border-box;
+}
+.fiq-import-status {
+  font-size: 11px;
+  color: var(--hint);
+  text-align: center;
+  padding: 8px 0;
+}
+.fiq-import-results {
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 8px;
+}
+.fiq-import-row {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: var(--bg-2);
+  align-items: center;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.fiq-import-row:hover { border-color: rgba(10, 132, 255, 0.3); }
+.fiq-import-row.selected { border-color: var(--accent); background: rgba(10, 132, 255, 0.07); }
+.fiq-import-row-name {
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fiq-import-row-sub { font-size: 10px; color: var(--hint); }
+.fiq-import-row-hex { font-size: 10px; color: var(--hint); font-family: monospace; }
+.fiq-import-preview {
+  background: #0d0d0f;
+  border-radius: 8px;
+  padding: 10px;
+  border: 1px solid var(--bg-2);
+  margin-top: 8px;
+}
+.fiq-import-preview-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.fiq-import-preview-fields {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.fiq-import-preview-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* ── Location badges ────────────────────────────────── */
+.fiq-loc-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.fiq-loc-ams   { background: #1a2a3a; color: #4a9fd4; }
+.fiq-loc-shelf { background: #1e2a1e; color: #4caf7d; }
+.fiq-loc-new   { background: #2a2a1a; color: #d4c44a; }
+.fiq-loc-other { background: #2c2c2e; color: #9a9a9e; }

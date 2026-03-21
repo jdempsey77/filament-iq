@@ -18,8 +18,9 @@
 ### In Progress
 
 ### High Priority
-- [ ] Reference Filament IQ dashboard — ship a ready-to-import Lovelace dashboard with slot cards, Filament Library, Spool Inventory, and Printer status. Raw YAML view exists in filament-iq repo (dashboard/filament_iq.yaml) but needs polish for easy import.
 - [ ] Investigate 3MF_UNMATCHED for brief tray activations — tray tracking misses slots used for very short durations. Root cause: active_tray sensor polling interval vs actual extrusion time. Workaround in place (3MF-matched slots merged into active_slots).
+- [ ] EOL spool handling — auto-archive when spool depletes to 0g during a print
+- [ ] Snapshot trust validation — verify start_snapshot values are plausible before using for RFID delta calculation
 
 ### Medium Priority
 - [x] NONRFID_EMPTY_TRAY_CLEAR sets location="Shelf" not "Empty" — _execute_writes now PATCHes location=Empty after successful depleted_nonrfid write. Prevents reconciler from returning depleted spools to Shelf candidate pool. (v1.0.3, commit 38a1aa3)
@@ -33,6 +34,7 @@
 - [ ] Spoolman used_weight invariant break — RFID reconciler PATCHes remaining_weight directly, making `remaining + used != initial`. Benign for Filament IQ today but breaks any Spoolman consumer of used_weight. Track for future. (Skeptic Review, 2026-03-14)
 - [x] Partial lot_sig matching for missing color_hex — _build_lot_sig returns partial sig type|filament_id| when color_hex absent. Lot_nr index prefix-match fallback + filament_id-only unenrolled filter added. Generic filament IDs (98/99) blocked. Single-candidate-only auto-bind guard. Note: color was never missing from reconciler — ha-bambulab exposes color as "color" attribute (#RRGGBBAA), reconciler reads correctly. Partial sig is a genuine safety net. (v1.0.6, commit beadf76)
 - [x] Multi-spool runout split — when non-RFID spool depletes mid-print and Bambu auto-swaps, all consumption was written to finishing slot (zero to depleted spool). Fixed via remaining-based split in `_detect_runout_split()`: depleted slot gets `min(spoolman_remaining, total_3mf_g)`, finishing slot gets remainder. `SPOOL_ID_FROM_SNAPSHOT` fallback recovers depleted slot spool_id after reconciler clears live helper. `active_slots` fix admits non-RFID snapshot slots excluded by start_snapshot intersection. (v1.0.7, commit 9e13513)
+- [x] Runout split consumption model inaccurate — remaining-based model used stale Spoolman remaining_weight for depleted spool share. Fixed: time-weighted split (active_times proportion) used when depleted slot has post-restart timing; remaining-based fallback when active_times unavailable (spool depleted before restart). (v1.0.8, commit 991c5eb)
 
 ### Low Priority
 - [x] start_g >= 0 guard — RFID delta now accepts 0g start. (Audit Finding B, v0.12.5)
@@ -47,9 +49,18 @@
 - [x] Print duration shows "unknown" after AppDaemon restart — _print_start_time was in-memory only. active_print.json already persisted print_start_time but _load_active_print did not restore it. Fixed by restoring print_start_time on rehydrate. (v1.0.4)
 - [x] FTPS 3MF fetch blocks AppDaemon event loop — 11-15s synchronous FTPS fetch ran on main event loop thread via run_in(), blocking all callbacks. Moved to background daemon thread with result delivery back to event loop via run_in(..., 0). Job key staleness check added. Timing instrumentation added: 3MF_TIMING log line with connect/list/download/parse breakdown. First timing data: connect=2.0s list=5.5s download=4.3s total=11.9s files=77. (v1.0.4)
 - [x] Verify all 3 lifecycle phases in production — 11+ prints validated clean through v1.0.3. RFID delta, 3MF exact match, and depleted_nonrfid all confirmed working in production. (v1.0.4)
+- [ ] Stale path — print history files confirmed at apps/filament_iq/data/print_history/ not apps/data/print_history/ (confirmed live in production, fix pending)
+- [ ] Promote stage dashboard to prod once stable
 
 
 ### Done
+- [x] Filament IQ Manager — custom Preact Lovelace card with full CRUD for spools, filaments, vendors. Color dots, progress bars, material badges, ID badges, location badges, search + filter toolbar, archive empty spools, SpoolmanDB fuzzy search import. (v1.5.0)
+- [x] filament_iq_proxy — HA custom component proxying Spoolman REST API via WebSocket. Works through Nabu Casa. (v1.5.0)
+- [x] Reference dashboard + setup script — parameterized 3D Printer + Filament IQ views with interactive AMS configuration. setup-dashboard.sh generates configured YAML from printer serial. (v1.5.0)
+- [x] HACS resource repair script — fix-hacs-resources.mjs auto-discovers correct paths from filesystem. (v1.5.0)
+- [x] README.md — full installation guide with 5 screenshots, troubleshooting, architecture diagram. (v1.5.0)
+- [x] AMS offline detection — slot cards and AMS headers show "Disconnected" when AMS unit is offline. (v1.5.0)
+- [x] Reference Filament IQ dashboard — shipped as filament-iq-reference.yaml with setup-dashboard.sh for easy import. (v1.5.0)
 - [x] Depleted non-RFID spool detection — automatic consumption write when non-RFID slot depletes mid-print. Detects via trays_used + tray_state=Empty + tray_seconds guard. Consumes Spoolman remaining_weight to zero. (v0.13.0)
 - [x] Reconciler status helper — writes human-readable status to input_text.filament_iq_reconciler_status after each cycle (ok/warn/paused + counts + reason + time). (v0.12.6)
 - [x] 3MF single-filament force match — when trays_used has exactly one slot and 3MF has exactly one filament, match directly regardless of color/index. Fixes slicer index vs physical slot mismatch. (v0.12.6)
@@ -102,6 +113,8 @@
 
 | Version | Date | Summary |
 |---------|------|---------|
+| v1.5.0 | 2026-03-21 | Filament IQ Manager card, filament_iq_proxy component, reference dashboard, README, SpoolmanDB import |
+| v1.0.8 | 2026-03-19 | Runout split model revision — time-weighted primary, remaining-based fallback |
 | v1.0.7 | 2026-03-19 | Multi-spool runout split — remaining-based distribution, spool_id snapshot fallback |
 | v1.0.6 | 2026-03-18 | Partial lot_sig matching + auto-reconcile settling delay |
 | v1.0.5 | 2026-03-18 | Monitor added to repo (config-driven, deploy script) + rehydration job mismatch fix |

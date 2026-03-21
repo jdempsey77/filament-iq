@@ -1,262 +1,200 @@
-# FilamentIQ
+# Filament IQ
 
-> Slicer-exact filament tracking and visibility for Bambu Lab + Home Assistant + Spoolman
+**Deterministic filament identity and lifecycle management for Bambu Lab printers with Home Assistant, AppDaemon, and Spoolman.**
 
-FilamentIQ integrates Bambu Lab P1S printers with [Spoolman](https://github.com/Donkie/Spoolman) via Home Assistant and AppDaemon. It automatically tracks filament consumption per print using a three-tier allocation pipeline, manages spool identity (RFID and non-RFID), and writes usage to Spoolman.
+![Spool inventory with color dots, progress bars, and location badges](docs/screenshots/spools-list.png)
 
----
+## What it does
 
-## What It Does
+Filament IQ connects your Bambu Lab AMS to [Spoolman](https://github.com/Donkie/Spoolman) so every spool is tracked automatically. RFID spools are identified by tag. Non-RFID spools are matched by material and color. Filament consumption is recorded after every print. A custom Lovelace card gives you full spool, filament, and vendor management without leaving Home Assistant.
 
-### Three-Tier Allocation Pipeline
+## Screenshots
 
-FilamentIQ allocates consumption to AMS slots using a priority cascade:
+| | |
+|---|---|
+| ![Spool inventory](docs/screenshots/spools-list.png) **Spool inventory** — color dots, progress bars, material badges, location tags, search and filter toolbar | ![Add spool](docs/screenshots/spools-add.png) **Add a spool** — inline form with location dropdown |
+| ![SpoolmanDB import](docs/screenshots/spoolmandb-import.png) **SpoolmanDB import** — fuzzy search across 6,957+ filaments, auto-fills all fields | ![Edit filament](docs/screenshots/filaments-edit.png) **Edit filament** — inline editing with color preview |
+| ![3D Printer dashboard](docs/screenshots/printer-dashboard.png) **Printer dashboard** — live print status, camera feed, AMS slot monitoring with offline detection | |
 
-**Tier 1: 3MF file parsing** — After each print, the app FTPS into the printer's `/cache/` directory, downloads the 3MF file, and parses `Metadata/slice_info.config` for per-filament `used_g` values. This yields slicer-exact weights (~1% accuracy). No fuel gauge needed. Filaments are matched to physical slots by color + material; close color matches (Euclidean distance < 30) and material-only fallbacks are supported when exactly one slot matches.
+## Features
 
-**Tier 2: RFID fuel gauge delta** — Fallback for Bambu RFID spools. Uses `start_g - end_g` from tray fuel gauge snapshots. Resolution is coarse (~40g) but deterministic for single-RFID prints.
+- **Automatic filament consumption tracking** after every print via 3MF slicer data or RFID weight deltas
+- **RFID spool auto-identification** — Bambu RFID tags matched to Spoolman records
+- **Non-RFID matching** by material + color signature
+- **Filament IQ Manager card** — full Create/Read/Update/Delete for spools, filaments, and vendors
+- **SpoolmanDB import** — fuzzy search 6,957+ filaments from the community database, one-click import
+- **Location tracking** — AMS slots, Shelf, New, or custom locations with colored badges
+- **Smart filtering** — filter by vendor, material, location, or free-text search
+- **Archive empty spools** in one tap
+- **AMS offline detection** — slots show "AMS Offline" when a unit is disconnected
+- **Works via Nabu Casa** — all data flows through HA's authenticated WebSocket, no ports to expose
+- **AMS 2 Pro + AMS HT support** — any combination of 4-slot and 1-slot units
 
-**Tier 3: Time-weighted active slot estimation** — For non-RFID slots or when 3MF/RFID data is insufficient, consumption is split proportionally by how long each slot was active during the print. Typical error ~10–15%. Naturally captures purge tower waste because active duration includes purge time.
+## Requirements
 
-### Spool Identity Management
+- Home Assistant 2024.1+
+- [ha-bambulab](https://github.com/greghesp/ha-bambulab) integration (Bambu Lab printer integration)
+- [Spoolman](https://github.com/Donkie/Spoolman) v0.19+ (filament database)
+- [AppDaemon](https://github.com/AppDaemon/appdaemon) addon
+- [HACS](https://hacs.xyz/) (Home Assistant Community Store)
 
-- **RFID spools** — Matched by `tag_uid` (or `tray_uuid`) from ha-bambulab tray sensors. Identity is stored in Spoolman `lot_nr` as a 32-char hex. Automatic enrollment on first detection.
-- **Non-RFID spools** — Matched by color + material fingerprint (`type|filament_id|color_hex`). No manual assignment needed when the fingerprint is unique. Automatic enrollment on first detection.
-- **Fail-closed behavior** — Ambiguity (0 or >1 candidates) → slot stays UNBOUND. RFID Guard quarantines spools that violate identity invariants.
+**Required HACS frontend cards** (for the 3D Printer dashboard view):
 
----
+- [mushroom](https://github.com/piitaya/lovelace-mushroom)
+- [button-card](https://github.com/custom-cards/button-card)
+- [card-mod](https://github.com/thomasloven/lovelace-card-mod)
+- [layout-card](https://github.com/thomasloven/lovelace-layout-card)
+- [browser-mod](https://github.com/thomasloven/hass-browser_mod)
+
+> The Filament IQ Manager card itself has **no HACS dependencies**. It is a standalone Preact custom element.
+
+## Installation
+
+### 1. Clone the repo
+
+```bash
+git clone https://github.com/jdempsey77/filament-iq.git
+cd filament-iq
+```
+
+### 2. Install AppDaemon apps
+
+Copy the `appdaemon/apps/filament_iq/` directory to your AppDaemon apps directory:
+
+```bash
+scp -r appdaemon/apps/filament_iq/ \
+  root@homeassistant.local:/addon_configs/a0d7b954_appdaemon/apps/
+```
+
+Add entries from `appdaemon/apps/apps.yaml` to your own `apps.yaml`, updating:
+- `spoolman_url` to your Spoolman instance URL
+- `printer_serial` to your Bambu printer serial (uppercase)
+- `printer_model` to your printer model (e.g. `p1s`)
+
+### 3. Install the proxy component
+
+Copy `custom_components/filament_iq_proxy/` to your HA custom components:
+
+```bash
+scp -r custom_components/filament_iq_proxy/ \
+  root@homeassistant.local:/config/custom_components/
+```
+
+Add to your `configuration.yaml`:
+
+```yaml
+filament_iq_proxy:
+  spoolman_url: "http://localhost:7912"
+```
+
+Restart Home Assistant to load the component.
+
+### 4. Register the Lovelace card
+
+Copy the built card JS to your HA `www` directory:
+
+```bash
+scp packages/lovelace-card/dist/filament-iq-manager.js \
+  root@homeassistant.local:/config/www/
+```
+
+In Home Assistant, go to **Settings > Dashboards > Resources > Add Resource**:
+- URL: `/local/filament-iq-manager.js`
+- Type: JavaScript Module
+
+### 5. Set up the dashboard
+
+Run the interactive setup script:
+
+```bash
+./scripts/setup-dashboard.sh
+```
+
+It will ask for your printer serial and AMS configuration (type, index, name per unit). It generates a `filament-iq-dashboard.yaml` file ready to use.
+
+Copy the generated file to your HA config directory and add to `configuration.yaml`:
+
+```yaml
+lovelace:
+  dashboards:
+    filament-iq:
+      mode: yaml
+      title: Filament IQ
+      icon: mdi:brain
+      filename: filament-iq-dashboard.yaml
+```
+
+Restart Home Assistant.
+
+## AMS Configuration
+
+The setup script supports any combination of AMS units. Common configurations:
+
+| Unit | Slots | HA sensor prefix | ams_index |
+|------|-------|------------------|-----------|
+| AMS Pro/Lite (first) | 1-4 | `ams_0_` | 0 |
+| AMS Pro/Lite (second) | 5-8 | `ams_1_` | 1 |
+| AMS HT (first) | varies | `ams_128_` | 128 |
+| AMS HT (second) | varies | `ams_129_` | 129 |
+
+Find your AMS indices in HA: **Developer Tools > States** and search for `ams_`. The number in `sensor.p1s_XXXXX_ams_NUMBER_humidity` is your AMS index.
+
+## Using the card
+
+### Spools tab
+Full spool inventory with color dots, progress bars, material badges, and location tags. Click any row to expand the inline edit panel. Use the toolbar to search or filter by vendor, material, or location.
+
+### Filaments tab
+View and edit all filament definitions. Click **Import** to open SpoolmanDB fuzzy search — type a query like `bambu red pla` or `overture petg gray` and pick a result. All fields (density, diameter, weight, temperatures) are pre-filled. The vendor is auto-matched or created on import.
+
+### Vendors tab
+Add and edit filament vendors. Vendor count shows how many filaments reference each vendor.
+
+## Troubleshooting
+
+**Card shows "Loading..." permanently**
+The `filament_iq_proxy` component is not loaded. Verify it appears in HA: Developer Tools > Services > search for `filament_iq_proxy.api_call`. If missing, check that the component files are in `/config/custom_components/filament_iq_proxy/` and that `filament_iq_proxy:` is in your `configuration.yaml`. Restart HA after installing.
+
+**"Too Generic to auto-match" on a slot**
+A non-RFID spool matches multiple entries in Spoolman with the same material and color. Tap the slot card to manually select the correct spool. This is expected behavior.
+
+**SpoolmanDB import shows no results**
+The database loads on first open (6,957 entries). Wait for "Loading database..." to finish, then search. Use specific multi-word queries: `bambu red pla` works better than just `red`.
+
+**"Configuration error" on custom cards**
+HACS cards are missing or resource URLs are incorrect. Verify all required HACS cards are installed. Check **Settings > Dashboards > Resources** for correct paths.
+
+**AMS slots show "AMS Offline"**
+The AMS unit's humidity sensor is unavailable. Check the physical connection between the AMS and printer. The slot cards will recover automatically when the AMS reconnects.
 
 ## Architecture
 
 ```
-                    ┌──────────────┐
-                    │  Bambu P1S   │
-                    │  (printer)   │
-                    └──┬───┬───┬──┘
-                       │   │   │
-              FTPS/990 │   │   │ MQTT
-           ┌───────────┘   │   └────────────┐
-           │               │                │
-    ┌──────▼──────┐  ┌─────▼──────┐  ┌──────▼──────────┐
-    │  3MF File   │  │  Tray      │  │  Bambu HA       │
-    │  (slicer    │  │  Sensors   │  │  Integration    │
-    │   weights)  │  │  (color,   │  │  (print status, │
-    │             │  │   active)  │  │   task name)    │
-    └──────┬──────┘  └─────┬──────┘  └──────┬──────────┘
-           │               │                │
-           └───────┬───────┘                │
-                   │                        │
-            ┌──────▼────────────────────────▼──┐
-            │           AppDaemon               │
-            │  ┌─────────────────────────────┐  │
-            │  │  ams_print_usage_sync.py    │  │
-            │  │  - Tray tracking            │  │
-            │  │  - 3MF fetch + parse        │  │
-            │  │  - Color matching           │  │
-            │  │  - 3-tier allocation        │  │
-            │  │  - Spoolman REST writes     │  │
-            │  │  - Notifications            │  │
-            │  └─────────────────────────────┘  │
-            │  ┌─────────────────────────────┐  │
-            │  │  ams_rfid_reconcile.py      │  │
-            │  │  - Slot identity mgmt       │  │
-            │  │  - RFID tag matching        │  │
-            │  │  - Non-RFID fingerprinting  │  │
-            │  └─────────────────────────────┘  │
-            └──────────────┬────────────────────┘
-                           │
-                    ┌──────▼──────┐
-                    │  Spoolman   │
-                    │  (spool DB) │
-                    │  :7912      │
-                    └──────┬──────┘
-                           │
-                    ┌──────▼──────┐
-                    │ HA Dashboard│
-                    └─────────────┘
+Bambu Lab Printer (MQTT)
+       |
+       v
+ha-bambulab integration (HA entities)
+       |
+       v
+AppDaemon / filament_iq apps
+       |  urllib (HTTP)
+       v
+Spoolman (filament database)
+       |  REST API
+       v
+filament_iq_proxy (HA custom component)
+       |  HA WebSocket + events
+       v
+filament-iq-manager (Preact Lovelace card)
 ```
 
----
-
-## Prerequisites
-
-- Home Assistant OS or Supervised
-- [ha-bambulab](https://github.com/alandtse/ha-bambulab) installed via HACS
-- AppDaemon addon installed and running
-- Spoolman running and accessible from HA (default port 7912)
-- Bambu Lab printer with at least one AMS unit (any type or combination)
-- `curl` available on the HA host (for 3MF FTPS fetch)
-
----
-
-## Installation
-
-### 1. Install FilamentIQ via HACS
-
-- HACS → three-dot menu → Custom repositories
-- URL: `https://github.com/jdempsey77/filament-iq`, Category: **AppDaemon**
-
-### 2. HA Configuration (packages drop-in)
-
-Add to `configuration.yaml`:
-
-```yaml
-homeassistant:
-  packages: !include_dir_named packages/
-```
-
-Copy `ha-config/packages/filament_iq.yaml` to your HA config `packages/` directory.
-
-Replace placeholders in the package file:
-- `YOUR_SPOOLMAN_IP` → your Spoolman server IP (e.g. `192.168.1.250`)
-- `YOUR_PRINTER_SERIAL` → your Bambu P1S device serial (e.g. `01p00a1b2c3d4e5f`)
-
-Restart Home Assistant.
-
-### 3. Configure apps.yaml
-
-Add the FilamentIQ apps to your AppDaemon `apps.yaml`. See `apps/filament_iq/apps.yaml.example` for a ready-to-copy template.
-
-```yaml
-# apps.yaml — FilamentIQ configuration
-# Replace YOUR_PRINTER_IP and YOUR_SPOOLMAN_IP with your values.
-
-ams_print_usage_sync:
-  module: ams_print_usage_sync
-  class: AmsPrintUsageSync
-  enabled: true
-  spoolman_base_url: "http://YOUR_SPOOLMAN_IP:7912"
-  dry_run: false
-  printer_ip: "YOUR_PRINTER_IP"
-  access_code_entity: "input_text.bambu_printer_access_code"
-  threemf_enabled: true
-  # printer_access_code: ""  # optional; overrides entity if set
-
-ams_rfid_reconcile:
-  module: ams_rfid_reconcile
-  class: AmsRfidReconcile
-  enabled: true
-  spoolman_url: "http://YOUR_SPOOLMAN_IP:7912"
-  startup_delay_seconds: 60
-  debug_logs: false
-
-ams_rfid_guard:
-  module: ams_rfid_guard
-  class: AmsRfidGuard
-  enabled: true
-  spoolman_base_url: "http://YOUR_SPOOLMAN_IP:7912"
-  dry_run: false
-
-filament_weight_tracker:
-  module: filament_weight_tracker
-  class: FilamentWeightTracker
-  spoolman_url: "http://YOUR_SPOOLMAN_IP:7912"
-
-spoolman_dropdown_sync:
-  module: spoolman_dropdown_sync
-  class: SpoolmanDropdownSync
-  enabled: true
-  spoolman_base_url: "http://YOUR_SPOOLMAN_IP:7912"
-```
-
-**Important:** Edit `TRAY_ENTITY_BY_SLOT`, `ACTIVE_TRAY_ENTITY`, and `print_status` entity IDs in the source files to use your printer serial, or ensure your AppDaemon apps path uses a configurable entity prefix.
-
-### 4. Dashboard
-
-The dashboard is provided as YAML in `dashboard/filament_iq.yaml`. Because HA dashboards in storage mode cannot be deployed via script:
-
-- **Import via HA UI:** Settings → Dashboards → Add Dashboard → Import from YAML
-- Or paste into Settings → Dashboards → Raw configuration editor
-
-Replace `YOUR_PRINTER_SERIAL` in the dashboard YAML with your Bambu device serial.
-
----
-
-## Configuration Reference
-
-| Key | App | Required | Default | Description |
-|-----|-----|----------|---------|-------------|
-| `enabled` | all except filament_weight_tracker | No | `true` | Master enable/disable |
-| `spoolman_base_url` | ams_print_usage_sync, ams_rfid_guard, spoolman_dropdown_sync | Yes | — | Spoolman API base URL (e.g. `http://192.168.1.250:7912`) |
-| `spoolman_url` | ams_rfid_reconcile, filament_weight_tracker | Yes | — | Same as above; some apps use this key |
-| `dry_run` | ams_print_usage_sync, ams_rfid_guard | No | `false` | Log writes without calling Spoolman |
-| `printer_ip` | ams_print_usage_sync | Yes | — | Bambu printer LAN IP |
-| `access_code_entity` | ams_print_usage_sync | No | `input_text.bambu_printer_access_code` | HA entity for printer access code |
-| `printer_access_code` | ams_print_usage_sync | No | — | Override; if set, ignores entity |
-| `threemf_enabled` | ams_print_usage_sync | No | `true` | Enable 3MF parsing (Tier 1) |
-| `startup_delay_seconds` | ams_rfid_reconcile | No | `60` | Delay before first reconcile |
-| `debug_logs` | ams_rfid_reconcile | No | `false` | Extra logging |
-
-<details>
-<summary>Advanced configuration</summary>
-
-All advanced tuning keys have sensible defaults and rarely need changing. See the source of each app for full documentation.
-
-| Key | App | Default | Description |
-|-----|-----|---------|-------------|
-| `min_consumption_g` | ams_print_usage_sync | `2` | Skip writes below this (g) |
-| `max_consumption_g` | ams_print_usage_sync | `300` | Reject writes above this (g) |
-| `printer_ftps_port` | ams_print_usage_sync | `990` | FTPS port for 3MF fetch |
-| `startup_wait_helpers_seconds` | ams_rfid_reconcile | `420` | Max wait for HA helpers to be ready |
-| `startup_wait_retry_initial_seconds` | ams_rfid_reconcile | `2` | Initial retry interval for startup probe |
-| `startup_wait_retry_max_seconds` | ams_rfid_reconcile | `30` | Max retry interval |
-| `startup_probe_helper_entity` | ams_rfid_reconcile | `input_text.ams_slot_1_spool_id` | Entity probed for readiness |
-| `debounce_seconds` | ams_rfid_reconcile | `3` | Debounce tray/helper changes |
-| `safety_poll_seconds` | ams_rfid_reconcile | `600` | Periodic reconcile interval |
-| `strict_mode_reregister` | ams_rfid_reconcile | `false` | Strict mode for re-registration |
-| `color_distance_threshold` | ams_rfid_reconcile | `90` | RGB distance for "close" color match |
-| `evidence_log_path` | ams_rfid_reconcile | `/config/ams_rfid_reconcile_evidence.log` | Path for evidence log |
-| `scan_interval_seconds` | ams_rfid_guard | `300` | Scan interval for policy checks |
-| `notify_cooldown_minutes` | ams_rfid_guard | `360` | Min minutes between duplicate notifications |
-| `cache_sensor_entity` | ams_rfid_guard | `sensor.spoolman_spools_cache` | Optional cache trigger entity |
-| `use_cache_trigger` | ams_rfid_guard | `false` | Run scan on cache change |
-| `rfid_managed_patterns` | ams_rfid_guard | `["bambu", "bambu lab"]` | Regex patterns for RFID-managed filament |
-| `missing_ha_spool_uuid_mode` | ams_rfid_guard | `warn_only` | `warn_only` or `quarantine` |
-| `report_path` | filament_weight_tracker | `/config/filament_weight_reports.log` | Path for weight delta reports |
-
-</details>
-
----
-
-## Troubleshooting
-
-### 1. Helpers resetting on HA restart
-
-**Cause:** `initial:` in configuration for a FilamentIQ-managed helper overwrites runtime state.
-
-**Fix:** Remove all `initial:` from helpers in `filament_iq.yaml` package for reconciler-owned fields (e.g. `ams_slot_*_spool_id`, `ams_slot_*_status`, `ams_slot_*_expected_spool_id`). Keep `initial` only where a default is intended (e.g. `p1s_slot_to_spool_binding_json: "{}"`).
-
-### 2. RFID spool recognized inconsistently
-
-**Cause:** Some Bambu spools have dual NFC chips reporting different UIDs by orientation.
-
-**Fix:** FilamentIQ uses `tray_uuid` as primary identity. Ensure the spool is seated consistently. If recognition flips, try rotating the spool 180° and re-seating.
-
-### 3. Non-RFID slots not tracked
-
-**Cause:** Legacy HA automation still enabled (e.g. `p1s_record_trays_used_during_print`).
-
-**Fix:** Disable any pre-existing tray tracking automations; AppDaemon handles tray tracking and avoids mode:restart race conditions.
-
-### 4. Dashboard not updating after file deploy
-
-**Cause:** Dashboard is in HA storage mode.
-
-**Fix:** Import via HA UI (Settings → Dashboards → Add Dashboard → Import from YAML) or edit via Settings → Dashboards → Raw configuration editor.
-
-### 5. AppDaemon logs truncated
-
-**Cause:** Supervisor keeps ~100 lines only.
-
-**Fix:** Enable file-based logging in AppDaemon configuration or `apps.yaml` so logs persist to disk.
-
-### 6. 3MF fetch fails (no Tier 1 allocation)
-
-**Cause:** `curl` not found, wrong printer IP, or access code invalid.
-
-**Fix:** Ensure `curl` is available on the HA host. Verify `printer_ip` and `access_code_entity` (or `printer_access_code`). Check AppDaemon logs for FTPS errors.
-
----
+**Data flow:**
+1. Bambu printer publishes state via MQTT
+2. ha-bambulab creates HA entities (tray status, print progress, etc.)
+3. AppDaemon apps monitor print lifecycle, match spools, record consumption
+4. Spoolman stores all filament/spool data via REST API
+5. The custom component proxies browser requests to Spoolman through HA's WebSocket
+6. The Preact card renders the UI and calls the proxy for all CRUD operations
 
 ## License
 

@@ -1,88 +1,85 @@
 # Changelog
 
-## [0.10.1] - 2026-03-12
+## [1.5.0] — 2026-03-21
 
-### Fixed
-- **Write-ahead dedup permanent data loss**: `_persist_seen_job_keys()` was called BEFORE `_spoolman_use()` writes. If Spoolman timed out, the job was permanently deduped with no retry possible — silent consumption loss. Dedup now persists AFTER the write loop, gated on `write_failed == 0`. Failed writes leave the job key unpersisted so the next print-finish event retries all slots.
-
-### Tests
-- 695 tests passing (up from 693 at v0.10.0)
-- 2 new dedup tests: `test_spoolman_failure_does_not_dedup`, `test_spoolman_success_persists_dedup`
-
-## [0.10.0] - 2026-03-12
-
-### Fixed
-- **RFID_IDENTITY_STUCK false positive**: enrolled spools with matching `lot_nr == tray_uuid` no longer flagged stuck after AppDaemon restart + 60s. The `_rfid_matches_spool` check now runs before the stuck gate instead of inside it.
-- **Sanity cap blocking large prints**: `max_consumption_g` raised from 300g to 1000g. A 484g Big Crate print was silently skipped. 1000g matches the P1S single spool physical maximum.
+### Added
+- **Filament IQ Manager** — custom Preact Lovelace card for full spool,
+  filament, and vendor management without leaving Home Assistant
+- **filament_iq_proxy** — HA custom component proxying Spoolman API via
+  WebSocket (works with Nabu Casa remote access)
+- **SpoolmanDB import** — fuzzy search across 6,957+ filaments with
+  one-click import to filament library
+- **Location filter** — filter spool list by All / In AMS / Shelf /
+  New / Unassigned
+- **Location badge** — colored pill on each spool row showing actual
+  AMS slot or storage location
+- **AMS offline state** — AMS section headers and slot cards show
+  "Disconnected" state when AMS unit is offline
+- **Refresh button** — card header refresh to re-fetch all Spoolman data
+- **Archive empty spools** — one-tap archive with confirm dialog
+- **Spool ID badge** — monospace #ID badge on each spool row
+- **Reference dashboard** — parameterized 3D Printer + Filament IQ views
+  for new user setup (dashboards/filament-iq-reference.yaml)
+- **Setup script** — interactive setup-dashboard.sh generates configured
+  dashboard YAML from printer serial and AMS configuration
+- **HACS resource repair script** — fix-hacs-resources.mjs auto-discovers
+  correct HACS paths from filesystem
+- **README.md** — full installation guide with screenshots,
+  troubleshooting, and architecture diagram
 
 ### Changed
-- **"New" spools visible in dropdown**: Spools with `location=New` now appear in the slot assign dropdown, allowing fresh spools to be bound without manually editing Spoolman location first.
-- `tray_uuid` added to all `UNBOUND_REASON` log lines alongside `tag_uid` for improved diagnostics.
-- Mock patch paths in tests corrected from `appdaemon.apps.filament_iq.*` to `filament_iq.*` for CI compatibility.
+- Renamed "Filament Manager" to "Filament IQ" throughout (button, view
+  title, card header)
+- Reload button moved from 3D Printer page to Filament IQ card header
+- Location display promoted from sub-line text to prominent colored badge
+- Confirm dialog uses position:fixed — visible regardless of scroll position
 
-### Tests
-- 693 tests passing (up from 688 at v0.9.0)
-- 3 new RFID stuck detection tests: false positive prevention, unmatched tag fires, stuck clears on match
-- 2 new sanity cap tests: 484g passes, 1001g blocked
-- `conftest.py` added for CI `sys.path` setup
-
-## [0.9.0] - 2026-03-11
-
-### Added
-- **RFID ↔ Spoolman weight reconciler**: after every successful print finish, RFID slots are reconciled against Spoolman. RFID sensor is always ground truth (no threshold). Per-slot isolation, negative remain guard, dry_run safe. 9 tests.
-- 3MF fetch race guard: wait up to 15s for 3MF data before processing print finish
-- Batch Spoolman fetch: single `GET /api/v1/spool?limit=1000` replaces ~12 individual GETs per print finish
-- Smart empty guard: physical tray presence check (tag_uid / tray state) before moving depleted spool to Empty
-- Scoped unbound-slot warning to actively-used trays only (10s delay after print start)
-- `_SUCCESS_STATES` allowlist: 3MF consumption only written on `gcode_state=finish`. Prevents overcounting on cancelled/failed/short prints.
-- Unique job key with timestamp suffix (F5)
-- Tray duration filter `min_tray_active_seconds` (F7)
-- `trays_used` passed to 3MF matcher (F3)
-- `cancelled` gcode_state variant handled (F10)
-- FTPS retry extended: 4 attempts, 110s total window
-- `unavailable`/`unknown` states added to `_FAILED_STATES`
+### Removed
+- Duplicate AMS slot status chips card from 3D Printer page
+- Redundant "Filaments" and "Spools" nav buttons (pointed to deleted subviews)
+- Old Filament Library and Spool Inventory dashboard subviews
+- AppDaemon spoolman_proxy.py (replaced by filament_iq_proxy custom component)
 
 ### Fixed
-- `_active_run` not reset in finally (`ams_rfid_reconcile.py`): Spoolman outage no longer permanently blocks reconciler
-- `seen_job_keys.json` atomic write: crash-safe dedup via `tempfile` + `os.replace()`
-- Write-ahead dedup: persist `seen_job_keys` before Spoolman writes (crash between write and persist no longer causes double-charge)
-- Non-blocking finish wait: `run_in` chain replaces `time.sleep` (F2)
+- HACS resource paths corrected after storage file corruption
+  (lovelace-mushroom, lovelace-card-mod, lovelace-layout-card, etc.)
+- Service worker cache-busting via ?v=timestamp suffix on card resource URL
+- Confirm dialog invisible when user scrolled to bottom of spool list
+- WebSocket event subscription leak (unsubscribe after response received)
 
-### Changed (Breaking)
-- **Removed pool_g / time-weighted / equal_split estimation** — usage pipeline now has exactly two write paths: RFID fuel gauge delta and 3MF slicer match. Slots with neither are logged (`USAGE_NO_EVIDENCE`) and skipped. Under-count is acceptable; phantom charges are eliminated.
+## [1.0.0] — 2026-03-15
+
+### Architecture
+- New consumption_engine.py: pure decision engine, zero AppDaemon dependency
+- Five-phase pipeline: collect → decide → execute → notify → finalize
+- 3MF fetched at print start (10s delay, retries to +160s from start)
+  Eliminates finish-line race — _finish_wait_tick deleted
+- active_print.json written at three lifecycle points:
+  print start, 3MF fetch success, all retries failed
+- Print history persisted to data/print_history/{job_key}.json
+  Last 50 prints retained
+
+### Bug Fixes
+- RFID delta now always wins over 3MF for RFID spools [Bug 13]
+- Depleted spool location always PATCHed to Empty after write [Bugs 14/15]
+- Notification shows post-write remaining, not pre-write cache [Bug 16]
+- slot_position_material matching tier removed — 0-based index ≠ 1-based slot [Bug 11]
+- normalize_color() lowercase handling fixed for 8-char hex [Bug 10]
+- Negative RFID delta clamped to 0 (sensor glitch protection)
+- _finish_wait_tick 15s timeout race eliminated by start-time 3MF fetch [Bug 6]
 
 ### Tests
-- 688 tests passing (up from ~580 at v0.8.0)
-- New test files: `test_ams_rfid_guard.py`, `test_filament_weight_tracker.py`, `test_spoolman_dropdown_sync.py`
-- Test harness drift fixed: `_TestableUsageSync` mirrors real `initialize()` attributes
-- `_spoolman_patch` and `_persist_seen_job_keys` mocked in test harness
-- 46 new tests covering previously zero-coverage modules
+- New test_consumption_engine.py: 27 pure unit tests, no mocking required
+  12-scenario parametrized matrix covers all decision paths
+- New test_print_lifecycle.py: print start/end lifecycle coverage
+- New test_spoolman_writes.py: write execution with SpoolmanRecorder assertions
+- Deleted test_print_usage_sync.py: superseded
+- SpoolmanRecorder fixture added to conftest.py
+- test_rfid_slot_uses_rfid_delta_not_3mf: permanent Bug 13 regression guard
 
-### Security
-- `_spoolman_patch` now mocked in test harness (prevents real HTTP in tests)
-- `seen_job_keys.json` atomic write prevents corruption on crash
-- Shell script quoting hardened
-
-## [0.8.0] - 2026-03-09
-### Fixed
-- Phantom consumption: skip Spoolman writes for failed/cancelled/error prints
-- Phantom consumption: zero fuel-gauge-delta guard prevents slicer estimate from becoming false pool
-- Dedup: failed prints no longer stamp `_last_processed_job_key`, allowing retry with same job key
-
-### Added
-- Native FTPS fetch via `ftplib.FTP_TLS` with implicit TLS (replaces curl subprocesses, ~40% faster)
-- `slot_position_material` match tier (2.75) in 3MF matcher — matches by filament index → AMS slot + material when color tiers fail
-- Config toggle `threemf_fetch_method: native|curl` (default: native)
-
-### Changed
-- Renamed `SLOT_ASSIGNED_NO_LOT_SIG` → `SLOT_ASSIGNED_LOT_SIG_EXISTS` log message in reconciler
-
-## [0.1.0] - TBD
-### Added
-- Initial public release
-- Filament consumption tracking (RFID fuel gauge delta, 3MF slicer-exact matching)
-- Spool identity management for RFID and non-RFID spools
-- Automatic spool enrollment on first detection
-- Spoolman consumption sync after each print
-- HA dashboard with per-slot status, filament color bars, and active slot highlighting
-- Support for AMS 2 Pro and AMS HT units in any combination
+### SDLC
+- docs/agents/07_code_review_agent.md: v1.0 domain rules
+- R2 Tester: test style invariants (parametrize, SpoolmanRecorder, docstrings)
+- docs/agents/01_orchestrator_agent.md: ENGINE_CLEAN gate added
+- docs/06_weight_tracking.md: rewritten for v1.0 architecture
+- docs/01_architecture.md: lifecycle and decision tree diagrams added

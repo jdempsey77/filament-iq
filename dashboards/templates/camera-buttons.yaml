@@ -1,0 +1,95 @@
+      - type: grid
+        cards:
+          # Printer camera — shows live feed from Bambu's built-in camera
+          # Add your own external camera card here if desired
+          - show_state: false
+            show_name: false
+            camera_view: live
+            fit_mode: cover
+            type: picture-entity
+            entity: camera.p1s_your_printer_serial_camera
+            card_mod:
+              style: |
+                background: #2c2c2e !important;
+                ha-card {
+                  border: 1px solid #3a3a3c !important;
+                  border-radius: 12px !important;
+                  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.7) !important;
+                }
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: custom:button-card
+                name: Reconcile
+                show_icon: true
+                icon: mdi:sync
+                show_state: false
+                tap_action:
+                  action: call-service
+                  service: script.reconcile_all_ams_slots
+                  data: {}
+                styles:
+                  card:
+                    - padding: 11px 14px
+                    - border-radius: 10px
+                    - box-shadow: none
+                    - border: 1px solid
+                    - background: '#2c2c2e'
+                  grid:
+                    - grid-template-areas: '"i n"'
+                    - grid-template-columns: min-content 1fr
+                    - align-items: center
+                    - column-gap: 11px
+                  icon:
+                    - width: 18px
+                    - color: '#3b9fd8'
+                    - opacity: '0.6'
+                    - filter: none
+                  name:
+                    - font-size: 13px
+                    - text-align: left
+                    - justify-self: start
+                    - color: '#e8e8ea'
+                card_mod:
+                  style: |
+                    ha-card {
+                      border: 1px solid #3a3a3c !important;
+                      box-shadow: none !important;
+                    }
+              - type: custom:button-card
+                name: Filament IQ
+                show_icon: true
+                icon: mdi:brain
+                show_state: false
+                tap_action:
+                  action: navigate
+                  navigation_path: /lovelace/filament-manager
+                styles:
+                  card:
+                    - padding: 11px 14px
+                    - border-radius: 10px
+                    - box-shadow: none
+                    - border: 1px solid
+                    - background: '#2c2c2e'
+                  grid:
+                    - grid-template-areas: '"i n"'
+                    - grid-template-columns: min-content 1fr
+                    - align-items: center
+                    - column-gap: 11px
+                  icon:
+                    - width: 18px
+                    - color: '#0a84ff'
+                    - opacity: '0.8'
+                    - filter: none
+                  name:
+                    - font-size: 13px
+                    - text-align: left
+                    - justify-self: start
+                    - color: '#e8e8ea'
+                card_mod:
+                  style: |
+                    ha-card {
+                      border: 1px solid #3a3a3c !important;
+                      box-shadow: none !important;
+                    }
