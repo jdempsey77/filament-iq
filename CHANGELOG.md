@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.5.1] — 2026-03-21
+
+### Added
+- Brand identity: Filament IQ logo mark (face-on spool cross-section, blue `#5B8AF0` + orange `#F97316`)
+- `docs/filament-iq-banner.svg` — README banner (700×140, dark background, wordmark + tagline)
+- `docs/filament-iq-logo.svg` — standalone icon mark (72×72)
+- `FilamentIQLogo.jsx` — inline SVG logo component in Lovelace card header (28px, icon + stacked wordmark)
+
+### Changed
+- Card header: replaced plain text title with `<FilamentIQLogo>` component
+- Reference dashboard: removed duplicate "Filament IQ" nav bar title from `filament-manager` subview (`title: " "`)
+- README: top-level heading replaced with banner image
+
+### Build
+- Bundle size: 54.45 KB (unchanged from v1.5.0)
+
 ## [1.5.0] — 2026-03-21
 
 ### Added

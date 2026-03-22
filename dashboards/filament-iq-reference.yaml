@@ -2059,7 +2059,7 @@ views:
                         }
 
     cards: []
-  - title: Filament IQ
+  - title: " "
     path: filament-manager
     icon: mdi:brain
     type: panel
