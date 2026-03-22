@@ -1,4 +1,8 @@
-# Filament IQ
+<p align="center">
+  <img src="docs/filament-iq-banner.svg" alt="Filament IQ" width="700"/>
+</p>
+
+<br/>
 
 **Deterministic filament identity and lifecycle management for Bambu Lab printers with Home Assistant, AppDaemon, and Spoolman.**
 
