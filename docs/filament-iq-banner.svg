@@ -25,5 +25,5 @@
   <!-- Tagline -->
   <text x="440" y="54" font-family="system-ui,-apple-system,sans-serif" font-size="13" font-weight="400" fill="rgba(255,255,255,0.45)" dominant-baseline="middle">Filament identity &amp; lifecycle</text>
   <text x="440" y="74" font-family="system-ui,-apple-system,sans-serif" font-size="13" font-weight="400" fill="rgba(255,255,255,0.45)" dominant-baseline="middle">management for Bambu Lab printers</text>
-  <text x="440" y="100" font-family="system-ui,-apple-system,sans-serif" font-size="11" font-weight="500" fill="#F97316" dominant-baseline="middle" opacity="0.75">v1.5.0</text>
+  <text x="440" y="100" font-family="system-ui,-apple-system,sans-serif" font-size="11" font-weight="500" fill="#F97316" dominant-baseline="middle" opacity="0.75">v1.5.1</text>
 </svg>
