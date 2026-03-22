@@ -6,6 +6,7 @@ import { StatsBar } from './components/StatsBar'
 import { SpoolsTab } from './components/SpoolsTab'
 import { FilamentsTab } from './components/FilamentsTab'
 import { VendorsTab } from './components/VendorsTab'
+import { FilamentIQLogo } from './components/FilamentIQLogo'
 
 export function FilamentIQCard({ hass, getHass }) {
   const [activeTab, setActiveTab] = useState('spools')
@@ -30,7 +31,7 @@ export function FilamentIQCard({ hass, getHass }) {
       <div class="fiq-topbar">
         <span class="fiq-title">
           <span class="fiq-dot" />
-          Filament IQ
+          <FilamentIQLogo height={28} showWordmark={true} />
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button class="fiq-btn-refresh" onClick={() => data.refresh()} title="Reload from Spoolman">↺</button>
