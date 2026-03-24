@@ -114,6 +114,9 @@ class AmsPrintUsageSync(FilamentIQBase):
         self.min_consumption_g = float(self.args.get("min_consumption_g", 2))
         self.max_consumption_g = float(self.args.get("max_consumption_g", 1000))
         self.auto_empty_spools = bool(self.args.get("auto_empty_spools", False))
+        self.auto_archive_depleted_spools = bool(
+            self.args.get("auto_archive_depleted_spools", False)
+        )
         self.min_tray_active_seconds = float(self.args.get("min_tray_active_seconds", 10))
         self._seen_job_keys = self._load_seen_job_keys()
         self._ensure_data_dir()
@@ -549,6 +552,23 @@ class AmsPrintUsageSync(FilamentIQBase):
                         f"— location → Empty",
                         level="WARNING",
                     )
+                    if self.auto_archive_depleted_spools:
+                        try:
+                            self._spoolman_patch(
+                                decision.spool_id, {"archived": True}
+                            )
+                            self.log(
+                                f"SPOOL_ARCHIVED slot={decision.slot} "
+                                f"spool_id={decision.spool_id} "
+                                f"remaining={decision.post_write_remaining:.1f}",
+                                level="INFO",
+                            )
+                        except Exception as e:
+                            self.log(
+                                f"SPOOL_ARCHIVE_FAILED slot={decision.slot} "
+                                f"spool_id={decision.spool_id}: {e}",
+                                level="WARNING",
+                            )
                     if (
                         self.auto_empty_spools
                         and not self._is_tray_physically_present(decision.slot)
@@ -854,8 +874,20 @@ class AmsPrintUsageSync(FilamentIQBase):
         snapshot = {}
         for slot in sorted(self._tray_entity_by_slot.keys()):
             grams = self._read_fuel_gauge(slot)
-            if grams >= 0:
-                snapshot[slot] = max(0.0, round(grams, 1))
+            if grams < 0:
+                continue
+            grams = max(0.0, round(grams, 1))
+            if grams == 0.0:
+                spool_id = self._read_spool_id(slot)
+                if spool_id > 0 and self._is_tray_physically_present(slot):
+                    self.log(
+                        f"SNAPSHOT_IMPLAUSIBLE slot={slot} spool_id={spool_id} "
+                        f"fuel_gauge=0.0 — excluding from snapshot "
+                        f"(fuel gauge stale or uninitialized)",
+                        level="WARNING",
+                    )
+                    continue
+            snapshot[slot] = grams
         return snapshot
 
     def _snapshot_to_json_dict(self, snapshot):
@@ -1102,10 +1134,15 @@ class AmsPrintUsageSync(FilamentIQBase):
             and status in self._SUCCESS_STATES
         ):
             slot_data = self._build_slot_data(spools_cache=spools_cache)
+            # Rehydrated prints have incomplete _trays_used (tray tracking
+            # lost across restart). Pass None to disable the slot filter
+            # and let color/material matching work across all candidates.
+            # active_slots still gates which slots enter _collect_print_inputs.
+            _matcher_trays = None if self._rehydrated else (self._trays_used or None)
             matches, unmatched = match_filaments_to_slots(
                 self._threemf_data,
                 slot_data,
-                trays_used=self._trays_used or None,
+                trays_used=_matcher_trays,
             )
             for m in matches:
                 threemf_matched_slots[m["slot"]] = (m["used_g"], m["method"])
@@ -1121,6 +1158,21 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"total_g={unmatched_total:.2f}",
                     level="WARNING",
                 )
+            # For rehydrated prints, active_slots narrowing ran before matching
+            # and may have excluded slots active pre-restart. Re-admit any slot
+            # the 3MF matcher identified as having real consumption.
+            if self._rehydrated and matches:
+                readmitted = set()
+                for m in matches:
+                    if m["slot"] not in self._trays_used:
+                        self._trays_used.add(m["slot"])
+                        readmitted.add(m["slot"])
+                if readmitted:
+                    self.log(
+                        f"REHYDRATE_READMIT_SLOTS slots={sorted(readmitted)} "
+                        f"trays_used={sorted(self._trays_used)}",
+                        level="INFO",
+                    )
         elif status not in self._SUCCESS_STATES:
             self.log(
                 f"3MF_SUPPRESSED_NON_SUCCESS status={status} "
@@ -1278,6 +1330,21 @@ class AmsPrintUsageSync(FilamentIQBase):
                             f"REHYDRATE_START_SNAPSHOT_RECOVERED from helper: {self._start_snapshot}",
                             level="INFO",
                         )
+                        implausible = [
+                            slot for slot, g in self._start_snapshot.items()
+                            if g == 0.0
+                            and self._read_spool_id(slot) > 0
+                            and self._is_tray_physically_present(slot)
+                        ]
+                        for slot in implausible:
+                            self.log(
+                                f"SNAPSHOT_IMPLAUSIBLE_REHYDRATE slot={slot} "
+                                f"spool_id={self._read_spool_id(slot)} "
+                                f"— removed from recovered snapshot "
+                                f"(fuel gauge stale in helper)",
+                                level="WARNING",
+                            )
+                            del self._start_snapshot[slot]
             except Exception as e:
                 self.log(f"REHYDRATE: Failed to recover start_json: {e}", level="WARNING")
             if not recovered:

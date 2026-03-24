@@ -100,6 +100,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self.max_consumption_g = float(a.get("max_consumption_g", 1000))
         self.min_tray_active_seconds = float(a.get("min_tray_active_seconds", 10))
         self.auto_empty_spools = bool(a.get("auto_empty_spools", False))
+        self.auto_archive_depleted_spools = bool(a.get("auto_archive_depleted_spools", False))
         self._seen_job_keys = OrderedDict()
         self._trays_used = set()
         self._tray_active_times = {}
@@ -1661,6 +1662,102 @@ class TestBuildStartEndSnapshot:
         snap = app._build_end_snapshot()
         assert 1 in snap
         assert 2 not in snap
+
+
+class TestSnapshotPlausibility:
+    """Snapshot trust validation — Shape 1: 0.0g on bound+loaded slot."""
+
+    def test_implausible_excluded_bound_slot_zero(self):
+        """Bound slot reading 0.0 is excluded from snapshot."""
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_tray_2_fuel_gauge_remaining": "0.0",
+            "input_text.ams_slot_2_spool_id": "20",
+        })
+        # Make tray physically present via RFID tag
+        app._state_map.update(_rfid_tag_uid_for_slots(app, [2]))
+        snap = app._build_start_snapshot()
+        assert 2 not in snap, f"implausible slot 2 should be excluded, got {snap}"
+        assert _has_log(app, "SNAPSHOT_IMPLAUSIBLE")
+        assert _has_log(app, "slot=2")
+
+    def test_valid_kept_unbound_slot_zero(self):
+        """Unbound slot reading 0.0 is kept in snapshot."""
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_tray_2_fuel_gauge_remaining": "0.0",
+            "input_text.ams_slot_2_spool_id": "0",
+        })
+        snap = app._build_start_snapshot()
+        assert 2 in snap, f"unbound slot 2 at 0.0 should stay in snapshot"
+        assert snap[2] == 0.0
+        assert not _has_log(app, "SNAPSHOT_IMPLAUSIBLE")
+
+    def test_valid_kept_bound_slot_nonzero(self):
+        """Bound slot reading 450.0 is kept normally."""
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_tray_2_fuel_gauge_remaining": "450.0",
+            "input_text.ams_slot_2_spool_id": "20",
+        })
+        app._state_map.update(_rfid_tag_uid_for_slots(app, [2]))
+        snap = app._build_start_snapshot()
+        assert 2 in snap
+        assert snap[2] == 450.0
+        assert not _has_log(app, "SNAPSHOT_IMPLAUSIBLE")
+
+    def test_rehydrate_helper_recovery_removes_stale_zero(self):
+        """Stale 0.0 in HA helper JSON is removed during rehydration."""
+        app = _TestableUsageSync(
+            state_map={
+                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "input_text.filament_iq_start_json": '{"2": 0.0, "3": 550.0}',
+                "sensor.p1s_01p00c5a3101668_task_name": "test_model",
+                "input_text.filament_iq_active_job_key": "",
+                "input_text.ams_slot_2_spool_id": "20",
+                "input_text.ams_slot_3_spool_id": "30",
+            },
+            args={"lifecycle_phase1_enabled": True},
+        )
+        # Slot 2: bound + physically present → 0.0 is implausible
+        app._state_map.update(_rfid_tag_uid_for_slots(app, [2]))
+        app._rehydrate_print_state()
+        assert 2 not in app._start_snapshot, (
+            f"stale 0.0 for slot 2 should be removed, got {app._start_snapshot}"
+        )
+        assert 3 in app._start_snapshot
+        assert app._start_snapshot[3] == 550.0
+        assert _has_log(app, "SNAPSHOT_IMPLAUSIBLE_REHYDRATE")
+
+    def test_end_to_end_excluded_slot_produces_data_loss(self):
+        """Excluded RFID slot produces explicit DATA_LOSS, not silent BELOW_MIN."""
+        app = _TestableUsageSync(
+            state_map={
+                "input_text.ams_slot_2_spool_id": "20",
+                "sensor.p1s_tray_2_fuel_gauge_remaining": "280.0",
+            },
+            args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
+        )
+        app._state_map.update(_rfid_tag_uid_for_slots(app, [2]))
+        app._job_key = "snapshot_e2e_test"
+        # Simulate: slot 2 excluded from snapshot (fuel gauge was 0.0 at start)
+        app._start_snapshot = {}  # slot 2 excluded
+        app._spool_id_snapshot = {2: 20}
+        app._trays_used = {2}
+        app._print_active = True
+        app.threemf_enabled = False
+
+        from conftest import SpoolmanRecorder
+        recorder = SpoolmanRecorder()
+        app._spoolman_use = recorder.use
+        app._spoolman_patch = recorder.patch
+
+        app._do_finish("finish")
+
+        # Slot 2 should NOT be written to Spoolman
+        recorder.assert_not_used(20)
+        # Should log explicit DATA_LOSS, not BELOW_MIN
+        assert _has_log(app, "USAGE_NO_EVIDENCE")
+        assert _has_log(app, "DATA_LOSS")
+        assert not any("BELOW_MIN" in msg and "slot=2" in msg
+                       for msg, _ in app._log_calls)
 
 
 class TestSeedSlotStartGrams:

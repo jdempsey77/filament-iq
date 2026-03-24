@@ -1,20 +1,31 @@
 # Changelog
 
-## [1.5.1] — 2026-03-21
+## [1.5.2] — 2026-03-24
 
 ### Added
-- Brand identity: Filament IQ logo mark (face-on spool cross-section, blue `#5B8AF0` + orange `#F97316`)
-- `docs/filament-iq-banner.svg` — README banner (700×140, dark background, wordmark + tagline)
-- `docs/filament-iq-logo.svg` — standalone icon mark (72×72)
-- `FilamentIQLogo.jsx` — inline SVG logo component in Lovelace card header (28px, icon + stacked wordmark)
+- **EOL spool auto-archive** — new `auto_archive_depleted_spools` config flag
+  (default: false). When enabled, automatically PATCHes `{"archived": true}`
+  to Spoolman when a spool's post-write remaining drops to 0g. Archive failure
+  is caught as WARNING and never blocks the unbind pipeline.
 
-### Changed
-- Card header: replaced plain text title with `<FilamentIQLogo>` component
-- Reference dashboard: removed duplicate "Filament IQ" nav bar title from `filament-manager` subview (`title: " "`)
-- README: top-level heading replaced with banner image
+### Fixed
+- **3MF_UNMATCHED data loss on rehydrated prints** — when AppDaemon restarted
+  mid-print, `active_slots` narrowing ran before 3MF matching and excluded
+  slots whose tray tracking was lost across the restart. Non-RFID consumption
+  was silently dropped as `no_evidence`. Fix: pass `trays_used=None` to
+  `match_filaments_to_slots` when rehydrated (disables incomplete slot filter),
+  then readmit 3MF-matched slots into `_trays_used` for write processing.
+  Confirmed data loss: 43.6g (2026-03-15), 9.65g (2026-03-24).
+- **Snapshot trust validation** — `_build_start_snapshot` now excludes RFID
+  slots where fuel gauge reads 0.0 but spool is bound and physically present
+  (stale/uninitialized sensor). Logs `SNAPSHOT_IMPLAUSIBLE` at WARNING.
+  Rehydration helper-recovery path also validated. Excluded slots produce
+  explicit `DATA_LOSS: start_g not captured` instead of silent `BELOW_MIN`.
 
-### Build
-- Bundle size: 54.45 KB (unchanged from v1.5.0)
+### Tests
+- 4 new regression tests for rehydrated print 3MF matching
+- 5 new tests for EOL spool auto-archive
+- 5 new tests for snapshot plausibility validation (1159 total)
 
 ## [1.5.0] — 2026-03-21
 
