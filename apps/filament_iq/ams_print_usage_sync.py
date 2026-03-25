@@ -83,6 +83,11 @@ RECONCILE_MIN_DELTA_G = 5.0 # remain% is integer 0-100; on 1000g spool, resoluti
 # tag_uid values that indicate non-RFID (no chip or empty)
 _INVALID_TAG_UIDS = frozenset({"", "0000000000000000", "unknown", "unavailable"})
 
+# 3MF methods where finishing_share is authoritative even for RFID slots.
+# On rehydrated prints the RFID delta is stale (start_g rebuilt from fuel
+# gauge mid-print ≈ end_g), so the runout split result must take precedence.
+_RUNOUT_SPLIT_METHODS = frozenset({"runout_split", "runout_split_depleted"})
+
 
 class AmsPrintUsageSync(FilamentIQBase):
 
@@ -432,11 +437,14 @@ class AmsPrintUsageSync(FilamentIQBase):
             )
             end_g = end_raw if end_raw >= 0 else None
 
-            # 3MF data — suppressed for RFID slots (hardware truth wins)
+            # 3MF data — suppressed for RFID slots (hardware truth wins),
+            # EXCEPT runout_split methods where RFID delta is stale on
+            # rehydrated prints (start_g rebuilt from fuel gauge ≈ end_g).
             threemf_used_g = None
             threemf_method = None
             if slot in threemf_matched_slots:
-                if is_rfid:
+                _, candidate_method = threemf_matched_slots[slot]
+                if is_rfid and candidate_method not in _RUNOUT_SPLIT_METHODS:
                     self.log(
                         f"3MF_SUPPRESSED_FOR_RFID slot={slot} spool_id={spool_id} "
                         f"— RFID delta takes precedence over slicer estimate",
@@ -462,10 +470,15 @@ class AmsPrintUsageSync(FilamentIQBase):
                             fetched.get("remaining_weight") or 0
                         )
 
+            # For runout split on RFID slots, route through non-RFID engine
+            # path so threemf_used_g (finishing_share) is used instead of the
+            # stale RFID delta from a rehydrated start snapshot.
+            effective_rfid = is_rfid and threemf_method not in _RUNOUT_SPLIT_METHODS
+
             inputs.append(SlotInput(
                 slot=slot,
                 spool_id=spool_id,
-                is_rfid=is_rfid,
+                is_rfid=effective_rfid,
                 tray_empty=tray_empty,
                 tray_active_seconds=tray_active_seconds,
                 start_g=start_g,
