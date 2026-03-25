@@ -17,6 +17,7 @@ Fail-closed behavior:
 
 import datetime
 import json
+import logging
 import math
 import os
 import re
@@ -26,6 +27,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import hassapi as hass
@@ -3974,8 +3976,7 @@ class AmsRfidReconcile(FilamentIQBase):
         if not self.evidence_log_enabled:
             return
         try:
-            with open(self.evidence_log_path, "a", encoding="utf-8") as handle:
-                handle.write(json.dumps(summary, sort_keys=True) + "\n")
+            self._evidence_logger.info(json.dumps(summary, sort_keys=True))
         except Exception as exc:
             self.log(f"failed to append evidence log: {exc}", level="ERROR")
             self.evidence_log_enabled = False
@@ -3985,13 +3986,16 @@ class AmsRfidReconcile(FilamentIQBase):
         if not self.evidence_log_enabled:
             return
         try:
-            with open(self.evidence_log_path, "a", encoding="utf-8") as handle:
-                handle.write(line + "\n")
+            self._evidence_logger.info(line)
         except Exception as exc:
             self.log(f"failed to append evidence line: {exc}", level="ERROR")
             self.evidence_log_enabled = False
 
     def _ensure_evidence_path_writable(self):
+        # Max 2MB per file, keep 3 rotated files = 6MB max total
+        max_bytes = 2 * 1024 * 1024
+        backup_count = 3
+
         configured_path = self.evidence_log_path
         candidates = [
             configured_path,
@@ -4011,11 +4015,22 @@ class AmsRfidReconcile(FilamentIQBase):
                 parent = os.path.dirname(candidate)
                 if parent:
                     os.makedirs(parent, exist_ok=True)
-                with open(candidate, "a", encoding="utf-8"):
-                    pass
+                handler = RotatingFileHandler(
+                    candidate,
+                    maxBytes=max_bytes,
+                    backupCount=backup_count,
+                    encoding="utf-8",
+                )
+                handler.setFormatter(logging.Formatter("%(message)s"))
+                logger = logging.getLogger(f"filament_iq.evidence.{id(self)}")
+                logger.setLevel(logging.INFO)
+                logger.propagate = False
+                logger.handlers.clear()
+                logger.addHandler(handler)
+                self._evidence_logger = logger
                 self.evidence_log_path = candidate
                 self.evidence_log_enabled = True
-                self.log(f"evidence logging enabled at {self.evidence_log_path}", level="INFO")
+                self.log(f"evidence logging enabled at {self.evidence_log_path} (max 2MB x 3)", level="INFO")
                 return
             except Exception:
                 continue
