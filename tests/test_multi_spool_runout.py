@@ -39,6 +39,7 @@ from test_ams_print_usage_sync import (
     _has_log,
     _rfid_tag_uid_for_slots,
 )
+from conftest import SpoolmanRecorder
 from filament_iq.consumption_engine import SlotInput, decide_consumption
 from filament_iq.ams_print_usage_sync import ACTIVE_PRINT_FILE
 
@@ -356,3 +357,75 @@ def test_skip_runout_split_multiple_depleted():
 
     assert result == matched  # unchanged
     assert _has_log(app, "RUNOUT_SPLIT_SKIP reason=multiple_depleted_slots")
+
+
+# ── Bug 14: Runout split RFID finishing slot on rehydrated print ─────
+
+def test_runout_split_rfid_finishing_slot_rehydrated_print():
+    """Bug 14: On rehydrated prints, RFID finishing slot must use finishing_share,
+    not the stale RFID delta (start_g ≈ end_g → 0.0g → BELOW_MIN).
+
+    Scenario: slot 2 (non-RFID) depleted mid-print, slot 3 (RFID) finished.
+    3MF matched to slot 3 only. _detect_runout_split computes:
+      depleted_share=32.03g for slot 2, finishing_share=149.38g for slot 3.
+    Without the fix, slot 3's finishing_share is discarded by RFID suppression.
+    """
+    state_map = {
+        "input_text.ams_slot_2_spool_id": "0",  # reconciler cleared after depletion
+        "input_text.ams_slot_3_spool_id": "72",
+    }
+    app = _make_app(state_map=state_map)
+
+    # Rehydrated print: start snapshot from fuel gauges mid-print (stale for slot 3)
+    app._rehydrated = True
+    app._trays_used = {2, 3}
+    app._start_snapshot = {2: 32.0, 3: 1000.0}  # slot 3 reads ~1000 mid-print (stale)
+    app._end_snapshot = {2: 0.0, 3: 1000.0}  # slot 3 unchanged — delta ≈ 0
+    app._spool_id_snapshot = {2: 76, 3: 72}
+    app._job_key = "runout_rfid_rehydrated_001"
+    app.threemf_enabled = True
+    app._threemf_data = [{"index": 0, "used_g": 181.41, "color_hex": "afb1ae", "material": "pla"}]
+    app._print_active = True
+    app._print_start_time = __import__("time").time() - 7200
+
+    # Slot 2: non-RFID, Empty (depleted)
+    entity_2 = app._tray_entity_by_slot.get(2)
+    if entity_2:
+        app._state_map[entity_2] = "Empty"
+        app._state_map[f"{entity_2}::tag_uid"] = "0000000000000000"
+
+    # Slot 3: RFID, loaded (finishing spool)
+    entity_3 = app._tray_entity_by_slot.get(3)
+    if entity_3:
+        app._state_map[entity_3] = "loaded"
+        app._state_map.update(_rfid_tag_uid_for_slots(app, [3]))
+        app._state_map[f"{entity_3}::color"] = "#AFB1AEFF"
+        app._state_map[f"{entity_3}::type"] = "PLA"
+
+    # Mock Spoolman: spool 76 has 32.03g remaining (about to deplete)
+    app._spoolman_get_override = lambda path: (
+        {"remaining_weight": 32.03, "id": 76} if "76" in path
+        else {"remaining_weight": 850.0, "id": 72}
+    )
+
+    recorder = SpoolmanRecorder()
+    app._spoolman_use = recorder.use
+    app._spoolman_patch = recorder.patch
+    recorder.set_use_response(76, remaining=0.0)
+    recorder.set_use_response(72, remaining=700.62)
+
+    app._do_finish("finish")
+
+    # Slot 2 (depleted): should get depleted_share
+    recorder.assert_used(76, 32.03, tolerance=1.0)
+
+    # Slot 3 (RFID finishing): should get finishing_share, NOT 0.0g from stale RFID delta
+    recorder.assert_used(72, 149.38, tolerance=1.0)
+
+    # Neither slot should be no_evidence
+    assert not any(
+        "USAGE_NO_EVIDENCE" in msg and "slot=3" in msg
+        for msg, _ in app._log_calls
+    ), "slot 3 must not be no_evidence — finishing_share should be used"
+
+    assert _has_log(app, "RUNOUT_SPLIT_DETECTED")

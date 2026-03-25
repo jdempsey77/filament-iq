@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.6.0] — 2026-03-25
+
+### Fixed
+- **Runout split finishing slot data loss on rehydrated prints** — `finishing_share`
+  was silently discarded by the RFID suppression guard in `_collect_print_inputs`
+  when the finishing spool had a valid RFID tag. The RFID delta on a rehydrated
+  print is stale (start_g ≈ end_g), causing BELOW_MIN to drop the slot to
+  `no_evidence`. `finishing_share` is now authoritative for runout split methods
+  regardless of RFID tag presence. Confirmed data loss: 149.38g, spool_id=72,
+  slot=3, 2026-03-25. (Bug 14)
+
+### Changed
+- RFID suppression rule refined: `_RUNOUT_SPLIT_METHODS` frozenset exempts
+  `runout_split` and `runout_split_depleted` from the "RFID delta always wins"
+  principle. RFID delta remains authoritative for all other scenarios.
+
+### Tests
+- 1 new regression test for runout split with RFID finishing slot on rehydrated
+  print (283 total)
+
 ## [1.5.2] — 2026-03-24
 
 ### Added
