@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Filament IQ Monitor — HA availability + print lifecycle daemon.
+"""Filament IQ Monitor — HA availability + print lifecycle + system resource daemon.
 
-Runs on ska as a systemd user unit. Two concurrent loops:
+Runs on ska as a systemd user unit. Three concurrent loops:
   1. HA availability monitor (polls /api/, detects outages, grabs logs on recovery)
   2. Print lifecycle monitor (state machine: IDLE→PREPARING→PRINTING→FINISHING→IDLE)
+  3. System resource monitor (polls HA + local /proc, threshold alerts)
 
 Artifacts written to NAS at ARTIFACT_ROOT. Secrets loaded from
 ~/.config/filament_iq/secrets.env. Config from monitor-config.env.
@@ -16,6 +17,7 @@ import json
 import logging
 import os
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -42,6 +44,18 @@ STATE_FINISHING = "finishing"
 SUCCESS_STATES = frozenset({"finish"})
 FAILED_STATES = frozenset({"failed"})
 TERMINAL_STATES = SUCCESS_STATES | FAILED_STATES
+
+# HA System Monitor entity IDs for resource polling
+HA_RESOURCE_ENTITIES = {
+    "ha_cpu": "sensor.system_monitor_processor_use",
+    "ha_mem": "sensor.system_monitor_memory_usage",
+    "ha_disk": "sensor.system_monitor_disk_usage",
+    "ha_swap": "sensor.system_monitor_swap_usage",
+    "ha_temp": "sensor.system_monitor_processor_temperature",
+}
+
+# Alert cooldown
+_ALERT_COOLDOWN_S = 3600  # 60 minutes
 
 CONFIG_DIR = Path.home() / ".config" / "filament_iq"
 SECRETS_FILE = CONFIG_DIR / "secrets.env"
@@ -124,6 +138,15 @@ class Config:
         self.log_retention_days = int(config.get("LOG_RETENTION_DAYS", "7"))
         self.appdaemon_addon_id = config.get("APPDAEMON_ADDON_ID", "a0d7b954_appdaemon")
 
+        # Resource monitoring
+        self.notify_service = config.get("NOTIFY_SERVICE", "mobile_app_jd_pixel_10_pro_xl")
+        self.resource_poll_interval = int(config.get("RESOURCE_POLL_INTERVAL", "60"))
+        self.resource_cpu_warn = float(config.get("RESOURCE_CPU_WARN", "80"))
+        self.resource_mem_warn = float(config.get("RESOURCE_MEM_WARN", "85"))
+        self.resource_disk_warn = float(config.get("RESOURCE_DISK_WARN", "85"))
+        self.resource_swap_warn = float(config.get("RESOURCE_SWAP_WARN", "90"))
+        self.resource_temp_warn_f = float(config.get("RESOURCE_TEMP_WARN_F", "158"))
+
         self.entities = _build_entities(self.printer_serial, self.ams_slots)
 
 
@@ -156,6 +179,26 @@ def _ha_get_state(cfg: Config, entity_id: str) -> dict | None:
         return json.loads(body)
     except (json.JSONDecodeError, ValueError):
         return None
+
+
+def _send_ha_notification(cfg: Config, title: str, message: str) -> None:
+    """POST a mobile notification via HA notify service. Never raises."""
+    url = f"{cfg.ha_url}/api/services/notify/{cfg.notify_service}"
+    payload = json.dumps({"title": title, "message": message}).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {cfg.ha_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10.0) as resp:
+            log.info("Notification sent: %s (HTTP %d)", title, resp.status)
+    except Exception as e:
+        log.warning("Notification failed: %s — %s", title, e)
 
 
 def _spoolman_get(cfg: Config, path: str, timeout: float = 10.0) -> list | dict | None:
@@ -388,7 +431,180 @@ class HAAvailabilityMonitor:
                 log.info("HA STILL DOWN — HTTP %d (fail #%d, since %s)", code, self.consecutive_fails, self.outage_start)
 
 
-# ── Loop 2: Print Lifecycle ──────────────────────────────────────────
+# ── Loop 2: System Resources ────────────────────────────────────────
+
+class SystemResourceMonitor:
+    """Polls HA system monitor entities + local /proc for resource metrics."""
+
+    def __init__(self, cfg: Config, shutdown_event: threading.Event):
+        self.cfg = cfg
+        self.shutdown = shutdown_event
+        self.resource_log = _setup_artifact_log(cfg, "system_resources", "system_resources.log")
+        self.last_alert_ts: dict[str, float] = {}
+        # CPU sampling state (for /proc/stat delta)
+        self._prev_cpu_idle: int = 0
+        self._prev_cpu_total: int = 0
+        self._has_prev_cpu: bool = False
+
+    def run(self) -> None:
+        log.info(
+            "System resource monitor started — polling every %ds",
+            self.cfg.resource_poll_interval,
+        )
+        while not self.shutdown.is_set():
+            try:
+                self._poll()
+            except Exception as e:
+                log.error("System resource poll error: %s", e)
+            self.shutdown.wait(self.cfg.resource_poll_interval)
+
+    def _poll(self) -> None:
+        ha = self._poll_ha_resources()
+        local = self._poll_local_resources()
+
+        # Build log line
+        parts = []
+        for key in ("ha_cpu", "ha_mem", "ha_disk", "ha_swap"):
+            val = ha.get(key)
+            parts.append(f"{key}={val}%" if val is not None else f"{key}=n/a")
+        val = ha.get("ha_temp")
+        parts.append(f"ha_temp={val}\u00b0F" if val is not None else "ha_temp=n/a")
+        for key in ("ska_cpu", "ska_mem", "ska_disk"):
+            val = local.get(key)
+            parts.append(f"{key}={val}%" if val is not None else f"{key}=n/a")
+        self.resource_log.info(" ".join(parts))
+
+        # Threshold checks
+        self._check_threshold(ha.get("ha_cpu"), self.cfg.resource_cpu_warn, "CPU", "HA", "%")
+        self._check_threshold(ha.get("ha_mem"), self.cfg.resource_mem_warn, "Memory", "HA", "%")
+        self._check_threshold(ha.get("ha_disk"), self.cfg.resource_disk_warn, "Disk", "HA", "%")
+        self._check_threshold(ha.get("ha_swap"), self.cfg.resource_swap_warn, "Swap", "HA", "%")
+        self._check_threshold(ha.get("ha_temp"), self.cfg.resource_temp_warn_f, "CPU Temp", "HA", "\u00b0F")
+        self._check_threshold(local.get("ska_cpu"), self.cfg.resource_cpu_warn, "CPU", "ska", "%")
+        self._check_threshold(local.get("ska_mem"), self.cfg.resource_mem_warn, "Memory", "ska", "%")
+        self._check_threshold(local.get("ska_disk"), self.cfg.resource_disk_warn, "Disk", "ska", "%")
+
+    def _poll_ha_resources(self) -> dict[str, float | None]:
+        """Read HA system monitor entities via REST API."""
+        result: dict[str, float | None] = {}
+        for key, entity_id in HA_RESOURCE_ENTITIES.items():
+            state = _ha_get_state(self.cfg, entity_id)
+            if state is None:
+                result[key] = None
+                continue
+            raw = state.get("state", "")
+            if raw in ("unknown", "unavailable", ""):
+                result[key] = None
+                continue
+            try:
+                result[key] = round(float(raw), 1)
+            except (ValueError, TypeError):
+                result[key] = None
+        return result
+
+    def _poll_local_resources(self) -> dict[str, float | None]:
+        """Read CPU/mem/disk from local /proc and df."""
+        result: dict[str, float | None] = {}
+        result["ska_cpu"] = self._read_cpu()
+        result["ska_mem"] = self._read_memory()
+        result["ska_disk"] = self._read_disk()
+        return result
+
+    def _read_cpu(self) -> float | None:
+        """Compute CPU% from /proc/stat delta between two polls."""
+        try:
+            with open("/proc/stat") as f:
+                for line in f:
+                    if line.startswith("cpu "):
+                        fields = [int(x) for x in line.split()[1:]]
+                        break
+                else:
+                    return None
+        except (OSError, ValueError):
+            return None
+
+        # fields: user nice system idle iowait irq softirq steal [guest guest_nice]
+        idle_total = fields[3] + fields[4]  # idle + iowait
+        cpu_total = sum(fields)
+
+        if not self._has_prev_cpu:
+            self._prev_cpu_idle = idle_total
+            self._prev_cpu_total = cpu_total
+            self._has_prev_cpu = True
+            return None  # First poll, no delta available
+
+        delta_idle = idle_total - self._prev_cpu_idle
+        delta_total = cpu_total - self._prev_cpu_total
+        self._prev_cpu_idle = idle_total
+        self._prev_cpu_total = cpu_total
+
+        if delta_total <= 0:
+            return None
+        return round((1.0 - delta_idle / delta_total) * 100, 1)
+
+    def _read_memory(self) -> float | None:
+        """Read memory usage from /proc/meminfo."""
+        try:
+            mem_total = mem_available = None
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    if line.startswith("MemTotal:"):
+                        mem_total = int(line.split()[1])
+                    elif line.startswith("MemAvailable:"):
+                        mem_available = int(line.split()[1])
+                    if mem_total is not None and mem_available is not None:
+                        break
+            if mem_total and mem_available is not None:
+                return round((mem_total - mem_available) / mem_total * 100, 1)
+        except (OSError, ValueError):
+            pass
+        return None
+
+    def _read_disk(self) -> float | None:
+        """Read root disk usage via df."""
+        try:
+            result = subprocess.run(
+                ["df", "--output=pcent", "/"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                lines = result.stdout.strip().splitlines()
+                if len(lines) >= 2:
+                    return float(lines[1].strip().rstrip("%"))
+        except Exception:
+            pass
+        return None
+
+    def _check_threshold(
+        self,
+        value: float | None,
+        threshold: float,
+        label: str,
+        host: str,
+        unit: str,
+    ) -> None:
+        """Log and optionally notify on threshold breach."""
+        if value is None or value < threshold:
+            return
+
+        metric_key = f"{host}_{label}"
+        self.resource_log.warning(
+            "THRESHOLD_BREACH host=%s metric=%s value=%s%s threshold=%s%s",
+            host, label, value, unit, threshold, unit,
+        )
+
+        now = time.time()
+        last = self.last_alert_ts.get(metric_key, 0.0)
+        if now - last >= _ALERT_COOLDOWN_S:
+            self.last_alert_ts[metric_key] = now
+            _send_ha_notification(
+                self.cfg,
+                "\u26a0\ufe0f Resource Alert",
+                f"{label} at {value}{unit} on {host} (threshold: {threshold}{unit})",
+            )
+
+
+# ── Loop 3: Print Lifecycle ──────────────────────────────────────────
 
 class PrintLifecycleMonitor:
     """State machine: IDLE → PREPARING → PRINTING → FINISHING → IDLE."""
@@ -700,15 +916,18 @@ def main() -> None:
 
     # Start monitor threads
     ha_monitor = HAAvailabilityMonitor(cfg, shutdown_event)
+    resource_monitor = SystemResourceMonitor(cfg, shutdown_event)
     print_monitor = PrintLifecycleMonitor(cfg, shutdown_event)
 
     ha_thread = threading.Thread(target=ha_monitor.run, name="ha-availability", daemon=True)
+    resource_thread = threading.Thread(target=resource_monitor.run, name="system-resources", daemon=True)
     print_thread = threading.Thread(target=print_monitor.run, name="print-lifecycle", daemon=True)
 
     ha_thread.start()
+    resource_thread.start()
     print_thread.start()
 
-    log.info("Monitor running — 2 threads active")
+    log.info("Monitor running — 3 threads active")
 
     # Main thread waits for shutdown signal
     while not shutdown_event.is_set():
@@ -717,6 +936,7 @@ def main() -> None:
     # Wait for threads to finish current work
     log.info("Waiting for threads to finish...")
     ha_thread.join(timeout=15)
+    resource_thread.join(timeout=15)
     print_thread.join(timeout=15)
 
     log.info("Filament IQ Monitor stopped")
