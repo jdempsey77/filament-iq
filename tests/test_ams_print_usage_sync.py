@@ -280,6 +280,13 @@ def test_resolve_active_tray_slot_ht2():
     assert app._resolve_active_tray_slot() == 6
 
 
+def test_resolve_active_tray_slot_ht3():
+    """ams_index=130, tray_index=0 → slot 7 (HT 3)."""
+    app = _TestableUsageSync(state_map=_default_state_map())
+    app._state_map.update(_active_tray_state(app, 130, 0))
+    assert app._resolve_active_tray_slot() == 7
+
+
 def test_resolve_active_tray_slot_none_attrs():
     """Missing attributes → None."""
     app = _TestableUsageSync(state_map={})

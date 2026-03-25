@@ -1573,6 +1573,7 @@ class TestAmsRfidReconcile(unittest.TestCase):
         """Deprecated strings must map to AMS128_Slot1 / AMS129_Slot1 so we never write them."""
         self.assertEqual(DEPRECATED_LOCATION_TO_CANONICAL.get("AMS2_HT_Slot1"), "AMS128_Slot1")
         self.assertEqual(DEPRECATED_LOCATION_TO_CANONICAL.get("AMS2_HT_Slot2"), "AMS129_Slot1")
+        self.assertEqual(DEPRECATED_LOCATION_TO_CANONICAL.get("AMS2_HT_Slot3"), "AMS130_Slot1")
         for deprecated, canonical in DEPRECATED_LOCATION_TO_CANONICAL.items():
             self.assertIn("AMS2_HT_", deprecated, f"keys should be deprecated: {deprecated}")
             self.assertNotIn("AMS2_HT_", canonical, f"canonical must not be deprecated: {canonical}")

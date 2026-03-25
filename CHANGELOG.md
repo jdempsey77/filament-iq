@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.6.1] — 2026-03-25
+
+### Added
+- AMS HT3 support (ams_index 130, slot 7) — base.py unit registration,
+  deprecated location map, monitor.py slot mapping, Lovelace card location
+  tables. HA helper/automation/script/dashboard changes are in the
+  home_assistant repo.
+- `docs/adding-ams-unit.md` — runbook for adding any new AMS unit.
+  HT3 is the worked example.
+
+### Tests
+- test_active_tray_ht3 — ams_index=130 maps to slot 7
+- test_deprecated_location_mapping — AMS2_HT_Slot3 → AMS130_Slot1
+- test_get_all_slots — updated to include slot 7
+
 ## [1.6.0] — 2026-03-25
 
 ### Fixed

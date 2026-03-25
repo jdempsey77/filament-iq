@@ -25,7 +25,7 @@
 - [x] Snapshot trust validation (Shape 1) — `_build_start_snapshot` now excludes slots where fuel gauge reads 0.0 but spool is bound (`_read_spool_id > 0`) and physically present. Logs `SNAPSHOT_IMPLAUSIBLE` at WARNING. Rehydration helper-recovery path also validated (`SNAPSHOT_IMPLAUSIBLE_REHYDRATE`). Excluded slots produce explicit `DATA_LOSS: start_g not captured` instead of silent `BELOW_MIN`. Shape 2 (Spoolman discrepancy) deferred — requires print-start Spoolman fetch. 5 new tests. (v1.5.2)
 
 ### Medium Priority
-- [ ] AMS HT3 support (ams_index 130) — new AMS HT unit detected on printer. ha-bambulab exposes it at ams_index 130 with 1 tray (sensor.p1s_01p00c5a3101668_ams_130_tray_1). Current slot mapping only covers slots 1-6 (ams_index 0/1 for AMS Pro, 128 for HT1, 129 for HT2). HT3 would be slot 7 (ams_index 130). Requires: (1) slot mapping update in ams_print_usage_sync.py and ams_rfid_reconcile.py, (2) LocationSelect.jsx update (add AMS130_Slot1 → HT3 · Slot 7), (3) apps.yaml AMS_SLOTS update, (4) HA helper entities for slot 7, (5) dashboard card update. Confirmed entities: binary_sensor.*_ams_130_active, binary_sensor.*_ams_130_drying, sensor.*_ams_130_humidity, sensor.*_ams_130_tray_1. Tray currently Empty.
+- [~] AMS HT3 support (ams_index 130, slot 7) — filament-iq changes complete (v1.6.1): base.py, reconciler location map, monitor.py, card location tables, runbook. HA config changes pending (home_assistant repo): helpers, automations, scripts, dashboard.
 - [ ] Add Spool dialog missing quantity field — when adding a new spool, users can only add one at a time. If buying a multipack (e.g. 3 spools of the same filament), they must repeat the dialog 3 times. Add a quantity field (default: 1, min: 1) to the Add Spool dialog. On submit, call the Spoolman POST /api/v1/spool endpoint once per quantity count with identical parameters. Spoolman API supports this natively — each spool gets its own ID. UX: numeric input, stepper buttons, sensible max (e.g. 10).
 - [x] NONRFID_EMPTY_TRAY_CLEAR sets location="Shelf" not "Empty" — _execute_writes now PATCHes location=Empty after successful depleted_nonrfid write. Prevents reconciler from returning depleted spools to Shelf candidate pool. (v1.0.3, commit 38a1aa3)
 - [x] start_map fallback over-count — active slots now narrowed to trays_used & start_snapshot.keys() in _do_finish. Phantom writes from idle RFID slots with gauge drift eliminated. (v1.0.3, commit c731414)
@@ -128,6 +128,7 @@
 
 | Version | Date | Summary |
 |---------|------|---------|
+| v1.6.1 | 2026-03-25 | AMS HT3 support (ams_index 130, slot 7), adding-ams-unit.md runbook |
 | v1.6.0 | 2026-03-25 | Runout split RFID finishing slot data loss fix (Bug 14), notify service configurable via apps.yaml, card fires FILAMENT_IQ_SLOT_ASSIGNED on bind, evidence log rotation, SystemResourceMonitor in monitor.py |
 | v1.5.1 | 2026-03-24 | Brand identity (logo mark, README banner, card header logo), filament_iq_proxy 408 retry on reboot, FilamentAddRow density field fix, silent form error handling, repo + docs cleanup (73 files), ha-bambulab v2.2.21 compat verified (no changes needed) |
 | v1.5.0 | 2026-03-21 | Filament IQ Manager card, filament_iq_proxy component, reference dashboard, README, SpoolmanDB import |

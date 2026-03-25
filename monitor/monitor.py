@@ -32,7 +32,7 @@ from pathlib import Path
 # slot 5 is AMS HT unit 128, slot 6 is AMS HT unit 129.
 _SLOT_TO_AMS = {
     1: ("1", 1), 2: ("1", 2), 3: ("1", 3), 4: ("1", 4),
-    5: ("128", 1), 6: ("129", 1),
+    5: ("128", 1), 6: ("129", 1), 7: ("130", 1),
 }
 
 # Print lifecycle states

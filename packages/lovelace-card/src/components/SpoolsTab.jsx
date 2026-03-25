@@ -9,6 +9,7 @@ const LOCATION_TO_SLOT = {
   'AMS1_Slot4':   4,
   'AMS128_Slot1': 5,
   'AMS129_Slot1': 6,
+  'AMS130_Slot1': 7,
 }
 
 function ColorDot({ hex }) {
@@ -36,6 +37,7 @@ function LocationBadge({ location }) {
   else if (location === 'AMS1_Slot4') label = 'AMS 1 · Slot 4'
   else if (location === 'AMS128_Slot1') label = 'HT1 · Slot 5'
   else if (location === 'AMS129_Slot1') label = 'HT2 · Slot 6'
+  else if (location === 'AMS130_Slot1') label = 'HT3 · Slot 7'
   const cls = isAMS ? 'fiq-loc-ams'
     : location === 'Shelf' ? 'fiq-loc-shelf'
     : location === 'New' ? 'fiq-loc-new'
