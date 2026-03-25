@@ -101,6 +101,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self.min_tray_active_seconds = float(a.get("min_tray_active_seconds", 10))
         self.auto_empty_spools = bool(a.get("auto_empty_spools", False))
         self.auto_archive_depleted_spools = bool(a.get("auto_archive_depleted_spools", False))
+        self.notify_service = str(a.get("notify_service", "mobile_app_jd_pixel_10_pro_xl"))
         self._seen_job_keys = OrderedDict()
         self._trays_used = set()
         self._tray_active_times = {}
@@ -2599,7 +2600,7 @@ class TestCheckUnboundTrays:
         app._trays_used = {1}
         app._check_unbound_trays({})
         assert any("PRINT_UNBOUND_WARNING" in msg for msg, _ in app._log_calls)
-        assert any(c["service"] == "notify/mobile_app_jd_pixel_10xl" for c in app._service_calls)
+        assert any(c["service"] == "notify/mobile_app_jd_pixel_10_pro_xl" for c in app._service_calls)
 
     def test_unbound_with_notify_target(self):
         """notify_target arg is now ignored; always routes to mobile app."""
@@ -2610,7 +2611,7 @@ class TestCheckUnboundTrays:
         app._print_active = True
         app._trays_used = {1}
         app._check_unbound_trays({})
-        assert any(c["service"] == "notify/mobile_app_jd_pixel_10xl" for c in app._service_calls)
+        assert any(c["service"] == "notify/mobile_app_jd_pixel_10_pro_xl" for c in app._service_calls)
 
     def test_bound_slot_no_warning(self):
         app = _TestableUsageSync(state_map={

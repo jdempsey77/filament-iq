@@ -118,6 +118,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             self.args.get("auto_archive_depleted_spools", False)
         )
         self.min_tray_active_seconds = float(self.args.get("min_tray_active_seconds", 10))
+        self.notify_service = str(self.args.get("notify_service", "mobile_app_jd_pixel_10_pro_xl"))
         self._seen_job_keys = self._load_seen_job_keys()
         self._ensure_data_dir()
 
@@ -723,7 +724,7 @@ class AmsPrintUsageSync(FilamentIQBase):
 
         try:
             self.call_service(
-                "notify/mobile_app_jd_pixel_10xl",
+                f"notify/{self.notify_service}",
                 title=title,
                 message=message,
             )
@@ -971,7 +972,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         try:
             msg = f"Print started with unbound active slot: {slots_str}"
             self.call_service(
-                "notify/mobile_app_jd_pixel_10xl",
+                f"notify/{self.notify_service}",
                 title="Print With Unbound Slot", message=msg,
             )
         except Exception as e:
