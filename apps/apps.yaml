@@ -66,6 +66,7 @@ ams_print_usage_sync:
   lifecycle_phase2_enabled: true
   lifecycle_phase3_enabled: true
   weight_reconcile_enabled: true
+  notify_service: mobile_app_jd_pixel_10_pro_xl
 
 filament_weight_tracker:
   module: filament_iq.filament_weight_tracker

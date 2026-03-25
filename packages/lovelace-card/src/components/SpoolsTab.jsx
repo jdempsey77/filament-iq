@@ -2,6 +2,15 @@ import { useState, useMemo } from 'preact/hooks'
 import { ConfirmDialog } from './ConfirmDialog'
 import { LocationSelect } from './LocationSelect'
 
+const LOCATION_TO_SLOT = {
+  'AMS1_Slot1':   1,
+  'AMS1_Slot2':   2,
+  'AMS1_Slot3':   3,
+  'AMS1_Slot4':   4,
+  'AMS128_Slot1': 5,
+  'AMS129_Slot1': 6,
+}
+
 function ColorDot({ hex }) {
   const color = hex ? `#${hex}` : '#555'
   const isBlack = !hex || hex.toLowerCase() === '000000'
@@ -45,7 +54,7 @@ function MatBadge({ material }) {
   return <span class={`fiq-mat-badge ${cls}`}>{material || '—'}</span>
 }
 
-function SpoolEditPanel({ spool, onSave, onCancel, onDelete }) {
+function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete }) {
   const [remaining, setRemaining] = useState(Math.round(spool.remaining_weight || 0))
   const [location, setLocation] = useState(spool.location || '')
   const [firstUsed, setFirstUsed] = useState(
@@ -62,6 +71,15 @@ function SpoolEditPanel({ spool, onSave, onCancel, onDelete }) {
         location,
         ...(firstUsed ? { first_used: firstUsed } : {}),
       })
+      // Fire FILAMENT_IQ_SLOT_ASSIGNED so reconciler writes input_text.ams_slot_N_spool_id
+      const slot = LOCATION_TO_SLOT[location]
+      if (slot && hass) {
+        hass.connection.sendMessage({
+          type: 'fire_event',
+          event_type: 'FILAMENT_IQ_SLOT_ASSIGNED',
+          event_data: { slot, spool_id: spool.id },
+        })
+      }
     } finally {
       setSaving(false)
     }
@@ -173,7 +191,7 @@ function SpoolAddRow({ filaments, onCreate, onCancel }) {
   )
 }
 
-export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createSpool, refresh }) {
+export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createSpool, refresh, hass }) {
   const [search, setSearch] = useState('')
   const [vendorFilter, setVendorFilter] = useState('')
   const [materialFilter, setMaterialFilter] = useState('')
@@ -316,6 +334,7 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
               {expanded && (
                 <SpoolEditPanel
                   spool={spool}
+                  hass={hass}
                   onSave={(id, patch) => updateSpool(id, patch).then(() => setEditId(null))}
                   onCancel={() => setEditId(null)}
                   onDelete={(id) => deleteSpool(id).then(() => setEditId(null))}
