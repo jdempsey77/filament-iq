@@ -40,7 +40,7 @@ export function FilamentIQCard({ hass, getHass }) {
       </div>
       <StatsBar spools={data.spools} />
       <div class="fiq-body">
-        {activeTab === 'spools'    && <SpoolsTab    {...data} />}
+        {activeTab === 'spools'    && <SpoolsTab    {...data} hass={hass} />}
         {activeTab === 'filaments' && <FilamentsTab {...data} client={client} />}
         {activeTab === 'vendors'   && <VendorsTab   {...data} />}
       </div>
