@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.6.2] — 2026-03-25
+
+### Fixed
+- Never-initialized slot helpers show `unknown · unknown` on dashboard —
+  reconciler tray-empty path now writes `UNBOUND_TRAY_EMPTY` to
+  `unbound_reason` when the current value is `unknown`/empty/unavailable.
+  Self-heals on every reconcile cycle. Fixes slot 7 / HT3 on first boot
+  and any future new slots. (Bug 15)
+- Startup debug loop hardcoded to `range(1, 7)` — now uses
+  `sorted(self._tray_entity_by_slot.keys())` so new slots appear in
+  startup logs automatically.
+
 ## [1.6.1] — 2026-03-25
 
 ### Added

@@ -1650,6 +1650,40 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertIn("slot=3", clear_lines[0])
         self.assertIn("reason=tray_empty", clear_lines[0])
 
+    def test_never_initialized_slot_empty_tray_writes_unbound_reason(self):
+        """Bug 15: Slot with spool_id='unknown' (HA default) + empty tray must get UNBOUND_TRAY_EMPTY."""
+        sm = FakeSpoolman([], [])
+        state_map = {}
+        # All slots empty, but slot 5 has never been written (spool_id='unknown')
+        for slot in range(1, 8):
+            tray_ent = _tray_entity(slot)
+            state_map[tray_ent] = {"state": "empty", "attributes": {}}
+            state_map[f"{tray_ent}::all"] = {"attributes": {}, "state": "empty"}
+            state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_unbound_reason"] = ""
+            state_map[f"input_text.ams_slot_{slot}_status"] = ""
+        # Slot 5: simulate HA default 'unknown' for never-initialized helpers
+        state_map["input_text.ams_slot_5_spool_id"] = "unknown"
+        state_map["input_text.ams_slot_5_unbound_reason"] = "unknown"
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+
+        # Slot 5 must have UNBOUND_TRAY_EMPTY written to unbound_reason
+        unbound_writes = [
+            w for w in r._helper_writes
+            if w.get("entity_id") == "input_text.ams_slot_5_unbound_reason"
+            and w.get("value") == UNBOUND_TRAY_EMPTY
+        ]
+        self.assertGreaterEqual(
+            len(unbound_writes), 1,
+            f"Expected UNBOUND_TRAY_EMPTY write for slot 5, got: {r._helper_writes}"
+        )
+
+        # spool_id may be written to 0 by other reconciler paths — that's acceptable.
+        # The key assertion is that unbound_reason got UNBOUND_TRAY_EMPTY above.
+
     def test_color_warning_tray_hex_000000_no_warning(self):
         """tray_hex='000000' is non-authoritative → no COLOR_WARNING."""
         sm = FakeSpoolman([], [])

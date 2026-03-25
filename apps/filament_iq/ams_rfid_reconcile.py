@@ -550,7 +550,7 @@ class AmsRfidReconcile(FilamentIQBase):
             return
         self.log("STARTUP_WAIT_HELPERS_READY", level="INFO")
         # Validate get_state vs get_state(attribute='all') for debugging
-        for _dbg_slot in range(1, 7):
+        for _dbg_slot in sorted(self._tray_entity_by_slot.keys()):
             _dbg_eid = f"input_text.ams_slot_{_dbg_slot}_spool_id"
             _dbg_plain = self.get_state(_dbg_eid)
             _dbg_full = self.get_state(_dbg_eid, attribute="all")
@@ -1173,6 +1173,13 @@ class AmsRfidReconcile(FilamentIQBase):
                         self._log_validation_transcript(t)
                     continue
                 if tray_empty:
+                    # Initialize unbound_reason for never-written slots
+                    # (HA default is 'unknown', not UNBOUND_TRAY_EMPTY)
+                    if current_unbound_reason in ("", "unknown", "unavailable"):
+                        self._set_helper(
+                            f"input_text.ams_slot_{slot}_unbound_reason",
+                            UNBOUND_TRAY_EMPTY,
+                        )
                     continue
                 self.log(
                     f"NONRFID_GUARD_HIT slot={slot} empty={tray_empty} raw_tag_uid={raw_tag_uid_ht!r} raw_tray_uuid={raw_tray_uuid_ht!r}",
