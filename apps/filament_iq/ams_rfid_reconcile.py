@@ -59,9 +59,10 @@ LOCATION_EMPTY = "Empty"
 DEPRECATED_LOCATION_TO_CANONICAL = {
     "AMS2_HT_Slot1": "AMS128_Slot1",
     "AMS2_HT_Slot2": "AMS129_Slot1",
+    "AMS2_HT_Slot3": "AMS130_Slot1",
 }
-# Regex: any location matching these is forced to Shelf at PATCH boundary (slots 5/6 not physical).
-LEGACY_LOCATION_PATTERN = re.compile(r"AMS2_HT_|HT1|HT2", re.IGNORECASE)
+# Regex: any location matching these is forced to Shelf at PATCH boundary (slots 5/6/7 not physical).
+LEGACY_LOCATION_PATTERN = re.compile(r"AMS2_HT_|HT1|HT2|HT3", re.IGNORECASE)
 
 # Next-man-up tie-break ladder (multiple metadata-matched spools, UID lookup returned 0):
 # 0) Strict mode: if strict_mode=True and len(candidates) > 1 → no auto-pick (caller must require explicit spool_id).
@@ -794,7 +795,7 @@ class AmsRfidReconcile(FilamentIQBase):
         if slot not in self._tray_entity_by_slot:
             self._notify(
                 "RFID Validate Failed",
-                f"Invalid slot={slot}. Expected 1..6 (AMS1 + AMS_128/AMS_129).",
+                f"Invalid slot={slot}. Expected 1..7 (AMS1 + AMS_128/AMS_129/AMS_130).",
                 notification_id="rfid_validate_invalid_slot",
             )
             return

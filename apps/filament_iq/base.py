@@ -5,19 +5,20 @@ All FilamentIQ AppDaemon apps inherit from FilamentIQBase.
 Entity naming: sensor.{prefix}_{sensor_name} where prefix = printer_model + printer_serial (lowercased).
 ha-bambulab tray entities: sensor.{prefix}_ams_{ams_entity_idx}_tray_{tray_idx}
   - AMS Pro (4 trays): ams_entity_idx=1, tray_idx=1..4
-  - AMS HT: ams_entity_idx=128 or 129, tray_idx=1
-active_tray sensor uses ams_index 0 for first AMS, 128/129 for HT.
+  - AMS HT: ams_entity_idx=128, 129, or 130, tray_idx=1
+active_tray sensor uses ams_index 0 for first AMS, 128/129/130 for HT.
 """
 
 import hassapi as hass
 
 
 def _default_ams_units():
-    """Default AMS layout: AMS Pro (slots 1-4) + HT (slots 5-6)."""
+    """Default AMS layout: AMS Pro (slots 1-4) + HT (slots 5-7)."""
     return [
         {"type": "ams_2_pro", "ams_index": 0, "slots": [1, 2, 3, 4]},
         {"type": "ams_ht", "ams_index": 128, "slots": [5]},
         {"type": "ams_ht", "ams_index": 129, "slots": [6]},
+        {"type": "ams_ht", "ams_index": 130, "slots": [7]},
     ]
 
 
@@ -48,7 +49,7 @@ def build_slot_mappings(prefix: str, ams_units=None):
             entity_id = f"sensor.{prefix}_ams_{ams_entity_idx}_tray_{tray_idx}"
             tray_entity_by_slot[slot] = entity_id
             ams_tray_to_slot[(ams_index, i)] = slot  # tray_index 0-based for active_tray
-            # CANONICAL: AMS1_Slot1, AMS128_Slot1, AMS129_Slot1
+            # CANONICAL: AMS1_Slot1, AMS128_Slot1, AMS129_Slot1, AMS130_Slot1
             loc_ams = 1 if ams_index == 0 else ams_index
             canonical_location_by_slot[slot] = f"AMS{loc_ams}_Slot{tray_idx}"
 

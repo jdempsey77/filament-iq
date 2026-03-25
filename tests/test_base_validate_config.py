@@ -230,4 +230,4 @@ class TestEntityPrefix:
             "printer_serial": "01p00c5a3101668",
         })
         slots = app._get_all_slots()
-        assert slots == [1, 2, 3, 4, 5, 6]
+        assert slots == [1, 2, 3, 4, 5, 6, 7]
