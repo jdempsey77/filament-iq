@@ -3421,4 +3421,91 @@ def test_cache_already_set_skips_ftps():
     assert _has_log(app, "3MF_CACHE_ALREADY_SET")
 
 
+def test_cache_retry_before_ftps():
+    """First cache miss schedules retry; second hit skips FTPS entirely."""
+    import tempfile, time
+    with tempfile.TemporaryDirectory() as td:
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_gcode_file_downloaded": "99999-test.gcode",
+            "sensor.p1s_01p00c5a3101668_task_name": "test",
+        })
+        app._bambulab_cache_path = td
+        app._gcode_file_entity = "sensor.p1s_01p00c5a3101668_gcode_file_downloaded"
+        app._print_start_time = time.time() - 5
+
+        # First call: cache miss (file doesn't exist yet) → schedules retry
+        app._fetch_3mf_background({"attempt": 1})
+        assert app._threemf_data is None
+        assert _has_log(app, "3MF_CACHE_MISS")
+        assert any(c["delay"] == 20 for c in app._run_in_calls), f"Expected 20s retry, got {app._run_in_calls}"
+
+        # Now create the file (simulating ha-bambulab writing it)
+        fpath = os.path.join(td, "99999-test.slice_info.config")
+        with open(fpath, "w") as f:
+            f.write('<?xml version="1.0"?><config><plate>'
+                    '<filament id="0" used_g="89.4" color="#FF0000FF" type="PLA"/>'
+                    '</plate></config>')
+        os.utime(fpath, (time.time(), time.time()))
+
+        # Second call (cache_retry=True): cache hit → no FTPS
+        app._log_calls.clear()
+        app._fetch_3mf_background({"attempt": 1, "cache_retry": True})
+        assert app._threemf_data is not None
+        assert abs(app._threemf_data[0]["used_g"] - 89.4) < 0.01
+        assert _has_log(app, "3MF_CACHE_HIT")
+
+
+def test_cache_retry_miss_falls_through_to_ftps():
+    """Both cache attempts miss → FTPS fires."""
+    app = _TestableUsageSync(state_map={
+        "sensor.p1s_01p00c5a3101668_gcode_file_downloaded": "99999-test.gcode",
+        "sensor.p1s_01p00c5a3101668_task_name": "test",
+    })
+    app._bambulab_cache_path = "/nonexistent"
+    app._gcode_file_entity = "sensor.p1s_01p00c5a3101668_gcode_file_downloaded"
+    app._print_start_time = __import__("time").time() - 5
+    app.printer_ip = "192.0.2.99"
+    app.access_code_entity = "input_text.bambu_printer_access_code"
+    app._state_map["input_text.bambu_printer_access_code"] = "test_code"
+
+    # cache_retry=True, cache misses → FTPS attempt logged
+    app._fetch_3mf_background({"attempt": 1, "cache_retry": True})
+    assert _has_log(app, "3MF_CACHE_MISS")
+    assert _has_log(app, "3MF_FETCH: attempt 1/4")
+
+
+def test_cache_hit_on_rehydration():
+    """Rehydration with _threemf_data=None + valid cache file → cache hit."""
+    import tempfile, time
+    with tempfile.TemporaryDirectory() as td:
+        fname = "12345-rehydrate_test.slice_info.config"
+        fpath = os.path.join(td, fname)
+        with open(fpath, "w") as f:
+            f.write('<?xml version="1.0"?><config><plate>'
+                    '<filament id="0" used_g="75.0" color="#00FF00FF" type="PLA"/>'
+                    '</plate></config>')
+        os.utime(fpath, (time.time(), time.time()))
+
+        app = _TestableUsageSync(
+            state_map={
+                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "sensor.p1s_01p00c5a3101668_task_name": "rehydrate_test",
+                "sensor.p1s_01p00c5a3101668_gcode_file_downloaded": "12345-rehydrate_test.gcode",
+                "input_text.filament_iq_start_json": '{"1": 800.0}',
+                "input_text.filament_iq_active_job_key": "",
+                "input_text.ams_slot_1_spool_id": "49",
+            },
+            args={"lifecycle_phase1_enabled": True},
+        )
+        app._bambulab_cache_path = td
+        app._gcode_file_entity = "sensor.p1s_01p00c5a3101668_gcode_file_downloaded"
+        app._print_start_time = time.time() - 30
+        app.threemf_enabled = True
+        app._threemf_data = None
+
+        app._rehydrate_print_state()
+
+        assert app._threemf_data is not None, f"Expected cache hit on rehydration, got None. Logs: {app._log_calls}"
+        assert _has_log(app, "3MF_CACHE_REHYDRATE_HIT")
+
 
