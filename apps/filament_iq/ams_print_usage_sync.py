@@ -44,6 +44,7 @@ try:
         normalize_material,
         parse_3mf_filaments,
         parse_lot_nr_color,
+        parse_slice_info_file,
     )
     THREEMF_AVAILABLE = True
 except ImportError:
@@ -231,6 +232,17 @@ class AmsPrintUsageSync(FilamentIQBase):
         ).strip().lower()
         self.spoolman_sensor_prefix = str(
             self.args.get("spoolman_sensor_prefix", "sensor.spoolman_spool_")
+        ).strip()
+        # ha-bambulab cache path for slice_info.config (primary 3MF source)
+        self._bambulab_cache_path = str(
+            self.args.get("bambulab_cache_path", "")
+        ).strip().rstrip("/")
+        prefix = self._build_entity_prefix()
+        self._gcode_file_entity = str(
+            self.args.get(
+                "gcode_file_entity",
+                f"sensor.{prefix}_gcode_file_downloaded",
+            )
         ).strip()
         self._threemf_data = None
         self._threemf_filename = None
@@ -1475,12 +1487,100 @@ class AmsPrintUsageSync(FilamentIQBase):
             code = ""
         return code if code else None
 
+    def _try_cache_3mf(self) -> bool:
+        """Attempt to read slice_info.config from ha-bambulab local cache.
+
+        Returns True and sets self._threemf_data on cache hit.
+        Returns False on any miss or error — caller must fall through to FTPS.
+        """
+        try:
+            cache_path = self._bambulab_cache_path
+            if not cache_path:
+                return False
+
+            gcode_file = str(
+                self.get_state(self._gcode_file_entity) or ""
+            ).strip()
+            if gcode_file in ("", "unavailable", "unknown"):
+                self.log("3MF_CACHE_MISS reason=gcode_entity_unavailable", level="INFO")
+                return False
+
+            if not gcode_file.endswith(".gcode"):
+                self.log(f"3MF_CACHE_MISS reason=unexpected_gcode_format file={gcode_file}", level="INFO")
+                return False
+            stem = gcode_file[:-6]  # strip ".gcode"
+
+            dash_idx = stem.find("-")
+            if dash_idx == -1:
+                self.log(f"3MF_CACHE_MISS reason=no_plate_id_prefix file={gcode_file}", level="INFO")
+                return False
+            cached_task = stem[dash_idx + 1:]
+
+            current_task = str(
+                self.get_state(self._task_name_entity) or ""
+            ).strip()
+            if current_task in ("", "unavailable", "unknown"):
+                self.log("3MF_CACHE_MISS reason=task_name_unavailable", level="INFO")
+                return False
+
+            if cached_task != current_task:
+                self.log(
+                    f"3MF_CACHE_MISS reason=task_mismatch "
+                    f"cached={cached_task!r} current={current_task!r}",
+                    level="INFO",
+                )
+                return False
+
+            slice_filename = stem + ".slice_info.config"
+            full_path = os.path.join(cache_path, slice_filename)
+
+            if not os.path.exists(full_path):
+                self.log(f"3MF_CACHE_MISS reason=file_not_found path={full_path}", level="INFO")
+                return False
+
+            file_mtime = os.path.getmtime(full_path)
+            start_time = getattr(self, "_print_start_time", None) or 0
+            if file_mtime < start_time - 60:
+                self.log(
+                    f"3MF_CACHE_MISS reason=stale "
+                    f"mtime={file_mtime:.0f} print_start={start_time:.0f}",
+                    level="INFO",
+                )
+                return False
+
+            filaments = parse_slice_info_file(full_path)
+            if not filaments:
+                self.log(f"3MF_CACHE_MISS reason=no_filaments path={full_path}", level="INFO")
+                return False
+
+            self._threemf_data = filaments
+            self._threemf_filename = os.path.basename(full_path)
+            total_g = sum(f["used_g"] for f in filaments)
+            self.log(
+                f"3MF_CACHE_HIT path={full_path} filaments={len(filaments)} "
+                f"total_g={total_g:.2f}",
+                level="INFO",
+            )
+            self._persist_active_print()
+            return True
+
+        except Exception as e:
+            self.log(f"3MF_CACHE_ERROR reason={e}", level="WARNING")
+            return False
+
     def _fetch_3mf_background(self, kwargs):
         """Gather state on event loop, dispatch FTPS work to background thread."""
         attempt = kwargs.get("attempt", 1)
         max_attempts = 4
 
         if attempt == 1:
+            # Try ha-bambulab cache first (local file, zero network)
+            if self._try_cache_3mf():
+                return
+            # Double-write guard: if _threemf_data was set externally, skip FTPS
+            if self._threemf_data is not None:
+                self.log("3MF_CACHE_ALREADY_SET — skipping FTPS", level="INFO")
+                return
             self._threemf_data = None
             self._threemf_filename = None
 

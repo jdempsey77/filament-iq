@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.7.0] — 2026-03-26
+
+### Added
+- ha-bambulab cache path as primary 3MF source — reads
+  `slice_info.config` directly from ha-bambulab's local cache before
+  attempting FTPS. Eliminates data loss from FTPS 530 errors on
+  non-RFID slots during active prints. FTPS unchanged as fallback.
+- Task name cross-validation prevents stale `gcode_file_downloaded`
+  entity from causing wrong cache file reads.
+- mtime guard uses print start time (not fixed window) — valid for
+  prints of any length.
+- Double-write guard: FTPS skipped if cache already populated.
+- `bambulab_cache_path` and `gcode_file_entity` config keys.
+- `parse_slice_info_file()` in `threemf_parser.py`.
+- Log tokens: `3MF_CACHE_HIT`, `3MF_CACHE_MISS`, `3MF_CACHE_ERROR`,
+  `3MF_CACHE_ALREADY_SET`.
+
 ## [1.6.3] — 2026-03-26
 
 ### Fixed

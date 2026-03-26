@@ -364,6 +364,57 @@ def find_best_3mf(file_list, task_name):
     return file_list[-1]
 
 
+def _parse_slice_info_xml(xml_content: bytes) -> list:
+    """Parse slice_info.config XML bytes into a list of filament dicts.
+
+    Returns list of dicts:
+    [
+        {"index": 0, "used_g": 1.29, "used_m": 0.43, "color_hex": "00ae42",
+         "material": "pla", "tray_info_idx": "0"},
+        ...
+    ]
+    """
+    root = ET.fromstring(xml_content)
+
+    filaments = []
+    for elem in root.iter("filament"):
+        try:
+            idx = int(elem.get("id", len(filaments)))
+            used_g = float(elem.get("used_g", 0))
+            used_m = float(elem.get("used_m", 0))
+            color = normalize_color(elem.get("color", ""))
+            material = normalize_material(elem.get("type", ""))
+            tray_idx = elem.get("tray_info_idx", "")
+
+            filaments.append(
+                {
+                    "index": idx,
+                    "used_g": used_g,
+                    "used_m": used_m,
+                    "color_hex": color,
+                    "material": material,
+                    "tray_info_idx": tray_idx,
+                }
+            )
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Skipping malformed filament element: {e}")
+            continue
+
+    filaments.sort(key=lambda f: f["index"])
+    return filaments
+
+
+def parse_slice_info_file(path: str) -> list:
+    """Read slice_info.config from a file path and parse it.
+
+    Raises FileNotFoundError if path doesn't exist.
+    Raises xml.etree.ElementTree.ParseError if XML is malformed.
+    """
+    with open(path, "rb") as f:
+        xml_content = f.read()
+    return _parse_slice_info_xml(xml_content)
+
+
 def parse_3mf_filaments(local_path):
     """Parse a 3MF file and extract per-filament usage.
 
@@ -400,34 +451,7 @@ def parse_3mf_filaments(local_path):
             with zf.open(config_path) as f:
                 xml_content = f.read()
 
-        root = ET.fromstring(xml_content)
-
-        filaments = []
-        for elem in root.iter("filament"):
-            try:
-                idx = int(elem.get("id", len(filaments)))
-                used_g = float(elem.get("used_g", 0))
-                used_m = float(elem.get("used_m", 0))
-                color = normalize_color(elem.get("color", ""))
-                material = normalize_material(elem.get("type", ""))
-                tray_idx = elem.get("tray_info_idx", "")
-
-                filaments.append(
-                    {
-                        "index": idx,
-                        "used_g": used_g,
-                        "used_m": used_m,
-                        "color_hex": color,
-                        "material": material,
-                        "tray_info_idx": tray_idx,
-                    }
-                )
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Skipping malformed filament element: {e}")
-                continue
-
-        filaments.sort(key=lambda f: f["index"])
-        return filaments
+        return _parse_slice_info_xml(xml_content)
 
     except (zipfile.BadZipFile, ET.ParseError, OSError) as e:
         logger.error(f"Failed to parse 3MF {local_path}: {e}")

@@ -27,7 +27,41 @@ from filament_iq.threemf_parser import (
     normalize_material,
     normalize_task_name,
     parse_3mf_filaments,
+    parse_slice_info_file,
 )
+
+_FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
+
+
+# ── parse_slice_info_file ──────────────────────────────────────────
+
+def test_parse_slice_info_file_valid():
+    """Valid slice_info.config returns filament list with correct values."""
+    path = os.path.join(_FIXTURES_DIR, "slice_info.config")
+    result = parse_slice_info_file(path)
+    assert len(result) == 1
+    assert abs(result[0]["used_g"] - 42.96) < 0.01
+    assert result[0]["color_hex"] == "afb1ae"
+    assert result[0]["material"] == "pla"
+
+
+def test_parse_slice_info_file_missing():
+    """Missing file raises FileNotFoundError."""
+    with pytest.raises(FileNotFoundError):
+        parse_slice_info_file("/nonexistent/slice_info.config")
+
+
+def test_parse_slice_info_file_corrupt():
+    """Corrupt XML raises ParseError."""
+    import xml.etree.ElementTree as ET
+    with tempfile.NamedTemporaryFile(suffix=".config", mode="w", delete=False) as f:
+        f.write("NOT VALID XML <<<<")
+        f.flush()
+        try:
+            with pytest.raises(ET.ParseError):
+                parse_slice_info_file(f.name)
+        finally:
+            os.unlink(f.name)
 
 
 # ── Color Normalization ─────────────────────────────────────────────
