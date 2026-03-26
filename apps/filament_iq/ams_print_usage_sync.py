@@ -891,7 +891,11 @@ class AmsPrintUsageSync(FilamentIQBase):
             if grams < 0:
                 continue
             grams = max(0.0, round(grams, 1))
-            if grams == 0.0:
+            # Only RFID slots have hardware fuel gauges — 0.0 on an RFID spool
+            # with a loaded tray is implausible (stale/uninitialized gauge).
+            # Non-RFID slots use a Spoolman fallback which may legitimately
+            # return 0.0 during startup.
+            if grams == 0.0 and self._is_rfid_slot(slot):
                 spool_id = self._read_spool_id(slot)
                 if spool_id > 0 and self._is_tray_physically_present(slot):
                     self.log(
@@ -1344,9 +1348,12 @@ class AmsPrintUsageSync(FilamentIQBase):
                             f"REHYDRATE_START_SNAPSHOT_RECOVERED from helper: {self._start_snapshot}",
                             level="INFO",
                         )
+                        # Only RFID slots — non-RFID Spoolman fallback of 0.0
+                        # is valid (startup race), not implausible.
                         implausible = [
                             slot for slot, g in self._start_snapshot.items()
                             if g == 0.0
+                            and self._is_rfid_slot(slot)
                             and self._read_spool_id(slot) > 0
                             and self._is_tray_physically_present(slot)
                         ]
