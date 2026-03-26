@@ -19,6 +19,7 @@
 
 ### High Priority
 - [ ] Slot display shows unknown · unknown after manual bind — after Assign & Bind writes spool_id to input_text.ams_slot_N_spool_id, the proxy component fires immediately and populates sensor.ams_slot_N_name, sensor.ams_slot_N_remaining_g, and sensor.ams_slot_N_color_hex with unknown/0 values. Root cause suspected: at bind time the spool's location in Spoolman may still be set to a slot location (e.g. AMS1_Slot2) rather than Shelf, causing the proxy lookup to return no data or filtered data. Confirmed slot 2 (spool_id=76, 2026-03-25) and slot 6 (spool_id=75, 2026-03-25). Workaround: trigger Reconcile after bind. Needs investigation into proxy lookup filtering and whether location field should be ignored on direct spool_id lookup.
+- [x] SNAPSHOT_IMPLAUSIBLE false positive for non-RFID slots — _is_rfid_slot() guard added to implausibility check. Non-RFID Spoolman fallback of 0.0 no longer excluded. Confirmed data loss: spool 76, ~400g. (v1.6.3, Bug 16)
 - [x] Never-initialized slot helpers show unknown · unknown — reconciler tray-empty path writes UNBOUND_TRAY_EMPTY on first reconcile cycle. Startup debug loop range(1,7) fixed. (v1.6.2, Bug 15)
 - [x] Runout split finishing slot write lost on rehydrated prints — RFID suppression guard in `_collect_print_inputs` discarded `finishing_share` for RFID slots. On rehydrated prints, RFID delta is stale (start_g ≈ end_g → 0.0g). Fix: `_RUNOUT_SPLIT_METHODS` frozenset exempts runout split from RFID suppression; `is_rfid` overridden to False for engine routing. Confirmed data loss: 149.38g (2026-03-25, spool_id=72, slot=3). Bug 14. (v1.6.0)
 - [x] Fix 3MF_UNMATCHED on rehydrated prints — active_slots narrowing ran before 3MF matching, excluding slots lost across restart. Fix: pass `trays_used=None` to matcher when rehydrated (disables slot filter, lets color/material matching work across all candidates), then readmit 3MF-matched slots into `_trays_used` so they enter `_collect_print_inputs`. Confirmed data loss recovered: 43.6g (2026-03-15), 9.65g (2026-03-24). 4 new regression tests. (v1.5.2)
@@ -129,6 +130,7 @@
 
 | Version | Date | Summary |
 |---------|------|---------|
+| v1.6.3 | 2026-03-26 | SNAPSHOT_IMPLAUSIBLE false positive for non-RFID slots (Bug 16) |
 | v1.6.2 | 2026-03-25 | Fix never-initialized slot helpers showing unknown (Bug 15), startup debug loop slot range fix |
 | v1.6.1 | 2026-03-25 | AMS HT3 support (ams_index 130, slot 7), adding-ams-unit.md runbook |
 | v1.6.0 | 2026-03-25 | Runout split RFID finishing slot data loss fix (Bug 14), notify service configurable via apps.yaml, card fires FILAMENT_IQ_SLOT_ASSIGNED on bind, evidence log rotation, SystemResourceMonitor in monitor.py |

@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.6.3] — 2026-03-26
+
+### Fixed
+- SNAPSHOT_IMPLAUSIBLE false positive for non-RFID slots — the
+  implausibility check (designed for RFID fuel gauges) incorrectly
+  fired for non-RFID spools whose Spoolman fallback returns 0.0
+  during startup. Guard now skips the check for non-RFID slots.
+  Confirmed data loss: spool 76, ~400g, 2026-03-25. (Bug 16)
+- Same guard applied to rehydration path.
+
+### Tests
+- test_snapshot_nonrfid_slot_fuel_gauge_unavailable_not_implausible
+- test_snapshot_rfid_slot_fuel_gauge_zero_is_implausible (regression guard)
+
 ## [1.6.2] — 2026-03-25
 
 ### Fixed

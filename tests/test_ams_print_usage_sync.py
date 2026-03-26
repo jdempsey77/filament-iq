@@ -1711,6 +1711,36 @@ class TestSnapshotPlausibility:
         assert snap[2] == 450.0
         assert not _has_log(app, "SNAPSHOT_IMPLAUSIBLE")
 
+    def test_snapshot_nonrfid_slot_fuel_gauge_unavailable_not_implausible(self):
+        """Bug 16: Non-RFID slot with Spoolman fallback returning 0.0 must NOT be excluded."""
+        app = _TestableUsageSync(state_map={
+            # Fuel gauge unavailable → fallback to ams_remaining which returns 0.0
+            "sensor.p1s_tray_2_fuel_gauge_remaining": "unavailable",
+            "sensor.ams_slot_2_remaining_g": "0",
+            "input_text.ams_slot_2_spool_id": "76",
+        })
+        # Non-RFID: tag_uid all zeros → _is_rfid_slot returns False
+        entity_2 = app._tray_entity_by_slot.get(2)
+        if entity_2:
+            app._state_map[entity_2] = "PLA"
+            app._state_map[f"{entity_2}::tag_uid"] = "0000000000000000"
+        snap = app._build_start_snapshot()
+        assert 2 in snap, f"non-RFID slot 2 at 0.0 should NOT be excluded, got {snap}"
+        assert snap[2] == 0.0
+        assert not _has_log(app, "SNAPSHOT_IMPLAUSIBLE")
+
+    def test_snapshot_rfid_slot_fuel_gauge_zero_is_implausible(self):
+        """RFID slot reading 0.0 with spool bound IS implausible — existing behavior preserved."""
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_tray_2_fuel_gauge_remaining": "0.0",
+            "input_text.ams_slot_2_spool_id": "20",
+        })
+        # RFID: valid tag_uid → _is_rfid_slot returns True
+        app._state_map.update(_rfid_tag_uid_for_slots(app, [2]))
+        snap = app._build_start_snapshot()
+        assert 2 not in snap, f"RFID slot 2 at 0.0 should be excluded, got {snap}"
+        assert _has_log(app, "SNAPSHOT_IMPLAUSIBLE")
+
     def test_rehydrate_helper_recovery_removes_stale_zero(self):
         """Stale 0.0 in HA helper JSON is removed during rehydration."""
         app = _TestableUsageSync(
