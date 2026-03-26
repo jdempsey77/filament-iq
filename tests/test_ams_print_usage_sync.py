@@ -3326,4 +3326,99 @@ class TestCollectPrintInputs:
         assert "retry_delays = [15, 45, 90]" in source
 
 
+# ── 3MF Cache Tests ──────────────────────────────────────────────────
+
+def test_cache_hit_skips_ftps():
+    """Valid cache file with matching task name → _try_cache_3mf returns True."""
+    import tempfile, time
+    with tempfile.TemporaryDirectory() as td:
+        # Create slice_info.config fixture
+        fname = "12345-test_model.slice_info.config"
+        fpath = os.path.join(td, fname)
+        with open(fpath, "w") as f:
+            f.write('<?xml version="1.0"?><config><plate>'
+                    '<filament id="0" used_g="50.0" color="#FF0000FF" type="PLA"/>'
+                    '</plate></config>')
+        # Touch file to be recent
+        os.utime(fpath, (time.time(), time.time()))
+
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_gcode_file_downloaded": "12345-test_model.gcode",
+            "sensor.p1s_01p00c5a3101668_task_name": "test_model",
+        })
+        app._bambulab_cache_path = td
+        app._gcode_file_entity = "sensor.p1s_01p00c5a3101668_gcode_file_downloaded"
+        app._print_start_time = time.time() - 5
+
+        result = app._try_cache_3mf()
+        assert result is True, f"Expected cache hit, got False. Logs: {app._log_calls}"
+        assert app._threemf_data is not None
+        assert len(app._threemf_data) == 1
+        assert abs(app._threemf_data[0]["used_g"] - 50.0) < 0.01
+        assert _has_log(app, "3MF_CACHE_HIT")
+
+
+def test_cache_miss_task_mismatch():
+    """Entity shows previous print's task name → cache miss."""
+    import tempfile, time
+    with tempfile.TemporaryDirectory() as td:
+        fname = "12345-old_print.slice_info.config"
+        fpath = os.path.join(td, fname)
+        with open(fpath, "w") as f:
+            f.write('<?xml version="1.0"?><config><plate>'
+                    '<filament id="0" used_g="50.0" color="#FF0000FF" type="PLA"/>'
+                    '</plate></config>')
+
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_gcode_file_downloaded": "12345-old_print.gcode",
+            "sensor.p1s_01p00c5a3101668_task_name": "new_print",
+        })
+        app._bambulab_cache_path = td
+        app._gcode_file_entity = "sensor.p1s_01p00c5a3101668_gcode_file_downloaded"
+        app._print_start_time = time.time() - 5
+
+        result = app._try_cache_3mf()
+        assert result is False
+        assert app._threemf_data is None
+        assert _has_log(app, "3MF_CACHE_MISS reason=task_mismatch")
+
+
+def test_cache_miss_stale_mtime():
+    """Cache file older than print start → cache miss."""
+    import tempfile, time
+    with tempfile.TemporaryDirectory() as td:
+        fname = "12345-test_model.slice_info.config"
+        fpath = os.path.join(td, fname)
+        with open(fpath, "w") as f:
+            f.write('<?xml version="1.0"?><config><plate>'
+                    '<filament id="0" used_g="50.0" color="#FF0000FF" type="PLA"/>'
+                    '</plate></config>')
+        # Set mtime to 5 minutes ago
+        old_time = time.time() - 300
+        os.utime(fpath, (old_time, old_time))
+
+        app = _TestableUsageSync(state_map={
+            "sensor.p1s_01p00c5a3101668_gcode_file_downloaded": "12345-test_model.gcode",
+            "sensor.p1s_01p00c5a3101668_task_name": "test_model",
+        })
+        app._bambulab_cache_path = td
+        app._gcode_file_entity = "sensor.p1s_01p00c5a3101668_gcode_file_downloaded"
+        app._print_start_time = time.time()  # print just started, file is old
+
+        result = app._try_cache_3mf()
+        assert result is False
+        assert _has_log(app, "3MF_CACHE_MISS reason=stale")
+
+
+def test_cache_already_set_skips_ftps():
+    """If _threemf_data already set when _fetch_3mf_background fires, skip FTPS."""
+    app = _TestableUsageSync(state_map=_default_state_map())
+    app._threemf_data = [{"index": 0, "used_g": 50.0}]  # already set by cache
+    app._bambulab_cache_path = ""  # cache disabled — but data already set
+    app._gcode_file_entity = "sensor.p1s_01p00c5a3101668_gcode_file_downloaded"
+    app._fetch_3mf_background({"attempt": 1})
+    assert app._threemf_data == [{"index": 0, "used_g": 50.0}], "data must not be cleared"
+    assert _has_log(app, "3MF_CACHE_ALREADY_SET")
+
+
 

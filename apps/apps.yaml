@@ -67,6 +67,9 @@ ams_print_usage_sync:
   lifecycle_phase3_enabled: true
   weight_reconcile_enabled: true
   notify_service: mobile_app_jd_pixel_10_pro_xl
+  # ha-bambulab cache path for slice_info.config (primary 3MF source, FTPS fallback)
+  bambulab_cache_path: /config/www/media/ha-bambulab/01P00C5A3101668/prints/cache/
+  gcode_file_entity: sensor.p1s_01p00c5a3101668_gcode_file_downloaded
 
 filament_weight_tracker:
   module: filament_iq.filament_weight_tracker
