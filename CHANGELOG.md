@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.7.1] — 2026-03-26
+
+### Fixed
+- Wrong container path for bambulab cache — AppDaemon addon maps
+  `/config` to `/homeassistant/` inside the container. Every cache
+  miss since v1.7.0 was `file_not_found` due to this path bug.
+  Corrected to `/homeassistant/www/media/ha-bambulab/{serial}/prints/cache/`.
+- Cache not attempted on rehydration — `_try_cache_3mf()` now called
+  at both rehydration sites when `_threemf_data` is None.
+  Log tokens: `3MF_CACHE_REHYDRATE_HIT`, `3MF_CACHE_REHYDRATE_MISS`.
+
+### Changed
+- Cache retry before FTPS — on cache miss at t=10, one retry is
+  scheduled at t=30 before FTPS fires. Uses `run_in`, never
+  `time.sleep`. Each FTPS retry also checks cache first (v1.7.0).
+
 ## [1.7.0] — 2026-03-26
 
 ### Added

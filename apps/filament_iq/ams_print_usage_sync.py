@@ -1093,7 +1093,11 @@ class AmsPrintUsageSync(FilamentIQBase):
                         level="DEBUG",
                     )
                 self.log("3MF_RECOVERED_FROM_DISK", level="INFO")
-            else:
+            # Try cache as last resort before declaring 3MF unavailable
+            if self._threemf_data is None:
+                if self._try_cache_3mf():
+                    self.log("3MF_CACHE_REHYDRATE_HIT", level="INFO")
+            if self._threemf_data is None:
                 self.log(
                     "3MF_UNAVAILABLE_AT_FINISH — RFID slots unaffected, "
                     "non-RFID without Empty signal will be no_evidence",
@@ -1430,6 +1434,12 @@ class AmsPrintUsageSync(FilamentIQBase):
                         f"REHYDRATE_PRINT_START_TIME t={self._print_start_time:.0f}",
                         level="DEBUG",
                     )
+            # Try cache for 3MF if disk restore didn't have it
+            if self.threemf_enabled and self._threemf_data is None:
+                if self._try_cache_3mf():
+                    self.log("3MF_CACHE_REHYDRATE_HIT", level="INFO")
+                else:
+                    self.log("3MF_CACHE_REHYDRATE_MISS", level="INFO")
 
     def _on_ha_start(self, event_name, data, kwargs):
         """Handle HA restart while AppDaemon is running (replaces automation G)."""
@@ -1571,16 +1581,24 @@ class AmsPrintUsageSync(FilamentIQBase):
     def _fetch_3mf_background(self, kwargs):
         """Gather state on event loop, dispatch FTPS work to background thread."""
         attempt = kwargs.get("attempt", 1)
+        cache_retry = kwargs.get("cache_retry", False)
         max_attempts = 4
 
+        # Double-write guard: if _threemf_data was set externally, skip everything
+        if self._threemf_data is not None:
+            self.log("3MF_CACHE_ALREADY_SET — skipping FTPS", level="INFO")
+            return
+
         if attempt == 1:
-            # Try ha-bambulab cache first (local file, zero network)
+            # Try ha-bambulab cache (local file, zero network)
             if self._try_cache_3mf():
                 return
-            # Double-write guard: if _threemf_data was set externally, skip FTPS
-            if self._threemf_data is not None:
-                self.log("3MF_CACHE_ALREADY_SET — skipping FTPS", level="INFO")
+            if not cache_retry:
+                # First call: schedule one cache retry at t=30 before FTPS
+                self.log("3MF_CACHE_MISS — scheduling cache retry in 20s", level="INFO")
+                self.run_in(self._fetch_3mf_background, 20, cache_retry=True)
                 return
+            # cache_retry=True: second attempt also missed — proceed to FTPS
             self._threemf_data = None
             self._threemf_filename = None
 
