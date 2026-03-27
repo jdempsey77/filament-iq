@@ -189,6 +189,32 @@ the location update. User can manually update location in the card.
 
 ---
 
+## Printer Arrival Checklist
+
+1. Power on printer, connect to WiFi via Brother's initial setup (USB to laptop
+   required for first-time WiFi config — see Brother QL-810W quick setup guide)
+2. Assign static DHCP lease in UniFi UDM Pro for the printer MAC address
+3. Confirm printer IP — update `printer_url` in `appdaemon/apps/apps.yaml`
+   and in this file (Hardware table + apps.yaml section)
+4. Confirm printer VLAN — must be on IoT (192.168.4.x) with HA, or add
+   firewall rule allowing TCP 9100 from 192.168.4.124 to printer IP
+5. Verify pip dependencies in AppDaemon addon:
+   SSH to HA: `ssh root@192.168.4.124 -p 2222 -i ~/.ssh/id_ed25519_ha`
+   Then: `docker exec -it addon_a0d7b954_appdaemon pip install brother_ql Pillow`
+   Confirm both install without error before proceeding
+6. Flip `dry_run: false` in `appdaemon/apps/apps.yaml`
+7. Deploy AppDaemon: `./scripts/manage_ha.sh --appdaemon`
+8. Load a DK-1218 roll into the printer
+9. Trigger a test print — use HA Developer Tools > Events > fire
+   `filament_iq_print_label` with `{ "spool_id": <any valid id> }`
+10. Confirm label prints and spool location moves New → Shelf
+11. Promote card 1.1.0 from stage to prod: `./scripts/manage_ha.sh --prod-prep`
+12. Update BACKLOG_HA.md — mark P_LABELS done with date
+13. Update filament-iq/BACKLOG.md — mark P_LABELS done with date
+14. Tag release in filament-iq repo
+
+---
+
 ## Open Questions / Decisions Deferred
 
 - [ ] Confirm printer VLAN placement (IoT `192.168.4.x` recommended)
