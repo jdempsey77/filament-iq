@@ -582,3 +582,17 @@
 .fiq-loc-shelf { background: #1e2a1e; color: #4caf7d; }
 .fiq-loc-new   { background: #2a2a1a; color: #d4c44a; }
 .fiq-loc-other { background: #2c2c2e; color: #9a9a9e; }
+
+/* Toast */
+.fiq-toast { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 100; padding: 8px 16px; border-radius: 8px; font-size: 12px; white-space: nowrap; animation: fiq-fade-in 0.2s ease-out; }
+.fiq-toast-ok  { background: #1e3a1e; color: #6fcf97; border: 1px solid #2a5a2a; }
+.fiq-toast-err { background: #3a1e1e; color: #ef5350; border: 1px solid #5a2a2a; }
+@keyframes fiq-fade-in { from { opacity: 0; transform: translateX(-50%) translateY(-8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+/* Print button */
+.fiq-btn-print { background: #1a2a3a; color: #4a9fd4; border: 1px solid #2a4a5a; border-radius: 6px; padding: 4px 10px; font-size: 11px; cursor: pointer; }
+.fiq-btn-print:hover { background: #2a3a4a; }
+.fiq-btn-print:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Add spool checkbox */
+.fiq-add-checkbox { padding: 4px 0 8px; }
