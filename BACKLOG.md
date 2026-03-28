@@ -33,6 +33,11 @@
 - [x] Snapshot trust validation (Shape 1) — `_build_start_snapshot` now excludes slots where fuel gauge reads 0.0 but spool is bound (`_read_spool_id > 0`) and physically present. Logs `SNAPSHOT_IMPLAUSIBLE` at WARNING. Rehydration helper-recovery path also validated (`SNAPSHOT_IMPLAUSIBLE_REHYDRATE`). Excluded slots produce explicit `DATA_LOSS: start_g not captured` instead of silent `BELOW_MIN`. Shape 2 (Spoolman discrepancy) deferred — requires print-start Spoolman fetch. 5 new tests. (v1.5.2)
 
 ### Medium Priority
+- [x] Print duration resets on pause/resume — `_on_print_status_change` fired
+  `_on_print_start()` on paused → running, resetting `_print_start_time`,
+  `_job_key`, and `_start_snapshot`. Fixed: added `"pause", "paused"` to
+  `old not in (...)` guard on start branch (mirrors end condition). Regression
+  test: `test_pause_resume_preserves_print_start_time`. (2026-03-28)
 - [~] AMS HT3 support (ams_index 130, slot 7) — filament-iq changes complete (v1.6.1): base.py, reconciler location map, monitor.py, card location tables, runbook. HA config changes pending (home_assistant repo): helpers, automations, scripts, dashboard.
 - [x] Add Spool dialog quantity field — added quantity field (default 1, min 1,
   max 10) with stepper buttons to SpoolAddRow. On submit, calls onCreate once

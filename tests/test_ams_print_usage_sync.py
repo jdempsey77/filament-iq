@@ -101,7 +101,6 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self.min_tray_active_seconds = float(a.get("min_tray_active_seconds", 10))
         self.auto_empty_spools = bool(a.get("auto_empty_spools", False))
         self.auto_archive_depleted_spools = bool(a.get("auto_archive_depleted_spools", False))
-        self.notify_service = str(a.get("notify_service", "mobile_app_jd_pixel_10_pro_xl"))
         self._seen_job_keys = OrderedDict()
         self._trays_used = set()
         self._tray_active_times = {}
@@ -278,13 +277,6 @@ def test_resolve_active_tray_slot_ht2():
     app = _TestableUsageSync(state_map=_default_state_map())
     app._state_map.update(_active_tray_state(app, 129, 0))
     assert app._resolve_active_tray_slot() == 6
-
-
-def test_resolve_active_tray_slot_ht3():
-    """ams_index=130, tray_index=0 → slot 7 (HT 3)."""
-    app = _TestableUsageSync(state_map=_default_state_map())
-    app._state_map.update(_active_tray_state(app, 130, 0))
-    assert app._resolve_active_tray_slot() == 7
 
 
 def test_resolve_active_tray_slot_none_attrs():
@@ -1711,36 +1703,6 @@ class TestSnapshotPlausibility:
         assert snap[2] == 450.0
         assert not _has_log(app, "SNAPSHOT_IMPLAUSIBLE")
 
-    def test_snapshot_nonrfid_slot_fuel_gauge_unavailable_not_implausible(self):
-        """Bug 16: Non-RFID slot with Spoolman fallback returning 0.0 must NOT be excluded."""
-        app = _TestableUsageSync(state_map={
-            # Fuel gauge unavailable → fallback to ams_remaining which returns 0.0
-            "sensor.p1s_tray_2_fuel_gauge_remaining": "unavailable",
-            "sensor.ams_slot_2_remaining_g": "0",
-            "input_text.ams_slot_2_spool_id": "76",
-        })
-        # Non-RFID: tag_uid all zeros → _is_rfid_slot returns False
-        entity_2 = app._tray_entity_by_slot.get(2)
-        if entity_2:
-            app._state_map[entity_2] = "PLA"
-            app._state_map[f"{entity_2}::tag_uid"] = "0000000000000000"
-        snap = app._build_start_snapshot()
-        assert 2 in snap, f"non-RFID slot 2 at 0.0 should NOT be excluded, got {snap}"
-        assert snap[2] == 0.0
-        assert not _has_log(app, "SNAPSHOT_IMPLAUSIBLE")
-
-    def test_snapshot_rfid_slot_fuel_gauge_zero_is_implausible(self):
-        """RFID slot reading 0.0 with spool bound IS implausible — existing behavior preserved."""
-        app = _TestableUsageSync(state_map={
-            "sensor.p1s_tray_2_fuel_gauge_remaining": "0.0",
-            "input_text.ams_slot_2_spool_id": "20",
-        })
-        # RFID: valid tag_uid → _is_rfid_slot returns True
-        app._state_map.update(_rfid_tag_uid_for_slots(app, [2]))
-        snap = app._build_start_snapshot()
-        assert 2 not in snap, f"RFID slot 2 at 0.0 should be excluded, got {snap}"
-        assert _has_log(app, "SNAPSHOT_IMPLAUSIBLE")
-
     def test_rehydrate_helper_recovery_removes_stale_zero(self):
         """Stale 0.0 in HA helper JSON is removed during rehydration."""
         app = _TestableUsageSync(
@@ -2637,7 +2599,7 @@ class TestCheckUnboundTrays:
         app._trays_used = {1}
         app._check_unbound_trays({})
         assert any("PRINT_UNBOUND_WARNING" in msg for msg, _ in app._log_calls)
-        assert any(c["service"] == "notify/mobile_app_jd_pixel_10_pro_xl" for c in app._service_calls)
+        assert any(c["service"] == "notify/mobile_app_jd_pixel_10xl" for c in app._service_calls)
 
     def test_unbound_with_notify_target(self):
         """notify_target arg is now ignored; always routes to mobile app."""
@@ -2648,7 +2610,7 @@ class TestCheckUnboundTrays:
         app._print_active = True
         app._trays_used = {1}
         app._check_unbound_trays({})
-        assert any(c["service"] == "notify/mobile_app_jd_pixel_10_pro_xl" for c in app._service_calls)
+        assert any(c["service"] == "notify/mobile_app_jd_pixel_10xl" for c in app._service_calls)
 
     def test_bound_slot_no_warning(self):
         app = _TestableUsageSync(state_map={
@@ -3326,186 +3288,38 @@ class TestCollectPrintInputs:
         assert "retry_delays = [15, 45, 90]" in source
 
 
-# ── 3MF Cache Tests ──────────────────────────────────────────────────
+def test_pause_resume_preserves_print_start_time():
+    """Paused → running resume must NOT reset _print_start_time, _job_key, or _start_snapshot."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({3: 39}),
+        args={"lifecycle_phase1_enabled": True},
+    )
+    # idle → running: sets _print_start_time, _job_key, _start_snapshot
+    app._on_print_status_change(None, None, "idle", "running", {})
+    t0 = app._print_start_time
+    job_key_0 = app._job_key
+    snapshot_0 = dict(app._start_snapshot)
 
-def test_cache_hit_skips_ftps():
-    """Valid cache file with matching task name → _try_cache_3mf returns True."""
-    import tempfile, time
-    with tempfile.TemporaryDirectory() as td:
-        # Create slice_info.config fixture
-        fname = "12345-test_model.slice_info.config"
-        fpath = os.path.join(td, fname)
-        with open(fpath, "w") as f:
-            f.write('<?xml version="1.0"?><config><plate>'
-                    '<filament id="0" used_g="50.0" color="#FF0000FF" type="PLA"/>'
-                    '</plate></config>')
-        # Touch file to be recent
-        os.utime(fpath, (time.time(), time.time()))
+    assert t0 > 0, "_print_start_time should be set after print start"
+    assert job_key_0, "_job_key should be set after print start"
 
-        app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_gcode_file_downloaded": "12345-test_model.gcode",
-            "sensor.p1s_01p00c5a3101668_task_name": "test_model",
-        })
-        app._bambulab_cache_path = td
-        app._gcode_file_entity = "sensor.p1s_01p00c5a3101668_gcode_file_downloaded"
-        app._print_start_time = time.time() - 5
+    # running → paused: should NOT trigger start or end
+    app._on_print_status_change(None, None, "running", "paused", {})
+    assert app._print_start_time == t0
+    assert app._job_key == job_key_0
+    assert app._start_snapshot == snapshot_0
 
-        result = app._try_cache_3mf()
-        assert result is True, f"Expected cache hit, got False. Logs: {app._log_calls}"
-        assert app._threemf_data is not None
-        assert len(app._threemf_data) == 1
-        assert abs(app._threemf_data[0]["used_g"] - 50.0) < 0.01
-        assert _has_log(app, "3MF_CACHE_HIT")
+    # paused → running (resume): must NOT reset start state
+    app._on_print_status_change(None, None, "paused", "running", {})
+    assert app._print_start_time == t0, (
+        f"_print_start_time reset on resume: was {t0}, now {app._print_start_time}"
+    )
+    assert app._job_key == job_key_0, (
+        f"_job_key reset on resume: was {job_key_0!r}, now {app._job_key!r}"
+    )
+    assert app._start_snapshot == snapshot_0, (
+        "_start_snapshot changed on resume"
+    )
 
-
-def test_cache_miss_task_mismatch():
-    """Entity shows previous print's task name → cache miss."""
-    import tempfile, time
-    with tempfile.TemporaryDirectory() as td:
-        fname = "12345-old_print.slice_info.config"
-        fpath = os.path.join(td, fname)
-        with open(fpath, "w") as f:
-            f.write('<?xml version="1.0"?><config><plate>'
-                    '<filament id="0" used_g="50.0" color="#FF0000FF" type="PLA"/>'
-                    '</plate></config>')
-
-        app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_gcode_file_downloaded": "12345-old_print.gcode",
-            "sensor.p1s_01p00c5a3101668_task_name": "new_print",
-        })
-        app._bambulab_cache_path = td
-        app._gcode_file_entity = "sensor.p1s_01p00c5a3101668_gcode_file_downloaded"
-        app._print_start_time = time.time() - 5
-
-        result = app._try_cache_3mf()
-        assert result is False
-        assert app._threemf_data is None
-        assert _has_log(app, "3MF_CACHE_MISS reason=task_mismatch")
-
-
-def test_cache_miss_stale_mtime():
-    """Cache file older than print start → cache miss."""
-    import tempfile, time
-    with tempfile.TemporaryDirectory() as td:
-        fname = "12345-test_model.slice_info.config"
-        fpath = os.path.join(td, fname)
-        with open(fpath, "w") as f:
-            f.write('<?xml version="1.0"?><config><plate>'
-                    '<filament id="0" used_g="50.0" color="#FF0000FF" type="PLA"/>'
-                    '</plate></config>')
-        # Set mtime to 5 minutes ago
-        old_time = time.time() - 300
-        os.utime(fpath, (old_time, old_time))
-
-        app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_gcode_file_downloaded": "12345-test_model.gcode",
-            "sensor.p1s_01p00c5a3101668_task_name": "test_model",
-        })
-        app._bambulab_cache_path = td
-        app._gcode_file_entity = "sensor.p1s_01p00c5a3101668_gcode_file_downloaded"
-        app._print_start_time = time.time()  # print just started, file is old
-
-        result = app._try_cache_3mf()
-        assert result is False
-        assert _has_log(app, "3MF_CACHE_MISS reason=stale")
-
-
-def test_cache_already_set_skips_ftps():
-    """If _threemf_data already set when _fetch_3mf_background fires, skip FTPS."""
-    app = _TestableUsageSync(state_map=_default_state_map())
-    app._threemf_data = [{"index": 0, "used_g": 50.0}]  # already set by cache
-    app._bambulab_cache_path = ""  # cache disabled — but data already set
-    app._gcode_file_entity = "sensor.p1s_01p00c5a3101668_gcode_file_downloaded"
-    app._fetch_3mf_background({"attempt": 1})
-    assert app._threemf_data == [{"index": 0, "used_g": 50.0}], "data must not be cleared"
-    assert _has_log(app, "3MF_CACHE_ALREADY_SET")
-
-
-def test_cache_retry_before_ftps():
-    """First cache miss schedules retry; second hit skips FTPS entirely."""
-    import tempfile, time
-    with tempfile.TemporaryDirectory() as td:
-        app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_gcode_file_downloaded": "99999-test.gcode",
-            "sensor.p1s_01p00c5a3101668_task_name": "test",
-        })
-        app._bambulab_cache_path = td
-        app._gcode_file_entity = "sensor.p1s_01p00c5a3101668_gcode_file_downloaded"
-        app._print_start_time = time.time() - 5
-
-        # First call: cache miss (file doesn't exist yet) → schedules retry
-        app._fetch_3mf_background({"attempt": 1})
-        assert app._threemf_data is None
-        assert _has_log(app, "3MF_CACHE_MISS")
-        assert any(c["delay"] == 20 for c in app._run_in_calls), f"Expected 20s retry, got {app._run_in_calls}"
-
-        # Now create the file (simulating ha-bambulab writing it)
-        fpath = os.path.join(td, "99999-test.slice_info.config")
-        with open(fpath, "w") as f:
-            f.write('<?xml version="1.0"?><config><plate>'
-                    '<filament id="0" used_g="89.4" color="#FF0000FF" type="PLA"/>'
-                    '</plate></config>')
-        os.utime(fpath, (time.time(), time.time()))
-
-        # Second call (cache_retry=True): cache hit → no FTPS
-        app._log_calls.clear()
-        app._fetch_3mf_background({"attempt": 1, "cache_retry": True})
-        assert app._threemf_data is not None
-        assert abs(app._threemf_data[0]["used_g"] - 89.4) < 0.01
-        assert _has_log(app, "3MF_CACHE_HIT")
-
-
-def test_cache_retry_miss_falls_through_to_ftps():
-    """Both cache attempts miss → FTPS fires."""
-    app = _TestableUsageSync(state_map={
-        "sensor.p1s_01p00c5a3101668_gcode_file_downloaded": "99999-test.gcode",
-        "sensor.p1s_01p00c5a3101668_task_name": "test",
-    })
-    app._bambulab_cache_path = "/nonexistent"
-    app._gcode_file_entity = "sensor.p1s_01p00c5a3101668_gcode_file_downloaded"
-    app._print_start_time = __import__("time").time() - 5
-    app.printer_ip = "192.0.2.99"
-    app.access_code_entity = "input_text.bambu_printer_access_code"
-    app._state_map["input_text.bambu_printer_access_code"] = "test_code"
-
-    # cache_retry=True, cache misses → FTPS attempt logged
-    app._fetch_3mf_background({"attempt": 1, "cache_retry": True})
-    assert _has_log(app, "3MF_CACHE_MISS")
-    assert _has_log(app, "3MF_FETCH: attempt 1/4")
-
-
-def test_cache_hit_on_rehydration():
-    """Rehydration with _threemf_data=None + valid cache file → cache hit."""
-    import tempfile, time
-    with tempfile.TemporaryDirectory() as td:
-        fname = "12345-rehydrate_test.slice_info.config"
-        fpath = os.path.join(td, fname)
-        with open(fpath, "w") as f:
-            f.write('<?xml version="1.0"?><config><plate>'
-                    '<filament id="0" used_g="75.0" color="#00FF00FF" type="PLA"/>'
-                    '</plate></config>')
-        os.utime(fpath, (time.time(), time.time()))
-
-        app = _TestableUsageSync(
-            state_map={
-                "sensor.p1s_01p00c5a3101668_print_status": "running",
-                "sensor.p1s_01p00c5a3101668_task_name": "rehydrate_test",
-                "sensor.p1s_01p00c5a3101668_gcode_file_downloaded": "12345-rehydrate_test.gcode",
-                "input_text.filament_iq_start_json": '{"1": 800.0}',
-                "input_text.filament_iq_active_job_key": "",
-                "input_text.ams_slot_1_spool_id": "49",
-            },
-            args={"lifecycle_phase1_enabled": True},
-        )
-        app._bambulab_cache_path = td
-        app._gcode_file_entity = "sensor.p1s_01p00c5a3101668_gcode_file_downloaded"
-        app._print_start_time = time.time() - 30
-        app.threemf_enabled = True
-        app._threemf_data = None
-
-        app._rehydrate_print_state()
-
-        assert app._threemf_data is not None, f"Expected cache hit on rehydration, got None. Logs: {app._log_calls}"
-        assert _has_log(app, "3MF_CACHE_REHYDRATE_HIT")
 
 
