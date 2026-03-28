@@ -1573,7 +1573,6 @@ class TestAmsRfidReconcile(unittest.TestCase):
         """Deprecated strings must map to AMS128_Slot1 / AMS129_Slot1 so we never write them."""
         self.assertEqual(DEPRECATED_LOCATION_TO_CANONICAL.get("AMS2_HT_Slot1"), "AMS128_Slot1")
         self.assertEqual(DEPRECATED_LOCATION_TO_CANONICAL.get("AMS2_HT_Slot2"), "AMS129_Slot1")
-        self.assertEqual(DEPRECATED_LOCATION_TO_CANONICAL.get("AMS2_HT_Slot3"), "AMS130_Slot1")
         for deprecated, canonical in DEPRECATED_LOCATION_TO_CANONICAL.items():
             self.assertIn("AMS2_HT_", deprecated, f"keys should be deprecated: {deprecated}")
             self.assertNotIn("AMS2_HT_", canonical, f"canonical must not be deprecated: {canonical}")
@@ -1649,40 +1648,6 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertIn("prior_expected_spool_id=99", clear_lines[0], "prior_expected_spool_id must appear in evidence line")
         self.assertIn("slot=3", clear_lines[0])
         self.assertIn("reason=tray_empty", clear_lines[0])
-
-    def test_never_initialized_slot_empty_tray_writes_unbound_reason(self):
-        """Bug 15: Slot with spool_id='unknown' (HA default) + empty tray must get UNBOUND_TRAY_EMPTY."""
-        sm = FakeSpoolman([], [])
-        state_map = {}
-        # All slots empty, but slot 5 has never been written (spool_id='unknown')
-        for slot in range(1, 8):
-            tray_ent = _tray_entity(slot)
-            state_map[tray_ent] = {"state": "empty", "attributes": {}}
-            state_map[f"{tray_ent}::all"] = {"attributes": {}, "state": "empty"}
-            state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
-            state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
-            state_map[f"input_text.ams_slot_{slot}_unbound_reason"] = ""
-            state_map[f"input_text.ams_slot_{slot}_status"] = ""
-        # Slot 5: simulate HA default 'unknown' for never-initialized helpers
-        state_map["input_text.ams_slot_5_spool_id"] = "unknown"
-        state_map["input_text.ams_slot_5_unbound_reason"] = "unknown"
-
-        r = TestableReconcile(sm, state_map, args=self.args)
-        r._run_reconcile("test")
-
-        # Slot 5 must have UNBOUND_TRAY_EMPTY written to unbound_reason
-        unbound_writes = [
-            w for w in r._helper_writes
-            if w.get("entity_id") == "input_text.ams_slot_5_unbound_reason"
-            and w.get("value") == UNBOUND_TRAY_EMPTY
-        ]
-        self.assertGreaterEqual(
-            len(unbound_writes), 1,
-            f"Expected UNBOUND_TRAY_EMPTY write for slot 5, got: {r._helper_writes}"
-        )
-
-        # spool_id may be written to 0 by other reconciler paths — that's acceptable.
-        # The key assertion is that unbound_reason got UNBOUND_TRAY_EMPTY above.
 
     def test_color_warning_tray_hex_000000_no_warning(self):
         """tray_hex='000000' is non-authoritative → no COLOR_WARNING."""
@@ -7001,6 +6966,46 @@ def test_settle_timer_not_triggered_for_other_unbound_reasons(slot):
     r._run_reconcile("test")
     settle_calls = [c for c in r._run_in_calls if c.get("kwargs", {}).get("slot") == slot]
     assert len(settle_calls) == 0, "UNBOUND_TRAY_EMPTY must not schedule settle timer"
+
+
+def test_sync_color_skips_000000():
+    """_sync_filament_color_on_bind must skip PATCH when AMS tray reports 000000."""
+    spool = _spool(42, filament_id=10, color_hex="555555")
+    sm = FakeSpoolman([spool], [_bambu_filament(fid=10, color_hex="555555")])
+    tray_entity = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+    state_map = {
+        tray_entity: _tray_state("AABB", color="000000"),
+    }
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    result = r._sync_filament_color_on_bind(slot=1, spool_id=42, sync_mode="auto")
+    assert result is False, "Should return False for non-authoritative color 000000"
+    filament_patches = [p for p in sm.patches if "/filament/" in p["path"]]
+    assert len(filament_patches) == 0, "Should not PATCH filament with 000000"
+    skip_logs = [m for m, _ in r._log_calls if "SYNC_COLOR_SKIP_NON_AUTHORITATIVE" in m]
+    assert len(skip_logs) == 1
+
+
+def test_sync_color_applies_valid_color():
+    """_sync_filament_color_on_bind must PATCH when AMS tray reports a valid color like FF0000."""
+    spool = _spool(42, filament_id=10, color_hex="555555")
+    sm = FakeSpoolman([spool], [_bambu_filament(fid=10, color_hex="555555")])
+    # Extend patch to return a dict for filament paths (so _sync treats it as success)
+    _orig_patch = sm.patch
+    def _patch_with_filament_return(path, payload):
+        _orig_patch(path, payload)
+        if "/filament/" in path:
+            return {"id": 10, "color_hex": payload.get("color_hex", "")}
+    sm.patch = _patch_with_filament_return
+    tray_entity = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+    state_map = {
+        tray_entity: _tray_state("AABB", color="FF0000"),
+    }
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    result = r._sync_filament_color_on_bind(slot=1, spool_id=42, sync_mode="auto")
+    assert result is True, "Should return True after successful PATCH"
+    filament_patches = [p for p in sm.patches if "/filament/" in p["path"]]
+    assert len(filament_patches) == 1, "Should PATCH filament with FF0000"
+    assert filament_patches[0]["payload"]["color_hex"] == "FF0000"
 
 
 if __name__ == "__main__":

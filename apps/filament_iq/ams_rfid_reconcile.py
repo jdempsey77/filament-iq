@@ -686,6 +686,14 @@ class AmsRfidReconcile(FilamentIQBase):
             )
             return False
 
+        # Skip sync if AMS color is non-authoritative (000000, empty, etc.)
+        if target_color.lower() in {c.lower() for c in TRAY_HEX_NON_AUTHORITATIVE} - {""}:
+            self.log(
+                f"SYNC_COLOR_SKIP_NON_AUTHORITATIVE slot={slot} spool_id={spool_id} color={target_color}",
+                level="WARNING",
+            )
+            return False
+
         # Get spool and filament info from Spoolman
         spool = self._spoolman_get(f"/api/v1/spool/{spool_id}")
         if not isinstance(spool, dict) or "filament" not in spool:

@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.7.3] — 2026-03-28
+
+### Fixed
+- **Non-authoritative color sync guard** — `_sync_filament_color_on_bind`
+  was patching Spoolman filament color_hex with `000000` when AMS tray
+  reported a non-authoritative color (e.g. dark spools read as black).
+  Added guard to skip PATCH when `target_color` is in
+  `TRAY_HEX_NON_AUTHORITATIVE`. Prevents filament record corruption
+  and downstream RFID enrollment mismatches.
+
 ## [1.7.2] — 2026-03-28
 
 ### Fixed
