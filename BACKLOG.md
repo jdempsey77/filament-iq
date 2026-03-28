@@ -18,7 +18,10 @@
 ### In Progress
 
 ### High Priority
-- [ ] Slot display shows unknown · unknown after manual bind — after Assign & Bind writes spool_id to input_text.ams_slot_N_spool_id, the proxy component fires immediately and populates sensor.ams_slot_N_name, sensor.ams_slot_N_remaining_g, and sensor.ams_slot_N_color_hex with unknown/0 values. Root cause suspected: at bind time the spool's location in Spoolman may still be set to a slot location (e.g. AMS1_Slot2) rather than Shelf, causing the proxy lookup to return no data or filtered data. Confirmed slot 2 (spool_id=76, 2026-03-25) and slot 6 (spool_id=75, 2026-03-25). Workaround: trigger Reconcile after bind. Needs investigation into proxy lookup filtering and whether location field should be ignored on direct spool_id lookup.
+- [x] Slot display shows unknown · unknown after manual bind — template sensor
+  race: update_entity hadn't refreshed before template sensors re-evaluated.
+  Fixed in home_assistant repo: delay + targeted update_entity + missing
+  FILAMENT_IQ_SLOT_ASSIGNED event in per-slot scripts. (2026-03-27)
 - [x] bambulab cache path wrong container path — /homeassistant/www not /config/www. (v1.7.1)
 - [x] Cache not attempted on rehydration — _try_cache_3mf() at both sites. (v1.7.1)
 - [x] Cache retry before FTPS — one retry at t=30 via run_in. (v1.7.1)
@@ -30,8 +33,16 @@
 - [x] Snapshot trust validation (Shape 1) — `_build_start_snapshot` now excludes slots where fuel gauge reads 0.0 but spool is bound (`_read_spool_id > 0`) and physically present. Logs `SNAPSHOT_IMPLAUSIBLE` at WARNING. Rehydration helper-recovery path also validated (`SNAPSHOT_IMPLAUSIBLE_REHYDRATE`). Excluded slots produce explicit `DATA_LOSS: start_g not captured` instead of silent `BELOW_MIN`. Shape 2 (Spoolman discrepancy) deferred — requires print-start Spoolman fetch. 5 new tests. (v1.5.2)
 
 ### Medium Priority
+- [x] Print duration resets on pause/resume — `_on_print_status_change` fired
+  `_on_print_start()` on paused → running, resetting `_print_start_time`,
+  `_job_key`, and `_start_snapshot`. Fixed: added `"pause", "paused"` to
+  `old not in (...)` guard on start branch (mirrors end condition). Regression
+  test: `test_pause_resume_preserves_print_start_time`. (2026-03-28)
 - [~] AMS HT3 support (ams_index 130, slot 7) — filament-iq changes complete (v1.6.1): base.py, reconciler location map, monitor.py, card location tables, runbook. HA config changes pending (home_assistant repo): helpers, automations, scripts, dashboard.
-- [ ] Add Spool dialog missing quantity field — when adding a new spool, users can only add one at a time. If buying a multipack (e.g. 3 spools of the same filament), they must repeat the dialog 3 times. Add a quantity field (default: 1, min: 1) to the Add Spool dialog. On submit, call the Spoolman POST /api/v1/spool endpoint once per quantity count with identical parameters. Spoolman API supports this natively — each spool gets its own ID. UX: numeric input, stepper buttons, sensible max (e.g. 10).
+- [x] Add Spool dialog quantity field — added quantity field (default 1, min 1,
+  max 10) with stepper buttons to SpoolAddRow. On submit, calls onCreate once
+  per quantity count. Button label shows count when > 1. Label printing
+  scaffolding included (fires filament_iq_print_label per spool). (2026-03-27)
 - [x] NONRFID_EMPTY_TRAY_CLEAR sets location="Shelf" not "Empty" — _execute_writes now PATCHes location=Empty after successful depleted_nonrfid write. Prevents reconciler from returning depleted spools to Shelf candidate pool. (v1.0.3, commit 38a1aa3)
 - [x] start_map fallback over-count — active slots now narrowed to trays_used & start_snapshot.keys() in _do_finish. Phantom writes from idle RFID slots with gauge drift eliminated. (v1.0.3, commit c731414)
 - [x] min_consumption_g exempts 3MF methods — 3mf and 3mf_depleted bypass the 2g floor since slicer data is authoritative. RFID and depleted_nonrfid still subject to floor. (Audit Finding F, v1.0.1)
@@ -48,6 +59,9 @@
 - [x] Runout split consumption model inaccurate — remaining-based model used stale Spoolman remaining_weight for depleted spool share. Fixed: time-weighted split (active_times proportion) used when depleted slot has post-restart timing; remaining-based fallback when active_times unavailable (spool depleted before restart). (v1.0.8, commit 991c5eb)
 
 ### Low Priority
+- [ ] P_LABELS: Label printing — QL-810W WiFi, brother_ql + Pillow in
+  AppDaemon, new label_printer.py app, card Add Spool checkbox + Edit Spool
+  print button. See LABELS.md for full spec.
 - [x] 3MF_UNMATCHED for purge/support filaments in multi-color prints — benign. Slicer emits filament entries for purge tower / support material with internal colors (e.g. f330f9 magenta, 161616 near-black) that don't match any physical spool. Amounts are small (0.24g–4.3g). Matched slots write correctly; unmatched grams are logged at WARNING and silently dropped. No data loss. Pool fallback (`time_weighted/equal_split`) referenced in old logs is dead code — not implemented. No fix needed; WARNING log level provides adequate observability. (Analyze report 2026-03-24)
 - [x] start_g >= 0 guard — RFID delta now accepts 0g start. (Audit Finding B, v0.12.5)
 - [x] remaining_weight default=0 — depleted guard now fires on missing Spoolman field. (Audit Finding D, v0.12.5)

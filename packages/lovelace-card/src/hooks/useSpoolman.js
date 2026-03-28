@@ -32,8 +32,9 @@ export function useSpoolman(client) {
   }, [client])
 
   const createSpool = useCallback(async (data) => {
-    await client?.call('POST', '/api/v1/spool', data)
+    const result = await client?.call('POST', '/api/v1/spool', data)
     await refresh()
+    return result
   }, [client, refresh])
 
   const updateSpool = useCallback(async (id, data) => {

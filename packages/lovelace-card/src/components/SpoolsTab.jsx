@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'preact/hooks'
+import { useState, useMemo, useEffect, useCallback } from 'preact/hooks'
 import { ConfirmDialog } from './ConfirmDialog'
 import { LocationSelect } from './LocationSelect'
 
@@ -56,7 +56,7 @@ function MatBadge({ material }) {
   return <span class={`fiq-mat-badge ${cls}`}>{material || '—'}</span>
 }
 
-function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete }) {
+function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrintLabel, printingLabel }) {
   const [remaining, setRemaining] = useState(Math.round(spool.remaining_weight || 0))
   const [location, setLocation] = useState(spool.location || '')
   const [firstUsed, setFirstUsed] = useState(
@@ -118,7 +118,16 @@ function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete }) {
         </div>
       </div>
       <div class="fiq-panel-footer">
-        <button class="fiq-btn-del" onClick={() => setConfirming(true)} disabled={saving}>Delete spool</button>
+        <div class="fiq-btn-group">
+          <button class="fiq-btn-del" onClick={() => setConfirming(true)} disabled={saving}>Delete spool</button>
+          <button
+            class="fiq-btn-print"
+            onClick={() => onPrintLabel && onPrintLabel(spool.id)}
+            disabled={saving || printingLabel}
+          >
+            {printingLabel ? '⏳ Printing...' : '🖨 Print Label'}
+          </button>
+        </div>
         <div class="fiq-btn-group">
           <button class="fiq-btn-cancel" onClick={onCancel} disabled={saving}>Cancel</button>
           <button class="fiq-btn-save" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save changes'}</button>
@@ -135,22 +144,35 @@ function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete }) {
   )
 }
 
-function SpoolAddRow({ filaments, onCreate, onCancel }) {
+function SpoolAddRow({ filaments, onCreate, onCancel, hass }) {
   const [filamentId, setFilamentId] = useState('')
   const [location, setLocation] = useState('Shelf')
   const [initialWeight, setInitialWeight] = useState(1000)
   const [remainingWeight, setRemainingWeight] = useState(1000)
+  const [printLabel, setPrintLabel] = useState(true)
   const [saving, setSaving] = useState(false)
 
   const handleCreate = async () => {
     setSaving(true)
     try {
-      await onCreate({
+      const newSpool = await onCreate({
         filament_id: Number(filamentId),
         location,
         initial_weight: Number(initialWeight),
         remaining_weight: Number(remainingWeight),
       })
+      // Fire print label event if checkbox is checked and we got a spool ID back
+      if (printLabel && newSpool && newSpool.id && hass) {
+        try {
+          hass.connection.sendMessage({
+            type: 'fire_event',
+            event_type: 'filament_iq_print_label',
+            event_data: { spool_id: newSpool.id },
+          })
+        } catch (e) {
+          // Non-fatal — spool was created successfully
+        }
+      }
     } finally {
       setSaving(false)
     }
@@ -182,6 +204,17 @@ function SpoolAddRow({ filaments, onCreate, onCancel }) {
           <input class="fiq-input" type="number" value={remainingWeight} onInput={e => setRemainingWeight(e.target.value)} />
         </div>
       </div>
+      <div class="fiq-add-checkbox">
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#aaa', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={printLabel}
+            onChange={e => setPrintLabel(e.target.checked)}
+            style={{ accentColor: '#4a9eff' }}
+          />
+          Print label & move to shelf after saving
+        </label>
+      </div>
       <div class="fiq-panel-footer">
         <div />
         <div class="fiq-btn-group">
@@ -202,6 +235,59 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
   const [adding, setAdding] = useState(false)
   const [archiveConfirm, setArchiveConfirm] = useState(false)
   const [archiving, setArchiving] = useState(false)
+  const [printingSpoolId, setPrintingSpoolId] = useState(null)
+  const [toast, setToast] = useState(null)
+
+  // Subscribe to label result events
+  useEffect(() => {
+    if (!hass) return
+    let unsub = null
+    const subscribe = async () => {
+      try {
+        unsub = await hass.connection.subscribeEvents((event) => {
+          const d = event.data || {}
+          if (d.spool_id === printingSpoolId || printingSpoolId) {
+            setPrintingSpoolId(null)
+            if (d.success) {
+              setToast({ msg: 'Label printed — spool moved to shelf', type: 'ok' })
+            } else {
+              setToast({ msg: `Print failed: ${d.error || 'unknown error'}`, type: 'err' })
+            }
+            setTimeout(() => setToast(null), 5000)
+          }
+        }, 'filament_iq_label_result')
+      } catch (e) { /* ignore subscription errors */ }
+    }
+    subscribe()
+    return () => { if (unsub) unsub() }
+  }, [hass, printingSpoolId])
+
+  // Timeout for in-flight print jobs
+  useEffect(() => {
+    if (!printingSpoolId) return
+    const timer = setTimeout(() => {
+      setPrintingSpoolId(null)
+      setToast({ msg: 'Print label timed out', type: 'err' })
+      setTimeout(() => setToast(null), 5000)
+    }, 15000)
+    return () => clearTimeout(timer)
+  }, [printingSpoolId])
+
+  const handlePrintLabel = useCallback((spoolId) => {
+    if (!hass) return
+    setPrintingSpoolId(spoolId)
+    try {
+      hass.connection.sendMessage({
+        type: 'fire_event',
+        event_type: 'filament_iq_print_label',
+        event_data: { spool_id: spoolId },
+      })
+    } catch (e) {
+      setPrintingSpoolId(null)
+      setToast({ msg: `Print failed: ${e.message || e}`, type: 'err' })
+      setTimeout(() => setToast(null), 5000)
+    }
+  }, [hass])
 
   const emptySpools = useMemo(() =>
     (spools || []).filter(s => !s.archived && ((s.remaining_weight || 0) === 0)),
@@ -254,6 +340,12 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
   return (
     <div style={{position:"relative"}}>
 
+      {toast && (
+        <div class={`fiq-toast ${toast.type === 'err' ? 'fiq-toast-err' : 'fiq-toast-ok'}`}>
+          {toast.msg}
+        </div>
+      )}
+
       <div class="fiq-toolbar">
         <input class="fiq-search" type="text" placeholder="Search..." value={search} onInput={e => setSearch(e.target.value)} />
         <select class="fiq-filter" value={vendorFilter} onChange={e => setVendorFilter(e.target.value)}>
@@ -292,7 +384,8 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
       {adding && (
         <SpoolAddRow
           filaments={filaments}
-          onCreate={async (data) => { await createSpool(data); setAdding(false) }}
+          hass={hass}
+          onCreate={async (data) => { const result = await createSpool(data); setAdding(false); return result }}
           onCancel={() => setAdding(false)}
         />
       )}
@@ -340,6 +433,8 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
                   onSave={(id, patch) => updateSpool(id, patch).then(() => setEditId(null))}
                   onCancel={() => setEditId(null)}
                   onDelete={(id) => deleteSpool(id).then(() => setEditId(null))}
+                  onPrintLabel={handlePrintLabel}
+                  printingLabel={printingSpoolId === spool.id}
                 />
               )}
             </div>

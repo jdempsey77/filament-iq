@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.7.2] — 2026-03-28
+
+### Fixed
+- **Print duration resets on pause/resume** — `_on_print_status_change` was
+  firing `_on_print_start()` on `paused → running` transitions, resetting
+  `_print_start_time`, `_job_key`, and `_start_snapshot`. Duration was
+  measured only from resume → end, not start → end. Fix: added `"pause"` and
+  `"paused"` to the `old not in (...)` guard on the start branch, mirroring
+  the existing end condition guard. (Bug observed: 46m reported for a multi-
+  hour print after spool runout pause.)
+
+### Added
+- **Add Spool quantity field** — new stepper input (1–10) in the Add Spool
+  dialog. Creates one Spoolman spool per count with identical parameters.
+  Print label fires for each spool when checkbox is checked.
+
 ## [1.7.1] — 2026-03-26
 
 ### Fixed

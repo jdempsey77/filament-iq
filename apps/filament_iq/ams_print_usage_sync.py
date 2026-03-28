@@ -767,7 +767,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         # Debug logging (replaces automation E)
         self.log(f"PRINT_STATUS_TRANSITION from={old} to={new}", level="DEBUG")
 
-        if new in ("running", "printing") and old not in ("running", "printing"):
+        if new in ("running", "printing") and old not in ("running", "printing", "pause", "paused"):
             self._trays_used = set()
             self._spool_id_snapshot = {}
             self._tray_active_times = {}
