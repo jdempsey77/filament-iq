@@ -59,9 +59,11 @@
 - [x] Runout split consumption model inaccurate — remaining-based model used stale Spoolman remaining_weight for depleted spool share. Fixed: time-weighted split (active_times proportion) used when depleted slot has post-restart timing; remaining-based fallback when active_times unavailable (spool depleted before restart). (v1.0.8, commit 991c5eb)
 
 ### Low Priority
-- [ ] P_LABELS: Label printing — QL-810W WiFi, brother_ql + Pillow in
-  AppDaemon, new label_printer.py app, card Add Spool checkbox + Edit Spool
-  print button. See LABELS.md for full spec.
+- [x] P_LABELS: Label printing — QL-810W + DK-1201 29×90mm. label_printer.py
+  live, landscape layout, DejaVu fonts, auto-shrink, Print Label in edit panel
+  + Add Spool checkbox, Export CSV. (2026-03-29)
+- [ ] Label: consider wrapping long color names instead of shrinking
+- [ ] Label: vendor name truncation for very long vendor names
 - [x] 3MF_UNMATCHED for purge/support filaments in multi-color prints — benign. Slicer emits filament entries for purge tower / support material with internal colors (e.g. f330f9 magenta, 161616 near-black) that don't match any physical spool. Amounts are small (0.24g–4.3g). Matched slots write correctly; unmatched grams are logged at WARNING and silently dropped. No data loss. Pool fallback (`time_weighted/equal_split`) referenced in old logs is dead code — not implemented. No fix needed; WARNING log level provides adequate observability. (Analyze report 2026-03-24)
 - [x] start_g >= 0 guard — RFID delta now accepts 0g start. (Audit Finding B, v0.12.5)
 - [x] remaining_weight default=0 — depleted guard now fires on missing Spoolman field. (Audit Finding D, v0.12.5)
