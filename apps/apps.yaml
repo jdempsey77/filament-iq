@@ -80,3 +80,12 @@ filament_weight_tracker:
   printer_serial: "01P00C5A3101668"
   printer_model: "p1s"
   report_path: "/config/filament_weight_reports.log"
+
+label_printer:
+  module: filament_iq.label_printer
+  class: LabelPrinter
+  spoolman_url: "http://192.168.4.124:7912"
+  printer_url: "tcp://192.168.x.x:9100"
+  printer_model: "QL-810W"
+  label_size: "d24"
+  dry_run: true

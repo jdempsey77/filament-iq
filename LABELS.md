@@ -9,14 +9,14 @@ Spec and implementation notes for the Brother QL label printing feature.
 | Item | Detail |
 |---|---|
 | Printer | Brother QL-810W (WiFi only, no Ethernet/BT) |
-| Label stock | Brother DK-1218, 24mm round die-cut, white, 1000/roll |
+| Label stock | Brother DK-1201, 29mm × 90mm address label, white, 400/roll (or compatible BETCKEY 4000-pack) |
 | Connectivity | WiFi — assign static DHCP lease in UniFi UDM Pro |
 | Python library | `brother_ql` (PyPI: `brother_ql`) |
-| Label ID in brother_ql | `d24` (236 × 236 px printable area) |
+| Label ID in brother_ql | `29x90` (306 × 991 px printable area) |
 
 **Printer identifier format:**
 ```
-tcp://192.168.x.x:9100
+tcp://192.168.4.156:9100
 ```
 Assign a static DHCP lease in UniFi once the printer is on the network. Update this file with the final IP.
 
@@ -26,15 +26,24 @@ Assign a static DHCP lease in UniFi once the printer is on the network. Update t
 
 ## Label Design
 
-Canvas: 236 × 236 px (d24 round die-cut)
+Canvas: 306 × 991 px (29x90 portrait address label)
 
-Contents (all fitting in 1-inch circle):
-- Background fill = filament hex color
-- Line 1 (large): material type (e.g. `PETG`)
-- Line 2 (medium): vendor name abbreviated (e.g. `SUNLU`)
-- Line 3 (small): color name (e.g. `Matte Black`)
+Layout (top to bottom):
+- Color bar: full-width rectangle, 80px tall, filled with filament hex color
+  (border: 1px #333 if color is very light)
+- Vendor name: 28px bold, top-left, 8px margin, dark gray #222
+- Material badge: 28px bold, top-right, 8px margin, dark gray #222
+  (same line as vendor, right-aligned)
+- Color name: 40px bold, 12px margin left/right, wraps if long, #111
+- Divider line: 1px #ccc, 8px margin left/right
+- Nozzle temp: "Nozzle: 220°C" — 24px, #444, 10px margin
+- Bed temp: "Bed:    60°C"  — 24px, #444, 10px margin
+  (if temps missing, omit both rows)
+- Weight: "1000g remaining" — 22px, #666, 10px margin
+- Bottom: Spoolman ID "#42" — 18px monospace, #888, bottom-right, 8px margin
 
-Text color: white on dark backgrounds, dark on light backgrounds (auto-contrast).
+Text color auto-contrast: if color bar luminance < 0.4 → white text on bar,
+else dark text on bar.
 
 ---
 
@@ -58,7 +67,7 @@ AppDaemon: label_printer.py
   → GET spool from Spoolman API
   → GET filament from Spoolman API (for color hex, material, vendor)
   → Generate 236x236 PNG with Pillow
-  → Send to QL-810W via brother_ql (tcp://192.168.x.x:9100)
+  → Send to QL-810W via brother_ql (tcp://192.168.4.156:9100)
   → PATCH spool location: "New" → "Shelf"
   → Fire HA event: filament_iq_label_result
       payload: { spool_id: int, success: bool, error: str|null }
@@ -97,9 +106,9 @@ label_printer:
   module: filament_iq.label_printer
   class: LabelPrinter
   spoolman_url: "http://192.168.4.124:7912"
-  printer_url: "tcp://192.168.x.x:9100"
+  printer_url: "tcp://192.168.4.156:9100"
   printer_model: "QL-810W"
-  label_size: "d24"
+  label_size: "29x90"
 ```
 
 **Key methods:**
@@ -204,7 +213,7 @@ the location update. User can manually update location in the card.
    Confirm both install without error before proceeding
 6. Flip `dry_run: false` in `appdaemon/apps/apps.yaml`
 7. Deploy AppDaemon: `./scripts/manage_ha.sh --appdaemon`
-8. Load a DK-1218 roll into the printer
+8. Load a DK-1201 roll (or BETCKEY compatible) into the printer
 9. Trigger a test print — use HA Developer Tools > Events > fire
    `filament_iq_print_label` with `{ "spool_id": <any valid id> }`
 10. Confirm label prints and spool location moves New → Shelf
@@ -217,8 +226,9 @@ the location update. User can manually update location in the card.
 
 ## Open Questions / Decisions Deferred
 
+- [x] Label stock decided: DK-1201 29x90mm (or compatible BETCKEY 4000-pack)
+- [x] All Spoolman filament temps populated (2026-03-28)
 - [ ] Confirm printer VLAN placement (IoT `192.168.4.x` recommended)
 - [ ] Confirm static DHCP IP — update `printer_url` in apps.yaml and this file
 - [ ] Auto-contrast text color threshold (suggest: luminance < 0.4 → white text)
 - [ ] Whether Edit Spool print button should also offer location move
-- [ ] Third-party DK-1218 compatible label rolls — verify with brother_ql before ordering in bulk
