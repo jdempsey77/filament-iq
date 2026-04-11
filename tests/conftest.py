@@ -3,11 +3,19 @@ import sys
 
 import pytest
 
-_APPS = os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps")
-_FILAMENT_IQ = os.path.join(_APPS, "filament_iq")
+# Locate the filament_iq package. The standalone repo keeps source at
+# `apps/filament_iq/`; the home_assistant deployment lives at
+# `appdaemon/apps/filament_iq/`. Accept either so a single conftest
+# works in both layouts. If neither exists, skip the package's test
+# files (partial checkout).
+_REPO_ROOT = os.path.join(os.path.dirname(__file__), "..")
+_FILAMENT_IQ_LAYOUTS = (
+    os.path.join(_REPO_ROOT, "apps", "filament_iq"),
+    os.path.join(_REPO_ROOT, "appdaemon", "apps", "filament_iq"),
+)
 
 collect_ignore_glob = []
-if not os.path.isdir(_FILAMENT_IQ):
+if not any(os.path.isdir(p) for p in _FILAMENT_IQ_LAYOUTS):
     collect_ignore_glob.append("test_ams_*.py")
     collect_ignore_glob.append("test_threemf_*.py")
     collect_ignore_glob.append("test_consumption_engine.py")

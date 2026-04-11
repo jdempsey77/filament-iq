@@ -101,6 +101,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self.min_tray_active_seconds = float(a.get("min_tray_active_seconds", 10))
         self.auto_empty_spools = bool(a.get("auto_empty_spools", False))
         self.auto_archive_depleted_spools = bool(a.get("auto_archive_depleted_spools", False))
+        self.notify_service = str(a.get("notify_service", "mobile_app_jd_pixel_10_pro_xl"))
         self._seen_job_keys = OrderedDict()
         self._trays_used = set()
         self._tray_active_times = {}
@@ -115,6 +116,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         # Lifecycle phase flags (must mirror ams_print_usage_sync.py init)
         self._lifecycle_phase1 = bool(a.get("lifecycle_phase1_enabled", False))
         self._job_key = ""
+        self._print_start_time = None
         self._start_snapshot = {}
         self._fuel_gauge_pattern = str(
             a.get("fuel_gauge_pattern", "sensor.p1s_tray_{slot}_fuel_gauge_remaining")
@@ -376,7 +378,12 @@ def test_on_active_tray_change_ignored_when_not_printing():
 
 
 def test_job_key_includes_timestamp():
-    """Two prints of same file get different job keys (timestamp appended)."""
+    """Two distinct prints of the same file get different job keys.
+
+    Set-once semantics (v1.7.4): `_on_print_start` is a no-op while a
+    print is in flight. To start a second print the finish path must
+    clear both `_job_key` and `_print_start_time` first.
+    """
     import time
     app = _TestableUsageSync(
         state_map=_default_state_map({4: 10}),
@@ -385,6 +392,10 @@ def test_job_key_includes_timestamp():
     app._state_map[app._task_name_entity] = "test_model.3mf"
     app._on_print_start()
     key1 = app._job_key
+
+    # Simulate print finish: _do_finish clears both fields.
+    app._on_print_end()
+    app._print_start_time = None
 
     # Advance time by at least 1 second to ensure different timestamp
     time.sleep(1.1)
@@ -820,7 +831,9 @@ def test_3mf_fetch_runs_in_thread():
     threads_before = set(threading.enumerate())
     with mock.patch("threading.Thread") as mock_thread:
         mock_thread.return_value = mock.MagicMock()
-        app._fetch_3mf_background({"attempt": 1})
+        # attempt=2 bypasses the attempt-1 cache-retry early return path
+        # added in v1.7.0 (cache hit / scheduled retry, no thread spawn).
+        app._fetch_3mf_background({"attempt": 2})
         mock_thread.assert_called_once()
         call_kwargs = mock_thread.call_args
         assert call_kwargs.kwargs["daemon"] is True
@@ -2599,7 +2612,7 @@ class TestCheckUnboundTrays:
         app._trays_used = {1}
         app._check_unbound_trays({})
         assert any("PRINT_UNBOUND_WARNING" in msg for msg, _ in app._log_calls)
-        assert any(c["service"] == "notify/mobile_app_jd_pixel_10xl" for c in app._service_calls)
+        assert any(c["service"] == "notify/mobile_app_jd_pixel_10_pro_xl" for c in app._service_calls)
 
     def test_unbound_with_notify_target(self):
         """notify_target arg is now ignored; always routes to mobile app."""
@@ -2610,7 +2623,7 @@ class TestCheckUnboundTrays:
         app._print_active = True
         app._trays_used = {1}
         app._check_unbound_trays({})
-        assert any(c["service"] == "notify/mobile_app_jd_pixel_10xl" for c in app._service_calls)
+        assert any(c["service"] == "notify/mobile_app_jd_pixel_10_pro_xl" for c in app._service_calls)
 
     def test_bound_slot_no_warning(self):
         app = _TestableUsageSync(state_map={
@@ -3286,6 +3299,261 @@ class TestCollectPrintInputs:
         import filament_iq.ams_print_usage_sync as mod
         source = open(mod.__file__).read()
         assert "retry_delays = [15, 45, 90]" in source
+
+
+class TestNotificationSkipReasonLabels:
+    """v1.7.5: `_send_notification` surfaces per-slot skip_reason labels."""
+
+    def _make_app(self):
+        app = _TestableUsageSync(
+            state_map=_default_state_map(),
+            args={"lifecycle_phase1_enabled": True},
+        )
+        app._print_start_time = __import__("time").time() - 60
+        return app
+
+    def _decisions_with_skip(self, skip_reason):
+        from filament_iq.consumption_engine import SlotDecision
+        return [SlotDecision(
+            slot=2, spool_id=99, consumption_g=0.0,
+            method="no_evidence", skip_reason=skip_reason, confidence="none",
+        )]
+
+    def _notify_message(self, app):
+        notif = [c for c in app._service_calls if "notify" in c.get("service", "")]
+        assert len(notif) == 1, f"expected one notify call, got {notif}"
+        return notif[0].get("message", "")
+
+    def test_no_3mf_label(self):
+        app = self._make_app()
+        app._send_notification(
+            self._decisions_with_skip("NO_3MF_AND_TRAY_NOT_EMPTY"),
+            "model.3mf", "finish", 0.0, "j",
+        )
+        msg = self._notify_message(app)
+        assert "Slot 2: No slicer data" in msg
+        assert "No data" not in msg.replace("No slicer data", "")
+
+    def test_below_min_label(self):
+        app = self._make_app()
+        app._send_notification(
+            self._decisions_with_skip("BELOW_MIN: 1.50g < min 2.00g"),
+            "model.3mf", "finish", 0.0, "j",
+        )
+        assert "Slot 2: Below minimum threshold" in self._notify_message(app)
+
+    def test_sanity_cap_label(self):
+        app = self._make_app()
+        app._send_notification(
+            self._decisions_with_skip("SANITY_CAP: 1234.5g > max 1000.0g"),
+            "model.3mf", "finish", 0.0, "j",
+        )
+        assert "Slot 2: Estimate exceeded sanity limit" in self._notify_message(app)
+
+    def test_data_loss_label(self):
+        app = self._make_app()
+        app._send_notification(
+            self._decisions_with_skip("DATA_LOSS: start_g not captured"),
+            "model.3mf", "finish", 0.0, "j",
+        )
+        assert "Slot 2: Sensor data unavailable" in self._notify_message(app)
+
+    def test_depleted_no_spoolman_label(self):
+        app = self._make_app()
+        app._send_notification(
+            self._decisions_with_skip("DEPLETED_BUT_NO_SPOOLMAN_REMAINING"),
+            "model.3mf", "finish", 0.0, "j",
+        )
+        assert "Slot 2: Depleted, no Spoolman record" in self._notify_message(app)
+
+    def test_unknown_label(self):
+        app = self._make_app()
+        app._send_notification(
+            self._decisions_with_skip("UNKNOWN"),
+            "model.3mf", "finish", 0.0, "j",
+        )
+        assert "Slot 2: Unknown reason" in self._notify_message(app)
+
+    def test_unmapped_skip_reason_falls_back_to_default(self):
+        app = self._make_app()
+        app._send_notification(
+            self._decisions_with_skip("SOMETHING_NEW_NOT_IN_MAP"),
+            "model.3mf", "finish", 0.0, "j",
+        )
+        assert "Slot 2: No data" in self._notify_message(app)
+
+    def test_empty_skip_reason_falls_back_to_default(self):
+        app = self._make_app()
+        app._send_notification(
+            self._decisions_with_skip(None),
+            "model.3mf", "finish", 0.0, "j",
+        )
+        assert "Slot 2: No data" in self._notify_message(app)
+
+    def test_per_slot_lines_for_multiple_skips(self):
+        from filament_iq.consumption_engine import SlotDecision
+        app = self._make_app()
+        decisions = [
+            SlotDecision(slot=2, spool_id=99, consumption_g=0.0,
+                         method="no_evidence",
+                         skip_reason="NO_3MF_AND_TRAY_NOT_EMPTY",
+                         confidence="none"),
+            SlotDecision(slot=4, spool_id=77, consumption_g=0.0,
+                         method="no_evidence",
+                         skip_reason="BELOW_MIN: 0.5g < min 2.0g",
+                         confidence="none"),
+        ]
+        app._send_notification(decisions, "m.3mf", "finish", 0.0, "j")
+        msg = self._notify_message(app)
+        assert "Slot 2: No slicer data" in msg
+        assert "Slot 4: Below minimum threshold" in msg
+
+    def test_written_slots_render_unchanged_no_regression(self):
+        from filament_iq.consumption_engine import SlotDecision
+        app = self._make_app()
+        decisions = [SlotDecision(
+            slot=1, spool_id=10, consumption_g=42.5,
+            method="rfid_delta", skip_reason=None, confidence="high",
+            post_write_remaining=731.0, depleted=False,
+        )]
+        app._send_notification(decisions, "model.3mf", "finish", 100.0, "j")
+        msg = self._notify_message(app)
+        assert "Slot 1" in msg
+        assert "-42.5g" in msg
+        assert "731g remaining" in msg
+        assert "RFID sensor" in msg
+
+    def test_label_helper_handles_prefix_and_literal(self):
+        from filament_iq.ams_print_usage_sync import (
+            _label_skip_reason, _SKIP_REASON_LABELS, _SKIP_REASON_DEFAULT,
+        )
+        assert _label_skip_reason("BELOW_MIN: 1g < 2g") == _SKIP_REASON_LABELS["BELOW_MIN"]
+        assert _label_skip_reason("UNKNOWN") == _SKIP_REASON_LABELS["UNKNOWN"]
+        assert _label_skip_reason("not_in_map") == _SKIP_REASON_DEFAULT
+        assert _label_skip_reason(None) == _SKIP_REASON_DEFAULT
+        assert _label_skip_reason("") == _SKIP_REASON_DEFAULT
+
+
+def test_consumption_engine_skip_reason_keys_match_label_map():
+    """Every skip_reason prefix produced by consumption_engine must have
+    a label in `_SKIP_REASON_LABELS`. Catches new reasons added to the
+    decision engine that are not surfaced in notifications."""
+    import re
+    import filament_iq.consumption_engine as ce
+    from filament_iq.ams_print_usage_sync import _SKIP_REASON_LABELS
+    src = open(ce.__file__).read()
+    # Match `skip_reason="LITERAL"` and `skip_reason=f"PREFIX: ..."`.
+    found = set()
+    for m in re.finditer(r'skip_reason\s*=\s*f?"([^"{]+?)(?::|")', src):
+        key = m.group(1).strip()
+        if key:
+            found.add(key)
+    # `_no_evidence_reason` returns these literals — also collect them.
+    for m in re.finditer(r'return\s+"([A-Z_]+)"', src):
+        found.add(m.group(1))
+    unmapped = found - set(_SKIP_REASON_LABELS.keys())
+    assert not unmapped, (
+        f"skip_reasons not in _SKIP_REASON_LABELS: {sorted(unmapped)} "
+        f"— add labels in ams_print_usage_sync.py"
+    )
+
+
+def test_transient_status_blip_preserves_print_start_time():
+    """Mid-print status blip (running → prepare → running) must NOT reset
+    `_print_start_time` or `_job_key`. Reproduces the v1.7.4 duration bug:
+    a 2h+ print reported as 14m because a transient HA status flip re-fired
+    `_on_print_start` and reset the start-time baseline."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({3: 39}),
+        args={"lifecycle_phase1_enabled": True},
+    )
+    app._on_print_status_change(None, None, "idle", "running", {})
+    t0 = app._print_start_time
+    job_key_0 = app._job_key
+    assert t0 > 0
+    assert job_key_0
+
+    # Transient blip: status drops to "prepare" (or unknown/unavailable)
+    # mid-print, then returns to running. The outer status_change handler
+    # WILL fire `_on_print_start` again, but the set-once guard must hold.
+    app._on_print_status_change(None, None, "running", "prepare", {})
+    app._on_print_status_change(None, None, "prepare", "running", {})
+    assert app._print_start_time == t0, (
+        f"_print_start_time reset on transient blip: "
+        f"was {t0}, now {app._print_start_time}"
+    )
+    assert app._job_key == job_key_0, (
+        f"_job_key reset on transient blip: "
+        f"was {job_key_0!r}, now {app._job_key!r}"
+    )
+
+
+def test_rehydrate_fills_empty_print_start_time():
+    """Rehydration restores `_print_start_time` from disk when in-memory is None."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        try:
+            import filament_iq.ams_print_usage_sync as mod
+            ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+            mod.ACTIVE_PRINT_FILE = ap_file
+
+            ap_file.write_text(json.dumps({
+                "job_key": "fill_empty",
+                "start_snapshot": {"1": 500.0},
+                "trays_used": [1],
+                "spool_id_snapshot": {"1": 61},
+                "print_start_time": 1710700000.0,
+                "threemf_data": None,
+            }))
+
+            app = _TestableUsageSync(state_map={
+                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "sensor.p1s_01p00c5a3101668_task_name": "fill_empty",
+                "input_text.filament_iq_active_job_key": "fill_empty",
+                "input_boolean.filament_iq_print_active": "on",
+            }, args={"lifecycle_phase1_enabled": True})
+            app._print_start_time = None
+            app._job_key = ""
+            app._rehydrate_print_state()
+            assert app._print_start_time == 1710700000.0
+        finally:
+            if ap_file.exists():
+                ap_file.unlink()
+
+
+def test_rehydrate_does_not_overwrite_live_print_start_time():
+    """Rehydration must NOT overwrite a live in-memory `_print_start_time`
+    with a stale disk value. Set-once invariant: live wins over disk."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        try:
+            import filament_iq.ams_print_usage_sync as mod
+            ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+            mod.ACTIVE_PRINT_FILE = ap_file
+
+            ap_file.write_text(json.dumps({
+                "job_key": "stale_disk",
+                "start_snapshot": {"1": 500.0},
+                "trays_used": [1],
+                "spool_id_snapshot": {"1": 61},
+                "print_start_time": 1710700000.0,
+                "threemf_data": None,
+            }))
+
+            app = _TestableUsageSync(state_map={
+                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "sensor.p1s_01p00c5a3101668_task_name": "stale_disk",
+                "input_text.filament_iq_active_job_key": "stale_disk",
+                "input_boolean.filament_iq_print_active": "on",
+            }, args={"lifecycle_phase1_enabled": True})
+            live_t = 1710800000.0
+            app._print_start_time = live_t
+            app._rehydrate_print_state()
+            assert app._print_start_time == live_t, (
+                f"rehydrate overwrote live start_time: expected {live_t}, "
+                f"got {app._print_start_time}"
+            )
+        finally:
+            if ap_file.exists():
+                ap_file.unlink()
 
 
 def test_pause_resume_preserves_print_start_time():

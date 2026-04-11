@@ -402,6 +402,9 @@ class AmsRfidReconcile(FilamentIQBase):
         self._suppress_helper_change_until = {}
         self._settle_pending = {}
         self.nonrfid_settle_delay_s = int(self.args.get("nonrfid_settle_delay_s", 90))
+        self.notify_service = str(
+            self.args.get("notify_service", "mobile_app_jd_pixel_10_pro_xl")
+        ).strip()
         self._missing_helper_warned = set()
         self._pending_helper_warned = set()
         self._domain_exception_class_logged = False
@@ -1376,6 +1379,10 @@ class AmsRfidReconcile(FilamentIQBase):
                             self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "AMBIGUOUS_SIG")
                             self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                             self._log_slot_status_change(slot, status, "", 0, tray_meta)
+                            self._notify_mobile_match_needed(
+                                slot,
+                                "Spool active in another slot; cannot auto-assign.",
+                            )
                             t["decision"], t["reason"], t["action"] = "NON_RFID", "ambiguous_sig", "needs_manual_bind"
                             t["unbound_reason"] = "AMBIGUOUS_SIG"
                             t["final_slot_status"] = status
@@ -1494,6 +1501,10 @@ class AmsRfidReconcile(FilamentIQBase):
                         self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "AMBIGUOUS_SIG")
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                         self._log_slot_status_change(slot, status, "", 0, tray_meta)
+                        self._notify_mobile_match_needed(
+                            slot,
+                            "Multiple candidates found; tie-break did not resolve to one winner.",
+                        )
                         t["decision"], t["reason"], t["action"] = "NON_RFID", "ambiguous_sig", "needs_manual_bind"
                         t["unbound_reason"] = "AMBIGUOUS_SIG"
                         t["final_spool_id"] = 0
@@ -3040,6 +3051,29 @@ class AmsRfidReconcile(FilamentIQBase):
             summary,
             notification_id=f"nonrfid_needs_action_slot_{slot}",
         )
+        self._notify_mobile_match_needed(slot, reason_detail)
+
+    def _notify_mobile_match_needed(self, slot, reason_detail):
+        """Push an actionable mobile notification for an ambiguous match.
+
+        Complements `_notify_nonrfid_needs_action`'s persistent_notification
+        with a mobile push so the user is alerted in real time and can fix
+        the binding before the next print.
+        """
+        try:
+            self.call_service(
+                f"notify/{self.notify_service}",
+                title="Filament IQ \u2014 Spool Match Needed",
+                message=(
+                    f"Slot {slot}: ambiguous match ({reason_detail}). "
+                    "Open Spoolman to assign manually."
+                ),
+            )
+        except Exception as exc:
+            self.log(
+                f"NONRFID_NEEDS_ACTION_MOBILE_NOTIFY_FAILED slot={slot}: {exc}",
+                level="WARNING",
+            )
 
     def _notify_nonrfid_new_fallback(self, slot, spool_id, tray_meta):
         """PHASE_2_6: Non-RFID bind used New fallback (no Shelf match)."""

@@ -244,6 +244,7 @@ class TestableReconcile(AmsRfidReconcile):
         self._suppress_helper_change_until = {}
         self._settle_pending = {}
         self.nonrfid_settle_delay_s = int(a.get("nonrfid_settle_delay_s", 90))
+        self.notify_service = str(a.get("notify_service", "mobile_app_jd_pixel_10_pro_xl"))
         self._run_in_calls = []
         self._domain_exception_class_logged = False
         self._print_active_since = None
@@ -954,6 +955,125 @@ class TestAmsRfidReconcile(unittest.TestCase):
         status_writes = [w for w in r._helper_writes if w.get("entity_id") == "input_text.ams_slot_1_status"]
         self.assertGreater(len(status_writes), 0)
         self.assertEqual(status_writes[-1].get("value"), STATUS_NEEDS_MANUAL_BIND)
+
+    def test_phase26_multi_candidate_ambiguity_pushes_mobile_notification(self):
+        """v1.7.5 line 1500: multi-candidate lot_nr ambiguity must fire mobile push.
+
+        Reuses the multi-candidate setup from
+        `test_phase26_nonrfid_ambiguity_needs_manual_bind` and asserts that
+        `_notify_mobile_match_needed` is invoked with the documented reason.
+        """
+        spools = [
+            _spool(301, remaining_weight=200, rfid_tag_uid=None, location="Shelf",
+                   color_hex="00ff00", vendor_name="Overture", name="Overture PLA"),
+            _spool(302, remaining_weight=250, rfid_tag_uid=None, location="Shelf",
+                   color_hex="00ff00", vendor_name="Overture", name="Overture PLA"),
+        ]
+        filaments = [{"id": 1, "name": "Overture PLA", "material": "PLA",
+                      "color_hex": "00ff00", "vendor": {"name": "Overture"},
+                      "external_id": "overture"}]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(1)
+        state_map = {
+            tray_ent: _tray_state("", tray_type="PLA", color="00ff00",
+                                  name="Bambu PLA", filament_id="bambu"),
+            f"{tray_ent}::all": {"attributes": _tray_state("")["attributes"],
+                                  "state": "valid"},
+        }
+        state_map["input_boolean.filament_iq_nonrfid_enabled"] = "on"
+        for slot in range(1, 7):
+            state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_status"] = ""
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        spy_calls = []
+        r._notify_mobile_match_needed = lambda slot, reason: spy_calls.append((slot, reason))
+        r._run_reconcile("test")
+
+        # Verify the slot reached NEEDS_MANUAL_BIND (proves the branch fired).
+        status_writes = [w for w in r._helper_writes
+                         if w.get("entity_id") == "input_text.ams_slot_1_status"]
+        self.assertGreater(len(status_writes), 0)
+        self.assertEqual(status_writes[-1].get("value"), STATUS_NEEDS_MANUAL_BIND)
+
+        slot1_calls = [c for c in spy_calls if c[0] == 1]
+        self.assertEqual(
+            len(slot1_calls), 1,
+            f"expected exactly one mobile push for slot 1, got {spy_calls}",
+        )
+        slot, reason = slot1_calls[0]
+        self.assertEqual(slot, 1)
+        self.assertEqual(
+            reason,
+            "Multiple candidates found; tie-break did not resolve to one winner.",
+        )
+
+    def test_phase26_spool_active_in_other_slot_pushes_mobile_notification(self):
+        """v1.7.5 line 1382: single-candidate but spool active in another slot
+        must fire mobile push with the documented reason.
+
+        Line 1367 normally filters active-in-other-slot candidates before the
+        single-candidate check at 1370. To exercise the 1370 re-check branch
+        we install a stateful stub on `_is_spool_active_in_other_slot` that
+        returns False during the filter pass and True on the re-check.
+        """
+        spools = [
+            _spool(401, remaining_weight=300, rfid_tag_uid=None, location="Shelf",
+                   color_hex="ff8800", vendor_name="Overture", name="Overture PLA"),
+        ]
+        filaments = [{"id": 1, "name": "Overture PLA", "material": "PLA",
+                      "color_hex": "ff8800", "vendor": {"name": "Overture"},
+                      "external_id": "overture"}]
+        sm = FakeSpoolman(spools, filaments)
+        tray_ent = _tray_entity(1)
+        state_map = {
+            tray_ent: _tray_state("", tray_type="PLA", color="ff8800",
+                                  name="Bambu PLA", filament_id="bambu"),
+            f"{tray_ent}::all": {"attributes": _tray_state("")["attributes"],
+                                  "state": "valid"},
+        }
+        state_map["input_boolean.filament_iq_nonrfid_enabled"] = "on"
+        for slot in range(1, 7):
+            state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
+            state_map[f"input_text.ams_slot_{slot}_status"] = ""
+
+        r = TestableReconcile(sm, state_map, args=self.args)
+        # Stateful stub: keep the spool through the upstream filter passes
+        # (`_unenrolled_candidates_for_tray` and the line-1367 filter), then
+        # trip the line-1370 re-check. The re-check is the third invocation
+        # for (spool=401, slot=1) — first the unenrolled-candidates filter,
+        # second the all_nonrfid_ids filter, third the explicit re-check.
+        call_log = []
+        def fake_is_active(spool_id, current_slot):
+            call_log.append((spool_id, current_slot))
+            if current_slot == 1 and spool_id == 401:
+                same_slot_calls = [c for c in call_log
+                                   if c == (spool_id, current_slot)]
+                return len(same_slot_calls) >= 3
+            return False
+        r._is_spool_active_in_other_slot = fake_is_active
+
+        spy_calls = []
+        r._notify_mobile_match_needed = lambda slot, reason: spy_calls.append((slot, reason))
+        r._run_reconcile("test")
+
+        status_writes = [w for w in r._helper_writes
+                         if w.get("entity_id") == "input_text.ams_slot_1_status"]
+        self.assertGreater(len(status_writes), 0)
+        self.assertEqual(status_writes[-1].get("value"), STATUS_NEEDS_MANUAL_BIND)
+        slot1_calls = [c for c in spy_calls if c[0] == 1]
+        self.assertEqual(
+            len(slot1_calls), 1,
+            f"expected exactly one mobile push for slot 1, got {spy_calls}",
+        )
+        slot, reason = slot1_calls[0]
+        self.assertEqual(slot, 1)
+        self.assertEqual(
+            reason,
+            "Spool active in another slot; cannot auto-assign.",
+        )
 
     def test_phase26_nonrfid_new_fallback_unambiguous_binds(self):
         """PHASE_2_6: Non-RFID unified path — spool with location=New is only a Shelf candidate;
@@ -5140,6 +5260,25 @@ class TestNotifyNonrfidNeedsAction:
         assert len(r._notify_calls) == 1
         assert "Non-RFID NEEDS_ACTION" in r._notify_calls[0][0]
 
+    def test_also_pushes_mobile_notification(self):
+        """v1.7.5: ambiguous outcome ALSO fires an actionable mobile push."""
+        fm = FakeSpoolman([], [])
+        r = _EventTestReconcile(fm, {}, args={})
+        tray_meta = {"type": "PLA", "color_hex": "FF0000", "name": "Red PLA", "filament_id": "123"}
+        r._notify_nonrfid_needs_action(
+            5, tray_meta, "Multiple Shelf candidates; tie-break did not pick one.",
+        )
+        mobile = [
+            c for c in r._service_calls
+            if c.get("service", "").startswith("notify/mobile_app_")
+        ]
+        assert len(mobile) == 1, f"expected one mobile push, got {mobile}"
+        push = mobile[0]
+        assert "Spool Match Needed" in push.get("title", "")
+        assert "Slot 5" in push.get("message", "")
+        assert "Open Spoolman" in push.get("message", "")
+        assert "Multiple Shelf candidates" in push.get("message", "")
+
 
 class TestNotifyNonrfidNewFallback:
     """_notify_nonrfid_new_fallback calls _notify."""
@@ -5387,6 +5526,9 @@ class TestAppendEvidenceReal:
         r = TestableReconcile(fm, {})
         with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
             r.evidence_log_path = f.name
+            # Set up the rotating-file logger that _append_evidence depends
+            # on. The harness bypasses initialize() so we call this directly.
+            AmsRfidReconcile._ensure_evidence_path_writable(r)
             r.evidence_log_enabled = True
             AmsRfidReconcile._append_evidence(r, {"key": "value"})
         with open(r.evidence_log_path) as f:
@@ -5419,6 +5561,7 @@ class TestAppendEvidenceLineReal:
         r = TestableReconcile(fm, {})
         with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
             r.evidence_log_path = f.name
+            AmsRfidReconcile._ensure_evidence_path_writable(r)
             r.evidence_log_enabled = True
             AmsRfidReconcile._append_evidence_line(r, "RFID_EMPTY_TRAY_CLEAR slot=1")
         with open(r.evidence_log_path) as f:

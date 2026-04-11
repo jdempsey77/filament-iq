@@ -76,6 +76,39 @@ _CONFIDENCE_SYMBOLS = {
     "none":   "",
 }
 
+# Per-slot labels for `no_evidence` decisions in the print-finish notification.
+# Keyed by the prefix of `SlotDecision.skip_reason` produced by
+# `consumption_engine._decide_slot` (see `consumption_engine.py`). Some reasons
+# are emitted as `PREFIX: detail` (SANITY_CAP, BELOW_MIN, DATA_LOSS); others
+# are bare literals from `_no_evidence_reason` (NO_3MF_AND_TRAY_NOT_EMPTY,
+# DEPLETED_BUT_NO_SPOOLMAN_REMAINING, UNKNOWN).
+#
+# Note: there is no "ambiguous" key here because the consumption engine never
+# emits an ambiguous skip_reason — it always picks one decision branch. Truly
+# ambiguous matches surface from the RFID reconciler (`ams_rfid_reconcile.py`)
+# on a separate lifecycle and notify via their own push.
+_SKIP_REASON_LABELS = {
+    "SANITY_CAP":                        "Estimate exceeded sanity limit",
+    "BELOW_MIN":                         "Below minimum threshold",
+    "DATA_LOSS":                         "Sensor data unavailable",
+    "NO_3MF_AND_TRAY_NOT_EMPTY":         "No slicer data",
+    "DEPLETED_BUT_NO_SPOOLMAN_REMAINING": "Depleted, no Spoolman record",
+    "UNKNOWN":                           "Unknown reason",
+}
+_SKIP_REASON_DEFAULT = "No data"
+
+
+def _label_skip_reason(skip_reason):
+    """Return the human-readable label for a SlotDecision.skip_reason.
+
+    Handles both `PREFIX: detail` and literal forms. Falls back to
+    `_SKIP_REASON_DEFAULT` for any value not in `_SKIP_REASON_LABELS`.
+    """
+    if not skip_reason:
+        return _SKIP_REASON_DEFAULT
+    key = str(skip_reason).split(":", 1)[0].strip()
+    return _SKIP_REASON_LABELS.get(key, _SKIP_REASON_DEFAULT)
+
 # RFID weight reconciler constants
 TRAY_WEIGHT_MIN_G = 50.0    # Bambu AMS Lite spools are 250g; 50g gives safe headroom
 TRAY_WEIGHT_MAX_G = 2000.0  # Largest Bambu spool is 1000g; 2000g catches factory/clone errors
@@ -160,6 +193,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         # Phase 1: Print start lifecycle (absorbs automations A, B, C)
         self._lifecycle_phase1 = bool(self.args.get("lifecycle_phase1_enabled", False))
         self._job_key = ""
+        self._print_start_time = None
         self._start_snapshot = {}  # {slot_int: grams_float}
         self._fuel_gauge_pattern = str(
             self.args.get(
@@ -734,8 +768,9 @@ class AmsPrintUsageSync(FilamentIQBase):
 
         if skipped:
             lines.append("")
-            slots_str = ", ".join(f"slot {d.slot}" for d in skipped)
-            lines.append(f"No data ({len(skipped)} slot(s)): {slots_str}")
+            for d in skipped:
+                label = _label_skip_reason(d.skip_reason)
+                lines.append(f"\u2022 Slot {d.slot}: {label}")
 
         if not written:
             lines.append("No filament consumption recorded.")
@@ -806,10 +841,21 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"TRAY_TRACKING: Failed to update HA helper: {e}",
                     level="WARNING",
                 )
-            if self._lifecycle_phase2:
-                self._on_print_finish(new)
-            elif self._lifecycle_phase1:
-                self._on_print_end()
+            # Set-once invariant: only fire end-of-print teardown for
+            # terminal states. Transient blips (prepare/unknown/unavailable/
+            # idle) leave `_job_key` and `_print_start_time` intact so the
+            # IN-transition's set-once guard preserves print identity.
+            if new in self._TERMINAL_STATES:
+                if self._lifecycle_phase2:
+                    self._on_print_finish(new)
+                elif self._lifecycle_phase1:
+                    self._on_print_end()
+            else:
+                self.log(
+                    f"PRINT_END_SUPPRESSED: transient status={new}, "
+                    f"preserving job_key={self._job_key}",
+                    level="DEBUG",
+                )
 
     def _resolve_active_tray_slot(self):
         try:
@@ -937,7 +983,21 @@ class AmsPrintUsageSync(FilamentIQBase):
             self.log(f"LIFECYCLE: Failed to write start_json helper: {e}", level="WARNING")
 
     def _on_print_start(self):
-        """Phase 1 print start handler: job key, start snapshot, HA helpers."""
+        """Phase 1 print start handler: job key, start snapshot, HA helpers.
+
+        Set-once per logical print: if `_print_start_time` or `_job_key` is
+        already populated, this is a re-fire from a transient HA status blip
+        (e.g. running → prepare/unknown/unavailable → running). Skip the reset
+        so the original print identity and duration baseline survive.
+        """
+        if self._print_start_time is not None or self._job_key:
+            self.log(
+                f"PRINT_START_SUPPRESSED: already have "
+                f"start_time={self._print_start_time}, job_key={self._job_key} "
+                f"— ignoring re-fire",
+                level="DEBUG",
+            )
+            return
         self._print_start_time = time.time()
         task_name = str(self.get_state(self._task_name_entity) or "")
         self._job_key = f"{task_name.replace(' ', '_')}_{int(time.time())}"
@@ -1037,6 +1097,17 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     _SUCCESS_STATES = frozenset({"finish"})
     _FAILED_STATES = frozenset({"failed", "error"})
+    # Terminal states that should trigger end-of-print teardown.
+    # Anything outside this set on a `running → X` transition is treated
+    # as a transient blip (e.g. `prepare`, `unknown`, `unavailable`, `idle`)
+    # and must NOT clear print identity. Preserves the set-once invariant
+    # for `_print_start_time` and `_job_key` so the duration baseline and
+    # job key survive HA integration reloads / sensor dropouts.
+    _TERMINAL_STATES = frozenset({
+        "finish", "finished", "completed",
+        "failed", "error",
+        "cancelled", "canceled",
+    })
 
     def _build_end_snapshot(self):
         """Read fuel gauge for slots present in start_snapshot. Returns {slot_int: grams}."""
@@ -1087,11 +1158,18 @@ class AmsPrintUsageSync(FilamentIQBase):
                 if restored["spool_id_snapshot"]:
                     self._spool_id_snapshot = restored["spool_id_snapshot"]
                 if restored.get("print_start_time") is not None:
-                    self._print_start_time = restored["print_start_time"]
-                    self.log(
-                        f"REHYDRATE_PRINT_START_TIME t={self._print_start_time:.0f}",
-                        level="DEBUG",
-                    )
+                    if self._print_start_time is None:
+                        self._print_start_time = restored["print_start_time"]
+                        self.log(
+                            f"REHYDRATE_PRINT_START_TIME t={self._print_start_time:.0f}",
+                            level="DEBUG",
+                        )
+                    else:
+                        self.log(
+                            "REHYDRATE_SUPPRESSED: live start_time already set, "
+                            "ignoring disk value",
+                            level="DEBUG",
+                        )
                 self.log("3MF_RECOVERED_FROM_DISK", level="INFO")
             # Try cache as last resort before declaring 3MF unavailable
             if self._threemf_data is None:
@@ -1401,7 +1479,13 @@ class AmsPrintUsageSync(FilamentIQBase):
             # IMPORTANT: do NOT overwrite the helper when it already has the correct key.
             task_name = str(self.get_state(self._task_name_entity) or "")
             helper_key = str(self.get_state(self._job_key_entity) or "").strip()
-            if helper_key and helper_key not in ("unknown", "unavailable"):
+            if self._job_key:
+                self.log(
+                    "REHYDRATE_SUPPRESSED: live job_key already set "
+                    f"({self._job_key}), ignoring helper value",
+                    level="DEBUG",
+                )
+            elif helper_key and helper_key not in ("unknown", "unavailable"):
                 self._job_key = helper_key
                 self.log(
                     f"REHYDRATE_JOB_KEY_FROM_HELPER job_key={self._job_key}",
@@ -1429,11 +1513,18 @@ class AmsPrintUsageSync(FilamentIQBase):
                 if restored["spool_id_snapshot"]:
                     self._spool_id_snapshot = restored["spool_id_snapshot"]
                 if restored.get("print_start_time") is not None:
-                    self._print_start_time = restored["print_start_time"]
-                    self.log(
-                        f"REHYDRATE_PRINT_START_TIME t={self._print_start_time:.0f}",
-                        level="DEBUG",
-                    )
+                    if self._print_start_time is None:
+                        self._print_start_time = restored["print_start_time"]
+                        self.log(
+                            f"REHYDRATE_PRINT_START_TIME t={self._print_start_time:.0f}",
+                            level="DEBUG",
+                        )
+                    else:
+                        self.log(
+                            "REHYDRATE_SUPPRESSED: live start_time already set, "
+                            "ignoring disk value",
+                            level="DEBUG",
+                        )
             # Try cache for 3MF if disk restore didn't have it
             if self.threemf_enabled and self._threemf_data is None:
                 if self._try_cache_3mf():
