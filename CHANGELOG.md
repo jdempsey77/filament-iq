@@ -1,5 +1,61 @@
 # Changelog
 
+## [1.7.5] — 2026-04-11
+
+### Added
+- **Per-slot skip reason labels in print-finish notification** — skipped slots
+  now show the specific reason from `SlotDecision.skip_reason` instead of a
+  generic "No data" line. New `_SKIP_REASON_LABELS` map covers every
+  `consumption_engine` skip_reason: `NO_3MF_AND_TRAY_NOT_EMPTY` → "No slicer
+  data", `BELOW_MIN` → "Below minimum threshold", `SANITY_CAP` → "Estimate
+  exceeded sanity limit", `DATA_LOSS` → "Sensor data unavailable",
+  `DEPLETED_BUT_NO_SPOOLMAN_REMAINING` → "Depleted, no Spoolman record",
+  `UNKNOWN` → "Unknown reason". Unmapped values fall back to "No data".
+  A regression test (`test_consumption_engine_skip_reason_keys_match_label_map`)
+  fails if a new skip_reason is added to the engine without a label.
+- **Mobile push for ambiguous reconciler outcomes** — new
+  `_notify_mobile_match_needed(slot, reason)` helper fires a
+  `notify/mobile_app_jd_pixel_10_pro_xl` push so the user is alerted in
+  real time when a non-RFID slot needs manual binding. Title: "Filament IQ
+  — Spool Match Needed". Message includes slot number, reason detail, and
+  a "Open Spoolman to assign manually" call to action. Notify service is
+  configurable via the `notify_service` apps.yaml arg. Wired into three
+  previously-silent terminal decision points in `_run_reconcile_inner`:
+  1. `_notify_nonrfid_needs_action` (used at lines 1817 / 1858) —
+     non-RFID slot lacks an unambiguous Shelf match.
+  2. Single-candidate path where the resolved spool is already active in
+     another slot (line 1382) — reason: "Spool active in another slot;
+     cannot auto-assign."
+  3. Multi-candidate `lot_nr` ambiguity where tie-break did not resolve
+     (line 1500) — reason: "Multiple candidates found; tie-break did not
+     resolve to one winner."
+
+### Fixed
+- **Pre-existing test failures unblocked**:
+  - `test_notification_shows_post_write_remaining_not_pre_write`: test
+    harness was missing `self.notify_service`, causing `_send_notification`
+    to AttributeError-and-swallow before any notify call landed. Initialized
+    in `_TestableUsageSync.__init__`.
+  - `TestCheckUnboundTrays::test_unbound_slot_warns` and
+    `test_unbound_with_notify_target`: hardcoded the stale service name
+    `mobile_app_jd_pixel_10xl`; updated to current default
+    `mobile_app_jd_pixel_10_pro_xl`.
+  - `test_3mf_fetch_runs_in_thread`: written before v1.7.0 cache-retry
+    logic was added; `attempt=1` now early-returns through the cache path
+    without spawning a thread. Test now calls with `attempt=2`.
+  - `tests/conftest.py` `collect_ignore_glob` was pinned to a stale path
+    (`appdaemon/apps/filament_iq/`, the home_assistant deployment layout),
+    which silently excluded ALL `test_ams_*.py`, `test_threemf_*.py`, and
+    `test_consumption_engine.py` from `pytest tests/` directory-level runs
+    in this standalone repo. Suite count was reporting ~294 instead of
+    ~1357. Fixed to accept either `apps/filament_iq/` (standalone) or
+    `appdaemon/apps/filament_iq/` (deployed) layouts.
+  - `TestAppendEvidenceReal::test_enabled_writes` and
+    `TestAppendEvidenceLineReal::test_enabled_writes` (newly surfaced by
+    the conftest fix): tests pre-dated the rotating-file logger refactor
+    of `_append_evidence`. Now call `_ensure_evidence_path_writable()`
+    in setup so `_evidence_logger` is initialized.
+
 ## [1.7.4] — 2026-04-11
 
 ### Fixed

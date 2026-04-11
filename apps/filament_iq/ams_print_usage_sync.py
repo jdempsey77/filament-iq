@@ -76,6 +76,39 @@ _CONFIDENCE_SYMBOLS = {
     "none":   "",
 }
 
+# Per-slot labels for `no_evidence` decisions in the print-finish notification.
+# Keyed by the prefix of `SlotDecision.skip_reason` produced by
+# `consumption_engine._decide_slot` (see `consumption_engine.py`). Some reasons
+# are emitted as `PREFIX: detail` (SANITY_CAP, BELOW_MIN, DATA_LOSS); others
+# are bare literals from `_no_evidence_reason` (NO_3MF_AND_TRAY_NOT_EMPTY,
+# DEPLETED_BUT_NO_SPOOLMAN_REMAINING, UNKNOWN).
+#
+# Note: there is no "ambiguous" key here because the consumption engine never
+# emits an ambiguous skip_reason — it always picks one decision branch. Truly
+# ambiguous matches surface from the RFID reconciler (`ams_rfid_reconcile.py`)
+# on a separate lifecycle and notify via their own push.
+_SKIP_REASON_LABELS = {
+    "SANITY_CAP":                        "Estimate exceeded sanity limit",
+    "BELOW_MIN":                         "Below minimum threshold",
+    "DATA_LOSS":                         "Sensor data unavailable",
+    "NO_3MF_AND_TRAY_NOT_EMPTY":         "No slicer data",
+    "DEPLETED_BUT_NO_SPOOLMAN_REMAINING": "Depleted, no Spoolman record",
+    "UNKNOWN":                           "Unknown reason",
+}
+_SKIP_REASON_DEFAULT = "No data"
+
+
+def _label_skip_reason(skip_reason):
+    """Return the human-readable label for a SlotDecision.skip_reason.
+
+    Handles both `PREFIX: detail` and literal forms. Falls back to
+    `_SKIP_REASON_DEFAULT` for any value not in `_SKIP_REASON_LABELS`.
+    """
+    if not skip_reason:
+        return _SKIP_REASON_DEFAULT
+    key = str(skip_reason).split(":", 1)[0].strip()
+    return _SKIP_REASON_LABELS.get(key, _SKIP_REASON_DEFAULT)
+
 # RFID weight reconciler constants
 TRAY_WEIGHT_MIN_G = 50.0    # Bambu AMS Lite spools are 250g; 50g gives safe headroom
 TRAY_WEIGHT_MAX_G = 2000.0  # Largest Bambu spool is 1000g; 2000g catches factory/clone errors
@@ -735,8 +768,9 @@ class AmsPrintUsageSync(FilamentIQBase):
 
         if skipped:
             lines.append("")
-            slots_str = ", ".join(f"slot {d.slot}" for d in skipped)
-            lines.append(f"No data ({len(skipped)} slot(s)): {slots_str}")
+            for d in skipped:
+                label = _label_skip_reason(d.skip_reason)
+                lines.append(f"\u2022 Slot {d.slot}: {label}")
 
         if not written:
             lines.append("No filament consumption recorded.")
