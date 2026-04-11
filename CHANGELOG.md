@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.7.4] — 2026-04-11
+
+### Fixed
+- **Print duration reset on transient HA status blips mid-print** —
+  `_on_print_status_change` re-fires `_on_print_start()` whenever the printer
+  status leaves the in-print set (`running`, `printing`, `pause`, `paused`)
+  and returns. Bambu/HA emit transient `prepare`, `unknown`, `unavailable`,
+  or `idle` states during integration reloads and sensor dropouts, each of
+  which was resetting `_print_start_time` and reissuing `_job_key`. A 2h+
+  print was reported as 14m because the baseline was reset ~14m before the
+  finish event. Fix: `_print_start_time` and `_job_key` are now set-once per
+  logical print — `_on_print_start` is a no-op if either is already
+  populated, and rehydration paths refuse to overwrite a live in-memory
+  value with a stale disk value. Regression tests:
+  `test_transient_status_blip_preserves_print_start_time`,
+  `test_rehydrate_fills_empty_print_start_time`,
+  `test_rehydrate_does_not_overwrite_live_print_start_time`.
+
 ## [1.7.3] — 2026-03-28
 
 ### Fixed

@@ -173,3 +173,16 @@
 | v0.12.2 | 2026-03-14 | Defer RFID reconciler 60s post-print |
 | v0.12.1 | 2026-03-13 | Rehydrate job_key from HA helper |
 | v0.12.0 | 2026-03-13 | Reconciler print-active freeze |
+
+### Bug: 3MF cache staleness — same filename, different plate
+- **Severity**: High — causes incorrect consumption writes
+- **Root cause**: 3MF cached by filename; same-filename back-to-back prints
+  with different plates reuse stale 3MF data
+- **Evidence**: job `5x4x9U_Box_1774843163` wrote 353.63g via
+  `single_filament_force` but `print_weight_g=34.6g` (10x overconsumption)
+- **Fix candidates**:
+  1. Invalidate 3MF cache at every print start — always re-fetch
+  2. When `single_filament_force` AND 3MF total diverges >50% from
+     `print_weight_g`, fall back to `print_weight_g` as consumption
+  3. Add `gcode_file` entity change detection to invalidate cache
+- **Requires**: ANALYZE → Skeptic → Principal Engineer review before implement

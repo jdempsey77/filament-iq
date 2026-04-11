@@ -115,6 +115,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         # Lifecycle phase flags (must mirror ams_print_usage_sync.py init)
         self._lifecycle_phase1 = bool(a.get("lifecycle_phase1_enabled", False))
         self._job_key = ""
+        self._print_start_time = None
         self._start_snapshot = {}
         self._fuel_gauge_pattern = str(
             a.get("fuel_gauge_pattern", "sensor.p1s_tray_{slot}_fuel_gauge_remaining")
@@ -376,7 +377,12 @@ def test_on_active_tray_change_ignored_when_not_printing():
 
 
 def test_job_key_includes_timestamp():
-    """Two prints of same file get different job keys (timestamp appended)."""
+    """Two distinct prints of the same file get different job keys.
+
+    Set-once semantics (v1.7.4): `_on_print_start` is a no-op while a
+    print is in flight. To start a second print the finish path must
+    clear both `_job_key` and `_print_start_time` first.
+    """
     import time
     app = _TestableUsageSync(
         state_map=_default_state_map({4: 10}),
@@ -385,6 +391,10 @@ def test_job_key_includes_timestamp():
     app._state_map[app._task_name_entity] = "test_model.3mf"
     app._on_print_start()
     key1 = app._job_key
+
+    # Simulate print finish: _do_finish clears both fields.
+    app._on_print_end()
+    app._print_start_time = None
 
     # Advance time by at least 1 second to ensure different timestamp
     time.sleep(1.1)
@@ -3286,6 +3296,104 @@ class TestCollectPrintInputs:
         import filament_iq.ams_print_usage_sync as mod
         source = open(mod.__file__).read()
         assert "retry_delays = [15, 45, 90]" in source
+
+
+def test_transient_status_blip_preserves_print_start_time():
+    """Mid-print status blip (running → prepare → running) must NOT reset
+    `_print_start_time` or `_job_key`. Reproduces the v1.7.4 duration bug:
+    a 2h+ print reported as 14m because a transient HA status flip re-fired
+    `_on_print_start` and reset the start-time baseline."""
+    app = _TestableUsageSync(
+        state_map=_default_state_map({3: 39}),
+        args={"lifecycle_phase1_enabled": True},
+    )
+    app._on_print_status_change(None, None, "idle", "running", {})
+    t0 = app._print_start_time
+    job_key_0 = app._job_key
+    assert t0 > 0
+    assert job_key_0
+
+    # Transient blip: status drops to "prepare" (or unknown/unavailable)
+    # mid-print, then returns to running. The outer status_change handler
+    # WILL fire `_on_print_start` again, but the set-once guard must hold.
+    app._on_print_status_change(None, None, "running", "prepare", {})
+    app._on_print_status_change(None, None, "prepare", "running", {})
+    assert app._print_start_time == t0, (
+        f"_print_start_time reset on transient blip: "
+        f"was {t0}, now {app._print_start_time}"
+    )
+    assert app._job_key == job_key_0, (
+        f"_job_key reset on transient blip: "
+        f"was {job_key_0!r}, now {app._job_key!r}"
+    )
+
+
+def test_rehydrate_fills_empty_print_start_time():
+    """Rehydration restores `_print_start_time` from disk when in-memory is None."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        try:
+            import filament_iq.ams_print_usage_sync as mod
+            ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+            mod.ACTIVE_PRINT_FILE = ap_file
+
+            ap_file.write_text(json.dumps({
+                "job_key": "fill_empty",
+                "start_snapshot": {"1": 500.0},
+                "trays_used": [1],
+                "spool_id_snapshot": {"1": 61},
+                "print_start_time": 1710700000.0,
+                "threemf_data": None,
+            }))
+
+            app = _TestableUsageSync(state_map={
+                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "sensor.p1s_01p00c5a3101668_task_name": "fill_empty",
+                "input_text.filament_iq_active_job_key": "fill_empty",
+                "input_boolean.filament_iq_print_active": "on",
+            }, args={"lifecycle_phase1_enabled": True})
+            app._print_start_time = None
+            app._job_key = ""
+            app._rehydrate_print_state()
+            assert app._print_start_time == 1710700000.0
+        finally:
+            if ap_file.exists():
+                ap_file.unlink()
+
+
+def test_rehydrate_does_not_overwrite_live_print_start_time():
+    """Rehydration must NOT overwrite a live in-memory `_print_start_time`
+    with a stale disk value. Set-once invariant: live wins over disk."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        try:
+            import filament_iq.ams_print_usage_sync as mod
+            ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+            mod.ACTIVE_PRINT_FILE = ap_file
+
+            ap_file.write_text(json.dumps({
+                "job_key": "stale_disk",
+                "start_snapshot": {"1": 500.0},
+                "trays_used": [1],
+                "spool_id_snapshot": {"1": 61},
+                "print_start_time": 1710700000.0,
+                "threemf_data": None,
+            }))
+
+            app = _TestableUsageSync(state_map={
+                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "sensor.p1s_01p00c5a3101668_task_name": "stale_disk",
+                "input_text.filament_iq_active_job_key": "stale_disk",
+                "input_boolean.filament_iq_print_active": "on",
+            }, args={"lifecycle_phase1_enabled": True})
+            live_t = 1710800000.0
+            app._print_start_time = live_t
+            app._rehydrate_print_state()
+            assert app._print_start_time == live_t, (
+                f"rehydrate overwrote live start_time: expected {live_t}, "
+                f"got {app._print_start_time}"
+            )
+        finally:
+            if ap_file.exists():
+                ap_file.unlink()
 
 
 def test_pause_resume_preserves_print_start_time():
