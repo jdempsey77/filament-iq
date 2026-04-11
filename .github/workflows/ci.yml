@@ -14,7 +14,12 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install dependencies
-        run: pip install appdaemon pytest
+        # Pillow is required by apps/filament_iq/label_printer.py (and the
+        # corresponding test_label_printer.py tests). brother_ql is also a
+        # runtime dep but is imported lazily inside send_to_printer() and
+        # only when dry_run is False — tests never reach it, so it's not
+        # needed in CI.
+        run: pip install appdaemon pytest Pillow
       - name: Run tests
         run: python3 -m pytest tests/ -q
       - name: Run audit
