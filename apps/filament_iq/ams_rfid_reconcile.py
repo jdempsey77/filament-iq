@@ -1780,6 +1780,7 @@ class AmsRfidReconcile(FilamentIQBase):
                             )
                             self._record_decision(slot, "nonrfid_converge_location", {"spool_id": helper_spool_id})
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._write_presentation_state(slot, "", status)
                         self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
                         ok += 1
                         t["final_slot_status"] = status
@@ -1826,6 +1827,7 @@ class AmsRfidReconcile(FilamentIQBase):
                         t["final_slot_status"] = status
                         t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._write_presentation_state(slot, "", status)
                         self._log_slot_status_change(slot, status, "", resolved_spool_id, tray_meta)
                         self._record_decision(slot, "nonrfid_shelf_match", {"resolved_spool_id": resolved_spool_id})
                         fid = int(resolved_spool_id or 0)
@@ -1860,6 +1862,7 @@ class AmsRfidReconcile(FilamentIQBase):
                             t["final_slot_status"] = status
                             t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                             self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                            self._write_presentation_state(slot, "", status)
                             self._log_slot_status_change(slot, status, "", resolved_spool_id, tray_meta)
                             self._record_decision(slot, "nonrfid_shelf_tiebreak", {"resolved_spool_id": resolved_spool_id})
                             fid = int(resolved_spool_id or 0)
@@ -1900,6 +1903,7 @@ class AmsRfidReconcile(FilamentIQBase):
                         t["final_slot_status"] = status
                         t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._write_presentation_state(slot, "", status)
                         self._log_slot_status_change(slot, status, "", resolved_spool_id, tray_meta)
                         self._record_decision(slot, "nonrfid_new_fallback", {"resolved_spool_id": resolved_spool_id})
                         fid = int(resolved_spool_id or 0)
@@ -2527,9 +2531,10 @@ class AmsRfidReconcile(FilamentIQBase):
         self._set_helper(f"input_text.ams_slot_{slot}_spool_id", str(spool_id))
         self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", str(spool_id))
         self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
-        # v1.8.0: dual-write presentation_state — read status from helper since it's written by caller first
-        _flh_status = str(self._get_helper_state(f"input_text.ams_slot_{slot}_status") or "")
-        self._write_presentation_state(slot, "", _flh_status)
+        # v1.8.1: presentation_state is written by the caller after _force_location_and_helpers
+        # returns, using the new status value. Do not write here — callers always call
+        # _write_presentation_state(slot, "", new_status) with the correct bound status after
+        # this method returns.
         if tray_identity is not None:
             self._set_helper(f"input_text.ams_slot_{slot}_tray_signature", tray_identity)
         elif tray_meta is not None:
