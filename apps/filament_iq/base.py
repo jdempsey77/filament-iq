@@ -40,6 +40,17 @@ def build_slot_mappings(prefix: str, ams_units=None):
         slots = unit.get("slots", [])
         unit_type = str(unit.get("type", "ams_2_pro"))
 
+        if unit_type == "external":
+            # External spool: dedicated ha-bambulab entity, not an AMS tray.
+            # active_ams_index=255, active_tray_index=0 per ha-bambulab source.
+            for slot in slots:
+                slot = int(slot)
+                entity_id = f"sensor.{prefix}_externalspool_external_spool"
+                tray_entity_by_slot[slot] = entity_id
+                ams_tray_to_slot[(255, 0)] = slot
+                canonical_location_by_slot[slot] = "External"
+            continue  # skip AMS tray loop
+
         # ha-bambulab: ams_1 for first unit (ams_index 0), ams_128/129 for HT
         ams_entity_idx = 1 if ams_index == 0 else ams_index
 

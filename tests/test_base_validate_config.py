@@ -30,7 +30,7 @@ _APPS = os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps")
 if _APPS not in sys.path:
     sys.path.insert(0, _APPS)
 
-from filament_iq.base import FilamentIQBase
+from filament_iq.base import FilamentIQBase, build_slot_mappings
 
 
 # ── test harness ──────────────────────────────────────────────────────
@@ -231,3 +231,44 @@ class TestEntityPrefix:
         })
         slots = app._get_all_slots()
         assert slots == [1, 2, 3, 4, 5, 6, 7]
+
+
+class TestBuildSlotMappingsExternal:
+
+    def test_build_slot_mappings_external_unit(self):
+        """External unit type produces correct entity, location, and ams_tray_to_slot."""
+        prefix = "p1s_test"
+        ams_units = [
+            {"type": "ams_2_pro", "ams_index": 0, "slots": [1, 2, 3, 4]},
+            {"type": "external", "slots": [8]},
+        ]
+        tray_entity, slot_by_entity, ams_tray_to_slot, location = \
+            build_slot_mappings(prefix, ams_units)
+
+        assert tray_entity[8] == f"sensor.{prefix}_externalspool_external_spool"
+        assert slot_by_entity[f"sensor.{prefix}_externalspool_external_spool"] == 8
+        assert ams_tray_to_slot[(255, 0)] == 8
+        assert location[8] == "External"
+        # AMS slots unaffected
+        assert tray_entity[1] == f"sensor.{prefix}_ams_1_tray_1"
+
+    def test_build_slot_mappings_external_configurable_slot(self):
+        """External slot number is configurable — slot 9 works identically."""
+        prefix = "p1s_test"
+        ams_units = [{"type": "external", "slots": [9]}]
+        tray_entity, _, ams_tray_to_slot, location = \
+            build_slot_mappings(prefix, ams_units)
+
+        assert tray_entity[9] == f"sensor.{prefix}_externalspool_external_spool"
+        assert ams_tray_to_slot[(255, 0)] == 9
+        assert location[9] == "External"
+
+    def test_build_slot_mappings_no_external_by_default(self):
+        """Default ams_units does not include external slot."""
+        prefix = "p1s_test"
+        tray_entity, _, ams_tray_to_slot, location = \
+            build_slot_mappings(prefix)  # no ams_units arg — uses default
+
+        assert 8 not in tray_entity
+        assert (255, 0) not in ams_tray_to_slot
+        assert "External" not in location.values()
