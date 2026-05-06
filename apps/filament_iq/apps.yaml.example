@@ -23,6 +23,13 @@ ams_rfid_reconcile:
     - type: ams_ht
       ams_index: 129
       slots: [6]
+  # Optional: add external spool as slot 8
+  # ams_units:
+  #   - {type: ams_2_pro, ams_index: 0, slots: [1, 2, 3, 4]}
+  #   - {type: ams_ht, ams_index: 128, slots: [5]}
+  #   - {type: ams_ht, ams_index: 129, slots: [6]}
+  #   - {type: ams_ht, ams_index: 130, slots: [7]}
+  #   - {type: external, slots: [8]}
   startup_delay_seconds: 60
   startup_wait_helpers_seconds: 420
   startup_probe_helper_entity: "input_text.ams_slot_1_spool_id"
