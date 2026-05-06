@@ -1678,7 +1678,12 @@ class AmsPrintUsageSync(FilamentIQBase):
 
             # Glob for additional plates in the same job — multi-plate prints produce
             # one slice_info.config per plate; merge all within the mtime window.
-            pattern = os.path.join(cache_path, f"*{glob.escape(current_task)}*.slice_info.config")
+            # Use the project-ID prefix from the gcode filename to scope sibling search
+            # to files belonging to the same project upload. The task name alone is
+            # unreliable because MakerWorld uploads commonly share generic profile names
+            # like "0.2mm layer, 2 walls, 15% infill".
+            prefix = stem[:dash_idx]  # everything before the first dash in the gcode stem
+            pattern = os.path.join(cache_path, f"{glob.escape(prefix)}-*.slice_info.config")
             candidates = glob.glob(pattern)
             additional_paths = [
                 p for p in candidates
@@ -1687,7 +1692,14 @@ class AmsPrintUsageSync(FilamentIQBase):
             ]
             merged = list(filaments)
             for extra_path in additional_paths:
-                extra_filaments = parse_slice_info_file(extra_path)
+                try:
+                    extra_filaments = parse_slice_info_file(extra_path)
+                except Exception as e:
+                    self.log(
+                        f"3MF_CACHE_SIBLING_PARSE_ERROR path={extra_path} err={e!r}",
+                        level="WARNING",
+                    )
+                    continue
                 if not extra_filaments:
                     continue
                 for ef in extra_filaments:
@@ -1955,6 +1967,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             found_dir = result["found_dir"]
             self._threemf_data = filaments
             self._threemf_filename = best_file
+            self._threemf_from_disk_restore = False
             total_g = sum(f["used_g"] for f in filaments)
             self.log(
                 f"3MF_PARSED file={best_file} dir={found_dir} "
