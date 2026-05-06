@@ -2,8 +2,8 @@
 Label Printer — generates and prints spool labels on a Brother QL-810W.
 
 Listens for HA event `filament_iq_print_label` with payload { spool_id: int }.
-Fetches spool + filament data from Spoolman, generates a rectangular
-DK-1201 29×90mm label image with Pillow, and sends to the printer via
+Fetches spool + filament data from Spoolman, generates a 306x991 portrait
+label image (DK-1201 29x90mm) with Pillow, and sends to the printer via
 brother_ql.
 
 Optionally moves spool location from "New" to "Shelf" after printing.
@@ -21,12 +21,12 @@ from .base import FilamentIQBase
 
 logger = logging.getLogger(__name__)
 
-# Label dimensions — DK-1201 29×90mm landscape temp canvas
-LABEL_W, LABEL_H = 991, 306      # landscape temp canvas (DK-1201 29x90mm)
-SWATCH_W = 200                    # color swatch width px
-SWATCH_MARGIN = 20                # margin around swatch
-TEXT_X = SWATCH_W + SWATCH_MARGIN * 2  # text block start x
-TEXT_MAX_W = LABEL_W - TEXT_X - SWATCH_MARGIN  # max text width
+LABEL_DIMENSIONS = {
+    "29x90": (306, 991),
+    "62x100": (696, 1109),
+    "62x29": (696, 306),
+    "d24": (236, 236),
+}
 
 
 class LabelPrinter(FilamentIQBase):
@@ -37,10 +37,11 @@ class LabelPrinter(FilamentIQBase):
         self.spoolman_url = str(self.args.get("spoolman_url", "")).rstrip("/")
         self.printer_url = str(self.args.get("printer_url", "")).strip()
         self.printer_model = str(self.args.get("printer_model", "QL-810W")).strip()
-        self.label_size = str(self.args.get("label_size", "62")).strip()
+        self.label_size = str(self.args.get("label_size", "29x90")).strip()
         self.dry_run = bool(self.args.get("dry_run", True))
 
         self.listen_event(self._on_print_label_event, "filament_iq_print_label")
+        self.listen_event(self._on_font_test_event, "filament_iq_print_font_test")
         self.log(
             f"LabelPrinter initialized spoolman={self.spoolman_url} "
             f"printer={self.printer_url} dry_run={self.dry_run}",
@@ -98,98 +99,145 @@ class LabelPrinter(FilamentIQBase):
             self.log(f"LABEL_FETCH_FILAMENT_FAILED filament_id={filament_id}: {e}", level="WARNING")
             return None
 
-    def generate_label_image(self, spool, filament):
-        """Generate a rectangular DK-1201 29×90mm label image.
-
-        Builds a landscape canvas (991×306) then rotates to portrait for
-        brother_ql. Returns a PIL Image in RGB mode.
-        """
+    def generate_label_image(self, spool_data, filament_data):
+        """Draw landscape on 991x306, rotate -90° into 306x991 for brother_ql. rotate='0' in convert."""
         from PIL import Image, ImageDraw, ImageFont
-        import os
 
-        # Parse color
-        color_hex = (filament.get("color_hex") or "808080").lstrip("#")
+        W, H = 306, 991
+        TW, TH = 991, 306
+
+        tmp = Image.new("RGB", (TW, TH), (255, 255, 255))
+        draw = ImageDraw.Draw(tmp)
+
         try:
-            r, g, b = int(color_hex[0:2], 16), int(color_hex[2:4], 16), int(color_hex[4:6], 16)
+            font_main = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 53)
+            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
+            font_mono = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 36)
         except Exception:
-            r, g, b = 128, 128, 128
+            font_main = ImageFont.load_default()
+            font_small = font_main
+            font_mono = font_main
 
-        # Auto-contrast text color for swatch area
-        luminance = 0.299 * r + 0.587 * g + 0.114 * b
-        swatch_text_color = "#000000" if luminance > 128 else "#ffffff"
-        text_color = "#1a1a1a"
+        vendor = str(filament_data.get("vendor", {}).get("name") or "Unknown")
+        material = str(filament_data.get("material") or "?").upper()
+        color_name = str(filament_data.get("name") or "")
+        color_hex = str(filament_data.get("color_hex") or "").strip().lstrip("#")
+        hex_display = f"#{color_hex.upper()}" if color_hex else ""
+        ext_temp = filament_data.get("settings_extruder_temp")
+        bed_temp = filament_data.get("settings_bed_temp")
+        spool_id = spool_data.get("id", "?")
 
-        # Build landscape canvas
-        img = Image.new("RGB", (LABEL_W, LABEL_H), "white")
-        draw = ImageDraw.Draw(img)
+        # --- Black strip x=0→200 ---
+        draw.rectangle([0, 0, 240, TH], fill=(17, 17, 17))
 
-        # Color swatch (vertically centered, left side)
-        swatch_top = SWATCH_MARGIN
-        swatch_bottom = LABEL_H - SWATCH_MARGIN
-        draw.rectangle(
-            [SWATCH_MARGIN, swatch_top, SWATCH_MARGIN + SWATCH_W, swatch_bottom],
-            fill=(r, g, b),
-            outline="white",
-            width=3,
-        )
+        # Vendor 36px white centered at y=80
+        vb = draw.textbbox((0, 0), vendor, font=font_small)
+        draw.text(((240 - (vb[2] - vb[0])) // 2, 80), vendor, font=font_small, fill=(255, 255, 255))
 
-        # Fonts
-        def load_font(bold=False, size=40):
-            font_name = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
-            for path in [
-                f"/usr/share/fonts/truetype/dejavu/{font_name}",
-                f"/usr/share/fonts/dejavu/{font_name}",
-                f"/usr/local/share/fonts/{font_name}",
-            ]:
-                if os.path.exists(path):
-                    return ImageFont.truetype(path, size)
-            return ImageFont.load_default()
+        # Material 53px white bold centered at y=160
+        mb = draw.textbbox((0, 0), material, font=font_main)
+        draw.text(((240 - (mb[2] - mb[0])) // 2, 160), material, font=font_main, fill=(255, 255, 255))
 
-        # Auto-shrink helper
-        def fit_font(text, base_size, max_w, bold=False):
-            size = base_size
-            while size > 12:
-                f = load_font(bold=bold, size=size)
-                bbox = draw.textbbox((0, 0), text, font=f)
-                if (bbox[2] - bbox[0]) <= max_w:
-                    return f
-                size -= 2
-            return load_font(bold=bold, size=12)
+        # --- Content zone starting at x=230 ---
+        x = 260
+        y = 30
 
-        # Text content
-        vendor   = (filament.get("vendor", {}) or {}).get("name", "") or ""
-        name     = filament.get("name", "") or ""
-        material = filament.get("material", "") or ""
-        spool_id = f"#{spool.get('id', '?')}"
+        # Color name — auto-shrink if too wide
+        if color_name:
+            max_w = TW - x - 30
+            cn_font = font_main
+            for sz in [53, 44, 36, 28]:
+                try:
+                    from PIL import ImageFont as IF
+                    cn_font = IF.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", sz)
+                except Exception:
+                    cn_font = font_main
+                cn_bb = draw.textbbox((0, 0), color_name, font=cn_font)
+                if (cn_bb[2] - cn_bb[0]) <= max_w:
+                    break
+            draw.text((x, y), color_name, font=cn_font, fill=(0, 0, 0))
+            cn_bb = draw.textbbox((0, 0), color_name, font=cn_font)
+            y += (cn_bb[3] - cn_bb[1]) + 8
 
-        # Layout text block (top-to-bottom in landscape)
-        pad = 10
-        y = SWATCH_MARGIN + pad
+        # Hex 36px mono gray
+        if hex_display:
+            draw.text((x, y), hex_display, font=font_mono, fill=(102, 102, 102))
+            hb = draw.textbbox((0, 0), hex_display, font=font_mono)
+            y += (hb[3] - hb[1]) + 12
 
-        # Vendor (small)
-        f_vendor = fit_font(vendor, 36, TEXT_MAX_W, bold=False)
-        draw.text((TEXT_X, y), vendor, font=f_vendor, fill=text_color)
-        bbox = draw.textbbox((TEXT_X, y), vendor, font=f_vendor)
-        y += (bbox[3] - bbox[1]) + pad
+        # Divider 1px #eee
+        draw.line([(x, y), (TW - 30, y)], fill=(238, 238, 238), width=1)
+        y += 12
 
-        # Name (large bold)
-        f_name = fit_font(name, 53, TEXT_MAX_W, bold=True)
-        draw.text((TEXT_X, y), name, font=f_name, fill=text_color)
-        bbox = draw.textbbox((TEXT_X, y), name, font=f_name)
-        y += (bbox[3] - bbox[1]) + pad
+        # Temps on one line: "220°C nozzle · 60°C bed"
+        temp_parts = []
+        if ext_temp:
+            temp_parts.append(f"{ext_temp}\u00b0C nozzle")
+        if bed_temp:
+            temp_parts.append(f"{bed_temp}\u00b0C bed")
+        if temp_parts:
+            temp_text = " \u00b7 ".join(temp_parts)
+            draw.text((x, y), temp_text, font=font_small, fill=(85, 85, 85))
 
-        # Material (small)
-        f_material = fit_font(material, 36, TEXT_MAX_W, bold=False)
-        draw.text((TEXT_X, y), material, font=f_material, fill=text_color)
-        bbox = draw.textbbox((TEXT_X, y), material, font=f_material)
-        y += (bbox[3] - bbox[1]) + pad
+        # ID badge bottom-right: black pill, white mono
+        id_text = f"#{spool_id}"
+        ib = draw.textbbox((0, 0), id_text, font=font_mono)
+        id_tw = ib[2] - ib[0]
+        id_th = ib[3] - ib[1]
+        pad_x, pad_y = 10, 5
+        bx2 = TW - 10
+        bx1 = bx2 - id_tw - pad_x * 2
+        by2 = TH - 10
+        by1 = by2 - id_th - pad_y * 2
+        draw.rounded_rectangle([bx1, by1, bx2, by2], radius=4, fill=(17, 17, 17))
+        draw.text((bx1 + pad_x, by1 + pad_y), id_text, font=font_mono, fill=(255, 255, 255))
 
-        # Spool ID (monospace, bottom)
-        f_id = fit_font(spool_id, 32, TEXT_MAX_W, bold=False)
-        draw.text((TEXT_X, y), spool_id, font=f_id, fill=text_color)
+        # Rotate -90° CW into 306×991
+        tmp_rotated = tmp.rotate(-90, expand=True)
+        img = Image.new("RGB", (W, H), (255, 255, 255))
+        img.paste(tmp_rotated, (0, 0))
 
-        # Rotate to portrait for brother_ql
-        img = img.rotate(-90, expand=True)
+        return img
+
+    def _on_font_test_event(self, event_name, data, kwargs):
+        """Print a font calibration label with sample text at various sizes."""
+        try:
+            image = self._generate_font_test_image()
+            self.send_to_printer(image, 0)
+            self.log("FONT_TEST_SENT", level="INFO")
+        except Exception as e:
+            self.log(f"FONT_TEST_ERROR: {e}", level="ERROR")
+
+    def _generate_font_test_image(self):
+        from PIL import Image, ImageDraw, ImageFont
+
+        tmp = Image.new("RGB", (991, 306), (255, 255, 255))
+        draw = ImageDraw.Draw(tmp)
+
+        samples = [
+            (40, "Bambu Lab PLA Black 220\u00b0C"),
+            (50, "Bambu Lab PLA Black"),
+            (60, "Black 220\u00b0C"),
+            (72, "Bambu Lab"),
+            (82, "PLA #9"),
+        ]
+
+        y = 8
+        for size, text in samples:
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", size)
+            except Exception:
+                font = ImageFont.load_default()
+            label = f"{size}px: {text}"
+            draw.text((12, y), label, font=font, fill=(0, 0, 0))
+            bb = draw.textbbox((0, 0), label, font=font)
+            y += (bb[3] - bb[1]) + 8
+            if y > 296:
+                break
+
+        tmp_rotated = tmp.rotate(-90, expand=True)
+        img = Image.new("RGB", (306, 991), (255, 255, 255))
+        img.paste(tmp_rotated, (0, 0))
         return img
 
     def send_to_printer(self, image, spool_id):
