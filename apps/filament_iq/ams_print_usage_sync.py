@@ -16,6 +16,7 @@ Dedup:                  job_key set persisted to disk (capped at 50 entries).
 """
 
 import datetime
+import glob
 import json
 import os
 import pathlib
@@ -61,12 +62,14 @@ PRINT_HISTORY_MAX = 50
 
 # Notification display labels
 _METHOD_LABELS = {
-    "rfid_delta":          "RFID sensor",
-    "rfid_delta_depleted": "RFID sensor (depleted)",
-    "3mf":                 "Slicer data",
-    "3mf_depleted":        "Slicer data (depleted)",
-    "depleted_nonrfid":    "Depleted",
-    "no_evidence":         "—",
+    "rfid_delta":              "RFID sensor",
+    "rfid_delta_depleted":     "RFID sensor (depleted)",
+    "3mf":                     "Slicer data",
+    "3mf_depleted":            "Slicer data (depleted)",
+    "depleted_nonrfid":        "Depleted",
+    "no_evidence":             "—",
+    "runout_split":            "Recorded — runout split",
+    "runout_split_depleted":   "Recorded — runout split",
 }
 
 _CONFIDENCE_SYMBOLS = {
@@ -280,6 +283,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         ).strip()
         self._threemf_data = None
         self._threemf_filename = None
+        self._threemf_from_disk_restore = False
 
         if self.threemf_enabled:
             self.log(
@@ -1153,6 +1157,15 @@ class AmsPrintUsageSync(FilamentIQBase):
             restored = self._load_active_print(self._job_key)
             if restored is not None:
                 self._threemf_data = restored["threemf_data"]
+                if self._threemf_data is not None:
+                    self._threemf_from_disk_restore = True
+                    fname = restored.get("threemf_file")
+                    if fname:
+                        self._threemf_filename = fname
+                        self.log(
+                            f"REHYDRATE_THREEMF_FILENAME filename={fname}",
+                            level="INFO",
+                        )
                 if restored["trays_used"]:
                     self._trays_used = restored["trays_used"]
                 if restored["spool_id_snapshot"]:
@@ -1508,6 +1521,15 @@ class AmsPrintUsageSync(FilamentIQBase):
             restored = self._load_active_print(self._job_key)
             if restored is not None:
                 self._threemf_data = restored["threemf_data"]
+                if self._threemf_data is not None:
+                    self._threemf_from_disk_restore = True
+                    fname = restored.get("threemf_file")
+                    if fname:
+                        self._threemf_filename = fname
+                        self.log(
+                            f"REHYDRATE_THREEMF_FILENAME filename={fname}",
+                            level="INFO",
+                        )
                 if restored["trays_used"]:
                     self._trays_used = restored["trays_used"]
                 if restored["spool_id_snapshot"]:
@@ -1654,11 +1676,41 @@ class AmsPrintUsageSync(FilamentIQBase):
                 self.log(f"3MF_CACHE_MISS reason=no_filaments path={full_path}", level="INFO")
                 return False
 
-            self._threemf_data = filaments
+            # Glob for additional plates in the same job — multi-plate prints produce
+            # one slice_info.config per plate; merge all within the mtime window.
+            pattern = os.path.join(cache_path, f"*{glob.escape(current_task)}*.slice_info.config")
+            candidates = glob.glob(pattern)
+            additional_paths = [
+                p for p in candidates
+                if os.path.abspath(p) != os.path.abspath(full_path)
+                and os.path.getmtime(p) >= start_time - 60
+            ]
+            merged = list(filaments)
+            for extra_path in additional_paths:
+                extra_filaments = parse_slice_info_file(extra_path)
+                if not extra_filaments:
+                    continue
+                for ef in extra_filaments:
+                    idx = ef.get("tray_info_idx", "")
+                    existing = next((m for m in merged if m.get("tray_info_idx", "") == idx), None)
+                    if existing is None:
+                        merged.append(ef)
+                    elif ef["used_g"] > existing["used_g"]:
+                        merged[merged.index(existing)] = ef
+            if additional_paths:
+                plate_paths = [os.path.basename(full_path)] + [os.path.basename(p) for p in additional_paths]
+                self.log(
+                    f"3MF_CACHE_MULTI_PLATE plate_count={len(plate_paths)} "
+                    f"paths={plate_paths}",
+                    level="INFO",
+                )
+
+            self._threemf_data = merged
             self._threemf_filename = os.path.basename(full_path)
-            total_g = sum(f["used_g"] for f in filaments)
+            self._threemf_from_disk_restore = False
+            total_g = sum(f["used_g"] for f in merged)
             self.log(
-                f"3MF_CACHE_HIT path={full_path} filaments={len(filaments)} "
+                f"3MF_CACHE_HIT path={full_path} filaments={len(merged)} "
                 f"total_g={total_g:.2f}",
                 level="INFO",
             )
@@ -1675,10 +1727,18 @@ class AmsPrintUsageSync(FilamentIQBase):
         cache_retry = kwargs.get("cache_retry", False)
         max_attempts = 4
 
-        # Double-write guard: if _threemf_data was set externally, skip everything
+        # Double-write guard: if _threemf_data was set externally, skip everything.
+        # Exception: if data came from a single-plate disk restore, allow cache
+        # re-check to merge any additional plates found since the restore.
         if self._threemf_data is not None:
-            self.log("3MF_CACHE_ALREADY_SET — skipping FTPS", level="INFO")
-            return
+            if self._threemf_from_disk_restore:
+                self.log("3MF_CACHE_DISK_RESTORE_RECHECK — running cache check", level="INFO")
+                if self._try_cache_3mf():
+                    return
+                # Cache miss: fall through to FTPS
+            else:
+                self.log("3MF_CACHE_ALREADY_SET — skipping FTPS", level="INFO")
+                return
 
         if attempt == 1:
             # Try ha-bambulab cache (local file, zero network)
@@ -2167,6 +2227,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             raw_snapshot = data.get("spool_id_snapshot", {})
             restored = {
                 "threemf_data": data.get("threemf_data"),
+                "threemf_file": data.get("threemf_file"),
                 "trays_used": set(data.get("trays_used", [])),
                 "spool_id_snapshot": {int(k): int(v) for k, v in raw_snapshot.items()},
                 "print_start_time": data.get("print_start_time"),

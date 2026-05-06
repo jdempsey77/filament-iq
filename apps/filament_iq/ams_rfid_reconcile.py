@@ -121,6 +121,22 @@ STATUS_RFID_IDENTITY_STUCK = "RFID_IDENTITY_STUCK"
 UNBOUND_RFID_NOT_REFRESHED = "RFID_NOT_REFRESHED_TRY_UNLOAD_LOAD"
 RFID_STUCK_SECONDS = 60
 
+# Match-failure sentinels written to t["reason"] / t["unbound_reason"] (Python-internal only;
+# NOT consumed by Jinja). Split by slot type because v1.8.0 SlotPresentationState dispatches
+# RFID-ambiguous and non-RFID-ambiguous to different user-facing states with different action hints.
+AMBIGUOUS_SIG_RFID    = "AMBIGUOUS_SIG_RFID"    # RFID tray: sig-fallback returned >1 candidates
+AMBIGUOUS_SIG_NONRFID = "AMBIGUOUS_SIG_NONRFID"  # non-RFID tray: lot_nr match returned >1 candidates
+NO_CANDIDATE          = "NO_CANDIDATE"           # Python-internal sentinel, no external consumers
+
+# Sentinel value written to input_text.ams_slot_N_unbound_reason by user action
+# (HA scripts triggered from dashboard "force accept" workflow — see commit 903d4d1).
+# Consumed by exact-equality Jinja matches in:
+#   - filament-iq/ha-config/packages/filament_iq.yaml
+#   - home_assistant/configuration.yaml
+#   - home_assistant/dashboards/dashboard.stage.yaml
+# DO NOT change this string value without coordinating across all three Jinja files.
+FORCE_ACCEPTED = "FORCE_ACCEPTED"
+
 
 def _normalize_rfid_tag_uid(val) -> str:
     """Normalize RFID tag UID for comparison. Handles Spoolman JSON-encoded string literal (e.g. '\\\"071F87ED00000100\\\"')."""
@@ -1038,7 +1054,7 @@ class AmsRfidReconcile(FilamentIQBase):
 
             # ── FORCE_ACCEPTED: user explicitly accepted this binding — do not overwrite ──
             current_unbound_reason = (self._get_helper_state(f"input_text.ams_slot_{slot}_unbound_reason") or "").strip()
-            if current_unbound_reason == "FORCE_ACCEPTED" and helper_spool_id > 0:
+            if current_unbound_reason == FORCE_ACCEPTED and helper_spool_id > 0:
                 self.log(
                     f"FORCE_ACCEPTED_SKIP slot={slot} spool_id={helper_spool_id} — user force-accepted, preserving binding",
                     level="INFO",
@@ -1047,7 +1063,7 @@ class AmsRfidReconcile(FilamentIQBase):
                 self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                 # Don't touch unbound_reason — leave FORCE_ACCEPTED in place
                 ok += 1
-                t["decision"], t["reason"], t["action"] = "FORCE_ACCEPTED", "user_force_accepted", "preserve_binding"
+                t["decision"], t["reason"], t["action"] = FORCE_ACCEPTED, "user_force_accepted", "preserve_binding"
                 t["final_spool_id"] = helper_spool_id
                 t["final_slot_status"] = status
                 t["final_location"] = self._canonical_location_by_slot.get(slot, "")
@@ -1223,7 +1239,7 @@ class AmsRfidReconcile(FilamentIQBase):
                         # Generic filament with manual bind, or user force-accepted: do not treat as swap
                         preserve_bind = (
                             (is_generic_filament_id(fid_raw_swap) and helper_spool_id == helper_expected)
-                            or unbound_reason_swap == "FORCE_ACCEPTED"
+                            or unbound_reason_swap == FORCE_ACCEPTED
                         )
                         if preserve_bind:
                             self.log(
@@ -1376,7 +1392,7 @@ class AmsRfidReconcile(FilamentIQBase):
                             if not status_only:
                                 self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
                                 self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
-                            self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "AMBIGUOUS_SIG")
+                            self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", AMBIGUOUS_SIG_NONRFID)
                             self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                             self._log_slot_status_change(slot, status, "", 0, tray_meta)
                             self._notify_mobile_match_needed(
@@ -1384,7 +1400,7 @@ class AmsRfidReconcile(FilamentIQBase):
                                 "Spool active in another slot; cannot auto-assign.",
                             )
                             t["decision"], t["reason"], t["action"] = "NON_RFID", "ambiguous_sig", "needs_manual_bind"
-                            t["unbound_reason"] = "AMBIGUOUS_SIG"
+                            t["unbound_reason"] = AMBIGUOUS_SIG_NONRFID
                             t["final_slot_status"] = status
                             t["final_spool_id"] = 0
                             self._active_run["validation_transcripts"].append(t)
@@ -1498,7 +1514,7 @@ class AmsRfidReconcile(FilamentIQBase):
                         if not status_only:
                             self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
                             self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
-                        self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "AMBIGUOUS_SIG")
+                        self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", AMBIGUOUS_SIG_NONRFID)
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                         self._log_slot_status_change(slot, status, "", 0, tray_meta)
                         self._notify_mobile_match_needed(
@@ -1506,7 +1522,7 @@ class AmsRfidReconcile(FilamentIQBase):
                             "Multiple candidates found; tie-break did not resolve to one winner.",
                         )
                         t["decision"], t["reason"], t["action"] = "NON_RFID", "ambiguous_sig", "needs_manual_bind"
-                        t["unbound_reason"] = "AMBIGUOUS_SIG"
+                        t["unbound_reason"] = AMBIGUOUS_SIG_NONRFID
                         t["final_spool_id"] = 0
                         t["final_slot_status"] = status
                         self._active_run["validation_transcripts"].append(t)
@@ -1523,7 +1539,7 @@ class AmsRfidReconcile(FilamentIQBase):
                     )
                     # Preserve manual bind when bound invariant or user force-accepted
                     sentinel_unbound = (self._get_helper_state(f"input_text.ams_slot_{slot}_unbound_reason") or "").strip()
-                    if helper_spool_id > 0 and (helper_spool_id == helper_expected or sentinel_unbound == "FORCE_ACCEPTED"):
+                    if helper_spool_id > 0 and (helper_spool_id == helper_expected or sentinel_unbound == FORCE_ACCEPTED):
                         self.log(
                             f"NONRFID_SENTINEL_MANUAL_BIND_PRESERVED slot={slot} spool_id={helper_spool_id} "
                             f"— generic filament but manual bind exists, keeping binding",
@@ -2155,14 +2171,14 @@ class AmsRfidReconcile(FilamentIQBase):
                         if len(candidate_spool_dicts) > 1:
                             status = STATUS_NEEDS_MANUAL_BIND
                             unbound += 1
-                            t["decision"], t["reason"], t["action"] = "UNBOUND", "AMBIGUOUS_SIG", "needs_manual_bind"
-                            t["unbound_reason"] = "AMBIGUOUS_SIG"
+                            t["decision"], t["reason"], t["action"] = "UNBOUND", AMBIGUOUS_SIG_RFID, "needs_manual_bind"
+                            t["unbound_reason"] = AMBIGUOUS_SIG_RFID
                             t["final_spool_id"] = 0
                             t["final_slot_status"] = status
                             if not status_only:
                                 self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
                                 self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
-                            self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "AMBIGUOUS_SIG")
+                            self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", AMBIGUOUS_SIG_RFID)
                             self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                             self._log_slot_status_change(slot, status, tag_uid, 0, tray_meta)
                             self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str, tray_uuid=tray_uuid)
@@ -2173,14 +2189,14 @@ class AmsRfidReconcile(FilamentIQBase):
                         # zero candidates
                         status = STATUS_NEEDS_MANUAL_BIND
                         unbound += 1
-                        t["decision"], t["reason"], t["action"] = "UNBOUND", "NO_CANDIDATE", "needs_manual_bind"
-                        t["unbound_reason"] = "NO_CANDIDATE"
+                        t["decision"], t["reason"], t["action"] = "UNBOUND", NO_CANDIDATE, "needs_manual_bind"
+                        t["unbound_reason"] = NO_CANDIDATE
                         t["final_spool_id"] = 0
                         t["final_slot_status"] = status
                         if not status_only:
                             self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
                             self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
-                        self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "NO_CANDIDATE")
+                        self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", NO_CANDIDATE)
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                         self._log_slot_status_change(slot, status, tag_uid, 0, tray_meta)
                         self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str, tray_uuid=tray_uuid)
