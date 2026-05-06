@@ -47,6 +47,45 @@
 - [x] start_map fallback over-count — active slots now narrowed to trays_used & start_snapshot.keys() in _do_finish. Phantom writes from idle RFID slots with gauge drift eliminated. (v1.0.3, commit c731414)
 - [x] min_consumption_g exempts 3MF methods — 3mf and 3mf_depleted bypass the 2g floor since slicer data is authoritative. RFID and depleted_nonrfid still subject to floor. (Audit Finding F, v1.0.1)
 - [x] Print completion notifications broken — persistent_notification called with invalid notification_id key, silently failing since v1.0.0. Fixed by switching to notify/mobile_app_jd_pixel_10xl. (v1.0.2, commit 5fe38f1) Note: service renamed to notify.mobile_app_jd_pixel_10_pro_xl after device re-registration (2026-03-24); automations.yaml updated.
+- [x] Constants promotion — AMBIGUOUS_SIG split to RFID/NONRFID variants,
+  NO_CANDIDATE and FORCE_ACCEPTED promoted to named constants. runout_split
+  and runout_split_depleted labels added to _METHOD_LABELS. Two new audit
+  tests (AST-based inline string check + method label coverage). (v1.7.6, 2026-05-06)
+- [x] Cache lookup correctness — sibling glob pattern narrowed from
+  `*{task}*` to `{prefix}-*` using gcode filename's project-ID prefix.
+  Eliminates cross-project contamination from generic Bambu Studio profile
+  names (e.g. "0.2mm layer, 2 walls, 15% infill" matching unrelated uploads).
+  Per-file try/except in sibling loop, FTPS disk-restore flag reset on
+  success. 10 new tests including cross-project isolation test. (v1.7.7, 2026-05-06)
+- [x] SlotBindRow dropdown drop-after-empty bug — getBindableSpools now
+  uses .filter() instead of early-exit iteration. Spool with location: Empty
+  no longer silently drops all subsequent spools from the bind dropdown.
+  onBind fires FILAMENT_IQ_SLOT_ASSIGNED to match SpoolEditPanel path.
+  package.json bumped 1.1.0 → 1.2.1. (card v1.2.1, 2026-05-06)
+- [x] SlotPresentationState — single source of truth for slot display state.
+  New slot_presentation.py module: 20 state constants, PresentationLabel
+  dataclass, SLOT_PRESENTATION_LABELS dict, classify_slot_presentation()
+  with 24-step ordered dispatch. Dual-write to new
+  input_text.ams_slot_N_presentation_state helper alongside existing
+  unbound_reason. Notification dedup fix: 3 volatile notification IDs
+  narrowed to slot-keyed (drops tag_uid/reason_string suffixes).
+  Dismiss-on-bound added. 70 audit tests. (v1.8.0, 2026-05-06)
+- [x] presentation_state wiring fixes — _force_location_and_helpers was
+  reading stale status from prior reconcile cycle. 4 missing call sites
+  added on non-RFID paths. classify_slot_presentation("", "OK") confirmed
+  already returning BOUND correctly. 6 new regression tests. (v1.8.1, 2026-05-06)
+- [x] Reconcile-end sweep — after all slots processed, write
+  presentation_state for any slot still "unknown" by reading current
+  unbound_reason from HA. Covers fast-exit paths (non-RFID spool_id=0)
+  that never reach a _write_presentation_state() call. 2 new tests.
+  (v1.8.2, 2026-05-06)
+- [x] Phase 2 dashboard consolidation — sensor.ams_slot_N_status template
+  sensors now read input_text.ams_slot_N_presentation_state instead of
+  raw unbound_reason Jinja string matching. ams_unbound_slot_count fixed:
+  range(1,7) → range(1,8) (slot 7 was excluded), reads sensor status
+  instead of raw helper. Applied to both home_assistant/configuration.yaml
+  and ha-config/packages/filament_iq.yaml (slots 1-6). (v1.8.0 Phase 2,
+  2026-05-06)
 - [ ] Post-rehydration delayed cache retry (v1.7.2) — after rehydration cache miss, schedule one _try_cache_3mf_delayed() via run_in(30s). Guards: if _threemf_data is not None: return. No FTPS ever on rehydration. Log tokens: 3MF_CACHE_REHYDRATE_DELAYED_HIT, 3MF_CACHE_REHYDRATE_EXHAUSTED. Defer until 3MF_CACHE_REHYDRATE_MISS observed in production logs.
 - [ ] Rehydrated start snapshot from fuel gauges undercounts delta — when HA helper recovery fails, start_snapshot rebuilt from current fuel gauges mid-print. Delta = current - end, not original_start - end. (Audit Finding 8b, 2026-03-14)
 - [x] Spool_id snapshot at print start — active_print.json now persists trays_used (sorted list) and spool_id_snapshot (slot → spool_id). _load_active_print returns full dict. Both call sites restored on rehydrate. (v1.0.2, commit 286564a)
@@ -59,6 +98,19 @@
 - [x] Runout split consumption model inaccurate — remaining-based model used stale Spoolman remaining_weight for depleted spool share. Fixed: time-weighted split (active_times proportion) used when depleted slot has post-restart timing; remaining-based fallback when active_times unavailable (spool depleted before restart). (v1.0.8, commit 991c5eb)
 
 ### Low Priority
+- [ ] Label printer format mismatch — label_printer.py generates 236x236
+  circular d24 labels but DK-1201 29x90mm rectangular stock is loaded.
+  Verify whether labels print correctly on rectangular stock, or rewrite
+  _generate_label() back to 306x991 landscape format. Original rectangular
+  code was the working version before circular rewrite. (surfaced 2026-05-06)
+- [ ] v1.9.0 External spool support (SLOT_EXTERNAL = 8, displays as
+  "External"). Spike required first: print from AMS bypass, capture
+  ha-bambulab entity values (tray_id, ams_index when external is active).
+  Then implement: SLOT_EXTERNAL = 8 constant, non-RFID consumption path
+  (3MF-only), EXTERNAL_NOT_BOUND / EXTERNAL_BOUND presentation states,
+  manual bind flow via card, dashboard slot card showing "External" label,
+  notification dedup external_slot key, label printer support.
+  User-facing label is always "External" regardless of internal slot number.
 - [x] P_LABELS: Label printing — QL-810W + DK-1201 29×90mm. label_printer.py
   live, landscape layout, DejaVu fonts, auto-shrink, Print Label in edit panel
   + Add Spool checkbox, Export CSV. (2026-03-29)
