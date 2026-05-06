@@ -110,6 +110,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self._rehydrated = False
         self._threemf_data = None
         self._threemf_filename = None
+        self._threemf_from_disk_restore = False
         self.threemf_enabled = False
         self._spool_id_snapshot = {}
 
@@ -3590,4 +3591,364 @@ def test_pause_resume_preserves_print_start_time():
     )
 
 
+# ── multi-plate 3MF merge tests (v1.7.6) ─────────────────────────────
 
+
+def _make_slice_xml(entries):
+    """Build minimal slice_info.config XML bytes from a list of filament dicts."""
+    parts = ["<config><plate>"]
+    for e in entries:
+        parts.append(
+            f'<filament id="{e["id"]}" used_g="{e["used_g"]}"'
+            f' used_m="{e.get("used_m", 0)}"'
+            f' color="{e.get("color", "000000")}"'
+            f' type="{e.get("mat", "PLA")}"'
+            f' tray_info_idx="{e["tray_idx"]}"/>'
+        )
+    parts.append("</plate></config>")
+    return "".join(parts).encode()
+
+
+def test_try_cache_3mf_multi_plate_merge():
+    """_try_cache_3mf globs sibling slice_info.config files that share the same
+    project-ID prefix and merges their filament lists.
+
+    NOTE (v1.7.7): Siblings must share the same project-ID prefix (the portion
+    before the first dash in the gcode filename). The previous test used different
+    plate-number prefixes (1, 5) which matched under the old broad glob
+    (*{task}*) but are NOT siblings under the new prefix-scoped glob (1-*).
+    Updated to use the same prefix (1051895) for both the primary file and its
+    sibling, which is the correct model: ha-bambulab writes all plate files for
+    the same project upload under the same project-ID prefix.
+    """
+    project_id = "1051895"
+    task = "All_sizes_on_individual_plates"
+    plate1_xml = _make_slice_xml([
+        {"id": 0, "used_g": 32.13, "used_m": 10.74, "color": "000000", "mat": "PLA", "tray_idx": "0"},
+    ])
+    plate2_xml = _make_slice_xml([
+        {"id": 0, "used_g": 128.72, "used_m": 43.00, "color": "808080", "mat": "PLA", "tray_idx": "2"},
+    ])
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # Primary: 1051895-{task}.slice_info.config
+        pathlib.Path(tmp_dir, f"{project_id}-{task}.slice_info.config").write_bytes(plate1_xml)
+        # Sibling: same project-ID prefix, different plate suffix
+        pathlib.Path(tmp_dir, f"{project_id}-{task}_plate2.slice_info.config").write_bytes(plate2_xml)
+
+        app = _TestableUsageSync(state_map={})
+        app._bambulab_cache_path = tmp_dir
+        app._gcode_file_entity = "sensor.test_gcode"
+        app._state_map[app._gcode_file_entity] = f"{project_id}-{task}.gcode"
+        app._state_map[app._task_name_entity] = task
+        app.threemf_enabled = True
+
+        result = app._try_cache_3mf()
+
+    assert result is True
+    assert app._threemf_data is not None
+    assert len(app._threemf_data) == 2
+    g_by_idx = {f["tray_info_idx"]: f["used_g"] for f in app._threemf_data}
+    assert abs(g_by_idx["0"] - 32.13) < 0.01
+    assert abs(g_by_idx["2"] - 128.72) < 0.01
+    assert app._threemf_from_disk_restore is False
+    assert _has_log(app, "3MF_CACHE_MULTI_PLATE")
+
+
+def test_try_cache_3mf_multi_plate_dedup_keeps_max_used_g():
+    """When two sibling plates share a tray_info_idx, the entry with the higher used_g wins.
+
+    NOTE (v1.7.7): Updated to use the same project-ID prefix for both files.
+    The old test used prefixes 1 and 2 (different) which matched under the
+    old broad glob but are treated as unrelated projects under the new
+    prefix-scoped glob. Both files now share prefix 1051895.
+    """
+    project_id = "1051895"
+    task = "Shared_slot_test"
+    plate1_xml = _make_slice_xml([
+        {"id": 0, "used_g": 5.00, "mat": "PLA", "tray_idx": "0"},
+    ])
+    plate2_xml = _make_slice_xml([
+        {"id": 0, "used_g": 18.50, "mat": "PLA", "tray_idx": "0"},
+    ])
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pathlib.Path(tmp_dir, f"{project_id}-{task}.slice_info.config").write_bytes(plate1_xml)
+        pathlib.Path(tmp_dir, f"{project_id}-{task}_plate2.slice_info.config").write_bytes(plate2_xml)
+
+        app = _TestableUsageSync(state_map={})
+        app._bambulab_cache_path = tmp_dir
+        app._gcode_file_entity = "sensor.test_gcode"
+        app._state_map[app._gcode_file_entity] = f"{project_id}-{task}.gcode"
+        app._state_map[app._task_name_entity] = task
+        app.threemf_enabled = True
+
+        result = app._try_cache_3mf()
+
+    assert result is True
+    assert len(app._threemf_data) == 1
+    assert abs(app._threemf_data[0]["used_g"] - 18.50) < 0.01
+
+
+def test_try_cache_3mf_single_plate_unchanged():
+    """Single-plate print: _try_cache_3mf behavior is unchanged from pre-v1.7.6."""
+    task = "Benchy"
+    xml = _make_slice_xml([
+        {"id": 0, "used_g": 6.12, "mat": "PLA", "tray_idx": "0"},
+    ])
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pathlib.Path(tmp_dir, f"1-{task}.slice_info.config").write_bytes(xml)
+
+        app = _TestableUsageSync(state_map={})
+        app._bambulab_cache_path = tmp_dir
+        app._gcode_file_entity = "sensor.test_gcode"
+        app._state_map[app._gcode_file_entity] = f"1-{task}.gcode"
+        app._state_map[app._task_name_entity] = task
+        app.threemf_enabled = True
+
+        result = app._try_cache_3mf()
+
+    assert result is True
+    assert len(app._threemf_data) == 1
+    assert abs(app._threemf_data[0]["used_g"] - 6.12) < 0.01
+    assert not _has_log(app, "3MF_CACHE_MULTI_PLATE")
+
+
+def test_threemf_filename_survives_restart():
+    """threemf_file key in active_print.json is restored into _threemf_filename on disk restore."""
+    import filament_iq.ams_print_usage_sync as mod
+    orig = mod.ACTIVE_PRINT_FILE
+    threemf = [{"index": 0, "used_g": 32.13, "color_hex": "000000", "material": "pla", "tray_info_idx": "0"}]
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+            mod.ACTIVE_PRINT_FILE = ap_file
+            ap_file.write_text(json.dumps({
+                "job_key": "test_fname_001",
+                "start_snapshot": {"4": 420.0},
+                "threemf_data": threemf,
+                "threemf_file": "1-My_Model.slice_info.config",
+                "trays_used": [4],
+                "spool_id_snapshot": {},
+            }))
+
+            app = _TestableUsageSync(
+                state_map=_default_state_map({4: 10}),
+                args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
+            )
+            app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+            app._job_key = "test_fname_001"
+            app._start_snapshot = {4: 420.0}
+            app._trays_used = {4}
+            app._print_active = True
+            app.threemf_enabled = True
+            app._threemf_data = None
+
+            captured = {}
+            original_do_finish = app._do_finish
+            def capture_do_finish(status):
+                captured["filename"] = app._threemf_filename
+                captured["from_disk_restore"] = app._threemf_from_disk_restore
+                original_do_finish(status)
+            app._do_finish = capture_do_finish
+            app._state_map[app._fuel_gauge_pattern.format(slot=4)] = "370.0"
+
+            app._on_print_finish("finish")
+
+    finally:
+        mod.ACTIVE_PRINT_FILE = orig
+
+    assert captured.get("filename") == "1-My_Model.slice_info.config"
+    assert captured.get("from_disk_restore") is True
+
+
+def test_disk_restore_flag_allows_recheck():
+    """_threemf_from_disk_restore=True bypasses ALREADY_SET guard and calls _try_cache_3mf."""
+    app = _TestableUsageSync(state_map={})
+    app.threemf_enabled = True
+    app._threemf_data = [{"index": 0, "used_g": 10.0, "tray_info_idx": "0"}]
+    app._threemf_from_disk_restore = True
+
+    try_cache_calls = []
+
+    def fake_try_cache():
+        try_cache_calls.append(True)
+        app._threemf_from_disk_restore = False
+        return True
+
+    app._try_cache_3mf = fake_try_cache
+    app._fetch_3mf_background({"attempt": 1})
+
+    assert len(try_cache_calls) == 1, "_try_cache_3mf must be called when disk-restore flag is set"
+    assert _has_log(app, "3MF_CACHE_DISK_RESTORE_RECHECK")
+
+
+def test_disk_restore_flag_false_respects_already_set_guard():
+    """When _threemf_from_disk_restore=False, ALREADY_SET guard blocks _try_cache_3mf."""
+    app = _TestableUsageSync(state_map={})
+    app.threemf_enabled = True
+    app._threemf_data = [{"index": 0, "used_g": 10.0, "tray_info_idx": "0"}]
+    app._threemf_from_disk_restore = False
+
+    try_cache_calls = []
+    app._try_cache_3mf = lambda: try_cache_calls.append(True) or True
+    app._fetch_3mf_background({"attempt": 1})
+
+    assert len(try_cache_calls) == 0, "_try_cache_3mf must NOT be called when flag is False"
+    assert _has_log(app, "3MF_CACHE_ALREADY_SET")
+
+
+# ── v1.7.7 new tests ──────────────────────────────────────────────────────────
+
+
+def test_try_cache_3mf_ignores_unrelated_projects_with_same_task_name():
+    """Two slice_info files with same task name but different project-ID prefixes
+    must not be merged. Reproduces the broad-glob bug fixed in v1.7.7.
+
+    The old pattern *{task}*.slice_info.config would match BOTH files even though
+    they belong to different MakerWorld project uploads. The new prefix-scoped
+    pattern {project_id}-*.slice_info.config matches only files in the same project.
+    """
+    task = "0.2mm_layer_2_walls_15pct_infill"  # generic MakerWorld profile name
+    project_id = "1051895"
+    other_project_id = "1054813"
+
+    # Active project's data
+    active_xml = _make_slice_xml([
+        {"id": 0, "used_g": 12.50, "mat": "PLA", "tray_idx": "0"},
+    ])
+    # Unrelated project with the same generic task name
+    unrelated_xml = _make_slice_xml([
+        {"id": 0, "used_g": 99.99, "mat": "PETG", "tray_idx": "1"},
+    ])
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pathlib.Path(tmp_dir, f"{project_id}-{task}.slice_info.config").write_bytes(active_xml)
+        pathlib.Path(tmp_dir, f"{other_project_id}-{task}.slice_info.config").write_bytes(unrelated_xml)
+
+        app = _TestableUsageSync(state_map={})
+        app._bambulab_cache_path = tmp_dir
+        app._gcode_file_entity = "sensor.test_gcode"
+        app._state_map[app._gcode_file_entity] = f"{project_id}-{task}.gcode"
+        app._state_map[app._task_name_entity] = task
+        app.threemf_enabled = True
+
+        result = app._try_cache_3mf()
+
+    assert result is True
+    assert len(app._threemf_data) == 1, "Only active project's data should be in _threemf_data"
+    assert abs(app._threemf_data[0]["used_g"] - 12.50) < 0.01
+    # No sibling match within the same project prefix → multi-plate log must NOT fire
+    assert not _has_log(app, "3MF_CACHE_MULTI_PLATE"), (
+        "3MF_CACHE_MULTI_PLATE must not fire when the only other file belongs to "
+        "a different project-ID prefix"
+    )
+
+
+def test_try_cache_3mf_malformed_sibling_skipped_primary_preserved():
+    """A bad sibling slice_info.config logs a warning and is skipped;
+    primary plate data is preserved.
+
+    Both files share the same project-ID prefix so they ARE siblings under the
+    new prefix-scoped glob. The sibling contains invalid XML. The primary is valid.
+    Assert: _try_cache_3mf returns True, _threemf_data holds only primary data,
+    and 3MF_CACHE_SIBLING_PARSE_ERROR is logged.
+    """
+    project_id = "100"
+    task = "Malformed_sibling_test"
+
+    primary_xml = _make_slice_xml([
+        {"id": 0, "used_g": 7.77, "mat": "PLA", "tray_idx": "0"},
+    ])
+    bad_xml = b"NOT VALID XML <<<"
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # Primary file — valid
+        pathlib.Path(tmp_dir, f"{project_id}-{task}.slice_info.config").write_bytes(primary_xml)
+        # Sibling — same prefix, invalid XML; glob pattern is "100-*.slice_info.config"
+        pathlib.Path(tmp_dir, f"{project_id}-{task}_plate2.slice_info.config").write_bytes(bad_xml)
+
+        app = _TestableUsageSync(state_map={})
+        app._bambulab_cache_path = tmp_dir
+        app._gcode_file_entity = "sensor.test_gcode"
+        app._state_map[app._gcode_file_entity] = f"{project_id}-{task}.gcode"
+        app._state_map[app._task_name_entity] = task
+        app.threemf_enabled = True
+
+        result = app._try_cache_3mf()
+
+    assert result is True, "_try_cache_3mf must return True when primary is valid"
+    assert app._threemf_data is not None
+    assert len(app._threemf_data) == 1, "Only primary data should survive; malformed sibling skipped"
+    assert abs(app._threemf_data[0]["used_g"] - 7.77) < 0.01
+    assert _has_log(app, "3MF_CACHE_SIBLING_PARSE_ERROR"), (
+        "3MF_CACHE_SIBLING_PARSE_ERROR must be logged when a sibling file fails to parse"
+    )
+
+
+def test_ftps_success_resets_disk_restore_flag():
+    """After FTPS fetch succeeds following a disk-restore, the _threemf_from_disk_restore
+    flag must be reset to False.
+
+    This tests that _on_3mf_fetched sets _threemf_from_disk_restore = False on
+    the success path, so a subsequent _fetch_3mf_background call will not
+    re-enter the disk-restore recheck branch.
+    """
+    app = _TestableUsageSync(state_map={})
+    app.threemf_enabled = True
+    app._threemf_from_disk_restore = True  # simulate state after disk restore recheck miss
+    app._job_key = "test_ftps_reset_001"
+
+    filaments = [{"index": 0, "used_g": 15.0, "color_hex": "FF0000", "material": "pla", "tray_info_idx": "0"}]
+    fetch_result = {
+        "job_key": "test_ftps_reset_001",
+        "attempt": 1,
+        "status": "success",
+        "filaments": filaments,
+        "filename": "1-My_Model.gcode.3mf",
+        "found_dir": "/cache",
+        "timing": {},
+        "file_count": 1,
+    }
+
+    app._on_3mf_fetched({"fetch_result": fetch_result})
+
+    assert app._threemf_from_disk_restore is False, (
+        "_threemf_from_disk_restore must be reset to False after FTPS success"
+    )
+    assert app._threemf_data == filaments
+    assert app._threemf_filename == "1-My_Model.gcode.3mf"
+
+
+def test_disk_restore_recheck_with_fewer_trays_than_original():
+    """If the recheck returns fewer trays than disk-restored data, the new data wins.
+
+    _fetch_3mf_background with _threemf_from_disk_restore=True and _threemf_data
+    set to 3 trays calls _try_cache_3mf. When _try_cache_3mf replaces data with
+    1 tray (and resets the flag), the caller must accept the replacement.
+    """
+    app = _TestableUsageSync(state_map={})
+    app.threemf_enabled = True
+    app._threemf_data = [
+        {"index": 0, "used_g": 10.0, "tray_info_idx": "0"},
+        {"index": 1, "used_g": 5.0, "tray_info_idx": "1"},
+        {"index": 2, "used_g": 3.0, "tray_info_idx": "2"},
+    ]
+    app._threemf_from_disk_restore = True
+
+    replacement_data = [{"index": 0, "used_g": 10.0, "tray_info_idx": "0"}]
+
+    def fake_try_cache():
+        app._threemf_data = replacement_data
+        app._threemf_from_disk_restore = False
+        return True
+
+    app._try_cache_3mf = fake_try_cache
+    app._fetch_3mf_background({"attempt": 1})
+
+    assert len(app._threemf_data) == 1, (
+        "New data with fewer trays should replace disk-restored data"
+    )
+    assert app._threemf_from_disk_restore is False
+    assert _has_log(app, "3MF_CACHE_DISK_RESTORE_RECHECK")
