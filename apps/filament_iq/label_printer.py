@@ -2,8 +2,9 @@
 Label Printer — generates and prints spool labels on a Brother QL-810W.
 
 Listens for HA event `filament_iq_print_label` with payload { spool_id: int }.
-Fetches spool + filament data from Spoolman, generates a 236x236 circular
-label image with Pillow, and sends to the printer via brother_ql.
+Fetches spool + filament data from Spoolman, generates a rectangular
+DK-1201 29×90mm label image with Pillow, and sends to the printer via
+brother_ql.
 
 Optionally moves spool location from "New" to "Shelf" after printing.
 Fires HA event `filament_iq_label_result` with { spool_id, success, error }.
@@ -20,8 +21,12 @@ from .base import FilamentIQBase
 
 logger = logging.getLogger(__name__)
 
-# Label dimensions (d24 round die-cut)
-LABEL_SIZE_PX = 236
+# Label dimensions — DK-1201 29×90mm landscape temp canvas
+LABEL_W, LABEL_H = 991, 306      # landscape temp canvas (DK-1201 29x90mm)
+SWATCH_W = 200                    # color swatch width px
+SWATCH_MARGIN = 20                # margin around swatch
+TEXT_X = SWATCH_W + SWATCH_MARGIN * 2  # text block start x
+TEXT_MAX_W = LABEL_W - TEXT_X - SWATCH_MARGIN  # max text width
 
 
 class LabelPrinter(FilamentIQBase):
@@ -32,7 +37,7 @@ class LabelPrinter(FilamentIQBase):
         self.spoolman_url = str(self.args.get("spoolman_url", "")).rstrip("/")
         self.printer_url = str(self.args.get("printer_url", "")).strip()
         self.printer_model = str(self.args.get("printer_model", "QL-810W")).strip()
-        self.label_size = str(self.args.get("label_size", "d24")).strip()
+        self.label_size = str(self.args.get("label_size", "62")).strip()
         self.dry_run = bool(self.args.get("dry_run", True))
 
         self.listen_event(self._on_print_label_event, "filament_iq_print_label")
@@ -93,72 +98,98 @@ class LabelPrinter(FilamentIQBase):
             self.log(f"LABEL_FETCH_FILAMENT_FAILED filament_id={filament_id}: {e}", level="WARNING")
             return None
 
-    def generate_label_image(self, spool_data, filament_data):
-        """Generate a 236x236 circular label image.
+    def generate_label_image(self, spool, filament):
+        """Generate a rectangular DK-1201 29×90mm label image.
 
-        Returns a PIL Image in RGB mode.
+        Builds a landscape canvas (991×306) then rotates to portrait for
+        brother_ql. Returns a PIL Image in RGB mode.
         """
         from PIL import Image, ImageDraw, ImageFont
-
-        size = LABEL_SIZE_PX
-        img = Image.new("RGB", (size, size), (255, 255, 255))
-        draw = ImageDraw.Draw(img)
+        import os
 
         # Parse color
-        color_hex = str(
-            filament_data.get("color_hex")
-            or filament_data.get("color_hex", "")
-            or "808080"
-        ).replace("#", "")[:6]
-        if len(color_hex) < 6:
-            color_hex = "808080"
+        color_hex = (filament.get("color_hex") or "808080").lstrip("#")
         try:
             r, g, b = int(color_hex[0:2], 16), int(color_hex[2:4], 16), int(color_hex[4:6], 16)
-        except ValueError:
+        except Exception:
             r, g, b = 128, 128, 128
 
-        # Fill circle with filament color
-        draw.ellipse([0, 0, size - 1, size - 1], fill=(r, g, b))
+        # Auto-contrast text color for swatch area
+        luminance = 0.299 * r + 0.587 * g + 0.114 * b
+        swatch_text_color = "#000000" if luminance > 128 else "#ffffff"
+        text_color = "#1a1a1a"
 
-        # Auto-contrast text color
-        luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
-        text_color = (255, 255, 255) if luminance < 0.4 else (30, 30, 30)
+        # Build landscape canvas
+        img = Image.new("RGB", (LABEL_W, LABEL_H), "white")
+        draw = ImageDraw.Draw(img)
+
+        # Color swatch (vertically centered, left side)
+        swatch_top = SWATCH_MARGIN
+        swatch_bottom = LABEL_H - SWATCH_MARGIN
+        draw.rectangle(
+            [SWATCH_MARGIN, swatch_top, SWATCH_MARGIN + SWATCH_W, swatch_bottom],
+            fill=(r, g, b),
+            outline="white",
+            width=3,
+        )
+
+        # Fonts
+        def load_font(bold=False, size=40):
+            font_name = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+            for path in [
+                f"/usr/share/fonts/truetype/dejavu/{font_name}",
+                f"/usr/share/fonts/dejavu/{font_name}",
+                f"/usr/local/share/fonts/{font_name}",
+            ]:
+                if os.path.exists(path):
+                    return ImageFont.truetype(path, size)
+            return ImageFont.load_default()
+
+        # Auto-shrink helper
+        def fit_font(text, base_size, max_w, bold=False):
+            size = base_size
+            while size > 12:
+                f = load_font(bold=bold, size=size)
+                bbox = draw.textbbox((0, 0), text, font=f)
+                if (bbox[2] - bbox[0]) <= max_w:
+                    return f
+                size -= 2
+            return load_font(bold=bold, size=12)
 
         # Text content
-        material = str(filament_data.get("material", "")).upper() or "?"
-        vendor_obj = filament_data.get("vendor")
-        vendor_name = str(vendor_obj.get("name", "") if isinstance(vendor_obj, dict) else (vendor_obj or ""))[:10]
-        filament_name = str(filament_data.get("name", ""))[:14]
+        vendor   = (filament.get("vendor", {}) or {}).get("name", "") or ""
+        name     = filament.get("name", "") or ""
+        material = filament.get("material", "") or ""
+        spool_id = f"#{spool.get('id', '?')}"
 
-        # Fonts — use default (no external dependency)
-        try:
-            font_large = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
-            font_medium = ImageFont.truetype("DejaVuSans.ttf", 18)
-            font_small = ImageFont.truetype("DejaVuSans.ttf", 14)
-        except (IOError, OSError):
-            font_large = ImageFont.load_default()
-            font_medium = font_large
-            font_small = font_large
+        # Layout text block (top-to-bottom in landscape)
+        pad = 10
+        y = SWATCH_MARGIN + pad
 
-        # Draw text centered
-        for text, font, y in [
-            (material, font_large, 85),
-            (vendor_name, font_medium, 125),
-            (filament_name, font_small, 155),
-        ]:
-            if text:
-                bbox = draw.textbbox((0, 0), text, font=font)
-                tw = bbox[2] - bbox[0]
-                x = (size - tw) // 2
-                draw.text((x, y), text, fill=text_color, font=font)
+        # Vendor (small)
+        f_vendor = fit_font(vendor, 36, TEXT_MAX_W, bold=False)
+        draw.text((TEXT_X, y), vendor, font=f_vendor, fill=text_color)
+        bbox = draw.textbbox((TEXT_X, y), vendor, font=f_vendor)
+        y += (bbox[3] - bbox[1]) + pad
 
-        # White mask outside circle
-        mask = Image.new("L", (size, size), 0)
-        mask_draw = ImageDraw.Draw(mask)
-        mask_draw.ellipse([0, 0, size - 1, size - 1], fill=255)
-        white = Image.new("RGB", (size, size), (255, 255, 255))
-        img = Image.composite(img, white, mask)
+        # Name (large bold)
+        f_name = fit_font(name, 53, TEXT_MAX_W, bold=True)
+        draw.text((TEXT_X, y), name, font=f_name, fill=text_color)
+        bbox = draw.textbbox((TEXT_X, y), name, font=f_name)
+        y += (bbox[3] - bbox[1]) + pad
 
+        # Material (small)
+        f_material = fit_font(material, 36, TEXT_MAX_W, bold=False)
+        draw.text((TEXT_X, y), material, font=f_material, fill=text_color)
+        bbox = draw.textbbox((TEXT_X, y), material, font=f_material)
+        y += (bbox[3] - bbox[1]) + pad
+
+        # Spool ID (monospace, bottom)
+        f_id = fit_font(spool_id, 32, TEXT_MAX_W, bold=False)
+        draw.text((TEXT_X, y), spool_id, font=f_id, fill=text_color)
+
+        # Rotate to portrait for brother_ql
+        img = img.rotate(-90, expand=True)
         return img
 
     def send_to_printer(self, image, spool_id):
@@ -186,7 +217,7 @@ class LabelPrinter(FilamentIQBase):
             qlr=qlr,
             images=[image],
             label=self.label_size,
-            rotate="auto",
+            rotate="0",
             threshold=70,
             dither=False,
             compress=False,
