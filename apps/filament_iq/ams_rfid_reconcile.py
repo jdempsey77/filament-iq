@@ -33,6 +33,12 @@ from pathlib import Path
 import hassapi as hass
 
 from .base import FilamentIQBase, build_slot_mappings
+from .slot_presentation import (
+    BOUND,
+    EMPTY as PRESENTATION_EMPTY,
+    OK_FORCE_ACCEPTED as PRESENTATION_FORCE_ACCEPTED,
+    classify_slot_presentation,
+)
 
 # v4: canonicalizer retired (moved to _retired/). These symbols are set to None so
 # existing fallback guards (`if _canon_rfid is not None`) degrade gracefully.
@@ -483,6 +489,16 @@ class AmsRfidReconcile(FilamentIQBase):
             self.datetime() + datetime.timedelta(seconds=self.safety_poll_seconds),
             self.safety_poll_seconds,
         )
+        # v1.8.0: validate that presentation_state helpers exist in HA
+        for slot in self._physical_ams_slots:
+            ps_entity = f"input_text.ams_slot_{slot}_presentation_state"
+            if self._get_helper_state(ps_entity) is None:
+                self.log(
+                    f"SLOT_PRESENTATION_HELPER_MISSING: {ps_entity} "
+                    f"not found — create the helper in HA before deploying v1.8.0",
+                    level="ERROR",
+                )
+
         self.log(f"AMS RFID reconcile initialized (evidence_log_path={self.evidence_log_path})")
 
     def _on_homeassistant_start(self, event_name, data, kwargs):
@@ -1037,6 +1053,7 @@ class AmsRfidReconcile(FilamentIQBase):
                 t["unbound_reason"] = UNBOUND_RFID_NOT_REFRESHED
                 self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                 self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_RFID_NOT_REFRESHED)
+                self._write_presentation_state(slot, UNBOUND_RFID_NOT_REFRESHED, status)
                 self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
                 t["final_slot_status"], t["final_spool_id"] = status, helper_spool_id
                 self._active_run["validation_transcripts"].append(t)
@@ -1062,6 +1079,7 @@ class AmsRfidReconcile(FilamentIQBase):
                 status = STATUS_OK_NONRFID if not rfid_visible else STATUS_OK
                 self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                 # Don't touch unbound_reason — leave FORCE_ACCEPTED in place
+                self._write_presentation_state(slot, FORCE_ACCEPTED, status)
                 ok += 1
                 t["decision"], t["reason"], t["action"] = FORCE_ACCEPTED, "user_force_accepted", "preserve_binding"
                 t["final_spool_id"] = helper_spool_id
@@ -1090,6 +1108,7 @@ class AmsRfidReconcile(FilamentIQBase):
                     )
                     self._record_decision(slot, "nonrfid_converge_location", {"spool_id": helper_spool_id})
                 self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                self._write_presentation_state(slot, "", status)
                 self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
                 ok += 1
                 t["final_slot_status"] = status
@@ -1130,6 +1149,7 @@ class AmsRfidReconcile(FilamentIQBase):
                     )
                     self._record_decision(slot, "nonrfid_pending_demote", {"spool_id": helper_spool_id, "stale_expected": helper_expected})
                 self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                self._write_presentation_state(slot, "", status)
                 self._log_slot_status_change(slot, status, tag_uid or "", helper_spool_id, tray_meta)
                 ok += 1
                 t["final_slot_status"] = status
@@ -1151,8 +1171,8 @@ class AmsRfidReconcile(FilamentIQBase):
                     t["decision"], t["reason"], t["action"] = "PENDING", "rfid_pending", "pending_rfid_read"
                     self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                     self._log_slot_status_change(slot, status, tag_uid or "", 0, tray_meta)
-                    self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str, tray_uuid=tray_uuid)
                     t["final_slot_status"] = status
+                    self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str, tray_uuid=tray_uuid)
                     self._active_run["validation_transcripts"].append(t)
                     if validation_mode:
                         self._log_validation_transcript(t)
@@ -1186,6 +1206,7 @@ class AmsRfidReconcile(FilamentIQBase):
                         self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
                     self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_TRAY_EMPTY)
                     self._set_helper(f"input_text.ams_slot_{slot}_status", STATUS_UNBOUND_NO_TAG)
+                    self._write_presentation_state(slot, UNBOUND_TRAY_EMPTY, STATUS_UNBOUND_NO_TAG)
                     self.log(
                         f"NONRFID_EMPTY_TRAY_CLEAR slot={slot} reason=tray_empty prior_spool_id={helper_spool_id}",
                         level="INFO",
@@ -1207,6 +1228,7 @@ class AmsRfidReconcile(FilamentIQBase):
                             f"input_text.ams_slot_{slot}_unbound_reason",
                             UNBOUND_TRAY_EMPTY,
                         )
+                        self._write_presentation_state(slot, UNBOUND_TRAY_EMPTY, STATUS_UNBOUND_NO_TAG)
                     continue
                 self.log(
                     f"NONRFID_GUARD_HIT slot={slot} empty={tray_empty} raw_tag_uid={raw_tag_uid_ht!r} raw_tray_uuid={raw_tray_uuid_ht!r}",
@@ -1281,6 +1303,7 @@ class AmsRfidReconcile(FilamentIQBase):
                             t["unbound_reason"], t["unbound_detail"] = UNBOUND_HELPER_SPOOL_NOT_FOUND, f"helper_spool_id={helper_spool_id} http=404"
                             self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                             self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_HELPER_SPOOL_NOT_FOUND)
+                            self._write_presentation_state(slot, UNBOUND_HELPER_SPOOL_NOT_FOUND, status)
                             self._log_slot_status_change(slot, status, "", 0, tray_meta)
                             t["final_slot_status"], t["final_spool_id"] = status, 0
                             self._active_run["validation_transcripts"].append(t)
@@ -1294,6 +1317,7 @@ class AmsRfidReconcile(FilamentIQBase):
                             t["unbound_reason"], t["unbound_detail"] = UNBOUND_SPOOLMAN_LOOKUP_FAILED, err[:80]
                             self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                             self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_SPOOLMAN_LOOKUP_FAILED)
+                            self._write_presentation_state(slot, UNBOUND_SPOOLMAN_LOOKUP_FAILED, status)
                             self._log_slot_status_change(slot, status, "", helper_spool_id, tray_meta)
                             t["final_slot_status"], t["final_spool_id"] = status, helper_spool_id
                             self._active_run["validation_transcripts"].append(t)
@@ -1313,6 +1337,7 @@ class AmsRfidReconcile(FilamentIQBase):
                         t["unbound_reason"], t["unbound_detail"] = UNBOUND_HELPER_SPOOL_NOT_FOUND, f"helper_spool_id={helper_spool_id} http=404"
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                         self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_HELPER_SPOOL_NOT_FOUND)
+                        self._write_presentation_state(slot, UNBOUND_HELPER_SPOOL_NOT_FOUND, status)
                         self._log_slot_status_change(slot, status, "", 0, tray_meta)
                         t["final_slot_status"], t["final_spool_id"] = status, 0
                         self._active_run["validation_transcripts"].append(t)
@@ -1353,6 +1378,7 @@ class AmsRfidReconcile(FilamentIQBase):
                     self.log(f"NONRFID_REGISTERED slot={slot} helper_spool_id={helper_spool_id}", level="DEBUG")
                     self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                     self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+                    self._write_presentation_state(slot, "", status)
                     self._log_slot_status_change(slot, status, "", helper_spool_id, tray_meta)
                     self._record_decision(slot, "nonrfid_present", {"helper_spool_id": helper_spool_id})
                     self._active_run["validation_transcripts"].append(t)
@@ -1394,6 +1420,7 @@ class AmsRfidReconcile(FilamentIQBase):
                                 self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
                             self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", AMBIGUOUS_SIG_NONRFID)
                             self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                            self._write_presentation_state(slot, AMBIGUOUS_SIG_NONRFID, status)
                             self._log_slot_status_change(slot, status, "", 0, tray_meta)
                             self._notify_mobile_match_needed(
                                 slot,
@@ -1431,6 +1458,7 @@ class AmsRfidReconcile(FilamentIQBase):
                         t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                         self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+                        self._write_presentation_state(slot, "", status)
                         self._log_slot_status_change(slot, status, "", resolved, tray_meta)
                         self._record_decision(slot, "nonrfid_lot_nr_match", {"resolved_spool_id": resolved, "lot_sig": lot_sig})
                         self._active_run["validation_transcripts"].append(t)
@@ -1500,6 +1528,7 @@ class AmsRfidReconcile(FilamentIQBase):
                                 t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                                 self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                                 self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+                                self._write_presentation_state(slot, "", status)
                                 self._log_slot_status_change(slot, status, "", resolved, tray_meta)
                                 self._record_decision(slot, "nonrfid_lot_nr_tiebreak", {"resolved_spool_id": resolved, "lot_sig": lot_sig})
                                 self._active_run["validation_transcripts"].append(t)
@@ -1516,6 +1545,7 @@ class AmsRfidReconcile(FilamentIQBase):
                             self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
                         self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", AMBIGUOUS_SIG_NONRFID)
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._write_presentation_state(slot, AMBIGUOUS_SIG_NONRFID, status)
                         self._log_slot_status_change(slot, status, "", 0, tray_meta)
                         self._notify_mobile_match_needed(
                             slot,
@@ -1548,6 +1578,7 @@ class AmsRfidReconcile(FilamentIQBase):
                         status = STATUS_OK_NONRFID
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                         self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+                        self._write_presentation_state(slot, "", status)
                         self._set_helper(f"input_text.ams_slot_{slot}_tray_signature", nonrfid_sig)
                         self._log_slot_status_change(slot, status, "", helper_spool_id, tray_meta)
                         ok += 1
@@ -1566,6 +1597,7 @@ class AmsRfidReconcile(FilamentIQBase):
                         self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
                     self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_NONRFID_NO_MATCH)
                     self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                    self._write_presentation_state(slot, UNBOUND_NONRFID_NO_MATCH, status)
                     self._log_slot_status_change(slot, status, "", 0, tray_meta)
                     t["decision"], t["reason"], t["action"] = "NON_RFID", "generic_sentinel", "needs_manual_bind"
                     t["unbound_reason"] = UNBOUND_NONRFID_NO_MATCH
@@ -1605,6 +1637,7 @@ class AmsRfidReconcile(FilamentIQBase):
                                     t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                                     self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                                     self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+                                    self._write_presentation_state(slot, "", status)
                                     self._log_slot_status_change(slot, status, "", resolved, tray_meta)
                                     self._record_decision(slot, "nonrfid_comment_migration", {"resolved_spool_id": resolved, "ha_sig": ha_sig_test})
                                     self._active_run["validation_transcripts"].append(t)
@@ -1644,6 +1677,7 @@ class AmsRfidReconcile(FilamentIQBase):
                         t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                         self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+                        self._write_presentation_state(slot, "", status)
                         self._log_slot_status_change(slot, status, "", resolved, tray_meta)
                         self._record_decision(slot, "nonrfid_auto_match", {"resolved_spool_id": resolved})
                         # v4: lot_nr enrollment for auto match
@@ -1657,6 +1691,7 @@ class AmsRfidReconcile(FilamentIQBase):
                             self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
                         self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_NONRFID_NO_MATCH)
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._write_presentation_state(slot, UNBOUND_NONRFID_NO_MATCH, status)
                         self._log_slot_status_change(slot, status, "", 0, tray_meta)
                         t["decision"], t["reason"], t["action"] = "NON_RFID", "nonrfid_no_match", "needs_manual_bind"
                         t["unbound_reason"] = UNBOUND_NONRFID_NO_MATCH
@@ -1674,6 +1709,7 @@ class AmsRfidReconcile(FilamentIQBase):
                     status = STATUS_LOW_CONFIDENCE
                     self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_LOW_CONFIDENCE)
                     self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                    self._write_presentation_state(slot, UNBOUND_LOW_CONFIDENCE, status)
                     self._log_slot_status_change(slot, status, "", 0, tray_meta)
                     t["decision"], t["reason"], t["action"] = "NON_RFID", "low_confidence", "low_confidence_no_auto_match"
                     t["unbound_reason"] = UNBOUND_LOW_CONFIDENCE
@@ -2101,6 +2137,7 @@ class AmsRfidReconcile(FilamentIQBase):
                             t["final_location"] = new_loc
                             self._record_decision(slot, "tier2_ams_empty", {"tag_uid": tag_uid, "resolved_spool_id": resolved_spool_id})
                             self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                            self._write_presentation_state(slot, "", status)
                             self._log_slot_status_change(slot, status, tag_uid, resolved_spool_id, tray_meta)
                             t["final_slot_status"] = status
                             self._active_run["validation_transcripts"].append(t)
@@ -2156,6 +2193,7 @@ class AmsRfidReconcile(FilamentIQBase):
                         t["uid_lookup_count"], t["final_spool_id"], t["selected_spool_id"] = 1, resolved_spool_id, resolved_spool_id
                         t["final_location"] = self._canonical_location_by_slot.get(slot, "")
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._write_presentation_state(slot, "", status)
                         self._log_slot_status_change(slot, status, tag_uid, resolved_spool_id, tray_meta)
                         t["final_slot_status"] = status
                         self._active_run["validation_transcripts"].append(t)
@@ -2243,6 +2281,10 @@ class AmsRfidReconcile(FilamentIQBase):
             t["final_slot_status"] = status
             if status.startswith("UNBOUND"):
                 self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str, tray_uuid=tray_uuid)
+            else:
+                # v1.8.0: for non-UNBOUND (OK, MISMATCH, etc.) dual-write presentation_state
+                _cur_unbound = str(self._get_helper_state(f"input_text.ams_slot_{slot}_unbound_reason") or "")
+                self._write_presentation_state(slot, _cur_unbound, status)
             # v4: lot_nr convergence — enroll identity on every resolved bind
             fid = int(t.get("final_spool_id") or 0)
             if _should_converge_ha_sig(status_only, status, fid):
@@ -2485,6 +2527,9 @@ class AmsRfidReconcile(FilamentIQBase):
         self._set_helper(f"input_text.ams_slot_{slot}_spool_id", str(spool_id))
         self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", str(spool_id))
         self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+        # v1.8.0: dual-write presentation_state — read status from helper since it's written by caller first
+        _flh_status = str(self._get_helper_state(f"input_text.ams_slot_{slot}_status") or "")
+        self._write_presentation_state(slot, "", _flh_status)
         if tray_identity is not None:
             self._set_helper(f"input_text.ams_slot_{slot}_tray_signature", tray_identity)
         elif tray_meta is not None:
@@ -2673,6 +2718,7 @@ class AmsRfidReconcile(FilamentIQBase):
         t["final_location"] = self._canonical_location_by_slot.get(slot, "")
         self._set_helper(f"input_text.ams_slot_{slot}_status", STATUS_OK_NONRFID)
         self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+        self._write_presentation_state(slot, "", STATUS_OK_NONRFID)
         self._log_slot_status_change(slot, STATUS_OK_NONRFID, "", resolved, tray_meta)
         self._record_decision(slot, "nonrfid_filament_id_match", {"resolved_spool_id": resolved, "filament_id": fid})
         # v4: lot_nr enrollment for filament_id match
@@ -3030,7 +3076,7 @@ class AmsRfidReconcile(FilamentIQBase):
         self._notify(
             f"RFID CONFLICT Slot {slot}",
             summary,
-            notification_id=f"rfid_conflict_slot_{slot}_{reason_string}_{tag_uid}",
+            notification_id=f"rfid_conflict_slot_{slot}",
         )
 
     def _notify_unbound_rfid_no_shelf(self, slot, tag_uid, tray_meta):
@@ -3048,7 +3094,7 @@ class AmsRfidReconcile(FilamentIQBase):
         self._notify(
             f"RFID NEEDS_ACTION Slot {slot} (no eligible match)",
             summary,
-            notification_id=f"rfid_no_shelf_slot_{slot}_{tag_uid}",
+            notification_id=f"rfid_no_shelf_slot_{slot}",
         )
 
     def _notify_nonrfid_needs_action(self, slot, tray_meta, reason_detail):
@@ -3120,7 +3166,7 @@ class AmsRfidReconcile(FilamentIQBase):
         self._notify(
             f"RFID UNBOUND Slot {slot}",
             summary,
-            notification_id=f"rfid_unbound_slot_{slot}_{tag_uid}",
+            notification_id=f"rfid_unbound_slot_{slot}",
         )
 
     def _tray_meta(self, attrs, state_value):
@@ -3487,6 +3533,7 @@ class AmsRfidReconcile(FilamentIQBase):
         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
         self._log_slot_status_change(slot, status, tag_uid, resolved_spool_id, tray_meta)
         self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_SELECTED_UID_MISMATCH)
+        self._write_presentation_state(slot, UNBOUND_SELECTED_UID_MISMATCH, status)
         self._active_run["validation_transcripts"].append(t)
         if validation_mode:
             self._log_validation_transcript(t)
@@ -3513,6 +3560,7 @@ class AmsRfidReconcile(FilamentIQBase):
                 self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
                 self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
                 self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_HELPER_RFID_MISMATCH)
+                self._write_presentation_state(slot, UNBOUND_HELPER_RFID_MISMATCH, STATUS_UNBOUND_ACTION_REQUIRED)
                 t["unbound_reason"] = UNBOUND_HELPER_RFID_MISMATCH
                 t["unbound_detail"] = mismatch_detail
                 self._notify(
@@ -3536,6 +3584,7 @@ class AmsRfidReconcile(FilamentIQBase):
                 self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
                 self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
                 self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_HELPER_RFID_MISMATCH)
+                self._write_presentation_state(slot, UNBOUND_HELPER_RFID_MISMATCH, STATUS_UNBOUND_ACTION_REQUIRED)
                 t["unbound_reason"] = UNBOUND_HELPER_RFID_MISMATCH
                 t["unbound_detail"] = mismatch_detail
                 self._notify(
@@ -3579,6 +3628,7 @@ class AmsRfidReconcile(FilamentIQBase):
                 self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
                 self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
                 self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_HELPER_MATERIAL_MISMATCH)
+                self._write_presentation_state(slot, UNBOUND_HELPER_MATERIAL_MISMATCH, STATUS_UNBOUND_ACTION_REQUIRED)
                 t["unbound_reason"] = UNBOUND_HELPER_MATERIAL_MISMATCH
                 t["unbound_detail"] = f"tray_type={tray_type} spool_material={spool_material}"
                 self._notify(
@@ -3846,6 +3896,9 @@ class AmsRfidReconcile(FilamentIQBase):
         entity_id = f"input_text.ams_slot_{slot}_unbound_reason"
         self.log(f"UNBOUND_HELPER_WRITE_ATTEMPT slot={slot} entity_id={entity_id} value={reason}", level="INFO")
         self._set_helper(entity_id, reason)
+        # v1.8.0: dual-write presentation_state alongside unbound_reason
+        slot_status = str(t.get("final_slot_status") or "")
+        self._write_presentation_state(slot, reason, slot_status)
         # Schedule settling re-reconcile for non-RFID trays (sensor needs time to populate)
         if reason == UNBOUND_NO_RFID_TAG_ALL_ZERO and not self._settle_pending.get(slot):
             self._settle_pending[slot] = True
@@ -3878,6 +3931,42 @@ class AmsRfidReconcile(FilamentIQBase):
                     tray_meta.get("name", ""),
                 )
             )
+
+    # ── v1.8.0: SlotPresentationState dual-write helpers ─────────────────────
+
+    def _write_presentation_state(self, slot, unbound_reason, status):
+        """Classify and write presentation_state helper for slot (dual-write).
+
+        Called after every unbound_reason / status write. Never raises —
+        a failure to write presentation_state must not affect reconciler logic.
+        """
+        try:
+            ps = classify_slot_presentation(
+                unbound_reason=unbound_reason,
+                status=status,
+            )
+            self._set_helper(f"input_text.ams_slot_{slot}_presentation_state", ps)
+            if ps in {BOUND, PRESENTATION_FORCE_ACCEPTED, PRESENTATION_EMPTY}:
+                self._dismiss_slot_notifications(slot)
+        except Exception as exc:
+            self.log(
+                f"PRESENTATION_STATE_WRITE_FAILED slot={slot}: {exc}",
+                level="WARNING",
+            )
+
+    def _dismiss_slot_notifications(self, slot):
+        """Delete all 3 slot-keyed persistent notifications (no-op if absent)."""
+        for nid in (
+            f"rfid_conflict_slot_{slot}",
+            f"rfid_no_shelf_slot_{slot}",
+            f"rfid_unbound_slot_{slot}",
+        ):
+            try:
+                self.call_service("persistent_notification/delete", notification_id=nid)
+            except Exception:
+                pass  # HA delete on non-existent notification is safe; swallow any error
+
+    # ─────────────────────────────────────────────────────────────────────────
 
     def _notify(self, title, message, notification_id=None):
         kwargs = {"title": title, "message": message}
