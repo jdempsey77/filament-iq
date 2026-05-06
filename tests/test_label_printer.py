@@ -32,7 +32,8 @@ _APPS = os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps")
 if _APPS not in sys.path:
     sys.path.insert(0, _APPS)
 
-from filament_iq.label_printer import LabelPrinter, LABEL_W, LABEL_H
+from filament_iq.label_printer import LabelPrinter, LABEL_DIMENSIONS
+LABEL_W, LABEL_H = LABEL_DIMENSIONS["29x90"]
 
 
 # ── Test harness ─────────────────────────────────────────────────────
