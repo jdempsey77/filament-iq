@@ -10,3 +10,7 @@ htmlcov/
 .coverage
 apps/filament_iq/data/
 deploy.env
+
+# Conversation artifacts (prompts written for Claude Code, not repo content)
+IMPLEMENT_*.md
+ANALYZE_*.md
