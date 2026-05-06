@@ -12,6 +12,97 @@ const LOCATION_TO_SLOT = {
   'AMS130_Slot1': 7,
 }
 
+const SLOT_TO_LOCATION = Object.fromEntries(
+  Object.entries(LOCATION_TO_SLOT).map(([loc, slot]) => [slot, loc])
+)
+
+const SLOT_LABELS = {
+  1: 'AMS 1 · Slot 1',
+  2: 'AMS 1 · Slot 2',
+  3: 'AMS 1 · Slot 3',
+  4: 'AMS 1 · Slot 4',
+  5: 'HT1 · Slot 5',
+  6: 'HT2 · Slot 6',
+  7: 'HT3 · Slot 7',
+}
+
+/**
+ * Returns spools eligible for slot binding.
+ * Uses .filter() to evaluate ALL spools — never exits early on Empty/New spools.
+ * A spool with location: Empty at index N must not prevent spools at N+1, N+2, …
+ * from appearing in the result.
+ */
+export function getBindableSpools(spools) {
+  return (spools || []).filter(s => {
+    if (s.archived) return false
+    const loc = (s.location || '').toLowerCase()
+    // Skip spools that are empty (depleted) or still in the "New" staging location.
+    // Critically: we use .filter() so iteration continues past every excluded spool.
+    return loc !== 'empty' && loc !== 'new'
+  })
+}
+
+function SlotBindRow({ spools, onBind, onCancel }) {
+  const [slotNum, setSlotNum] = useState('')
+  const [spoolId, setSpoolId] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const bindable = useMemo(() => getBindableSpools(spools), [spools])
+
+  const handleBind = async () => {
+    if (!slotNum || !spoolId) return
+    setSaving(true)
+    try {
+      const location = SLOT_TO_LOCATION[Number(slotNum)]
+      await onBind(Number(spoolId), location)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div class="fiq-add-row">
+      <div class="fiq-add-title">Manual slot bind</div>
+      <div class="fiq-add-fields">
+        <div>
+          <div class="fiq-field-label">Slot</div>
+          <select class="fiq-select" value={slotNum} onChange={e => { setSlotNum(e.target.value); setSpoolId('') }}>
+            <option value="">— Select slot —</option>
+            {Object.entries(SLOT_LABELS).map(([num, label]) => (
+              <option key={num} value={num}>{label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <div class="fiq-field-label">Spool</div>
+          <select class="fiq-select" value={spoolId} onChange={e => setSpoolId(e.target.value)} disabled={!slotNum}>
+            <option value="">— Select spool —</option>
+            {bindable.map(s => {
+              const f = s.filament || {}
+              const vendor = f.vendor?.name || ''
+              const name = f.name || '?'
+              const mat = f.material || ''
+              const label = [vendor, name, mat].filter(Boolean).join(' · ')
+              return (
+                <option key={s.id} value={String(s.id)}>#{s.id} — {label}</option>
+              )
+            })}
+          </select>
+        </div>
+      </div>
+      <div class="fiq-panel-footer">
+        <div />
+        <div class="fiq-btn-group">
+          <button class="fiq-btn-cancel" onClick={onCancel} disabled={saving}>Cancel</button>
+          <button class="fiq-btn-save" onClick={handleBind} disabled={saving || !slotNum || !spoolId}>
+            {saving ? 'Binding...' : 'Bind'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ColorDot({ hex }) {
   const color = hex ? `#${hex}` : '#555'
   const isBlack = !hex || hex.toLowerCase() === '000000'
@@ -233,6 +324,7 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
   const [locationFilter, setLocationFilter] = useState('')
   const [editId, setEditId] = useState(null)
   const [adding, setAdding] = useState(false)
+  const [binding, setBinding] = useState(false)
   const [archiveConfirm, setArchiveConfirm] = useState(false)
   const [archiving, setArchiving] = useState(false)
   const [printingSpoolId, setPrintingSpoolId] = useState(null)
@@ -369,7 +461,8 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
             {archiving ? 'Archiving...' : `Archive empty (${emptySpools.length})`}
           </button>
         )}
-        <button class="fiq-btn-add" onClick={() => { setAdding(true); setEditId(null) }}>+ Add spool</button>
+        <button class="fiq-btn-bind" onClick={() => { setBinding(!binding); setAdding(false); setEditId(null) }}>⇄ Bind slot</button>
+        <button class="fiq-btn-add" onClick={() => { setAdding(true); setBinding(false); setEditId(null) }}>+ Add spool</button>
       </div>
 
       {archiveConfirm && (
@@ -390,6 +483,27 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
         />
       )}
 
+      {binding && (
+        <SlotBindRow
+          spools={spools}
+          onBind={async (spoolId, location) => {
+            await updateSpool(spoolId, { location })
+            // Mirror SpoolEditPanel: fire FILAMENT_IQ_SLOT_ASSIGNED so the
+            // reconciler updates input_text.ams_slot_N_spool_id immediately.
+            const slot = LOCATION_TO_SLOT[location]
+            if (slot && hass) {
+              hass.connection.sendMessage({
+                type: 'fire_event',
+                event_type: 'FILAMENT_IQ_SLOT_ASSIGNED',
+                event_data: { slot, spool_id: spoolId },
+              })
+            }
+            setBinding(false)
+          }}
+          onCancel={() => setBinding(false)}
+        />
+      )}
+
       <div class="fiq-table">
         {filtered.map(spool => {
           const f = spool.filament || {}
@@ -402,7 +516,7 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
 
           return (
             <div key={spool.id} class={`fiq-row${expanded ? ' expanded' : ''}`}>
-              <div class="fiq-row-main" onClick={() => { setEditId(expanded ? null : spool.id); setAdding(false) }}>
+              <div class="fiq-row-main" onClick={() => { setEditId(expanded ? null : spool.id); setAdding(false); setBinding(false) }}>
                 <ColorDot hex={color} />
                 <div>
                   <div class="fiq-fname">{f.name || '—'}</div>
@@ -423,7 +537,7 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
                   {remaining}g{isLow ? ' ⚠' : ''}
                 </div>
                 <div class="fiq-row-acts">
-                  <button class={`fiq-icon-btn${expanded ? ' icon-active' : ''}`} onClick={e => { e.stopPropagation(); setEditId(expanded ? null : spool.id); setAdding(false) }}>✏</button>
+                  <button class={`fiq-icon-btn${expanded ? ' icon-active' : ''}`} onClick={e => { e.stopPropagation(); setEditId(expanded ? null : spool.id); setAdding(false); setBinding(false) }}>✏</button>
                 </div>
               </div>
               {expanded && (
