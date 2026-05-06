@@ -91,6 +91,7 @@
 
 
 ### Done
+- [x] SlotBindRow dropdown missing spools — spool with `location: Empty` at list index 43 caused early loop exit; all spools after it were absent from the bind dropdown. Fixed with `getBindableSpools` using `.filter()` predicate (never exits early). Also wired `FILAMENT_IQ_SLOT_ASSIGNED` event into `SlotBindRow.onBind` to match `SpoolEditPanel` path — reconciler now updates `input_text.ams_slot_N_spool_id` immediately on slot-first bind. (v1.2.1, 2026-04-23)
 - [x] Filament IQ Manager — custom Preact Lovelace card with full CRUD for spools, filaments, vendors. Color dots, progress bars, material badges, ID badges, location badges, search + filter toolbar, archive empty spools, SpoolmanDB fuzzy search import. (v1.5.0)
 - [x] filament_iq_proxy — HA custom component proxying Spoolman REST API via WebSocket. Works through Nabu Casa. (v1.5.0)
 - [x] Reference dashboard + setup script — parameterized 3D Printer + Filament IQ views with interactive AMS configuration. setup-dashboard.sh generates configured YAML from printer serial. (v1.5.0)

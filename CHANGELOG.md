@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.1] — 2026-04-23 (card)
+
+### Fixed
+- **SlotBindRow dropdown missing spools** — `getBindableSpools` now uses
+  `.filter()` so iteration never exits early. A spool with `location: Empty`
+  at any index no longer silently drops all spools after it from the bind
+  dropdown.
+- **FILAMENT_IQ_SLOT_ASSIGNED missing from SlotBindRow path** — `onBind`
+  callback now fires the event after the Spoolman PATCH, matching the
+  `SpoolEditPanel` behavior. Reconciler updates `input_text.ams_slot_N_spool_id`
+  immediately on slot-first bind instead of waiting for the next reconcile cycle.
+
 ## [1.7.5] — 2026-04-11
 
 ### Added
