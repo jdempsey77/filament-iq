@@ -32,7 +32,7 @@ _APPS = os.path.join(os.path.dirname(__file__), "..", "appdaemon", "apps")
 if _APPS not in sys.path:
     sys.path.insert(0, _APPS)
 
-from filament_iq.label_printer import LabelPrinter, LABEL_SIZE_PX
+from filament_iq.label_printer import LabelPrinter, LABEL_W, LABEL_H
 
 
 # ── Test harness ─────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ class TestableLabelPrinter(LabelPrinter):
             "spoolman_url": "http://fake:7912",
             "printer_url": "tcp://192.168.1.1:9100",
             "printer_model": "QL-810W",
-            "label_size": "d24",
+            "label_size": "62",
             "dry_run": True,
         }
         a.update(args or {})
@@ -105,46 +105,52 @@ SAMPLE_SPOOL_DATA = {
 # ── Image generation tests ───────────────────────────────────────────
 
 def test_generate_label_image_size():
-    """Label image is 236x236 RGB."""
+    """Label image is portrait 306×991 RGB (landscape 991×306 rotated -90°)."""
     app = TestableLabelPrinter()
     img = app.generate_label_image(SAMPLE_SPOOL_DATA, SAMPLE_FILAMENT_DATA)
-    assert img.size == (LABEL_SIZE_PX, LABEL_SIZE_PX)
+    assert img.size == (LABEL_H, LABEL_W)
     assert img.mode == "RGB"
 
 
-def test_generate_label_image_white_text_on_dark():
-    """Dark color (#1A1A1A, luminance 0.1) → white text."""
+def test_generate_label_image_swatch_dark_color():
+    """Dark color (#1A1A1A) → swatch area is dark.
+
+    After rotate(-90, expand=True), the landscape swatch center at
+    landscape (110, 153) maps to portrait (LABEL_H-1-153, 110) = (152, 110).
+    """
     app = TestableLabelPrinter()
     img = app.generate_label_image(SAMPLE_SPOOL_DATA, SAMPLE_FILAMENT_DATA)
-    # Check center pixel is dark (filled circle)
-    center = img.getpixel((LABEL_SIZE_PX // 2, LABEL_SIZE_PX // 2))
-    assert center[0] < 100, f"Center should be dark, got {center}"
+    # Portrait size is (LABEL_H, LABEL_W) = (306, 991).
+    # Swatch center in landscape (110, 153) → portrait (152, 110).
+    swatch_px = img.getpixel((152, 110))
+    assert swatch_px[0] < 100, f"Swatch area should be dark, got {swatch_px}"
 
 
-def test_generate_label_image_dark_text_on_light():
-    """Light color (#FFFFFF, luminance 1.0) → dark text."""
+def test_generate_label_image_swatch_light_color():
+    """Light color (#FFFFFF) → swatch area is light."""
     app = TestableLabelPrinter()
     img = app.generate_label_image(SAMPLE_SPOOL_DATA, SAMPLE_FILAMENT_LIGHT)
-    center = img.getpixel((LABEL_SIZE_PX // 2, LABEL_SIZE_PX // 2))
-    assert center[0] > 200, f"Center should be light, got {center}"
+    # Same swatch center coordinate as above.
+    swatch_px = img.getpixel((152, 110))
+    assert swatch_px[0] > 200, f"Swatch area should be light, got {swatch_px}"
 
 
-def test_generate_label_vendor_truncated():
-    """Vendor name truncated to 10 chars."""
+def test_generate_label_long_vendor_name():
+    """Long vendor name is auto-shrunk via fit_font, image still correct size."""
     app = TestableLabelPrinter()
     long_vendor = dict(SAMPLE_FILAMENT_DATA)
     long_vendor["vendor"] = {"name": "Very Long Vendor Name Inc"}
     img = app.generate_label_image(SAMPLE_SPOOL_DATA, long_vendor)
-    assert img.size == (LABEL_SIZE_PX, LABEL_SIZE_PX)
+    assert img.size == (LABEL_H, LABEL_W)
 
 
-def test_generate_label_filament_name_truncated():
-    """Filament name truncated to 14 chars."""
+def test_generate_label_long_filament_name():
+    """Long filament name is auto-shrunk via fit_font, image still correct size."""
     app = TestableLabelPrinter()
     long_name = dict(SAMPLE_FILAMENT_DATA)
     long_name["name"] = "Extremely Long Filament Name That Overflows"
     img = app.generate_label_image(SAMPLE_SPOOL_DATA, long_name)
-    assert img.size == (LABEL_SIZE_PX, LABEL_SIZE_PX)
+    assert img.size == (LABEL_H, LABEL_W)
 
 
 # ── Printer tests ────────────────────────────────────────────────────
@@ -153,7 +159,7 @@ def test_send_to_printer_dry_run():
     """dry_run=True logs message, does NOT import brother_ql."""
     app = TestableLabelPrinter({"dry_run": True})
     from PIL import Image
-    img = Image.new("RGB", (236, 236))
+    img = Image.new("RGB", (LABEL_H, LABEL_W))
     app.send_to_printer(img, 42)
     assert _has_log(app, "DRY_RUN: would send label for spool 42")
     # Verify brother_ql was NOT imported
