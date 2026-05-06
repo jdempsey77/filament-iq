@@ -837,8 +837,7 @@ template:
         state: >-
           {% set ns = namespace(count=0) %}
           {% for i in range(1,7) %}
-          {% set r = states('input_text.ams_slot_' ~ i ~ '_unbound_reason') %}
-          {% if r not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY', 'FORCE_ACCEPTED'] %}
+          {% if states('sensor.ams_slot_' ~ i ~ '_status') == 'needs_bind' %}
           {% set ns.count = ns.count + 1 %}
           {% endif %}
           {% endfor %}
@@ -846,8 +845,7 @@ template:
         icon: >-
           {% set ns = namespace(count=0) %}
           {% for i in range(1,7) %}
-          {% set r = states('input_text.ams_slot_' ~ i ~ '_unbound_reason') %}
-          {% if r not in ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY', 'FORCE_ACCEPTED'] %}
+          {% if states('sensor.ams_slot_' ~ i ~ '_status') == 'needs_bind' %}
           {% set ns.count = ns.count + 1 %}
           {% endif %}
           {% endfor %}
@@ -891,12 +889,11 @@ template:
       - name: "AMS Slot 1 – status"
         unique_id: ams_slot_1_status
         state: >-
-          {% set reason = states('input_text.ams_slot_1_unbound_reason') %}
-          {% set sid = states('input_text.ams_slot_1_spool_id') %}
-          {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
-          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
-          {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
-          {% else %}unknown
+          {% set ps = states('input_text.ams_slot_1_presentation_state') %}
+          {% if ps == 'EMPTY' %}empty
+          {% elif ps in ['BOUND', 'OK_FORCE_ACCEPTED'] %}ok
+          {% elif ps in ['PENDING_RFID', 'unknown', '', 'unavailable'] %}unknown
+          {% else %}needs_bind
           {% endif %}
         icon: >-
           {% set s = this.state %}
@@ -942,12 +939,11 @@ template:
       - name: "AMS Slot 2 – status"
         unique_id: ams_slot_2_status
         state: >-
-          {% set reason = states('input_text.ams_slot_2_unbound_reason') %}
-          {% set sid = states('input_text.ams_slot_2_spool_id') %}
-          {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
-          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
-          {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
-          {% else %}unknown
+          {% set ps = states('input_text.ams_slot_2_presentation_state') %}
+          {% if ps == 'EMPTY' %}empty
+          {% elif ps in ['BOUND', 'OK_FORCE_ACCEPTED'] %}ok
+          {% elif ps in ['PENDING_RFID', 'unknown', '', 'unavailable'] %}unknown
+          {% else %}needs_bind
           {% endif %}
         icon: >-
           {% set s = this.state %}
@@ -993,12 +989,11 @@ template:
       - name: "AMS Slot 3 – status"
         unique_id: ams_slot_3_status
         state: >-
-          {% set reason = states('input_text.ams_slot_3_unbound_reason') %}
-          {% set sid = states('input_text.ams_slot_3_spool_id') %}
-          {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
-          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
-          {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
-          {% else %}unknown
+          {% set ps = states('input_text.ams_slot_3_presentation_state') %}
+          {% if ps == 'EMPTY' %}empty
+          {% elif ps in ['BOUND', 'OK_FORCE_ACCEPTED'] %}ok
+          {% elif ps in ['PENDING_RFID', 'unknown', '', 'unavailable'] %}unknown
+          {% else %}needs_bind
           {% endif %}
         icon: >-
           {% set s = this.state %}
@@ -1044,12 +1039,11 @@ template:
       - name: "AMS Slot 4 – status"
         unique_id: ams_slot_4_status
         state: >-
-          {% set reason = states('input_text.ams_slot_4_unbound_reason') %}
-          {% set sid = states('input_text.ams_slot_4_spool_id') %}
-          {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
-          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
-          {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
-          {% else %}unknown
+          {% set ps = states('input_text.ams_slot_4_presentation_state') %}
+          {% if ps == 'EMPTY' %}empty
+          {% elif ps in ['BOUND', 'OK_FORCE_ACCEPTED'] %}ok
+          {% elif ps in ['PENDING_RFID', 'unknown', '', 'unavailable'] %}unknown
+          {% else %}needs_bind
           {% endif %}
         icon: >-
           {% set s = this.state %}
@@ -1095,12 +1089,11 @@ template:
       - name: "AMS Slot 5 – status"
         unique_id: ams_slot_5_status
         state: >-
-          {% set reason = states('input_text.ams_slot_5_unbound_reason') %}
-          {% set sid = states('input_text.ams_slot_5_spool_id') %}
-          {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
-          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
-          {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
-          {% else %}unknown
+          {% set ps = states('input_text.ams_slot_5_presentation_state') %}
+          {% if ps == 'EMPTY' %}empty
+          {% elif ps in ['BOUND', 'OK_FORCE_ACCEPTED'] %}ok
+          {% elif ps in ['PENDING_RFID', 'unknown', '', 'unavailable'] %}unknown
+          {% else %}needs_bind
           {% endif %}
         icon: >-
           {% set s = this.state %}
@@ -1146,12 +1139,11 @@ template:
       - name: "AMS Slot 6 – status"
         unique_id: ams_slot_6_status
         state: >-
-          {% set reason = states('input_text.ams_slot_6_unbound_reason') %}
-          {% set sid = states('input_text.ams_slot_6_spool_id') %}
-          {% if reason == 'UNBOUND_TRAY_EMPTY' %}empty
-          {% elif reason not in ['', 'unknown', 'unavailable', 'FORCE_ACCEPTED'] %}needs_bind
-          {% elif sid not in ['0', '', 'unknown', 'unavailable'] %}ok
-          {% else %}unknown
+          {% set ps = states('input_text.ams_slot_6_presentation_state') %}
+          {% if ps == 'EMPTY' %}empty
+          {% elif ps in ['BOUND', 'OK_FORCE_ACCEPTED'] %}ok
+          {% elif ps in ['PENDING_RFID', 'unknown', '', 'unavailable'] %}unknown
+          {% else %}needs_bind
           {% endif %}
         icon: >-
           {% set s = this.state %}
