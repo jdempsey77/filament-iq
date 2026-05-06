@@ -78,6 +78,27 @@ input_text:
   ams_slot_6_unbound_reason:
     name: "AMS Slot 6 Unbound Reason"
     max: 100
+  ams_slot_1_presentation_state:
+    name: "AMS Slot 1 Presentation State"
+    max: 100
+  ams_slot_2_presentation_state:
+    name: "AMS Slot 2 Presentation State"
+    max: 100
+  ams_slot_3_presentation_state:
+    name: "AMS Slot 3 Presentation State"
+    max: 100
+  ams_slot_4_presentation_state:
+    name: "AMS Slot 4 Presentation State"
+    max: 100
+  ams_slot_5_presentation_state:
+    name: "AMS Slot 5 Presentation State"
+    max: 100
+  ams_slot_6_presentation_state:
+    name: "AMS Slot 6 Presentation State"
+    max: 100
+  ams_slot_7_presentation_state:
+    name: "AMS Slot 7 Presentation State"
+    max: 100
   p1s_last_active_tray:
     name: P1S Last Active Tray
     max: 100
