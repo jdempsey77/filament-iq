@@ -288,3 +288,48 @@ def test_presentation_label_without_action():
     label = sp.SLOT_PRESENTATION_LABELS[sp.EMPTY]
     assert label.primary == "Empty"
     assert label.action is None
+
+
+# ---------------------------------------------------------------------------
+# 5. v1.8.1 regression — empty unbound_reason on bound-status paths
+# ---------------------------------------------------------------------------
+# These calls were the subject of the v1.8.1 fix. All four bound-status
+# values must return BOUND (not UNKNOWN) when unbound_reason is "".
+
+
+def test_v181_empty_unbound_reason_ok():
+    """classify_slot_presentation('', 'OK') must return BOUND, not UNKNOWN."""
+    assert sp.classify_slot_presentation("", "OK") == sp.BOUND
+
+
+def test_v181_empty_unbound_reason_ok_fixed_expected():
+    """classify_slot_presentation('', 'OK: FIXED_EXPECTED') must return BOUND."""
+    assert sp.classify_slot_presentation("", "OK: FIXED_EXPECTED") == sp.BOUND
+
+
+def test_v181_empty_unbound_reason_ok_nonrfid_registered():
+    """classify_slot_presentation('', 'OK_NON_RFID_REGISTERED') must return BOUND."""
+    assert sp.classify_slot_presentation("", "OK_NON_RFID_REGISTERED") == sp.BOUND
+
+
+def test_v181_empty_unbound_reason_non_rfid_registered():
+    """classify_slot_presentation('', 'NON_RFID_REGISTERED') must return BOUND."""
+    assert sp.classify_slot_presentation("", "NON_RFID_REGISTERED") == sp.BOUND
+
+
+def test_v181_unbound_tray_empty_produces_empty_not_unknown():
+    """Tray-empty path: UNBOUND_TRAY_EMPTY + UNBOUND: no_tag must return EMPTY."""
+    assert sp.classify_slot_presentation("UNBOUND_TRAY_EMPTY", "UNBOUND: no_tag") == sp.EMPTY
+
+
+def test_v181_stale_unbound_status_plus_empty_reason_is_unknown():
+    """Stale UNBOUND status with no matching reason falls through to UNKNOWN.
+
+    This is the shape of the stale-status bug fixed in v1.8.1: before the fix,
+    _force_location_and_helpers wrote presentation_state with the old UNBOUND
+    status and "" unbound_reason, landing here and producing UNKNOWN.
+    After the fix, this call is never made — callers write with the new
+    bound status instead.  The test documents the failure mode for regression.
+    """
+    result = sp.classify_slot_presentation("", "UNBOUND: no_tag")
+    assert result == sp.UNKNOWN  # confirms the old bug was real
