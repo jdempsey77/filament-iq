@@ -7151,5 +7151,97 @@ def test_sync_color_applies_valid_color():
     assert filament_patches[0]["payload"]["color_hex"] == "FF0000"
 
 
+# ---------------------------------------------------------------------------
+# Reconcile-end sweep tests
+# ---------------------------------------------------------------------------
+
+class TestReconcileEndSweep(unittest.TestCase):
+    """Tests for the reconcile-end presentation_state sweep in _run_reconcile_inner."""
+
+    def _make_args(self):
+        return {
+            "printer_serial": "01p00c5a3101668",
+            "spoolman_url": "http://192.0.2.1:7912",
+            "enabled": True,
+            "debug_logs": False,
+            "nonrfid_enabled_entity": "input_boolean.filament_iq_nonrfid_enabled",
+        }
+
+    def test_sweep_fires_for_slot_with_empty_presentation_state(self):
+        """After reconcile_all, a slot whose presentation_state was '' gets written by the sweep."""
+        # Slot 1: tray is empty → reconciler writes UNBOUND_TRAY_EMPTY.
+        # We pre-set the unbound_reason and status in state_map to simulate a prior
+        # reconcile pass that wrote those helpers but left presentation_state empty.
+        sm = FakeSpoolman([], [])
+        tray_ent = _tray_entity(1)
+        state_map = {
+            tray_ent: {"state": "empty", "attributes": {}},
+            f"{tray_ent}::all": {"state": "empty", "attributes": {}},
+            # pre-set unbound_reason/status as the reconciler would have written them
+            "input_text.ams_slot_1_unbound_reason": "UNBOUND_TRAY_EMPTY",
+            "input_text.ams_slot_1_status": "UNBOUND (no tag)",
+            # presentation_state is blank — the sweep should fill it in
+            "input_text.ams_slot_1_presentation_state": "",
+            "input_boolean.filament_iq_nonrfid_enabled": "off",
+        }
+        # All other slots get neutral defaults so reconciler doesn't error
+        for slot in range(2, 7):
+            ent = _tray_entity(slot)
+            state_map[ent] = {"state": "empty", "attributes": {}}
+            state_map[f"{ent}::all"] = {"state": "empty", "attributes": {}}
+            state_map[f"input_text.ams_slot_{slot}_presentation_state"] = ""
+
+        r = TestableReconcile(sm, state_map, args=self._make_args())
+        r._run_reconcile("test")
+
+        # The sweep must have written presentation_state for slot 1
+        ps_writes = [
+            w for w in r._helper_writes
+            if w.get("entity_id") == "input_text.ams_slot_1_presentation_state"
+        ]
+        self.assertGreater(len(ps_writes), 0, "Sweep must write presentation_state for slot with empty value")
+        # UNBOUND_TRAY_EMPTY → classify_slot_presentation returns "EMPTY"
+        self.assertEqual(ps_writes[-1]["value"], "EMPTY",
+                         "Sweep should classify UNBOUND_TRAY_EMPTY as EMPTY presentation state")
+
+        # Confirm a PRESENTATION_STATE_SWEEP log was emitted at DEBUG
+        sweep_logs = [m for m, lvl in r._log_calls if "PRESENTATION_STATE_SWEEP" in m and lvl == "DEBUG"]
+        self.assertGreater(len(sweep_logs), 0, "Sweep must emit DEBUG log PRESENTATION_STATE_SWEEP")
+
+    def test_sweep_does_not_overwrite_already_written_presentation_state(self):
+        """Sweep must not overwrite a slot whose presentation_state is already set to a real value."""
+        sm = FakeSpoolman([], [])
+        tray_ent = _tray_entity(2)
+        state_map = {
+            tray_ent: {"state": "empty", "attributes": {}},
+            f"{tray_ent}::all": {"state": "empty", "attributes": {}},
+            # Slot 2 already has a real presentation_state — sweep must skip it
+            "input_text.ams_slot_2_presentation_state": "BOUND",
+            "input_boolean.filament_iq_nonrfid_enabled": "off",
+        }
+        for slot in [1, 3, 4, 5, 6]:
+            ent = _tray_entity(slot)
+            state_map[ent] = {"state": "empty", "attributes": {}}
+            state_map[f"{ent}::all"] = {"state": "empty", "attributes": {}}
+
+        r = TestableReconcile(sm, state_map, args=self._make_args())
+        r._run_reconcile("test")
+
+        # No write to slot 2's presentation_state via the sweep
+        ps2_writes = [
+            w for w in r._helper_writes
+            if w.get("entity_id") == "input_text.ams_slot_2_presentation_state"
+        ]
+        # The per-slot loop may write presentation_state for slot 2 normally;
+        # the sweep must NOT write it a second time after the already-set "BOUND" value.
+        # We verify the sweep log is absent for slot 2.
+        sweep_slot2_logs = [
+            m for m, lvl in r._log_calls
+            if "PRESENTATION_STATE_SWEEP" in m and "slot=2" in m
+        ]
+        self.assertEqual(len(sweep_slot2_logs), 0,
+                         "Sweep must not log (or write) presentation_state for slot 2 when already set to 'BOUND'")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2384,6 +2384,26 @@ class AmsRfidReconcile(FilamentIQBase):
         self._append_evidence(summary)
         if len(self._active_run["writes"]) == 0:
             self._debug("No writes performed in this reconcile run", {"reason": reason})
+
+        # Reconcile-end sweep: write presentation_state for any slot the reconcile
+        # cycle didn't reach (e.g. fast-exit paths, slots with spool_id=0).
+        for slot in self._physical_ams_slots:
+            ps_entity = f"input_text.ams_slot_{slot}_presentation_state"
+            current_ps = str(self.get_state(ps_entity) or "").strip()
+            if current_ps in ("", "unknown"):
+                unbound_reason = str(
+                    self.get_state(f"input_text.ams_slot_{slot}_unbound_reason") or ""
+                ).strip()
+                status = str(
+                    self.get_state(f"input_text.ams_slot_{slot}_status") or ""
+                ).strip()
+                self._write_presentation_state(slot, unbound_reason, status)
+                self.log(
+                    f"PRESENTATION_STATE_SWEEP slot={slot} "
+                    f"unbound_reason={unbound_reason!r} status={status!r}",
+                    level="DEBUG",
+                )
+
         suppress_until = datetime.datetime.utcnow() + datetime.timedelta(seconds=5)
         for s in slots_to_process:
             self._suppress_helper_change_until[s] = suppress_until
