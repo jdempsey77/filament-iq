@@ -29,8 +29,7 @@ class HuiCameraCards extends Component {
         ui: false,
       })
       if (this._tapoCard) {
-        this._tapoCard.style.borderRadius = '8px'
-        this._tapoCard.style.overflow = 'hidden'
+        this._tapoCard.style.cssText = 'width:100%;max-height:200px;overflow:hidden;'
         this.tapoRef.appendChild(this._tapoCard)
       }
     }
@@ -46,8 +45,7 @@ class HuiCameraCards extends Component {
         camera_view: 'live',
       })
       if (this._bambuCard) {
-        this._bambuCard.style.borderRadius = '8px'
-        this._bambuCard.style.overflow = 'hidden'
+        this._bambuCard.style.cssText = 'width:100%;max-height:200px;overflow:hidden;'
         this.bambuRef.appendChild(this._bambuCard)
       }
     }
@@ -66,12 +64,14 @@ class HuiCameraCards extends Component {
 
   render() {
     return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 } },
-      h('div', { ref: el => { this.tapoRef = el }, style: { width: '100%' } },
-        h('div', { style: { fontSize: 8, color: '#2c2c2e', marginTop: 3, textAlign: 'center' } }, 'Tapo · office')
-      ),
-      h('div', { ref: el => { this.bambuRef = el }, style: { width: '100%' } },
-        h('div', { style: { fontSize: 8, color: '#2c2c2e', marginTop: 3, textAlign: 'center' } }, 'Bambu · chamber')
-      )
+      h('div', {
+        ref: el => { this.tapoRef = el },
+        style: { width: '100%', maxHeight: '200px', overflow: 'hidden', borderRadius: 8 },
+      }),
+      h('div', {
+        ref: el => { this.bambuRef = el },
+        style: { width: '100%', maxHeight: '200px', overflow: 'hidden', borderRadius: 8 },
+      })
     )
   }
 }
@@ -350,8 +350,22 @@ const SLOT_AMS = {
   8: { ams: 255, tray: 0 },
 }
 
-function SlotsSegment({ getHass }) {
-  const [popup, setPopup] = useState(null)
+const primaryLabel = d => {
+  if (d.status === 'empty') return 'Empty'
+  const r = d.reason
+  if (r.includes('RFID_NOT_REFRESHED')) return 'Reload Spool'
+  if (d.status === 'needs_bind') {
+    if (r.includes('NONRFID_NO_MATCH'))                return 'No Match Found'
+    if (r.includes('AMBIGUOUS'))                       return 'Multiple Matches'
+    if (r.includes('GENERIC') || r.includes('LOW_CONFIDENCE')) return 'Too Generic'
+    if (r.includes('NOT_FOUND'))                       return 'Spool Missing'
+    if (r.includes('UID_NO_MATCH'))                    return 'RFID Not Recognized'
+    return 'Needs Binding'
+  }
+  return `${d.vendor} · ${d.material}`
+}
+
+function SlotsSegment({ getHass, onPopup }) {
   const hass = getHass()
   const sv = id => hass?.states?.[id]?.state ?? '—'
   const sa = (id, attr) => hass?.states?.[id]?.attributes?.[attr]
@@ -379,21 +393,6 @@ function SlotsSegment({ getHass }) {
     }
   }
 
-  const primaryLabel = d => {
-    if (d.status === 'empty') return 'Empty'
-    const r = d.reason
-    if (r.includes('RFID_NOT_REFRESHED')) return 'Reload Spool'
-    if (d.status === 'needs_bind') {
-      if (r.includes('NONRFID_NO_MATCH'))                return 'No Match Found'
-      if (r.includes('AMBIGUOUS'))                       return 'Multiple Matches'
-      if (r.includes('GENERIC') || r.includes('LOW_CONFIDENCE')) return 'Too Generic'
-      if (r.includes('NOT_FOUND'))                       return 'Spool Missing'
-      if (r.includes('UID_NO_MATCH'))                    return 'RFID Not Recognized'
-      return 'Needs Binding'
-    }
-    return `${d.vendor} · ${d.material}`
-  }
-
   const secondaryLabel = d => {
     if (d.status === 'empty') return 'No spool loaded'
     const r = d.reason
@@ -416,23 +415,13 @@ function SlotsSegment({ getHass }) {
     return Math.min(100, Math.max(0, Math.round(g / 1000 * 100)))
   }
 
-  const closePopup = () => setPopup(null)
-
-  const assignAndBind = n => {
-    hass?.callService('script', 'turn_on', {
-      entity_id: 'script.ams_slot_assign_and_update',
-      variables: { slot: String(n) },
-    })
-    closePopup()
-  }
-
   const SlotRow = ({ n, last = false }) => {
     const d = slotData(n)
     const pct = weightPct(d)
     const isNeedsAction = d.status === 'needs_bind' || d.reason?.includes('RFID_NOT_REFRESHED')
     return h('div', {
       style: { ...S.slotRow, ...(last ? { borderBottom: 'none' } : {}), ...slotStateStyle(d) },
-      onClick: () => d.status !== 'empty' && setPopup(slotData(n)),
+      onClick: () => d.status !== 'empty' && onPopup(slotData(n)),
     },
       d.status === 'empty'
         ? h('div', { style: { ...S.slotDot, background: '#1c1c1e', border: '1px solid #3a3a3c', display: 'flex', alignItems: 'center', justifyContent: 'center' } },
@@ -482,52 +471,63 @@ function SlotsSegment({ getHass }) {
           h(SlotRow, { n: 8, last: true })
         )
       )
-    }),
+    })
+  )
+}
 
-    popup && h('div', {
-      style: S.popupOverlay,
-      onClick: e => { if (e.target === e.currentTarget) closePopup() },
-    },
-      h('div', { style: S.popupSheet },
-        h('div', { style: S.popupDrag }),
-        h('div', { style: S.popupHeader },
-          h('div', { style: S.popupUnit }, `Slot ${popup.n}`),
-          h('div', { style: S.popupTitle },
-            popup.status === 'needs_bind' ? primaryLabel(popup) : `${popup.vendor} · ${popup.material}`
-          ),
-          h('div', { style: S.popupSub },
-            popup.status === 'ok' ? `Currently assigned · spool #${popup.id}` : 'Binding required'
-          )
+// ── Slot popup (rendered outside scrollArea at root level) ───
+function SlotPopup({ popup, getHass, onClose }) {
+  const hass = getHass()
+  const assignAndBind = n => {
+    hass?.callService('script', 'turn_on', {
+      entity_id: 'script.ams_slot_assign_and_update',
+      variables: { slot: String(n) },
+    })
+    onClose()
+  }
+  return h('div', {
+    style: S.popupOverlay,
+    onClick: e => { if (e.target === e.currentTarget) onClose() },
+  },
+    h('div', { style: S.popupSheet },
+      h('div', { style: S.popupDrag }),
+      h('div', { style: S.popupHeader },
+        h('div', { style: S.popupUnit }, `Slot ${popup.n}`),
+        h('div', { style: S.popupTitle },
+          popup.status === 'needs_bind' ? primaryLabel(popup) : `${popup.vendor} · ${popup.material}`
         ),
-        popup.status === 'ok' && h('div', { style: S.currentSpool },
-          h('div', { style: { ...S.csDot, background: popup.color } }),
-          h('div', { style: { flex: 1, minWidth: 0 } },
-            h('div', { style: S.csName }, popup.name),
-            h('div', { style: S.csMeta }, `Spool #${popup.id}`),
-            h('div', { style: S.csWbar },
-              h('div', { style: { ...S.csWfill, width: `${Math.min(100, Math.round((parseFloat(popup.g) || 0) / 1000 * 100))}%` } })
-            )
-          ),
-          h('div', { style: { textAlign: 'right', flexShrink: 0 } },
-            h('div', { style: S.csPct }, `${Math.min(100, Math.round((parseFloat(popup.g) || 0) / 1000 * 100))}%`),
-            h('div', { style: S.csG }, `${Math.round(parseFloat(popup.g) || 0)}g left`)
-          )
-        ),
-        h('div', { style: S.popupSec }, 'Reassign spool'),
-        h('div', { style: S.ddRow },
-          h('div', null,
-            h('div', { style: S.ddVal }, popup.selectCurrent || 'Select a spool…'),
-            h('div', { style: S.ddSub }, popup.status === 'ok' ? 'Current assignment' : 'No spool matched')
-          ),
-          h(Icon, { path: ICONS.chevron, size: 17, color: '#555' })
-        ),
-        h('div', {
-          style: S.assignBtn,
-          onClick: () => assignAndBind(popup.n),
-        },
-          h(Icon, { path: ICONS.link, size: 16, color: '#6aabda' }),
-          h('span', { style: S.assignLabel }, 'Assign & bind')
+        h('div', { style: S.popupSub },
+          popup.status === 'ok' ? `Currently assigned · spool #${popup.id}` : 'Binding required'
         )
+      ),
+      popup.status === 'ok' && h('div', { style: S.currentSpool },
+        h('div', { style: { ...S.csDot, background: popup.color } }),
+        h('div', { style: { flex: 1, minWidth: 0 } },
+          h('div', { style: S.csName }, popup.name),
+          h('div', { style: S.csMeta }, `Spool #${popup.id}`),
+          h('div', { style: S.csWbar },
+            h('div', { style: { ...S.csWfill, width: `${Math.min(100, Math.round((parseFloat(popup.g) || 0) / 1000 * 100))}%` } })
+          )
+        ),
+        h('div', { style: { textAlign: 'right', flexShrink: 0 } },
+          h('div', { style: S.csPct }, `${Math.min(100, Math.round((parseFloat(popup.g) || 0) / 1000 * 100))}%`),
+          h('div', { style: S.csG }, `${Math.round(parseFloat(popup.g) || 0)}g left`)
+        )
+      ),
+      h('div', { style: S.popupSec }, 'Reassign spool'),
+      h('div', { style: S.ddRow },
+        h('div', null,
+          h('div', { style: S.ddVal }, popup.selectCurrent || 'Select a spool…'),
+          h('div', { style: S.ddSub }, popup.status === 'ok' ? 'Current assignment' : 'No spool matched')
+        ),
+        h(Icon, { path: ICONS.chevron, size: 17, color: '#555' })
+      ),
+      h('div', {
+        style: S.assignBtn,
+        onClick: () => assignAndBind(popup.n),
+      },
+        h(Icon, { path: ICONS.link, size: 16, color: '#6aabda' }),
+        h('span', { style: S.assignLabel }, 'Assign & bind')
       )
     )
   )
@@ -555,21 +555,23 @@ function FiqSegment({ path }) {
 // ── Root component ───────────────────────────────────────────
 export function PrinterDashboardCard({ config, getHass }) {
   const [seg, setSeg] = useState('printer')
+  const [popup, setPopup] = useState(null)
   const fiqPath = (config && config.filament_manager_path) || '/lovelace/filament-manager'
 
   return h('div', { style: S.root },
     h(SegBar, { active: seg, onSwitch: setSeg }),
     h('div', { style: S.scrollArea },
       seg === 'printer' && h(PrinterSegment, { getHass }),
-      seg === 'slots'   && h(SlotsSegment,   { getHass }),
+      seg === 'slots'   && h(SlotsSegment,   { getHass, onPopup: setPopup }),
       seg === 'fiq'     && h(FiqSegment, { path: fiqPath }),
-    )
+    ),
+    popup && h(SlotPopup, { popup, getHass, onClose: () => setPopup(null) })
   )
 }
 
 // ── Style object ─────────────────────────────────────────────
 const S = {
-  root:         { display: 'flex', flexDirection: 'column', height: '100%', background: '#111', fontFamily: '-apple-system,sans-serif', overflow: 'hidden' },
+  root:         { display: 'flex', flexDirection: 'column', height: '100%', background: '#111', fontFamily: '-apple-system,sans-serif', overflow: 'hidden', position: 'relative' },
   segBar:       { display: 'flex', gap: 5, padding: '6px 8px', background: '#1c1c1e', borderBottom: '1px solid #2c2c2e', flexShrink: 0 },
   seg:          { flex: 1, borderRadius: 8, padding: '7px 4px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, cursor: 'pointer', transition: 'background 0.15s' },
   segActive:    { background: '#2c2c2e' },
@@ -616,7 +618,7 @@ const S = {
   slotSecondary:{ fontSize: 10, color: '#555', marginTop: 1 },
   slotBar:      { position: 'absolute', bottom: 0, left: 0, right: 0, height: 2, background: 'rgba(255,255,255,0.05)' },
   slotBarFill:  { height: 2, background: 'rgba(255,255,255,0.4)' },
-  popupOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', zIndex: 1000 },
+  popupOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', zIndex: 9999 },
   popupSheet:   { background: '#1c1c1e', borderRadius: '16px 16px 0 0', borderTop: '1px solid #3a3a3c', maxHeight: '85vh', overflowY: 'auto' },
   popupDrag:    { width: 36, height: 4, background: '#3a3a3c', borderRadius: 2, margin: '10px auto 0' },
   popupHeader:  { padding: '14px 16px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' },
