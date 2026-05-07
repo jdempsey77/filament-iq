@@ -1,0 +1,8 @@
+/* Printer Dashboard card — styles are primarily inline JS objects.
+   This file exists to satisfy the import in printer-dashboard.jsx and
+   can be used for any global resets or overrides needed. */
+
+:host {
+  display: block;
+  height: 100%;
+}
