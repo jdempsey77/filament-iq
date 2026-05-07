@@ -534,51 +534,35 @@ function SlotsSegment({ getHass }) {
 }
 
 // ── Filament IQ segment ──────────────────────────────────────
-class FiqSegment extends Component {
-  constructor(props) {
-    super(props)
-    this.containerRef = null
-    this._card = null
+function FiqSegment({ path }) {
+  const navigate = () => {
+    window.history.pushState(null, '', path)
+    window.dispatchEvent(new Event('location-changed'))
   }
-
-  async componentDidMount() {
-    if (!this.containerRef) return
-    try {
-      const helpers = await window.loadCardHelpers()
-      this._card = await helpers.createCardElement({ type: 'custom:filament-iq-manager' })
-      if (this._card) {
-        this._card.hass = this.props.getHass()
-        this.containerRef.appendChild(this._card)
-      }
-    } catch (e) {
-      console.warn('[printer-dashboard] FiqSegment failed to load:', e)
-    }
-  }
-
-  componentDidUpdate() {
-    if (this._card) this._card.hass = this.props.getHass()
-  }
-
-  componentWillUnmount() {
-    if (this._card) this._card.remove()
-    this._card = null
-  }
-
-  render() {
-    return h('div', { ref: el => { this.containerRef = el }, style: { width: '100%' } })
-  }
+  return h('div', { style: { padding: '24px 0' } },
+    h('div', { style: S.fiqNavCard, onClick: navigate },
+      h(Icon, { path: ICONS.brain, size: 32, color: '#6aabda' }),
+      h('div', { style: { marginTop: 10 } },
+        h('div', { style: S.fiqNavTitle }, 'Filament IQ Manager'),
+        h('div', { style: S.fiqNavSub }, 'Add spools · Edit details · Print labels · Export CSV')
+      ),
+      h(Icon, { path: ICONS.externalLink, size: 16, color: '#6aabda',
+        style: { position: 'absolute', top: 14, right: 14 } })
+    )
+  )
 }
 
 // ── Root component ───────────────────────────────────────────
 export function PrinterDashboardCard({ config, getHass }) {
   const [seg, setSeg] = useState('printer')
+  const fiqPath = (config && config.filament_manager_path) || '/lovelace/filament-manager'
 
   return h('div', { style: S.root },
     h(SegBar, { active: seg, onSwitch: setSeg }),
     h('div', { style: S.scrollArea },
       seg === 'printer' && h(PrinterSegment, { getHass }),
       seg === 'slots'   && h(SlotsSegment,   { getHass }),
-      seg === 'fiq'     && h(FiqSegment, { getHass })
+      seg === 'fiq'     && h(FiqSegment, { path: fiqPath }),
     )
   )
 }
@@ -653,4 +637,7 @@ const S = {
   ddSub:        { fontSize: 10, color: '#555', marginTop: 3 },
   assignBtn:    { margin: '4px 16px 16px', background: 'rgba(106,171,218,0.12)', border: '1px solid rgba(106,171,218,0.3)', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' },
   assignLabel:  { fontSize: 13, color: '#6aabda', fontWeight: 500 },
+  fiqNavCard:   { background: '#1c1c1e', border: '1px solid #3a3a3c', borderRadius: 14, padding: '28px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', cursor: 'pointer', position: 'relative' },
+  fiqNavTitle:  { fontSize: 15, fontWeight: 500, color: '#e8e8ea', marginBottom: 6 },
+  fiqNavSub:    { fontSize: 11, color: '#555', lineHeight: 1.5 },
 }
