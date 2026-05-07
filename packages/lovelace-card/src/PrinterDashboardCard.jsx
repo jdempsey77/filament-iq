@@ -477,7 +477,8 @@ function SlotsSegment({ getHass }) {
 // ── Filament IQ segment ──────────────────────────────────────
 function FiqSegment() {
   const navigate = () => {
-    window.history.pushState(null, '', '/lovelace/filament-manager')
+    const base = window.location.pathname.split('/').slice(0, 2).join('/')
+    window.history.pushState(null, '', base + '/filament-manager')
     window.dispatchEvent(new Event('location-changed'))
   }
   return h('div', { style: { padding: '24px 0' } },
@@ -537,7 +538,7 @@ const S = {
   ctrlBtn:      { background: '#232323', border: '1px solid #2a2a2a', borderRadius: 8, padding: '8px 4px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, cursor: 'pointer', transition: 'all 0.15s' },
   ctrlBtnOn:    { background: '#f5f5f7', borderColor: '#d8d8da' },
   ctrlName:     { fontSize: 9, textAlign: 'center' },
-  camGrid:      { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5, marginBottom: 8 },
+  camGrid:      { display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 },
   camThumb:     { width: '100%', aspectRatio: '16/9', borderRadius: 8, objectFit: 'cover', display: 'block', border: '1px solid #1c1c1e' },
   camPlaceholder: { background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   camLabel:     { fontSize: 8, color: '#2c2c2e', marginTop: 3, textAlign: 'center' },
