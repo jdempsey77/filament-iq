@@ -250,6 +250,14 @@ class TestableReconcile(AmsRfidReconcile):
         self._print_active_since = None
         self._evidence_lines = []
         self._log_calls = []
+        # v1.9.0: external slot — derive from ams_units if present
+        self._external_slot = None
+        for unit in (a.get("ams_units") or []):
+            if str(unit.get("type", "")).lower() == "external":
+                slots = unit.get("slots", [])
+                if slots:
+                    self._external_slot = int(slots[0])
+                    break
 
     def log(self, msg, level="INFO"):
         self._log_calls.append((msg, level))
@@ -7241,6 +7249,184 @@ class TestReconcileEndSweep(unittest.TestCase):
         ]
         self.assertEqual(len(sweep_slot2_logs), 0,
                          "Sweep must not log (or write) presentation_state for slot 2 when already set to 'BOUND'")
+
+
+# ---------------------------------------------------------------------------
+# v1.9.0: External spool reconcile tests
+# ---------------------------------------------------------------------------
+
+# Entity ID for the external spool sensor (slot 8)
+_EXTERNAL_SPOOL_ENTITY = f"sensor.{_TEST_PREFIX}_externalspool_external_spool"
+
+# ams_units config that includes an external slot 8
+_AMS_UNITS_WITH_EXTERNAL = [
+    {"type": "ams_2_pro", "ams_index": 0, "slots": [1, 2, 3, 4]},
+    {"type": "ams_ht", "ams_index": 128, "slots": [5]},
+    {"type": "ams_ht", "ams_index": 129, "slots": [6]},
+    {"type": "ams_ht", "ams_index": 130, "slots": [7]},
+    {"type": "external", "slots": [8]},
+]
+
+
+def _make_external_args():
+    return {
+        "printer_serial": "01p00c5a3101668",
+        "spoolman_url": "http://192.0.2.1:7912",
+        "enabled": True,
+        "debug_logs": False,
+        "ams_units": _AMS_UNITS_WITH_EXTERNAL,
+    }
+
+
+def _make_external_state_map(ext_state="PLA", spool_id="0"):
+    """State map with all AMS slots empty and external slot in a given state."""
+    sm = {}
+    # Regular AMS slots — all empty
+    tray_by_slot, _, _, _ = build_slot_mappings(_TEST_PREFIX, _AMS_UNITS_WITH_EXTERNAL)
+    for slot in range(1, 8):
+        ent = tray_by_slot.get(slot, f"sensor.tray_{slot}")
+        sm[ent] = {"state": "empty", "attributes": {}}
+        sm[f"{ent}::all"] = {"state": "empty", "attributes": {}}
+    # External spool entity — store plain string for get_state() without attribute
+    sm[_EXTERNAL_SPOOL_ENTITY] = ext_state
+    sm[f"{_EXTERNAL_SPOOL_ENTITY}::all"] = {"state": ext_state, "attributes": {"type": "PLA"}}
+    sm[f"{_EXTERNAL_SPOOL_ENTITY}::type"] = "PLA"
+    # Set spool_id helper for slot 8 (plain string for get_state without attribute)
+    sm["input_text.ams_slot_8_spool_id"] = spool_id
+    sm[f"input_text.ams_slot_8_spool_id::all"] = {"state": spool_id, "attributes": {}}
+    # Slot 8 helpers need to be present so _set_helper doesn't skip them
+    sm[f"input_text.ams_slot_8_unbound_reason::all"] = {"state": "", "attributes": {}}
+    sm["input_text.ams_slot_8_unbound_reason"] = ""
+    sm[f"input_text.ams_slot_8_presentation_state::all"] = {"state": "", "attributes": {}}
+    sm["input_text.ams_slot_8_presentation_state"] = ""
+    sm["input_boolean.filament_iq_nonrfid_enabled"] = "off"
+    return sm
+
+
+class TestReconcileExternalSlot(unittest.TestCase):
+    """v1.9.0: Tests for _reconcile_external_slot and _on_external_spool_change."""
+
+    def test_reconcile_external_slot_bound(self):
+        """External slot with spool_id > 0 → FORCE_ACCEPTED + presentation NON_RFID_REGISTERED."""
+        sm = FakeSpoolman([], [])
+        state_map = _make_external_state_map(ext_state="PLA", spool_id="42")
+        r = TestableReconcile(sm, state_map, args=_make_external_args())
+
+        self.assertEqual(r._external_slot, 8, "External slot must be 8")
+
+        r._reconcile_external_slot()
+
+        unbound_writes = [
+            w for w in r._helper_writes
+            if w.get("entity_id") == "input_text.ams_slot_8_unbound_reason"
+        ]
+        self.assertTrue(
+            any(w["value"] == "FORCE_ACCEPTED" for w in unbound_writes),
+            f"Expected FORCE_ACCEPTED in unbound_reason writes, got: {unbound_writes}",
+        )
+        ps_writes = [
+            w for w in r._helper_writes
+            if w.get("entity_id") == "input_text.ams_slot_8_presentation_state"
+        ]
+        self.assertTrue(
+            any("FORCE_ACCEPTED" in (w.get("value") or "") for w in ps_writes),
+            f"Expected FORCE_ACCEPTED in presentation_state writes, got: {ps_writes}",
+        )
+
+    def test_reconcile_external_slot_unbound(self):
+        """External slot with spool_id == 0 and real filament state → UNBOUND_NONRFID_NO_MATCH + notify."""
+        sm = FakeSpoolman([], [])
+        state_map = _make_external_state_map(ext_state="PLA", spool_id="0")
+        r = TestableReconcile(sm, state_map, args=_make_external_args())
+        # Track notifications
+        r._notify_calls = []
+        r._notify = lambda title, msg, **kw: r._notify_calls.append((title, msg))
+        r._notify_mobile_match_needed = lambda *a, **kw: None
+
+        r._reconcile_external_slot()
+
+        unbound_writes = [
+            w for w in r._helper_writes
+            if w.get("entity_id") == "input_text.ams_slot_8_unbound_reason"
+        ]
+        self.assertTrue(
+            any(w["value"] == "NONRFID_NO_MATCH_CONFIDENT" for w in unbound_writes),
+            f"Expected NONRFID_NO_MATCH_CONFIDENT in unbound_reason writes, got: {unbound_writes}",
+        )
+        ps_writes = [
+            w for w in r._helper_writes
+            if w.get("entity_id") == "input_text.ams_slot_8_presentation_state"
+        ]
+        self.assertTrue(
+            any("NEEDS_BIND" in (w.get("value") or "").upper() for w in ps_writes),
+            f"Expected NEEDS_BIND in presentation_state writes, got: {ps_writes}",
+        )
+        self.assertGreater(
+            len(r._notify_calls), 0,
+            "Should notify when external spool is unbound",
+        )
+
+    def test_reconcile_external_slot_empty(self):
+        """External slot with state 'unknown' → UNBOUND_TRAY_EMPTY, no notification."""
+        sm = FakeSpoolman([], [])
+        state_map = _make_external_state_map(ext_state="unknown", spool_id="0")
+        r = TestableReconcile(sm, state_map, args=_make_external_args())
+        r._notify_calls = []
+        r._notify = lambda title, msg, **kw: r._notify_calls.append((title, msg))
+
+        r._reconcile_external_slot()
+
+        unbound_writes = [
+            w for w in r._helper_writes
+            if w.get("entity_id") == "input_text.ams_slot_8_unbound_reason"
+        ]
+        self.assertTrue(
+            any(w["value"] == "UNBOUND_TRAY_EMPTY" for w in unbound_writes),
+            f"Expected UNBOUND_TRAY_EMPTY in unbound_reason writes, got: {unbound_writes}",
+        )
+        self.assertEqual(
+            len(r._notify_calls), 0,
+            "Must not notify when external slot state is 'unknown' (empty/disconnected)",
+        )
+
+    def test_reconcile_external_slot_no_external_configured(self):
+        """If _external_slot is None (no external in ams_units), _reconcile_external_slot is a no-op."""
+        sm = FakeSpoolman([], [])
+        # Use default ams_units (no external slot)
+        state_map = {}
+        for slot in range(1, 8):
+            ent = _tray_entity(slot)
+            state_map[ent] = {"state": "empty", "attributes": {}}
+            state_map[f"{ent}::all"] = {"state": "empty", "attributes": {}}
+        r = TestableReconcile(sm, state_map)
+
+        self.assertIsNone(r._external_slot, "_external_slot must be None when no external unit configured")
+
+        # Must not raise and must not write any helpers
+        r._reconcile_external_slot()
+        self.assertEqual(r._helper_writes, [], "No helper writes expected when _external_slot is None")
+
+    def test_on_external_spool_change_unknown_skipped(self):
+        """_on_external_spool_change with new='unknown' must skip reconcile."""
+        sm = FakeSpoolman([], [])
+        state_map = _make_external_state_map(ext_state="PLA", spool_id="0")
+        r = TestableReconcile(sm, state_map, args=_make_external_args())
+        r._reconcile_calls = []
+        r._reconcile_external_slot = lambda: r._reconcile_calls.append(True)
+
+        r._on_external_spool_change(_EXTERNAL_SPOOL_ENTITY, None, "PLA", "unknown", {})
+        self.assertEqual(r._reconcile_calls, [], "Must skip reconcile when new state is 'unknown'")
+
+    def test_on_external_spool_change_real_state_triggers_reconcile(self):
+        """_on_external_spool_change with real filament name triggers _reconcile_external_slot."""
+        sm = FakeSpoolman([], [])
+        state_map = _make_external_state_map(ext_state="PLA", spool_id="0")
+        r = TestableReconcile(sm, state_map, args=_make_external_args())
+        r._reconcile_calls = []
+        r._reconcile_external_slot = lambda: r._reconcile_calls.append(True)
+
+        r._on_external_spool_change(_EXTERNAL_SPOOL_ENTITY, None, "unknown", "PLA", {})
+        self.assertEqual(len(r._reconcile_calls), 1, "Must call _reconcile_external_slot for real state")
 
 
 if __name__ == "__main__":
