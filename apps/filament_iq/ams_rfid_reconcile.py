@@ -32,7 +32,7 @@ from pathlib import Path
 
 import hassapi as hass
 
-from .base import FilamentIQBase, build_slot_mappings
+from .base import FilamentIQBase, build_slot_mappings, _default_ams_units
 from .slot_presentation import (
     BOUND,
     EMPTY as PRESENTATION_EMPTY,
@@ -392,6 +392,16 @@ class AmsRfidReconcile(FilamentIQBase):
             self._canonical_location_by_slot,
         ) = build_slot_mappings(self._prefix, ams_units)
         self._physical_ams_slots = tuple(sorted(self._tray_entity_by_slot.keys()))
+
+        # v1.9.0: detect external spool slot from ams_units config
+        self._external_slot = None
+        for unit in (self.args.get("ams_units") or _default_ams_units()):
+            if str(unit.get("type", "")).lower() == "external":
+                slots = unit.get("slots", [])
+                if slots:
+                    self._external_slot = int(slots[0])
+                    break
+
         self._last_mapping_json_entity = str(
             self.args.get(
                 "last_mapping_json_entity",
@@ -482,6 +492,17 @@ class AmsRfidReconcile(FilamentIQBase):
         self.listen_event(self._on_slot_assigned, "FILAMENT_IQ_SLOT_ASSIGNED")
         self.listen_event(self._on_validate_event, "AMS_RFID_VALIDATE")
         self.listen_event(self._on_homeassistant_start, "homeassistant_started")
+
+        # v1.9.0: external spool listener
+        if self._external_slot is not None:
+            ext_entity = self._tray_entity_by_slot.get(self._external_slot)
+            if ext_entity:
+                self.listen_state(self._on_external_spool_change, ext_entity)
+                self.log(
+                    f"AMS RFID reconcile listening external spool: "
+                    f"slot={self._external_slot} entity={ext_entity}",
+                    level="INFO",
+                )
 
         self.run_in(self._run_reconcile_startup, self.startup_delay_seconds)
         self.run_every(
@@ -2408,9 +2429,70 @@ class AmsRfidReconcile(FilamentIQBase):
                     level="DEBUG",
                 )
 
+        # v1.9.0: reconcile external slot at end of every full reconcile pass
+        if self._external_slot is not None:
+            self._reconcile_external_slot()
+
         suppress_until = datetime.datetime.utcnow() + datetime.timedelta(seconds=5)
         for s in slots_to_process:
             self._suppress_helper_change_until[s] = suppress_until
+
+    # ── v1.9.0: External spool handling ──────────────────────────────────────
+
+    def _on_external_spool_change(self, entity, attribute, old, new, kwargs):
+        """External spool configured/deconfigured in Bambu Studio."""
+        if new in ("unknown", "unavailable", ""):
+            return
+        self.log(
+            f"EXTERNAL_SPOOL_CHANGE slot={self._external_slot} state={new!r}",
+            level="INFO",
+        )
+        self._reconcile_external_slot()
+
+    def _reconcile_external_slot(self):
+        """Reconcile slot 8 (external). Always non-RFID, manual-assign-only.
+
+        Never auto-matches — GFx99 filament IDs are generic sentinels.
+        """
+        slot = self._external_slot
+        if slot is None:
+            return
+        ext_entity = self._tray_entity_by_slot.get(slot)
+        if not ext_entity:
+            return
+
+        state = str(self.get_state(ext_entity) or "").strip()
+        spool_id = self._safe_int(
+            self._get_helper_state(f"input_text.ams_slot_{slot}_spool_id"), 0
+        )
+
+        if state in ("unknown", "unavailable", ""):
+            self._set_helper(
+                f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_TRAY_EMPTY
+            )
+            self._write_presentation_state(slot, UNBOUND_TRAY_EMPTY, "")
+            return
+
+        if spool_id > 0:
+            self._set_helper(
+                f"input_text.ams_slot_{slot}_unbound_reason", FORCE_ACCEPTED
+            )
+            self._write_presentation_state(slot, FORCE_ACCEPTED, STATUS_NON_RFID_REGISTERED)
+        else:
+            self._set_helper(
+                f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_NONRFID_NO_MATCH
+            )
+            self._write_presentation_state(
+                slot, UNBOUND_NONRFID_NO_MATCH, STATUS_UNBOUND_ACTION_REQUIRED
+            )
+            tray_type = self.get_state(ext_entity, attribute="type") or ""
+            self._notify_nonrfid_needs_action(
+                slot,
+                {"type": tray_type},
+                "External spool configured but not assigned — tap to identify",
+            )
+
+    # ── end v1.9.0 external spool ─────────────────────────────────────────────
 
     def _normalize_location(self, loc):
         """Never write deprecated/legacy location strings to Spoolman. Map AMS2_HT_* / HT1 / HT2 to Shelf."""
