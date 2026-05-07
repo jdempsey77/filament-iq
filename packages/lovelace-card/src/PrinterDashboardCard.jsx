@@ -475,14 +475,30 @@ function SlotsSegment({ getHass, onPopup }) {
 
 // ── Slot popup (rendered outside scrollArea at root level) ───
 function SlotPopup({ popup, getHass, onClose }) {
+  const [showPicker, setShowPicker] = useState(false)
   const hass = getHass()
-  const assignAndBind = n => {
+
+  const selectSpool = option => {
+    if (option === '— Select spool —') return
+    hass?.callService('input_select', 'select_option', {
+      entity_id: popup.selectEntity,
+      option,
+    })
+    setShowPicker(false)
+  }
+
+  const assignAndBind = () => {
     hass?.callService('script', 'turn_on', {
       entity_id: 'script.ams_slot_assign_and_update',
-      variables: { slot: String(n) },
+      variables: { slot: String(popup.n) },
     })
     onClose()
   }
+
+  const selectState = hass?.states?.[popup.selectEntity]
+  const options = selectState?.attributes?.options || []
+  const currentOption = selectState?.state || popup.selectCurrent
+
   return h('div', {
     style: S.popupOverlay,
     onClick: e => { if (e.target === e.currentTarget) onClose() },
@@ -492,10 +508,10 @@ function SlotPopup({ popup, getHass, onClose }) {
       h('div', { style: S.popupHeader },
         h('div', { style: S.popupUnit }, `Slot ${popup.n}`),
         h('div', { style: S.popupTitle },
-          popup.status === 'needs_bind' ? primaryLabel(popup) : `${popup.vendor} · ${popup.material}`
+          popup.status === 'needs_bind' ? 'Binding Required' : `${popup.vendor} · ${popup.material}`
         ),
         h('div', { style: S.popupSub },
-          popup.status === 'ok' ? `Currently assigned · spool #${popup.id}` : 'Binding required'
+          popup.status === 'ok' ? `Currently assigned · spool #${popup.id}` : 'Select a spool below'
         )
       ),
       popup.status === 'ok' && h('div', { style: S.currentSpool },
@@ -513,16 +529,31 @@ function SlotPopup({ popup, getHass, onClose }) {
         )
       ),
       h('div', { style: S.popupSec }, 'Reassign spool'),
-      h('div', { style: S.ddRow },
+      !showPicker && h('div', {
+        style: S.ddRow,
+        onClick: () => setShowPicker(true),
+      },
         h('div', null,
-          h('div', { style: S.ddVal }, popup.selectCurrent || 'Select a spool…'),
-          h('div', { style: S.ddSub }, popup.status === 'ok' ? 'Current assignment' : 'No spool matched')
+          h('div', { style: S.ddVal }, currentOption || 'Select a spool…'),
+          h('div', { style: S.ddSub }, 'Tap to change')
         ),
-        h(Icon, { path: ICONS.chevron, size: 17, color: '#555' })
+        h(Icon, { path: ICONS.chevron, size: 17, color: '#6aabda' })
       ),
-      h('div', {
+      showPicker && h('div', { style: S.pickerList },
+        options.filter(o => o !== '— Select spool —').map(option =>
+          h('div', {
+            key: option,
+            style: { ...S.pickerRow, ...(option === currentOption ? S.pickerRowSelected : {}) },
+            onClick: () => selectSpool(option),
+          },
+            h('div', { style: { ...S.pickerLabel, color: option === currentOption ? '#6aabda' : '#e8e8ea' } }, option),
+            option === currentOption && h(Icon, { path: ICONS.chevron, size: 14, color: '#6aabda' })
+          )
+        )
+      ),
+      !showPicker && h('div', {
         style: S.assignBtn,
-        onClick: () => assignAndBind(popup.n),
+        onClick: assignAndBind,
       },
         h(Icon, { path: ICONS.link, size: 16, color: '#6aabda' }),
         h('span', { style: S.assignLabel }, 'Assign & bind')
@@ -637,6 +668,10 @@ const S = {
   ddSub:        { fontSize: 10, color: '#555', marginTop: 3 },
   assignBtn:    { margin: '4px 16px 16px', background: 'rgba(106,171,218,0.12)', border: '1px solid rgba(106,171,218,0.3)', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' },
   assignLabel:  { fontSize: 13, color: '#6aabda', fontWeight: 500 },
+  pickerList:   { maxHeight: 280, overflowY: 'auto', margin: '0 0 8px 0', borderTop: '1px solid rgba(255,255,255,0.06)' },
+  pickerRow:    { padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer' },
+  pickerRowSelected: { background: 'rgba(106,171,218,0.08)' },
+  pickerLabel:  { fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 },
   fiqNavCard:   { background: '#1c1c1e', border: '1px solid #3a3a3c', borderRadius: 14, padding: '28px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', cursor: 'pointer', position: 'relative' },
   fiqNavTitle:  { fontSize: 15, fontWeight: 500, color: '#e8e8ea', marginBottom: 6 },
   fiqNavSub:    { fontSize: 11, color: '#555', lineHeight: 1.5 },
