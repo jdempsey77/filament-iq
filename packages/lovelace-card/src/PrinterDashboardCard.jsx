@@ -496,7 +496,9 @@ function SlotPopup({ popup, getHass, onClose }) {
   }
 
   const selectState = hass?.states?.[popup.selectEntity]
-  const options = selectState?.attributes?.options || []
+  const allOptions = selectState?.attributes?.options || []
+  const PLACEHOLDER = allOptions.find(o => o.startsWith('—') || o.startsWith('-')) || '— Select spool —'
+  const options = allOptions.filter(o => o !== PLACEHOLDER)
   const currentOption = selectState?.state || popup.selectCurrent
 
   return h('div', {
@@ -540,16 +542,26 @@ function SlotPopup({ popup, getHass, onClose }) {
         h(Icon, { path: ICONS.chevron, size: 17, color: '#6aabda' })
       ),
       showPicker && h('div', { style: S.pickerList, onTouchMove: e => e.stopPropagation(), onTouchStart: e => e.stopPropagation() },
-        options.filter(o => o !== '— Select spool —').map(option =>
-          h('div', {
-            key: option,
-            style: { ...S.pickerRow, ...(option === currentOption ? S.pickerRowSelected : {}) },
-            onClick: () => selectSpool(option),
-          },
-            h('div', { style: { ...S.pickerLabel, color: option === currentOption ? '#6aabda' : '#e8e8ea' } }, option),
-            option === currentOption && h(Icon, { path: ICONS.chevron, size: 14, color: '#6aabda' })
-          )
-        )
+        h('div', {
+          style: { ...S.pickerRow, borderBottom: '1px solid rgba(255,255,255,0.1)' },
+          onClick: () => setShowPicker(false),
+        },
+          h('div', { style: { ...S.pickerLabel, color: '#555' } }, `${options.length} spools · tap to select · tap here to cancel`)
+        ),
+        options.length === 0
+          ? h('div', { style: { padding: '14px 16px', fontSize: 12, color: '#555' } },
+              `No spools in ${popup.selectEntity} — run Reconcile to populate`
+            )
+          : options.map(option =>
+              h('div', {
+                key: option,
+                style: { ...S.pickerRow, ...(option === currentOption ? S.pickerRowSelected : {}) },
+                onClick: () => selectSpool(option),
+              },
+                h('div', { style: { ...S.pickerLabel, color: option === currentOption ? '#6aabda' : '#e8e8ea' } }, option),
+                option === currentOption && h(Icon, { path: ICONS.chevron, size: 14, color: '#6aabda' })
+              )
+            )
       ),
       !showPicker && h('div', {
         style: S.assignBtn,
