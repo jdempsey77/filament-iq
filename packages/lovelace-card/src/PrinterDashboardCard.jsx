@@ -1,5 +1,80 @@
-import { h } from 'preact'
+import { h, Component } from 'preact'
 import { useState } from 'preact/hooks'
+
+class HuiCameraCards extends Component {
+  constructor(props) {
+    super(props)
+    this.tapoRef = null
+    this.bambuRef = null
+    this._tapoCard = null
+    this._bambuCard = null
+  }
+
+  async _createCard(config) {
+    if (typeof window.loadCardHelpers !== 'function') {
+      console.warn('[printer-dashboard] window.loadCardHelpers not available')
+      return null
+    }
+    const helpers = await window.loadCardHelpers()
+    const card = await helpers.createCardElement(config)
+    card.hass = this.props.getHass()
+    return card
+  }
+
+  async componentDidMount() {
+    if (this.tapoRef) {
+      this._tapoCard = await this._createCard({
+        type: 'custom:webrtc-camera',
+        entity: 'camera.tapo_c111_live_view',
+        ui: false,
+      })
+      if (this._tapoCard) {
+        this._tapoCard.style.borderRadius = '8px'
+        this._tapoCard.style.overflow = 'hidden'
+        this.tapoRef.appendChild(this._tapoCard)
+      }
+    }
+
+    const hass = this.props.getHass()
+    const printerOn = hass?.states?.['switch.officeoutlet01_3dprinter']?.state === 'on'
+    if (this.bambuRef && printerOn) {
+      this._bambuCard = await this._createCard({
+        type: 'picture-entity',
+        entity: 'camera.p1s_01p00c5a3101668_camera',
+        show_state: false,
+        show_name: false,
+        camera_view: 'live',
+      })
+      if (this._bambuCard) {
+        this._bambuCard.style.borderRadius = '8px'
+        this._bambuCard.style.overflow = 'hidden'
+        this.bambuRef.appendChild(this._bambuCard)
+      }
+    }
+  }
+
+  componentDidUpdate() {
+    const hass = this.props.getHass()
+    if (this._tapoCard) this._tapoCard.hass = hass
+    if (this._bambuCard) this._bambuCard.hass = hass
+  }
+
+  componentWillUnmount() {
+    if (this._tapoCard) this._tapoCard.remove()
+    if (this._bambuCard) this._bambuCard.remove()
+  }
+
+  render() {
+    return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 } },
+      h('div', { ref: el => { this.tapoRef = el }, style: { width: '100%' } },
+        h('div', { style: { fontSize: 8, color: '#2c2c2e', marginTop: 3, textAlign: 'center' } }, 'Tapo · office')
+      ),
+      h('div', { ref: el => { this.bambuRef = el }, style: { width: '100%' } },
+        h('div', { style: { fontSize: 8, color: '#2c2c2e', marginTop: 3, textAlign: 'center' } }, 'Bambu · chamber')
+      )
+    )
+  }
+}
 
 // ── MDI SVG paths — inline, no external dependency ──────────
 const ICONS = {
@@ -120,9 +195,6 @@ function PrinterSegment({ getHass }) {
       call('switch', 'toggle', { entity_id: 'switch.officeoutlet01_3dprinter' })
   }
 
-  const tapoCam  = sa('camera.tapo_c111_live_view', 'entity_picture')
-  const bambuCam = sa('camera.p1s_01p00c5a3101668_camera', 'entity_picture')
-
   return h('div', null,
 
     // Print hero card
@@ -198,20 +270,7 @@ function PrinterSegment({ getHass }) {
     ),
 
     // Cameras
-    h('div', { style: S.camGrid },
-      h('div', null,
-        tapoCam
-          ? h('img', { src: tapoCam, style: S.camThumb })
-          : h('div', { style: { ...S.camThumb, ...S.camPlaceholder } }),
-        h('div', { style: S.camLabel }, 'Tapo · office')
-      ),
-      printerOn && h('div', null,
-        bambuCam
-          ? h('img', { src: bambuCam, style: S.camThumb })
-          : h('div', { style: { ...S.camThumb, ...S.camPlaceholder } }),
-        h('div', { style: S.camLabel }, 'Bambu · chamber')
-      )
-    ),
+    h(HuiCameraCards, { getHass: getHass }),
 
     // Vitals card
     h('div', { style: S.card },
@@ -538,10 +597,6 @@ const S = {
   ctrlBtn:      { background: '#232323', border: '1px solid #2a2a2a', borderRadius: 8, padding: '8px 4px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, cursor: 'pointer', transition: 'all 0.15s' },
   ctrlBtnOn:    { background: '#f5f5f7', borderColor: '#d8d8da' },
   ctrlName:     { fontSize: 9, textAlign: 'center' },
-  camGrid:      { display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 },
-  camThumb:     { width: '100%', aspectRatio: '16/9', borderRadius: 8, objectFit: 'cover', display: 'block', border: '1px solid #1c1c1e' },
-  camPlaceholder: { background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  camLabel:     { fontSize: 8, color: '#2c2c2e', marginTop: 3, textAlign: 'center' },
   sectionLabel: { fontSize: 8, color: '#444', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 7 },
   vitalsGrid:   { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 },
   vitalRow:     { background: '#2c2c2e', borderRadius: 6, padding: '6px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
