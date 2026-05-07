@@ -29,8 +29,10 @@ class HuiCameraCards extends Component {
         ui: false,
       })
       if (this._tapoCard) {
-        this._tapoCard.style.cssText = 'width:100%;max-height:200px;overflow:hidden;'
-        this.tapoRef.appendChild(this._tapoCard)
+        const wrapper = document.createElement('div')
+        wrapper.style.cssText = 'width:100%;height:180px;overflow:hidden;border-radius:8px;display:block;'
+        wrapper.appendChild(this._tapoCard)
+        this.tapoRef.appendChild(wrapper)
       }
     }
 
@@ -45,8 +47,10 @@ class HuiCameraCards extends Component {
         camera_view: 'live',
       })
       if (this._bambuCard) {
-        this._bambuCard.style.cssText = 'width:100%;max-height:200px;overflow:hidden;'
-        this.bambuRef.appendChild(this._bambuCard)
+        const wrapper = document.createElement('div')
+        wrapper.style.cssText = 'width:100%;height:180px;overflow:hidden;border-radius:8px;display:block;'
+        wrapper.appendChild(this._bambuCard)
+        this.bambuRef.appendChild(wrapper)
       }
     }
   }
@@ -64,14 +68,8 @@ class HuiCameraCards extends Component {
 
   render() {
     return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 } },
-      h('div', {
-        ref: el => { this.tapoRef = el },
-        style: { width: '100%', maxHeight: '200px', overflow: 'hidden', borderRadius: 8 },
-      }),
-      h('div', {
-        ref: el => { this.bambuRef = el },
-        style: { width: '100%', maxHeight: '200px', overflow: 'hidden', borderRadius: 8 },
-      })
+      h('div', { ref: el => { this.tapoRef = el } }),
+      h('div', { ref: el => { this.bambuRef = el } })
     )
   }
 }
