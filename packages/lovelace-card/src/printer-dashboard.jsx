@@ -21,18 +21,28 @@ class PrinterDashboardElement extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass
-    if (!this._mounted && hass) {
-      this._mounted = true
-      this._injectStyles()
-      const self = this
-      render(
-        h(PrinterDashboardCard, {
-          config: this._config,
-          getHass: () => self._hass,
-        }),
-        this
-      )
+    if (!this._mounted && this.isConnected) {
+      this._mount()
     }
+  }
+
+  connectedCallback() {
+    if (!this._mounted && this._hass) {
+      this._mount()
+    }
+  }
+
+  _mount() {
+    this._mounted = true
+    this._injectStyles()
+    const self = this
+    render(
+      h(PrinterDashboardCard, {
+        config: this._config,
+        getHass: () => self._hass,
+      }),
+      this
+    )
   }
 
   get hass() {
