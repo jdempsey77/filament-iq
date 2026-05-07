@@ -539,7 +539,7 @@ function SlotPopup({ popup, getHass, onClose }) {
         ),
         h(Icon, { path: ICONS.chevron, size: 17, color: '#6aabda' })
       ),
-      showPicker && h('div', { style: S.pickerList },
+      showPicker && h('div', { style: S.pickerList, onTouchMove: e => e.stopPropagation(), onTouchStart: e => e.stopPropagation() },
         options.filter(o => o !== '— Select spool —').map(option =>
           h('div', {
             key: option,
@@ -668,7 +668,7 @@ const S = {
   ddSub:        { fontSize: 10, color: '#555', marginTop: 3 },
   assignBtn:    { margin: '4px 16px 16px', background: 'rgba(106,171,218,0.12)', border: '1px solid rgba(106,171,218,0.3)', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' },
   assignLabel:  { fontSize: 13, color: '#6aabda', fontWeight: 500 },
-  pickerList:   { maxHeight: 280, overflowY: 'auto', margin: '0 0 8px 0', borderTop: '1px solid rgba(255,255,255,0.06)' },
+  pickerList:   { maxHeight: 360, overflowY: 'auto', overflowX: 'hidden', WebkitOverflowScrolling: 'touch', margin: '0 0 8px 0', borderTop: '1px solid rgba(255,255,255,0.06)' },
   pickerRow:    { padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer' },
   pickerRowSelected: { background: 'rgba(106,171,218,0.08)' },
   pickerLabel:  { fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 },
