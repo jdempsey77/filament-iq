@@ -14,8 +14,10 @@ const HA_HOST = process.env.HA_HOST || '192.168.4.124'
 const HA_PORT = process.env.HA_PORT || '8123'
 
 const LOCAL_JS = resolve(__dirname, '../dist/filament-iq-manager.js')
+const LOCAL_PRINTER_JS = resolve(__dirname, '../dist/printer-dashboard.js')
 const LOCAL_COMPONENT = resolve(__dirname, '../../../custom_components/filament_iq_proxy/')
 const REMOTE_JS = '/config/www/filament-iq-manager.js'
+const REMOTE_PRINTER_JS = '/config/www/printer-dashboard.js'
 const REMOTE_COMPONENT = '/config/custom_components/filament_iq_proxy/'
 const REMOTE_RESOURCES = '/config/.storage/lovelace_resources'
 
@@ -53,27 +55,35 @@ function step(num, label, fn) {
 
 let ok = true
 
-// 1. SCP the built JS
+// 1. SCP filament-iq-manager.js
 ok = step(1, 'Deploying filament-iq-manager.js', () => scp(LOCAL_JS, REMOTE_JS)) && ok
 
-// 2. Update lovelace_resources with version suffix (busts 31-day HTTP cache)
-ok = step(2, `Updating lovelace_resources ?v=${version}`, () =>
+// 2. Update lovelace_resources cache buster for filament-iq-manager
+ok = step(2, `Updating lovelace_resources ?v=${version} (filament-iq-manager)`, () =>
   ssh(`sed -i 's|/local/filament-iq-manager.js[^"]*|/local/filament-iq-manager.js?v=${version}|g' ${REMOTE_RESOURCES}`)
 ) && ok
 
-// 3. Deploy custom component
-ok = step(3, 'Deploying filament_iq_proxy custom component', () =>
+// 3. SCP printer-dashboard.js
+ok = step(3, 'Deploying printer-dashboard.js', () => scp(LOCAL_PRINTER_JS, REMOTE_PRINTER_JS)) && ok
+
+// 4. Update printer-dashboard version in lovelace_resources (entry already registered manually)
+ok = step(4, `Updating lovelace_resources ?v=${version} (printer-dashboard)`, () =>
+  ssh(`sed -i 's|/local/printer-dashboard.js[^"]*|/local/printer-dashboard.js?v=${version}|g' ${REMOTE_RESOURCES}`)
+) && ok
+
+// 5. Deploy custom component
+ok = step(5, 'Deploying filament_iq_proxy custom component', () =>
   scpDir(LOCAL_COMPONENT, REMOTE_COMPONENT)
 ) && ok
 
-// 4. Deploy configuration.yaml
-ok = step(4, 'Deploying configuration.yaml', () =>
+// 6. Deploy configuration.yaml
+ok = step(6, 'Deploying configuration.yaml', () =>
   scp(resolve(__dirname, '../../../configuration.yaml'), '/config/configuration.yaml')
 ) && ok
 
-// 5. Bust browser cache via browser_mod.javascript
+// 7. Bust browser cache via browser_mod.javascript
 if (ok && HA_TOKEN) {
-  ok = step(5, 'Clearing browser cache and reloading via browser_mod', () => {
+  ok = step(7, 'Clearing browser cache and reloading via browser_mod', () => {
     execSync(
       `curl -sf -X POST -H "Authorization: Bearer ${HA_TOKEN}" -H "Content-Type: application/json" -d '${JSON.stringify({
         code: "navigator.serviceWorker.getRegistrations().then(r=>Promise.all(r.map(s=>s.unregister()))).then(()=>location.reload())"
@@ -82,7 +92,7 @@ if (ok && HA_TOKEN) {
     )
   }) && ok
 } else if (ok) {
-  console.log('5. Skipping browser reload — no HA_TOKEN in .env')
+  console.log('7. Skipping browser reload — no HA_TOKEN in .env')
 }
 
 console.log('')
@@ -94,7 +104,8 @@ if (!ok) {
 console.log('============================================================')
 console.log('Deploy complete. Browsers reloaded automatically.')
 console.log('============================================================')
-console.log(`  JS:      ${REMOTE_JS}`)
-console.log(`  Version: ?v=${version}`)
-console.log(`  URL:     http://${HA_HOST}:${HA_PORT}/lovelace-stage/filament-manager`)
+console.log(`  JS:         ${REMOTE_JS}`)
+console.log(`  Printer JS: ${REMOTE_PRINTER_JS}`)
+console.log(`  Version:    ?v=${version}`)
+console.log(`  URL:        http://${HA_HOST}:${HA_PORT}/lovelace-stage/printer`)
 console.log('============================================================')

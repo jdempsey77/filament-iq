@@ -4,9 +4,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && vite build --config vite.printer.config.js",
     "preview": "vite preview",
-    "deploy": "vite build && node scripts/deploy.mjs",
+    "deploy": "vite build && vite build --config vite.printer.config.js && node scripts/deploy.mjs",
     "smoke": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
