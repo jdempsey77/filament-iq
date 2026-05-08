@@ -94,6 +94,7 @@ _SKIP_REASON_LABELS = {
     "SANITY_CAP":                        "Estimate exceeded sanity limit",
     "BELOW_MIN":                         "Below minimum threshold",
     "DATA_LOSS":                         "Sensor data unavailable",
+    "SPOOLMAN_CONTRADICTS_EMPTY":        "Spoolman record contradicts depletion signal",
     "NO_3MF_AND_TRAY_NOT_EMPTY":         "No slicer data",
     "DEPLETED_BUT_NO_SPOOLMAN_REMAINING": "Depleted, no Spoolman record",
     "UNKNOWN":                           "Unknown reason",

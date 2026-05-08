@@ -79,6 +79,17 @@
   unbound_reason from HA. Covers fast-exit paths (non-RFID spool_id=0)
   that never reach a _write_presentation_state() call. 2 new tests.
   (v1.8.2, 2026-05-06)
+- [x] depleted_nonrfid Spoolman contradiction guard — prevents false
+  full-spool depletion writes when end_g (Spoolman via HA template) > 50g
+  contradicts tray_empty signal. Falls to no_evidence with
+  SPOOLMAN_CONTRADICTS_EMPTY skip_reason. Root cause: spool 70 (1000g new)
+  falsely written as fully consumed on 2026-05-07 during rehydrated print
+  with multiple depleted slots. PE-reviewed. 6 new + 4 updated tests.
+  (v1.8.3, 2026-05-08)
+- [ ] 3mf_depleted max() path exposed to same overconsumption risk — when
+  spoolman_remaining is very large and end_g contradicts it, the guard in
+  _decide_nonrfid does not cover the 3mf_depleted branch. Requires separate
+  analysis. (PE-required follow-on from v1.8.3)
 - [x] Phase 2 dashboard consolidation — sensor.ams_slot_N_status template
   sensors now read input_text.ams_slot_N_presentation_state instead of
   raw unbound_reason Jinja string matching. ams_unbound_slot_count fixed:
