@@ -34,6 +34,14 @@ class HuiCameraCards extends Component {
         this._tapoCard.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;--ha-card-border-radius:0px;--ha-card-box-shadow:none;'
         wrapper.appendChild(this._tapoCard)
         this.tapoRef.appendChild(wrapper)
+        const tapoCard = this._tapoCard
+        setTimeout(() => {
+          if (tapoCard.shadowRoot) {
+            const s = document.createElement('style')
+            s.textContent = ':host{height:100%!important;display:block!important}ha-card{height:100%!important}video{width:100%!important;height:100%!important;object-fit:cover!important}'
+            tapoCard.shadowRoot.appendChild(s)
+          }
+        }, 500)
       }
     }
 
@@ -53,6 +61,14 @@ class HuiCameraCards extends Component {
         this._bambuCard.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;--ha-card-border-radius:0px;--ha-card-box-shadow:none;'
         wrapper.appendChild(this._bambuCard)
         this.bambuRef.appendChild(wrapper)
+        const bambuCard = this._bambuCard
+        setTimeout(() => {
+          if (bambuCard.shadowRoot) {
+            const s = document.createElement('style')
+            s.textContent = ':host{height:100%!important;display:block!important}ha-card{height:100%!important}video{width:100%!important;height:100%!important;object-fit:cover!important}'
+            bambuCard.shadowRoot.appendChild(s)
+          }
+        }, 500)
       }
     }
   }
