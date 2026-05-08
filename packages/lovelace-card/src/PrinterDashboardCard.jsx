@@ -1,95 +1,50 @@
 import { h, Component } from 'preact'
 import { useState } from 'preact/hooks'
 
-class HuiCameraCards extends Component {
-  constructor(props) {
-    super(props)
-    this.tapoRef = null
-    this.bambuRef = null
-    this._tapoCard = null
-    this._bambuCard = null
+function CameraView({ getHass }) {
+  const hass = getHass()
+  const printerOn = hass?.states?.['switch.officeoutlet01_3dprinter']?.state === 'on'
+  const token = hass?.auth?.data?.access_token
+
+  const camStyle = {
+    width: '100%',
+    aspectRatio: '16/9',
+    objectFit: 'cover',
+    borderRadius: 8,
+    display: 'block',
+    background: '#0a0a0a',
   }
 
-  async _createCard(config) {
-    if (typeof window.loadCardHelpers !== 'function') {
-      console.warn('[printer-dashboard] window.loadCardHelpers not available')
-      return null
-    }
-    const helpers = await window.loadCardHelpers()
-    const card = await helpers.createCardElement(config)
-    card.hass = this.props.getHass()
-    return card
+  const labelStyle = {
+    fontSize: 8,
+    color: '#2c2c2e',
+    marginTop: 3,
+    textAlign: 'center',
   }
 
-  async componentDidMount() {
-    if (this.tapoRef) {
-      this._tapoCard = await this._createCard({
-        type: 'custom:webrtc-camera',
-        entity: 'camera.tapo_c111_live_view',
-        ui: false,
-      })
-      if (this._tapoCard) {
-        const wrapper = document.createElement('div')
-        wrapper.style.cssText = 'width:100%;aspect-ratio:16/9;overflow:hidden;border-radius:8px;display:block;position:relative;'
-        this._tapoCard.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;--ha-card-border-radius:0px;--ha-card-box-shadow:none;'
-        wrapper.appendChild(this._tapoCard)
-        this.tapoRef.appendChild(wrapper)
-        const tapoCard = this._tapoCard
-        setTimeout(() => {
-          if (tapoCard.shadowRoot) {
-            const s = document.createElement('style')
-            s.textContent = ':host{height:100%!important;display:block!important}ha-card{height:100%!important}video{width:100%!important;height:100%!important;object-fit:cover!important}'
-            tapoCard.shadowRoot.appendChild(s)
-          }
-        }, 500)
-      }
-    }
+  const tapoCam = `/api/camera_proxy/camera.tapo_c111_live_view?token=${token}&t=${Date.now()}`
+  const bambuCam = `/api/camera_proxy/camera.p1s_01p00c5a3101668_camera?token=${token}&t=${Date.now()}`
 
-    const hass = this.props.getHass()
-    const printerOn = hass?.states?.['switch.officeoutlet01_3dprinter']?.state === 'on'
-    if (this.bambuRef && printerOn) {
-      this._bambuCard = await this._createCard({
-        type: 'picture-entity',
-        entity: 'camera.p1s_01p00c5a3101668_camera',
-        show_state: false,
-        show_name: false,
-        camera_view: 'live',
-      })
-      if (this._bambuCard) {
-        const wrapper = document.createElement('div')
-        wrapper.style.cssText = 'width:100%;aspect-ratio:16/9;overflow:hidden;border-radius:8px;display:block;position:relative;'
-        this._bambuCard.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;--ha-card-border-radius:0px;--ha-card-box-shadow:none;'
-        wrapper.appendChild(this._bambuCard)
-        this.bambuRef.appendChild(wrapper)
-        const bambuCard = this._bambuCard
-        setTimeout(() => {
-          if (bambuCard.shadowRoot) {
-            const s = document.createElement('style')
-            s.textContent = ':host{height:100%!important;display:block!important}ha-card{height:100%!important}video{width:100%!important;height:100%!important;object-fit:cover!important}'
-            bambuCard.shadowRoot.appendChild(s)
-          }
-        }, 500)
-      }
-    }
-  }
-
-  componentDidUpdate() {
-    const hass = this.props.getHass()
-    if (this._tapoCard) this._tapoCard.hass = hass
-    if (this._bambuCard) this._bambuCard.hass = hass
-  }
-
-  componentWillUnmount() {
-    if (this._tapoCard) this._tapoCard.remove()
-    if (this._bambuCard) this._bambuCard.remove()
-  }
-
-  render() {
-    return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 } },
-      h('div', { ref: el => { this.tapoRef = el }, style: { width: '100%' } }),
-      h('div', { ref: el => { this.bambuRef = el }, style: { width: '100%' } })
+  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 } },
+    h('div', null,
+      h('img', {
+        src: tapoCam,
+        style: camStyle,
+        alt: 'Tapo office',
+        onError: e => { e.target.style.display = 'none' },
+      }),
+      h('div', { style: labelStyle }, 'Tapo · office')
+    ),
+    printerOn && h('div', null,
+      h('img', {
+        src: bambuCam,
+        style: camStyle,
+        alt: 'Bambu chamber',
+        onError: e => { e.target.style.display = 'none' },
+      }),
+      h('div', { style: labelStyle }, 'Bambu · chamber')
     )
-  }
+  )
 }
 
 // ── MDI SVG paths — inline, no external dependency ──────────
@@ -286,7 +241,7 @@ function PrinterSegment({ getHass }) {
     ),
 
     // Cameras
-    h(HuiCameraCards, { getHass: getHass }),
+    h(CameraView, { getHass }),
 
     // Vitals card
     h('div', { style: S.card },
