@@ -475,16 +475,13 @@ function SlotsSegment({ getHass, onPopup }) {
 
 // ── Slot popup (rendered outside scrollArea at root level) ───
 function SlotPopup({ popup, getHass, onClose }) {
-  const [showPicker, setShowPicker] = useState(false)
   const hass = getHass()
 
   const selectSpool = option => {
-    if (option === '— Select spool —') return
     hass?.callService('input_select', 'select_option', {
       entity_id: popup.selectEntity,
       option,
     })
-    setShowPicker(false)
   }
 
   const assignAndBind = () => {
@@ -530,27 +527,11 @@ function SlotPopup({ popup, getHass, onClose }) {
           h('div', { style: S.csG }, `${Math.round(parseFloat(popup.g) || 0)}g left`)
         )
       ),
-      h('div', { style: S.popupSec }, 'Reassign spool'),
-      !showPicker && h('div', {
-        style: S.ddRow,
-        onClick: () => setShowPicker(true),
-      },
-        h('div', null,
-          h('div', { style: S.ddVal }, currentOption || 'Select a spool…'),
-          h('div', { style: S.ddSub }, 'Tap to change')
-        ),
-        h(Icon, { path: ICONS.chevron, size: 17, color: '#6aabda' })
-      ),
-      showPicker && h('div', { style: S.pickerList, onTouchMove: e => e.stopPropagation(), onTouchStart: e => e.stopPropagation() },
-        h('div', {
-          style: { ...S.pickerRow, borderBottom: '1px solid rgba(255,255,255,0.1)' },
-          onClick: () => setShowPicker(false),
-        },
-          h('div', { style: { ...S.pickerLabel, color: '#555' } }, `${options.length} spools · tap to select · tap here to cancel`)
-        ),
+      h('div', { style: S.popupSec }, 'Select spool'),
+      h('div', { style: S.pickerList, onTouchMove: e => e.stopPropagation(), onTouchStart: e => e.stopPropagation() },
         options.length === 0
-          ? h('div', { style: { padding: '14px 16px', fontSize: 12, color: '#555' } },
-              `No spools in ${popup.selectEntity} — run Reconcile to populate`
+          ? h('div', { style: { padding: '16px', fontSize: 12, color: '#555', textAlign: 'center' } },
+              'No spools available — run Reconcile'
             )
           : options.map(option =>
               h('div', {
@@ -563,7 +544,7 @@ function SlotPopup({ popup, getHass, onClose }) {
               )
             )
       ),
-      !showPicker && h('div', {
+      h('div', {
         style: S.assignBtn,
         onClick: assignAndBind,
       },
