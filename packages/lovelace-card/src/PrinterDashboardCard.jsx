@@ -30,7 +30,8 @@ class HuiCameraCards extends Component {
       })
       if (this._tapoCard) {
         const wrapper = document.createElement('div')
-        wrapper.style.cssText = 'width:100%;height:180px;overflow:hidden;border-radius:8px;display:block;'
+        wrapper.style.cssText = 'width:100%;aspect-ratio:16/9;overflow:hidden;border-radius:8px;display:block;position:relative;'
+        this._tapoCard.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;--ha-card-border-radius:0px;--ha-card-box-shadow:none;'
         wrapper.appendChild(this._tapoCard)
         this.tapoRef.appendChild(wrapper)
       }
@@ -48,7 +49,8 @@ class HuiCameraCards extends Component {
       })
       if (this._bambuCard) {
         const wrapper = document.createElement('div')
-        wrapper.style.cssText = 'width:100%;height:180px;overflow:hidden;border-radius:8px;display:block;'
+        wrapper.style.cssText = 'width:100%;aspect-ratio:16/9;overflow:hidden;border-radius:8px;display:block;position:relative;'
+        this._bambuCard.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;--ha-card-border-radius:0px;--ha-card-box-shadow:none;'
         wrapper.appendChild(this._bambuCard)
         this.bambuRef.appendChild(wrapper)
       }
@@ -68,8 +70,8 @@ class HuiCameraCards extends Component {
 
   render() {
     return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 } },
-      h('div', { ref: el => { this.tapoRef = el } }),
-      h('div', { ref: el => { this.bambuRef = el } })
+      h('div', { ref: el => { this.tapoRef = el }, style: { width: '100%' } }),
+      h('div', { ref: el => { this.bambuRef = el }, style: { width: '100%' } })
     )
   }
 }
@@ -528,7 +530,7 @@ function SlotPopup({ popup, getHass, onClose }) {
         )
       ),
       h('div', { style: S.popupSec }, 'Select spool'),
-      h('div', { style: S.pickerList, onTouchMove: e => e.stopPropagation(), onTouchStart: e => e.stopPropagation() },
+      h('div', { style: S.pickerList, onTouchMove: e => e.stopPropagation() },
         options.length === 0
           ? h('div', { style: { padding: '16px', fontSize: 12, color: '#555', textAlign: 'center' } },
               'No spools available — run Reconcile'
@@ -556,36 +558,56 @@ function SlotPopup({ popup, getHass, onClose }) {
 }
 
 // ── Filament IQ segment ──────────────────────────────────────
-function FiqSegment({ path }) {
-  const navigate = () => {
-    window.history.pushState(null, '', path)
-    window.dispatchEvent(new Event('location-changed'))
+class FiqSegment extends Component {
+  constructor(props) {
+    super(props)
+    this.containerRef = null
+    this._card = null
   }
-  return h('div', { style: { padding: '24px 0' } },
-    h('div', { style: S.fiqNavCard, onClick: navigate },
-      h(Icon, { path: ICONS.brain, size: 32, color: '#6aabda' }),
-      h('div', { style: { marginTop: 10 } },
-        h('div', { style: S.fiqNavTitle }, 'Filament IQ Manager'),
-        h('div', { style: S.fiqNavSub }, 'Add spools · Edit details · Print labels · Export CSV')
-      ),
-      h(Icon, { path: ICONS.externalLink, size: 16, color: '#6aabda',
-        style: { position: 'absolute', top: 14, right: 14 } })
-    )
-  )
+
+  componentDidMount() {
+    if (!this.containerRef) return
+    try {
+      const card = document.createElement('filament-iq-manager')
+      card.setConfig({})
+      card.hass = this.props.getHass()
+      this.containerRef.appendChild(card)
+      this._card = card
+    } catch (e) {
+      console.warn('[printer-dashboard] FiqSegment mount failed:', e)
+    }
+  }
+
+  componentDidUpdate() {
+    if (this._card) this._card.hass = this.props.getHass()
+  }
+
+  componentWillUnmount() {
+    if (this._card) {
+      this._card.remove()
+      this._card = null
+    }
+  }
+
+  render() {
+    return h('div', {
+      ref: el => { this.containerRef = el },
+      style: { width: '100%', minHeight: 200 },
+    })
+  }
 }
 
 // ── Root component ───────────────────────────────────────────
 export function PrinterDashboardCard({ config, getHass }) {
   const [seg, setSeg] = useState('printer')
   const [popup, setPopup] = useState(null)
-  const fiqPath = (config && config.filament_manager_path) || '/lovelace/filament-manager'
 
   return h('div', { style: S.root },
     h(SegBar, { active: seg, onSwitch: setSeg }),
     h('div', { style: S.scrollArea },
       seg === 'printer' && h(PrinterSegment, { getHass }),
       seg === 'slots'   && h(SlotsSegment,   { getHass, onPopup: setPopup }),
-      seg === 'fiq'     && h(FiqSegment, { path: fiqPath }),
+      seg === 'fiq'     && h(FiqSegment, { getHass }),
     ),
     popup && h(SlotPopup, { popup, getHass, onClose: () => setPopup(null) })
   )
@@ -640,7 +662,7 @@ const S = {
   slotSecondary:{ fontSize: 10, color: '#555', marginTop: 1 },
   slotBar:      { position: 'absolute', bottom: 0, left: 0, right: 0, height: 2, background: 'rgba(255,255,255,0.05)' },
   slotBarFill:  { height: 2, background: 'rgba(255,255,255,0.4)' },
-  popupOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', zIndex: 9999 },
+  popupOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', zIndex: 9999 },
   popupSheet:   { background: '#1c1c1e', borderRadius: '16px 16px 0 0', borderTop: '1px solid #3a3a3c', maxHeight: '85vh', overflowY: 'auto' },
   popupDrag:    { width: 36, height: 4, background: '#3a3a3c', borderRadius: 2, margin: '10px auto 0' },
   popupHeader:  { padding: '14px 16px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' },
@@ -665,7 +687,4 @@ const S = {
   pickerRow:    { padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer' },
   pickerRowSelected: { background: 'rgba(106,171,218,0.08)' },
   pickerLabel:  { fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 },
-  fiqNavCard:   { background: '#1c1c1e', border: '1px solid #3a3a3c', borderRadius: 14, padding: '28px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', cursor: 'pointer', position: 'relative' },
-  fiqNavTitle:  { fontSize: 15, fontWeight: 500, color: '#e8e8ea', marginBottom: 6 },
-  fiqNavSub:    { fontSize: 11, color: '#555', lineHeight: 1.5 },
 }
