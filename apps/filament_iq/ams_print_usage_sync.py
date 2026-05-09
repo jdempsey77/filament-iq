@@ -1177,6 +1177,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                         )
                         _3mf_fname = fname.replace(".slice_info.config", ".3mf") if fname.endswith(".slice_info.config") else fname
                         _cache_path = os.path.join(self._bambulab_cache_path, _3mf_fname)
+                        self.log(f"MW_DEBUG cache_path={_cache_path} exists={os.path.exists(_cache_path)} bambulab_cache_path={self._bambulab_cache_path!r}", level="INFO")
                         if self._bambulab_cache_path and os.path.exists(_cache_path):
                             _mw_meta = parse_3mf_metadata(_cache_path)
                             self._write_makerworld_sensors(
@@ -1550,6 +1551,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                         )
                         _3mf_fname = fname.replace(".slice_info.config", ".3mf") if fname.endswith(".slice_info.config") else fname
                         _cache_path = os.path.join(self._bambulab_cache_path, _3mf_fname)
+                        self.log(f"MW_DEBUG cache_path={_cache_path} exists={os.path.exists(_cache_path)} bambulab_cache_path={self._bambulab_cache_path!r}", level="INFO")
                         if self._bambulab_cache_path and os.path.exists(_cache_path):
                             _mw_meta = parse_3mf_metadata(_cache_path)
                             self._write_makerworld_sensors(
@@ -1746,7 +1748,8 @@ class AmsPrintUsageSync(FilamentIQBase):
             self._threemf_data = merged
             self._threemf_filename = os.path.basename(full_path)
             self._write_threemf_sensor()
-            mw_meta = parse_3mf_metadata(full_path) if THREEMF_AVAILABLE else {}
+            _3mf_path = full_path.replace(".slice_info.config", ".3mf") if full_path.endswith(".slice_info.config") else full_path
+            mw_meta = parse_3mf_metadata(_3mf_path) if THREEMF_AVAILABLE and os.path.exists(_3mf_path) else {}
             self._write_makerworld_sensors(
                 makerworld_url=mw_meta.get("makerworld_url"),
                 title=mw_meta.get("title"),

@@ -490,6 +490,7 @@ def parse_3mf_metadata(local_path):
         # Priority 1: extract model ID from DSM pattern in description image URLs
         # e.g. DSM00000001378181 → 1378181 → makerworld.com/en/models/1378181
         dsm_match = re.search(r'DSM0*(\d+)', description)
+        logger.warning("MW_META title=%r dsm_match=%s desc_len=%d", title, dsm_match, len(description))
         if dsm_match:
             model_id = dsm_match.group(1)
             makerworld_url = f"https://makerworld.com/en/models/{model_id}"
@@ -508,6 +509,7 @@ def parse_3mf_metadata(local_path):
 
     except (zipfile.BadZipFile, OSError, ET.ParseError) as e:
         logger.warning("parse_3mf_metadata failed for %s: %s", local_path, e)
+        print(f"MW_META_ERROR path={local_path} err={e}")
         return {}
 
 
