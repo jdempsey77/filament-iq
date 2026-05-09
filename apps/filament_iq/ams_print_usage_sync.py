@@ -44,6 +44,7 @@ try:
         normalize_color,
         normalize_material,
         parse_3mf_filaments,
+        parse_3mf_metadata,
         parse_lot_nr_color,
         parse_slice_info_file,
     )
@@ -1004,6 +1005,9 @@ class AmsPrintUsageSync(FilamentIQBase):
             )
             return
         self._print_start_time = time.time()
+        self._threemf_filename = None
+        self._write_threemf_sensor()
+        self._write_makerworld_sensors()
         task_name = str(self.get_state(self._task_name_entity) or "")
         self._job_key = f"{task_name.replace(' ', '_')}_{int(time.time())}"
         self._start_snapshot = self._build_start_snapshot()
@@ -1090,6 +1094,9 @@ class AmsPrintUsageSync(FilamentIQBase):
         """Phase 1 print end handler: clear snapshot, set print_active off."""
         self._start_snapshot = {}
         self._job_key = ""
+        self._threemf_filename = None
+        self._write_threemf_sensor()
+        self._write_makerworld_sensors()
         try:
             self.call_service(
                 "input_boolean/turn_off",
@@ -1163,10 +1170,18 @@ class AmsPrintUsageSync(FilamentIQBase):
                     fname = restored.get("threemf_file")
                     if fname:
                         self._threemf_filename = fname
+                        self._write_threemf_sensor()
                         self.log(
                             f"REHYDRATE_THREEMF_FILENAME filename={fname}",
                             level="INFO",
                         )
+                        _cache_path = os.path.join(self._bambulab_cache_path, fname)
+                        if self._bambulab_cache_path and os.path.exists(_cache_path):
+                            _mw_meta = parse_3mf_metadata(_cache_path)
+                            self._write_makerworld_sensors(
+                                makerworld_url=_mw_meta.get("makerworld_url"),
+                                title=_mw_meta.get("title"),
+                            )
                 if restored["trays_used"]:
                     self._trays_used = restored["trays_used"]
                 if restored["spool_id_snapshot"]:
@@ -1527,10 +1542,18 @@ class AmsPrintUsageSync(FilamentIQBase):
                     fname = restored.get("threemf_file")
                     if fname:
                         self._threemf_filename = fname
+                        self._write_threemf_sensor()
                         self.log(
                             f"REHYDRATE_THREEMF_FILENAME filename={fname}",
                             level="INFO",
                         )
+                        _cache_path = os.path.join(self._bambulab_cache_path, fname)
+                        if self._bambulab_cache_path and os.path.exists(_cache_path):
+                            _mw_meta = parse_3mf_metadata(_cache_path)
+                            self._write_makerworld_sensors(
+                                makerworld_url=_mw_meta.get("makerworld_url"),
+                                title=_mw_meta.get("title"),
+                            )
                 if restored["trays_used"]:
                     self._trays_used = restored["trays_used"]
                 if restored["spool_id_snapshot"]:
@@ -1720,6 +1743,12 @@ class AmsPrintUsageSync(FilamentIQBase):
 
             self._threemf_data = merged
             self._threemf_filename = os.path.basename(full_path)
+            self._write_threemf_sensor()
+            mw_meta = parse_3mf_metadata(full_path) if THREEMF_AVAILABLE else {}
+            self._write_makerworld_sensors(
+                makerworld_url=mw_meta.get("makerworld_url"),
+                title=mw_meta.get("title"),
+            )
             self._threemf_from_disk_restore = False
             total_g = sum(f["used_g"] for f in merged)
             self.log(
@@ -1765,6 +1794,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             # cache_retry=True: second attempt also missed — proceed to FTPS
             self._threemf_data = None
             self._threemf_filename = None
+            self._write_threemf_sensor()
 
         access_code = self._get_access_code()
         if not access_code:
@@ -1860,6 +1890,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                         return
 
                     filaments = parse_3mf_filaments(local_path)
+                    result["mw_meta"] = parse_3mf_metadata(local_path)
                     result["timing"]["parse"] = time.monotonic() - t_download
 
                 if not filaments:
@@ -1904,6 +1935,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                         return
 
                     filaments = parse_3mf_filaments(local_path)
+                    result["mw_meta"] = parse_3mf_metadata(local_path)
                     result["timing"]["parse"] = time.monotonic() - t_download
 
                 if not filaments:
@@ -1966,8 +1998,14 @@ class AmsPrintUsageSync(FilamentIQBase):
             filaments = result["filaments"]
             best_file = result["filename"]
             found_dir = result["found_dir"]
+            mw_meta = result.get("mw_meta", {})
             self._threemf_data = filaments
             self._threemf_filename = best_file
+            self._write_threemf_sensor()
+            self._write_makerworld_sensors(
+                makerworld_url=mw_meta.get("makerworld_url"),
+                title=mw_meta.get("title"),
+            )
             self._threemf_from_disk_restore = False
             total_g = sum(f["used_g"] for f in filaments)
             self.log(
@@ -2266,6 +2304,28 @@ class AmsPrintUsageSync(FilamentIQBase):
                 self.log("ACTIVE_PRINT_CLEARED", level="DEBUG")
         except Exception as e:
             self.log(f"ACTIVE_PRINT_CLEAR_FAILED: {e}", level="WARNING")
+
+    def _write_threemf_sensor(self) -> None:
+        """Write _threemf_filename to a HA sensor for card consumption."""
+        value = self._threemf_filename if self._threemf_filename else "unknown"
+        self.set_state(
+            "sensor.filament_iq_threemf_filename",
+            state=value,
+            attributes={"friendly_name": "Filament IQ 3MF Filename"},
+        )
+
+    def _write_makerworld_sensors(self, makerworld_url=None, title=None) -> None:
+        """Write Makerworld metadata sensors for card consumption."""
+        self.set_state(
+            "sensor.filament_iq_makerworld_url",
+            state=makerworld_url if makerworld_url else "unknown",
+            attributes={"friendly_name": "Filament IQ Makerworld URL"},
+        )
+        self.set_state(
+            "sensor.filament_iq_model_title",
+            state=title if title else "unknown",
+            attributes={"friendly_name": "Filament IQ Model Title"},
+        )
 
     # ── helpers ───────────────────────────────────────────────────────
 

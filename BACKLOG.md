@@ -152,6 +152,32 @@
 - [ ] Print cache cleanup — manual immediate fix — 1.3GB of ha-bambulab print cache deleted manually on 2026-03-24 (99 prints x ~13MB). Disk: 87% -> 82%. Swap was nearly exhausted (1293/1295MB used) due to memory pressure from accumulated cache + ha-bambulab v2.2.21 update loading new entities. Recurring issue without the auto-cleanup automation above. Monitor disk usage periodically: `du -sh /config/www/media/ha-bambulab/`.
 - [ ] Print cache auto-cleanup documentation for OSS users — recommend documenting cleanup command in README or docs/09_runbooks.md: `find /config/www/media/ha-bambulab -type f -mtime +30 -delete`.
 
+## Makerworld model link from hero card
+
+**Goal:** Tapping the thumbnail or print title in the hero card opens the
+Makerworld model page for the current print.
+
+**Background:** Makerworld cache filenames follow `{model_id}-{plate_name}`
+(e.g. `4562882-Basis und normale Schubladen.3mf`). The numeric prefix maps
+directly to `https://makerworld.com/en/models/{model_id}`. However,
+`sensor.p1s_..._task_name` and `sensor.p1s_..._gcode_filename` both strip
+the numeric prefix — the ID is only present in the AppDaemon-side
+`_threemf_filename` value.
+
+**Required change (filament-iq):** Expose `_threemf_filename` (or just the
+parsed Makerworld model ID) as a HA state — either via a new sensor written
+by the AppDaemon app, or as an attribute on an existing proxy-accessible
+entity.
+
+**Card change (home_assistant):** `PrinterDashboardCard.jsx` already has
+`mwId`/`mwUrl` helpers and anchor wrapping in place (added 2026-05-08),
+parsing `/^(\d+)-/` from the source value. Once the full filename is
+exposed as a readable entity, swap `taskName` for that entity and the
+links go live automatically.
+
+**Repo boundary:** AppDaemon exposure = `filament-iq`; card entity read =
+`home_assistant/PrinterDashboardCard.jsx`.
+
 
 ### Done
 - [x] SlotBindRow dropdown missing spools — spool with `location: Empty` at list index 43 caused early loop exit; all spools after it were absent from the bind dropdown. Fixed with `getBindableSpools` using `.filter()` predicate (never exits early). Also wired `FILAMENT_IQ_SLOT_ASSIGNED` event into `SlotBindRow.onBind` to match `SpoolEditPanel` path — reconciler now updates `input_text.ams_slot_N_spool_id` immediately on slot-first bind. (v1.2.1, 2026-04-23)

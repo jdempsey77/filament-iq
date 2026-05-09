@@ -149,6 +149,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         )
 
         # R2 #8: attrs from real initialize() that were missing from harness
+        self._bambulab_cache_path = str(a.get("bambulab_cache_path", "")).strip().rstrip("/")
         self.printer_ip = str(a.get("printer_ip", "192.0.2.99"))
         self.printer_ftps_port = int(a.get("printer_ftps_port", 990))
         self.access_code_entity = str(
@@ -223,6 +224,9 @@ class _TestableUsageSync(AmsPrintUsageSync):
     def _persist_seen_job_keys(self):
         """R2 #9: Mock — no real file I/O in tests."""
         pass
+
+    def set_state(self, entity_id, state, attributes=None):
+        self._state_map[entity_id] = state
 
 
 def _has_log(app, substring):
@@ -3952,3 +3956,79 @@ def test_disk_restore_recheck_with_fewer_trays_than_original():
     )
     assert app._threemf_from_disk_restore is False
     assert _has_log(app, "3MF_CACHE_DISK_RESTORE_RECHECK")
+
+
+# ── _write_threemf_sensor tests ───────────────────────────────────────
+
+
+class TestWriteThreemfSensor:
+
+    def _make_app(self):
+        return _TestableUsageSync(args={})
+
+    def test_sensor_written_with_filename(self):
+        app = self._make_app()
+        app._threemf_filename = "87866-0.16mm layer.3mf"
+        app._write_threemf_sensor()
+        assert app._state_map.get("sensor.filament_iq_threemf_filename") == "87866-0.16mm layer.3mf"
+
+    def test_sensor_written_unknown_when_none(self):
+        app = self._make_app()
+        app._threemf_filename = None
+        app._write_threemf_sensor()
+        assert app._state_map.get("sensor.filament_iq_threemf_filename") == "unknown"
+
+    def test_print_start_clears_sensor(self):
+        app = self._make_app()
+        app._lifecycle_phase1 = True
+        app._threemf_filename = "previous-print.3mf"
+        app._state_map["sensor.filament_iq_threemf_filename"] = "previous-print.3mf"
+        app._on_print_start()
+        assert app._state_map.get("sensor.filament_iq_threemf_filename") == "unknown"
+
+    def test_print_end_clears_sensor(self):
+        app = self._make_app()
+        app._threemf_filename = "87866-some plate.3mf"
+        app._state_map["sensor.filament_iq_threemf_filename"] = "87866-some plate.3mf"
+        app._on_print_end()
+        assert app._state_map.get("sensor.filament_iq_threemf_filename") == "unknown"
+        assert app._threemf_filename is None
+
+
+# ── _write_makerworld_sensors tests ──────────────────────────────────
+
+
+class TestWriteMakerworldSensors:
+
+    def _make_app(self):
+        return _TestableUsageSync(args={})
+
+    def test_writes_url_and_title(self):
+        app = self._make_app()
+        app._write_makerworld_sensors(
+            makerworld_url="https://makerworld.com/en/models/1378181",
+            title="My Model",
+        )
+        assert app._state_map.get("sensor.filament_iq_makerworld_url") == "https://makerworld.com/en/models/1378181"
+        assert app._state_map.get("sensor.filament_iq_model_title") == "My Model"
+
+    def test_clears_to_unknown_when_called_with_no_args(self):
+        app = self._make_app()
+        app._state_map["sensor.filament_iq_makerworld_url"] = "https://makerworld.com/en/models/1"
+        app._state_map["sensor.filament_iq_model_title"] = "Old Title"
+        app._write_makerworld_sensors()
+        assert app._state_map.get("sensor.filament_iq_makerworld_url") == "unknown"
+        assert app._state_map.get("sensor.filament_iq_model_title") == "unknown"
+
+    def test_print_start_clears_makerworld_sensors(self):
+        app = self._make_app()
+        app._lifecycle_phase1 = True
+        app._state_map["sensor.filament_iq_makerworld_url"] = "https://makerworld.com/en/models/99"
+        app._on_print_start()
+        assert app._state_map.get("sensor.filament_iq_makerworld_url") == "unknown"
+
+    def test_print_end_clears_makerworld_sensors(self):
+        app = self._make_app()
+        app._state_map["sensor.filament_iq_makerworld_url"] = "https://makerworld.com/en/models/99"
+        app._on_print_end()
+        assert app._state_map.get("sensor.filament_iq_makerworld_url") == "unknown"

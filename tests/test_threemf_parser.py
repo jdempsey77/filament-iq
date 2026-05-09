@@ -27,6 +27,7 @@ from filament_iq.threemf_parser import (
     normalize_material,
     normalize_task_name,
     parse_3mf_filaments,
+    parse_3mf_metadata,
     parse_slice_info_file,
 )
 
@@ -1193,3 +1194,62 @@ class TestSlotPositionMaterialRemoved:
         }
         matches, _ = match_filaments_to_slots(filaments, slot_data)
         assert all(m["method"] != "slot_position_material" for m in matches)
+
+
+# ── parse_3mf_metadata ────────────────────────────────────────────────
+
+
+def _make_3mf_with_model(model_xml, tmp_path):
+    """Write a minimal 3MF zip with given 3D/3dmodel.model content."""
+    path = str(tmp_path / "test.3mf")
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("3D/3dmodel.model", model_xml)
+    return path
+
+
+def _model_xml(title=None, designer=None, description=None):
+    parts = ['<?xml version="1.0"?><model>']
+    if title:
+        parts.append(f'<metadata name="Title">{title}</metadata>')
+    if designer:
+        parts.append(f'<metadata name="Designer">{designer}</metadata>')
+    if description:
+        parts.append(f'<metadata name="Description">{description}</metadata>')
+    parts.append("</model>")
+    return "".join(parts)
+
+
+class TestParse3mfMetadata:
+
+    def test_dsm_pattern_gives_direct_model_url(self, tmp_path):
+        desc = "https://img.makerworld.com/images/DSM00000001378181/cover.jpg"
+        path = _make_3mf_with_model(_model_xml(title="My Model", description=desc), tmp_path)
+        result = parse_3mf_metadata(path)
+        assert result["makerworld_url"] == "https://makerworld.com/en/models/1378181"
+        assert result["title"] == "My Model"
+
+    def test_title_only_gives_search_url(self, tmp_path):
+        path = _make_3mf_with_model(_model_xml(title="Cool Print"), tmp_path)
+        result = parse_3mf_metadata(path)
+        assert result["makerworld_url"] is not None
+        assert "search/models" in result["makerworld_url"]
+        assert "Cool+Print" in result["makerworld_url"] or "Cool%20Print" in result["makerworld_url"]
+
+    def test_no_model_file_returns_empty_dict(self, tmp_path):
+        path = str(tmp_path / "no_model.3mf")
+        with zipfile.ZipFile(path, "w") as zf:
+            zf.writestr("Metadata/slice_info.config", "<config/>")
+        result = parse_3mf_metadata(path)
+        assert result == {}
+
+    def test_designer_extracted(self, tmp_path):
+        path = _make_3mf_with_model(_model_xml(title="X", designer="jane_maker"), tmp_path)
+        result = parse_3mf_metadata(path)
+        assert result["designer"] == "jane_maker"
+
+    def test_bad_zip_returns_empty_dict(self, tmp_path):
+        path = str(tmp_path / "bad.3mf")
+        with open(path, "wb") as f:
+            f.write(b"NOT A ZIP")
+        result = parse_3mf_metadata(path)
+        assert result == {}
