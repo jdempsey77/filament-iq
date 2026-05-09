@@ -1177,9 +1177,9 @@ class AmsPrintUsageSync(FilamentIQBase):
                         )
                         _3mf_fname = fname.replace(".slice_info.config", ".3mf") if fname.endswith(".slice_info.config") else fname
                         _cache_path = os.path.join(self._bambulab_cache_path, _3mf_fname)
-                        self.log(f"MW_DEBUG cache_path={_cache_path} exists={os.path.exists(_cache_path)} bambulab_cache_path={self._bambulab_cache_path!r}", level="INFO")
                         if self._bambulab_cache_path and os.path.exists(_cache_path):
                             _mw_meta = parse_3mf_metadata(_cache_path)
+                            self.log(f"MW_META result={_mw_meta}", level="INFO")
                             self._write_makerworld_sensors(
                                 makerworld_url=_mw_meta.get("makerworld_url"),
                                 title=_mw_meta.get("title"),
@@ -1551,9 +1551,9 @@ class AmsPrintUsageSync(FilamentIQBase):
                         )
                         _3mf_fname = fname.replace(".slice_info.config", ".3mf") if fname.endswith(".slice_info.config") else fname
                         _cache_path = os.path.join(self._bambulab_cache_path, _3mf_fname)
-                        self.log(f"MW_DEBUG cache_path={_cache_path} exists={os.path.exists(_cache_path)} bambulab_cache_path={self._bambulab_cache_path!r}", level="INFO")
                         if self._bambulab_cache_path and os.path.exists(_cache_path):
                             _mw_meta = parse_3mf_metadata(_cache_path)
+                            self.log(f"MW_META result={_mw_meta}", level="INFO")
                             self._write_makerworld_sensors(
                                 makerworld_url=_mw_meta.get("makerworld_url"),
                                 title=_mw_meta.get("title"),
@@ -1750,6 +1750,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             self._write_threemf_sensor()
             _3mf_path = full_path.replace(".slice_info.config", ".3mf") if full_path.endswith(".slice_info.config") else full_path
             mw_meta = parse_3mf_metadata(_3mf_path) if THREEMF_AVAILABLE and os.path.exists(_3mf_path) else {}
+            self.log(f"MW_META result={mw_meta}", level="INFO")
             self._write_makerworld_sensors(
                 makerworld_url=mw_meta.get("makerworld_url"),
                 title=mw_meta.get("title"),
@@ -2004,6 +2005,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             best_file = result["filename"]
             found_dir = result["found_dir"]
             mw_meta = result.get("mw_meta", {})
+            self.log(f"MW_META result={mw_meta}", level="INFO")
             self._threemf_data = filaments
             self._threemf_filename = best_file
             self._write_threemf_sensor()
