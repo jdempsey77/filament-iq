@@ -1175,7 +1175,8 @@ class AmsPrintUsageSync(FilamentIQBase):
                             f"REHYDRATE_THREEMF_FILENAME filename={fname}",
                             level="INFO",
                         )
-                        _cache_path = os.path.join(self._bambulab_cache_path, fname)
+                        _3mf_fname = fname.replace(".slice_info.config", ".3mf") if fname.endswith(".slice_info.config") else fname
+                        _cache_path = os.path.join(self._bambulab_cache_path, _3mf_fname)
                         if self._bambulab_cache_path and os.path.exists(_cache_path):
                             _mw_meta = parse_3mf_metadata(_cache_path)
                             self._write_makerworld_sensors(
@@ -1547,7 +1548,8 @@ class AmsPrintUsageSync(FilamentIQBase):
                             f"REHYDRATE_THREEMF_FILENAME filename={fname}",
                             level="INFO",
                         )
-                        _cache_path = os.path.join(self._bambulab_cache_path, fname)
+                        _3mf_fname = fname.replace(".slice_info.config", ".3mf") if fname.endswith(".slice_info.config") else fname
+                        _cache_path = os.path.join(self._bambulab_cache_path, _3mf_fname)
                         if self._bambulab_cache_path and os.path.exists(_cache_path):
                             _mw_meta = parse_3mf_metadata(_cache_path)
                             self._write_makerworld_sensors(

@@ -173,8 +173,10 @@ class TestPrintLifecycle:
         orig = mod.ACTIVE_PRINT_FILE
         with tempfile.TemporaryDirectory() as tmp_dir:
             try:
-                # Write active_print.json with a 3MF filename
-                fname = "1378181-Cool Model.3mf"
+                # Production stores the .slice_info.config filename in threemf_file;
+                # the fix must derive the .3mf path before calling parse_3mf_metadata.
+                slice_fname = "1378181-Cool Model.slice_info.config"
+                threemf_fname = "1378181-Cool Model.3mf"
                 ap_file = pathlib.Path(tmp_dir) / "active_print.json"
                 mod.ACTIVE_PRINT_FILE = ap_file
                 threemf = [{"index": 0, "used_g": 30.0}]
@@ -182,11 +184,11 @@ class TestPrintLifecycle:
                     "job_key": "rehyd_test",
                     "start_snapshot": {"1": 900.0},
                     "threemf_data": threemf,
-                    "threemf_file": fname,
+                    "threemf_file": slice_fname,
                 }))
 
-                # Write a minimal 3MF with DSM metadata in the cache dir
-                cache_path = pathlib.Path(tmp_dir) / fname
+                # Write a minimal 3MF (zip) at the .3mf path with DSM metadata
+                cache_path = pathlib.Path(tmp_dir) / threemf_fname
                 model_xml = (
                     '<?xml version="1.0"?><model>'
                     '<metadata name="Title">Cool Model</metadata>'
