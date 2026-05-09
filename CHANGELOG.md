@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.7.6] — 2026-05-09
+
+### Added
+- **Makerworld link from hero card** — thumbnail and print title in the printer
+  hero card are now clickable links. For prints with Makerworld metadata embedded
+  in the cached 3MF (`3D/3dmodel.model`), the link resolves to the direct model
+  page via the DSM ID in the Description field. Falls back to a Makerworld search
+  URL using the model title when no DSM ID is present.
+- **`sensor.filament_iq_makerworld_url`** — new HA sensor written by
+  `ams_print_usage_sync` at cache hit, FTPS success, and rehydration. Cleared to
+  `"unknown"` on print start and print end.
+- **`sensor.filament_iq_model_title`** — new HA sensor with the model title from
+  3MF metadata.
+- **`sensor.filament_iq_threemf_filename`** — new HA sensor exposing the raw
+  3MF cache filename for card consumption.
+- **`parse_3mf_metadata()`** — new utility in `threemf_parser.py` that reads
+  `3D/3dmodel.model` from a cached 3MF zip and extracts Title, Designer, and
+  Makerworld URL.
+
+## [1.2.2] — 2026-05-09 (card)
+
+### Changed
+- **Makerworld link on hero card** — thumbnail and title now link to the
+  Makerworld model URL served from `sensor.filament_iq_makerworld_url`.
+
 ## [1.2.1] — 2026-04-23 (card)
 
 ### Fixed
