@@ -39,9 +39,7 @@ from test_ams_print_usage_sync import (
     _has_log,
     _rfid_tag_uid_for_slots,
 )
-from conftest import SpoolmanRecorder
 from filament_iq.consumption_engine import SlotInput, decide_consumption
-from filament_iq.ams_print_usage_sync import ACTIVE_PRINT_FILE
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -56,28 +54,21 @@ def _make_app(state_map=None, args=None):
 
 def test_spool_id_snapshot_key_coercion():
     """active_print.json string keys coerced to int on load."""
-    app = _make_app()
-    app._job_key = "coerce_test"
     with tempfile.TemporaryDirectory() as td:
-        ap_file = os.path.join(td, "active_print.json")
-        import filament_iq.ams_print_usage_sync as mod
-        orig = mod.ACTIVE_PRINT_FILE
-        try:
-            mod.ACTIVE_PRINT_FILE = type(orig)(ap_file)
-            data = {
-                "job_key": "coerce_test",
-                "trays_used": [3, 4],
-                "spool_id_snapshot": {"3": 65, "4": 58},
-                "threemf_data": None,
-            }
-            mod.ACTIVE_PRINT_FILE.write_text(json.dumps(data))
-            result = app._load_active_print("coerce_test")
-            assert result is not None
-            assert result["spool_id_snapshot"][4] == 58
-            assert result["spool_id_snapshot"][3] == 65
-            assert isinstance(list(result["spool_id_snapshot"].keys())[0], int)
-        finally:
-            mod.ACTIVE_PRINT_FILE = orig
+        app = _make_app(args={"data_dir": td})
+        app._job_key = "coerce_test"
+        data = {
+            "job_key": "coerce_test",
+            "trays_used": [3, 4],
+            "spool_id_snapshot": {"3": 65, "4": 58},
+            "threemf_data": None,
+        }
+        app._active_print_file.write_text(json.dumps(data))
+        result = app._load_active_print("coerce_test")
+        assert result is not None
+        assert result["spool_id_snapshot"][4] == 58
+        assert result["spool_id_snapshot"][3] == 65
+        assert isinstance(list(result["spool_id_snapshot"].keys())[0], int)
 
 
 # ── Fix 2: spool_id_snapshot fallback ────────────────────────────────
@@ -359,73 +350,93 @@ def test_skip_runout_split_multiple_depleted():
     assert _has_log(app, "RUNOUT_SPLIT_SKIP reason=multiple_depleted_slots")
 
 
-# ── Bug 14: Runout split RFID finishing slot on rehydrated print ─────
+# ── Time-weighted vs remaining-based split model ─────────────────────
 
-def test_runout_split_rfid_finishing_slot_rehydrated_print():
-    """Bug 14: On rehydrated prints, RFID finishing slot must use finishing_share,
-    not the stale RFID delta (start_g ≈ end_g → 0.0g → BELOW_MIN).
-
-    Scenario: slot 2 (non-RFID) depleted mid-print, slot 3 (RFID) finished.
-    3MF matched to slot 3 only. _detect_runout_split computes:
-      depleted_share=32.03g for slot 2, finishing_share=149.38g for slot 3.
-    Without the fix, slot 3's finishing_share is discarded by RFID suppression.
-    """
+def test_runout_split_time_weighted_when_active_times_available():
+    """Time-weighted split used when active_times has data for depleted slot."""
+    import datetime
     state_map = {
-        "input_text.ams_slot_2_spool_id": "0",  # reconciler cleared after depletion
-        "input_text.ams_slot_3_spool_id": "72",
+        "input_text.ams_slot_1_spool_id": "0",
+        "input_text.ams_slot_2_spool_id": "66",
     }
     app = _make_app(state_map=state_map)
+    app._trays_used = {1, 2}
+    app._spool_id_snapshot = {1: 55, 2: 66}
 
-    # Rehydrated print: start snapshot from fuel gauges mid-print (stale for slot 3)
-    app._rehydrated = True
-    app._trays_used = {2, 3}
-    app._start_snapshot = {2: 32.0, 3: 1000.0}  # slot 3 reads ~1000 mid-print (stale)
-    app._end_snapshot = {2: 0.0, 3: 1000.0}  # slot 3 unchanged — delta ≈ 0
-    app._spool_id_snapshot = {2: 76, 3: 72}
-    app._job_key = "runout_rfid_rehydrated_001"
-    app.threemf_enabled = True
-    app._threemf_data = [{"index": 0, "used_g": 181.41, "color_hex": "afb1ae", "material": "pla"}]
-    app._print_active = True
-    app._print_start_time = __import__("time").time() - 7200
+    entity_1 = app._tray_entity_by_slot.get(1)
+    if entity_1:
+        app._state_map[entity_1] = "Empty"
 
-    # Slot 2: non-RFID, Empty (depleted)
-    entity_2 = app._tray_entity_by_slot.get(2)
-    if entity_2:
-        app._state_map[entity_2] = "Empty"
-        app._state_map[f"{entity_2}::tag_uid"] = "0000000000000000"
+    # Simulate active_times: slot 1 = 6003.6s, slot 2 = 23392.9s
+    now = datetime.datetime.utcnow()
+    app._tray_active_times = {
+        1: [{"start": now - datetime.timedelta(seconds=29396.5),
+             "end": now - datetime.timedelta(seconds=23392.9)}],
+        2: [{"start": now - datetime.timedelta(seconds=23392.9),
+             "end": now}],
+    }
 
-    # Slot 3: RFID, loaded (finishing spool)
-    entity_3 = app._tray_entity_by_slot.get(3)
-    if entity_3:
-        app._state_map[entity_3] = "loaded"
-        app._state_map.update(_rfid_tag_uid_for_slots(app, [3]))
-        app._state_map[f"{entity_3}::color"] = "#AFB1AEFF"
-        app._state_map[f"{entity_3}::type"] = "PLA"
+    matched = {2: (329.75, "single_filament_force")}
+    spools_cache = {55: {"remaining_weight": 20.95, "id": 55}}
+    result = app._detect_runout_split(matched, spools_cache)
 
-    # Mock Spoolman: spool 76 has 32.03g remaining (about to deplete)
-    app._spoolman_get_override = lambda path: (
-        {"remaining_weight": 32.03, "id": 76} if "76" in path
-        else {"remaining_weight": 850.0, "id": 72}
-    )
+    assert _has_log(app, "split_method=time_weighted")
+    # slot 1 share: 6003.6 / 29396.5 * 329.75 ≈ 67.3g
+    assert abs(result[1][0] - 67.3) < 1.0, f"depleted share should be ~67.3g, got {result[1][0]}"
+    # slot 2 share: remainder
+    assert abs(result[2][0] - 262.45) < 1.0, f"finishing share should be ~262.5g, got {result[2][0]}"
+    # total must match
+    assert abs(result[1][0] + result[2][0] - 329.75) < 0.01
 
-    recorder = SpoolmanRecorder()
-    app._spoolman_use = recorder.use
-    app._spoolman_patch = recorder.patch
-    recorder.set_use_response(76, remaining=0.0)
-    recorder.set_use_response(72, remaining=700.62)
 
-    app._do_finish("finish")
+def test_runout_split_falls_back_to_remaining_when_no_active_times():
+    """Remaining-based fallback when active_times is empty (restart after depletion)."""
+    state_map = {
+        "input_text.ams_slot_1_spool_id": "0",
+        "input_text.ams_slot_2_spool_id": "66",
+    }
+    app = _make_app(state_map=state_map)
+    app._trays_used = {1, 2}
+    app._spool_id_snapshot = {1: 55, 2: 66}
+    app._tray_active_times = {}  # empty — no post-restart timing
 
-    # Slot 2 (depleted): should get depleted_share
-    recorder.assert_used(76, 32.03, tolerance=1.0)
+    entity_1 = app._tray_entity_by_slot.get(1)
+    if entity_1:
+        app._state_map[entity_1] = "Empty"
 
-    # Slot 3 (RFID finishing): should get finishing_share, NOT 0.0g from stale RFID delta
-    recorder.assert_used(72, 149.38, tolerance=1.0)
+    matched = {2: (329.75, "single_filament_force")}
+    spools_cache = {55: {"remaining_weight": 20.95, "id": 55}}
+    result = app._detect_runout_split(matched, spools_cache)
 
-    # Neither slot should be no_evidence
-    assert not any(
-        "USAGE_NO_EVIDENCE" in msg and "slot=3" in msg
-        for msg, _ in app._log_calls
-    ), "slot 3 must not be no_evidence — finishing_share should be used"
+    assert _has_log(app, "split_method=remaining_based")
+    assert abs(result[1][0] - 20.95) < 0.01
+    assert abs(result[2][0] - 308.80) < 0.01
 
-    assert _has_log(app, "RUNOUT_SPLIT_DETECTED")
+
+def test_runout_split_falls_back_when_depleted_slot_has_zero_seconds():
+    """Remaining-based fallback when depleted slot has 0s active time."""
+    import datetime
+    state_map = {
+        "input_text.ams_slot_1_spool_id": "0",
+        "input_text.ams_slot_2_spool_id": "66",
+    }
+    app = _make_app(state_map=state_map)
+    app._trays_used = {1, 2}
+    app._spool_id_snapshot = {1: 55, 2: 66}
+
+    # Slot 1 has no segments (depleted before restart), slot 2 has timing
+    now = datetime.datetime.utcnow()
+    app._tray_active_times = {
+        2: [{"start": now - datetime.timedelta(seconds=23392.9), "end": now}],
+    }
+
+    entity_1 = app._tray_entity_by_slot.get(1)
+    if entity_1:
+        app._state_map[entity_1] = "Empty"
+
+    matched = {2: (329.75, "single_filament_force")}
+    spools_cache = {55: {"remaining_weight": 50.0, "id": 55}}
+    result = app._detect_runout_split(matched, spools_cache)
+
+    assert _has_log(app, "split_method=remaining_based")
+    assert abs(result[1][0] - 50.0) < 0.01

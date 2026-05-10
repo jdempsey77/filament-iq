@@ -44,7 +44,7 @@ if _APPS not in sys.path:
 
 from collections import OrderedDict
 
-from filament_iq.ams_print_usage_sync import AmsPrintUsageSync
+from filament_iq.ams_print_usage_sync import AmsPrintUsageSync, _DEFAULT_DATA_DIR
 from filament_iq.base import build_slot_mappings
 
 
@@ -102,6 +102,10 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self.auto_empty_spools = bool(a.get("auto_empty_spools", False))
         self.auto_archive_depleted_spools = bool(a.get("auto_archive_depleted_spools", False))
         self.notify_service = str(a.get("notify_service", "mobile_app_jd_pixel_10_pro_xl"))
+        _data_dir = str(a.get("data_dir", "")).strip().rstrip("/") or _DEFAULT_DATA_DIR
+        self._seen_jobs_path = os.path.join(_data_dir, "seen_job_keys.json")
+        self._active_print_file = pathlib.Path(_data_dir) / "active_print.json"
+        self._print_history_dir = pathlib.Path(_data_dir) / "print_history"
         self._seen_job_keys = OrderedDict()
         self._trays_used = set()
         self._tray_active_times = {}
@@ -149,6 +153,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         )
 
         # R2 #8: attrs from real initialize() that were missing from harness
+        self._bambulab_cache_path = str(a.get("bambulab_cache_path", "")).strip().rstrip("/")
         self.printer_ip = str(a.get("printer_ip", "192.0.2.99"))
         self.printer_ftps_port = int(a.get("printer_ftps_port", 990))
         self.access_code_entity = str(
@@ -192,6 +197,9 @@ class _TestableUsageSync(AmsPrintUsageSync):
             if key in self._state_map:
                 return self._state_map[key]
         return self._state_map.get(entity_id, "")
+
+    def set_state(self, entity_id, state, attributes=None):
+        self._state_map[entity_id] = state
 
     def _spoolman_use(self, spool_id, use_weight_g):
         if spool_id in self._use_fail_spool_ids:
@@ -379,12 +387,7 @@ def test_on_active_tray_change_ignored_when_not_printing():
 
 
 def test_job_key_includes_timestamp():
-    """Two distinct prints of the same file get different job keys.
-
-    Set-once semantics (v1.7.4): `_on_print_start` is a no-op while a
-    print is in flight. To start a second print the finish path must
-    clear both `_job_key` and `_print_start_time` first.
-    """
+    """Two prints of same file get different job keys (timestamp appended)."""
     import time
     app = _TestableUsageSync(
         state_map=_default_state_map({4: 10}),
@@ -394,8 +397,8 @@ def test_job_key_includes_timestamp():
     app._on_print_start()
     key1 = app._job_key
 
-    # Simulate print finish: _do_finish clears both fields.
-    app._on_print_end()
+    # Reset state between prints to simulate a new print
+    app._job_key = ""
     app._print_start_time = None
 
     # Advance time by at least 1 second to ensure different timestamp
@@ -510,46 +513,41 @@ def test_finish_no_blocking_sleep():
 def test_finish_recovers_3mf_from_disk():
     """_on_print_finish recovers 3MF from disk when not in memory."""
     with tempfile.TemporaryDirectory() as tmp_dir:
-        import filament_iq.ams_print_usage_sync as mod
-        orig = mod.ACTIVE_PRINT_FILE
-        try:
-            ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-            mod.ACTIVE_PRINT_FILE = ap_file
-            threemf = [{"index": 0, "used_g": 8.0, "color_hex": "00ae42", "material": "pla"}]
-            ap_file.write_text(json.dumps({
-                "job_key": "test_recover_001",
-                "start_snapshot": {"4": 420.0},
-                "threemf_data": threemf,
-            }))
+        ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+        threemf = [{"index": 0, "used_g": 8.0, "color_hex": "00ae42", "material": "pla"}]
+        ap_file.write_text(json.dumps({
+            "job_key": "test_recover_001",
+            "start_snapshot": {"4": 420.0},
+            "threemf_data": threemf,
+        }))
 
-            app = _TestableUsageSync(
-                state_map=_default_state_map({4: 10}),
-                args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
-            )
-            app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-            app._job_key = "test_recover_001"
-            app._start_snapshot = {4: 420.0}
-            app._trays_used = {4}
-            app._print_active = True
-            app.threemf_enabled = True
-            app._threemf_data = None
+        app = _TestableUsageSync(
+            state_map=_default_state_map({4: 10}),
+            args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True,
+                  "data_dir": tmp_dir},
+        )
+        app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+        app._job_key = "test_recover_001"
+        app._start_snapshot = {4: 420.0}
+        app._trays_used = {4}
+        app._print_active = True
+        app.threemf_enabled = True
+        app._threemf_data = None
 
-            # Mock _do_finish to capture the recovered data before it gets cleared
-            recovered_data = []
-            original_do_finish = app._do_finish
-            def capture_do_finish(status):
-                recovered_data.append(app._threemf_data)
-                original_do_finish(status)
-            app._do_finish = capture_do_finish
-            app._state_map[app._fuel_gauge_pattern.format(slot=4)] = "370.0"
+        # Mock _do_finish to capture the recovered data before it gets cleared
+        recovered_data = []
+        original_do_finish = app._do_finish
+        def capture_do_finish(status):
+            recovered_data.append(app._threemf_data)
+            original_do_finish(status)
+        app._do_finish = capture_do_finish
+        app._state_map[app._fuel_gauge_pattern.format(slot=4)] = "370.0"
 
-            app._on_print_finish("finish")
+        app._on_print_finish("finish")
 
-            assert recovered_data[0] == threemf, "3MF data should be recovered before _do_finish"
-            assert _has_log(app, "3MF_RECOVERED_FROM_DISK")
-            assert _has_log(app, "PRINT_FINISH_CAPTURED")
-        finally:
-            mod.ACTIVE_PRINT_FILE = orig
+        assert recovered_data[0] == threemf, "3MF data should be recovered before _do_finish"
+        assert _has_log(app, "3MF_RECOVERED_FROM_DISK")
+        assert _has_log(app, "PRINT_FINISH_CAPTURED")
 
 
 def test_finish_proceeds_without_threemf():
@@ -829,11 +827,9 @@ def test_3mf_fetch_runs_in_thread():
     app.threemf_fetch_method = "native"
     app.printer_ip = "192.0.2.1"
     app._job_key = "test_job"
-    threads_before = set(threading.enumerate())
     with mock.patch("threading.Thread") as mock_thread:
         mock_thread.return_value = mock.MagicMock()
-        # attempt=2 bypasses the attempt-1 cache-retry early return path
-        # added in v1.7.0 (cache hit / scheduled retry, no thread spawn).
+        # attempt=2 bypasses the attempt==1 cache-check branch, going straight to thread spawn
         app._fetch_3mf_background({"attempt": 2})
         mock_thread.assert_called_once()
         call_kwargs = mock_thread.call_args
@@ -865,75 +861,64 @@ def test_3mf_fetch_stale_job_key_discarded():
 def test_3mf_fetch_result_persisted_on_success():
     """Successful fetch updates _threemf_data and calls _persist_active_print."""
     with tempfile.TemporaryDirectory() as tmp_dir:
-        try:
-            import filament_iq.ams_print_usage_sync as mod
-            mod.ACTIVE_PRINT_FILE = pathlib.Path(tmp_dir) / "active_print.json"
-
-            app = _TestableUsageSync(
-                state_map={
-                    "sensor.p1s_01p00c5a3101668_task_name": "benchy",
-                },
-                args={"lifecycle_phase1_enabled": True},
-            )
-            app._job_key = "success_test"
-            filaments = [
-                {"index": 0, "used_g": 12.5, "color_hex": "00ae42", "material": "pla"},
-            ]
-            result = {
-                "job_key": "success_test",
-                "attempt": 1,
-                "status": "success",
-                "filaments": filaments,
-                "filename": "benchy.gcode.3mf",
-                "found_dir": "/cache",
-                "file_count": 42,
-                "task_name": "benchy",
-                "file_list": [],
-                "timing": {"connect": 1.2, "list": 0.8, "download": 2.1, "parse": 0.1, "total": 4.2},
-            }
-            app._on_3mf_fetched({"fetch_result": result})
-            assert app._threemf_data == filaments
-            assert app._threemf_filename == "benchy.gcode.3mf"
-            assert _has_log(app, "3MF_PARSED")
-            assert _has_log(app, "3MF_TIMING")
-            assert _has_log(app, "total=4.2s")
-            assert _has_log(app, "ACTIVE_PRINT_PERSISTED")
-        finally:
-            orig = getattr(mod, '_ACTIVE_PRINT_FILE_ORIG', None)
-            if orig:
-                mod.ACTIVE_PRINT_FILE = orig
+        app = _TestableUsageSync(
+            state_map={
+                "sensor.p1s_01p00c5a3101668_task_name": "benchy",
+            },
+            args={"lifecycle_phase1_enabled": True, "data_dir": tmp_dir},
+        )
+        app._job_key = "success_test"
+        filaments = [
+            {"index": 0, "used_g": 12.5, "color_hex": "00ae42", "material": "pla"},
+        ]
+        result = {
+            "job_key": "success_test",
+            "attempt": 1,
+            "status": "success",
+            "filaments": filaments,
+            "filename": "benchy.gcode.3mf",
+            "found_dir": "/cache",
+            "file_count": 42,
+            "task_name": "benchy",
+            "file_list": [],
+            "timing": {"connect": 1.2, "list": 0.8, "download": 2.1, "parse": 0.1, "total": 4.2},
+        }
+        app._on_3mf_fetched({"fetch_result": result})
+        assert app._threemf_data == filaments
+        assert app._threemf_filename == "benchy.gcode.3mf"
+        assert _has_log(app, "3MF_PARSED")
+        assert _has_log(app, "3MF_TIMING")
+        assert _has_log(app, "total=4.2s")
+        assert _has_log(app, "ACTIVE_PRINT_PERSISTED")
 
 
 # ── Atomic write tests for _persist_seen_job_keys ────────────────────
 
 def test_atomic_write_uses_replace():
     """_persist_seen_job_keys must use os.replace for atomic write."""
-    from filament_iq.ams_print_usage_sync import AmsPrintUsageSync, SEEN_JOBS_PATH
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        app = _TestableUsageSync(args={"data_dir": tmp_dir})
+        app._seen_job_keys = OrderedDict([("job_a", True), ("job_b", True)])
 
-    app = _TestableUsageSync()
-    app._seen_job_keys = OrderedDict([("job_a", True), ("job_b", True)])
-
-    with mock.patch("filament_iq.ams_print_usage_sync.os.replace") as mock_replace, \
-         mock.patch("builtins.open", mock.mock_open()), \
-         mock.patch("filament_iq.ams_print_usage_sync.os.makedirs"):
-        AmsPrintUsageSync._persist_seen_job_keys(app)
-        mock_replace.assert_called_once_with(SEEN_JOBS_PATH + ".tmp", SEEN_JOBS_PATH)
+        with mock.patch("filament_iq.ams_print_usage_sync.os.replace") as mock_replace:
+            AmsPrintUsageSync._persist_seen_job_keys(app)
+            mock_replace.assert_called_once_with(
+                app._seen_jobs_path + ".tmp", app._seen_jobs_path
+            )
 
 
 def test_atomic_write_cleans_tmp_on_failure():
     """If os.replace fails, .tmp file must be cleaned up."""
-    from filament_iq.ams_print_usage_sync import AmsPrintUsageSync, SEEN_JOBS_PATH
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        app = _TestableUsageSync(args={"data_dir": tmp_dir})
+        app._seen_job_keys = OrderedDict([("job_a", True)])
 
-    app = _TestableUsageSync()
-    app._seen_job_keys = OrderedDict([("job_a", True)])
-
-    with mock.patch("filament_iq.ams_print_usage_sync.os.replace",
-                     side_effect=OSError("disk full")), \
-         mock.patch("builtins.open", mock.mock_open()), \
-         mock.patch("filament_iq.ams_print_usage_sync.os.makedirs"), \
-         mock.patch("filament_iq.ams_print_usage_sync.os.unlink") as mock_unlink:
-        AmsPrintUsageSync._persist_seen_job_keys(app)
-        mock_unlink.assert_called_once_with(SEEN_JOBS_PATH + ".tmp")
+        with mock.patch("filament_iq.ams_print_usage_sync.os.replace",
+                         side_effect=OSError("disk full")), \
+             mock.patch("filament_iq.ams_print_usage_sync.os.unlink") as mock_unlink:
+            AmsPrintUsageSync._persist_seen_job_keys(app)
+            mock_unlink.assert_called_once_with(app._seen_jobs_path + ".tmp")
+            assert _has_log(app, "PERSIST_JOB_KEYS_FAILED")
         assert _has_log(app, "PERSIST_JOB_KEYS_FAILED")
 
 
@@ -1236,34 +1221,28 @@ def test_finish_offline_state_warning():
 class TestActivePrintPersistence:
 
     def _make_app(self, tmp_dir, **extra_args):
-        """Build a testable app with ACTIVE_PRINT_FILE pointed at tmp_dir."""
-        import filament_iq.ams_print_usage_sync as mod
-        self._orig_file = mod.ACTIVE_PRINT_FILE
-        mod.ACTIVE_PRINT_FILE = pathlib.Path(tmp_dir) / "active_print.json"
+        """Build a testable app with data_dir pointed at tmp_dir."""
         args = {
             "lifecycle_phase1_enabled": True,
             "lifecycle_phase2_enabled": True,
             "lifecycle_phase3_enabled": True,
+            "data_dir": tmp_dir,
         }
         args.update(extra_args)
         app = _TestableUsageSync(args=args)
         return app
 
     def _cleanup(self):
-        import filament_iq.ams_print_usage_sync as mod
-        if hasattr(self, "_orig_file"):
-            mod.ACTIVE_PRINT_FILE = self._orig_file
+        pass
 
     def test_active_print_persisted_on_start(self):
         """Print starts → active_print.json written with job_key + start_snapshot."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                import filament_iq.ams_print_usage_sync as mod
                 ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-                mod.ACTIVE_PRINT_FILE = ap_file
 
                 app = _TestableUsageSync(args={
                     "lifecycle_phase1_enabled": True,
+                    "data_dir": tmp_dir,
                 })
                 app._job_key = "test_job_123"
                 app._start_snapshot = {1: 500.0, 2: 300.0}
@@ -1275,19 +1254,15 @@ class TestActivePrintPersistence:
                 assert data["job_key"] == "test_job_123"
                 assert data["start_snapshot"] == {"1": 500.0, "2": 300.0}
                 assert data["threemf_data"] is None
-            finally:
-                self._cleanup()
 
     def test_active_print_updated_after_3mf_parse(self):
         """3MF parsed → active_print.json updated with threemf_data."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                import filament_iq.ams_print_usage_sync as mod
                 ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-                mod.ACTIVE_PRINT_FILE = ap_file
 
                 app = _TestableUsageSync(args={
                     "lifecycle_phase1_enabled": True,
+                    "data_dir": tmp_dir,
                 })
                 app._job_key = "test_job_456"
                 app._start_snapshot = {1: 500.0}
@@ -1298,16 +1273,11 @@ class TestActivePrintPersistence:
                 data = json.loads(ap_file.read_text())
                 assert data["threemf_data"] == threemf
                 assert data["job_key"] == "test_job_456"
-            finally:
-                self._cleanup()
 
     def test_active_print_restored_on_rehydrate(self):
         """active_print.json exists with matching job_key → threemf_data restored."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                import filament_iq.ams_print_usage_sync as mod
                 ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-                mod.ACTIVE_PRINT_FILE = ap_file
 
                 threemf = [{"index": 0, "used_g": 25.0, "color_hex": "00FF00", "material": "PETG"}]
                 ap_file.write_text(json.dumps({
@@ -1318,22 +1288,18 @@ class TestActivePrintPersistence:
 
                 app = _TestableUsageSync(args={
                     "lifecycle_phase1_enabled": True,
+                    "data_dir": tmp_dir,
                 })
                 result = app._load_active_print("matching_key")
                 assert result["threemf_data"] == threemf
                 assert result["trays_used"] == set()
                 assert result["spool_id_snapshot"] == {}
                 assert _has_log(app, "ACTIVE_PRINT_RESTORED")
-            finally:
-                self._cleanup()
 
     def test_active_print_stale_job_key_ignored(self):
         """active_print.json has different job_key → returns None, STALE logged."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                import filament_iq.ams_print_usage_sync as mod
                 ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-                mod.ACTIVE_PRINT_FILE = ap_file
 
                 ap_file.write_text(json.dumps({
                     "job_key": "old_job",
@@ -1343,65 +1309,52 @@ class TestActivePrintPersistence:
 
                 app = _TestableUsageSync(args={
                     "lifecycle_phase1_enabled": True,
+                    "data_dir": tmp_dir,
                 })
                 result = app._load_active_print("new_job")
                 assert result is None
                 assert _has_log(app, "ACTIVE_PRINT_STALE")
-            finally:
-                self._cleanup()
 
     def test_active_print_missing_no_error(self):
         """active_print.json does not exist → returns None, no exception."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                import filament_iq.ams_print_usage_sync as mod
-                mod.ACTIVE_PRINT_FILE = pathlib.Path(tmp_dir) / "active_print.json"
 
                 app = _TestableUsageSync(args={
                     "lifecycle_phase1_enabled": True,
+                    "data_dir": tmp_dir,
                 })
                 result = app._load_active_print("any_key")
                 assert result is None
                 # No error/warning logged
                 assert not any("FAILED" in msg for msg, _ in app._log_calls)
-            finally:
-                self._cleanup()
 
     def test_active_print_corrupted_no_error(self):
         """active_print.json contains invalid JSON → returns None, LOAD_FAILED logged."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                import filament_iq.ams_print_usage_sync as mod
                 ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-                mod.ACTIVE_PRINT_FILE = ap_file
                 ap_file.write_text("{corrupt json!!")
 
                 app = _TestableUsageSync(args={
                     "lifecycle_phase1_enabled": True,
+                    "data_dir": tmp_dir,
                 })
                 result = app._load_active_print("any_key")
                 assert result is None
                 assert _has_log(app, "ACTIVE_PRINT_LOAD_FAILED")
-            finally:
-                self._cleanup()
 
     def test_active_print_cleared_on_finish(self):
         """Print finishes → active_print.json deleted."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                import filament_iq.ams_print_usage_sync as mod
                 ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-                mod.ACTIVE_PRINT_FILE = ap_file
                 ap_file.write_text(json.dumps({"job_key": "done"}))
                 assert ap_file.exists()
 
                 app = _TestableUsageSync(args={
                     "lifecycle_phase1_enabled": True,
+                    "data_dir": tmp_dir,
                 })
                 app._clear_active_print()
                 assert not ap_file.exists()
-            finally:
-                self._cleanup()
 
     def test_3mf_in_memory_skips_disk_recovery(self):
         """_threemf_data already present at finish → no disk recovery attempted."""
@@ -1423,13 +1376,11 @@ class TestActivePrintPersistence:
     def test_active_print_atomic_write(self):
         """Confirm tmp file used and replaced atomically (no .tmp left behind)."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                import filament_iq.ams_print_usage_sync as mod
                 ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-                mod.ACTIVE_PRINT_FILE = ap_file
 
                 app = _TestableUsageSync(args={
                     "lifecycle_phase1_enabled": True,
+                    "data_dir": tmp_dir,
                 })
                 app._job_key = "atomic_test"
                 app._start_snapshot = {1: 100.0}
@@ -1443,19 +1394,15 @@ class TestActivePrintPersistence:
                 # Verify no .tmp file left behind (atomic replace cleaned it up)
                 tmp_file = ap_file.with_suffix(".tmp")
                 assert not tmp_file.exists()
-            finally:
-                self._cleanup()
 
     def test_persist_active_print_includes_trays_used_and_spool_ids(self):
         """trays_used and spool_id_snapshot appear in persisted JSON."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                import filament_iq.ams_print_usage_sync as mod
                 ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-                mod.ACTIVE_PRINT_FILE = ap_file
 
                 app = _TestableUsageSync(args={
                     "lifecycle_phase1_enabled": True,
+                    "data_dir": tmp_dir,
                 })
                 app._job_key = "trays_test"
                 app._start_snapshot = {1: 400.0, 5: 200.0}
@@ -1467,16 +1414,11 @@ class TestActivePrintPersistence:
                 data = json.loads(ap_file.read_text())
                 assert data["trays_used"] == [1, 5]
                 assert data["spool_id_snapshot"] == {"1": 61, "5": 29}
-            finally:
-                self._cleanup()
 
     def test_load_active_print_returns_full_dict(self):
         """_load_active_print returns dict with threemf_data, trays_used, spool_id_snapshot."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                import filament_iq.ams_print_usage_sync as mod
                 ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-                mod.ACTIVE_PRINT_FILE = ap_file
 
                 ap_file.write_text(json.dumps({
                     "job_key": "full_dict_test",
@@ -1488,21 +1430,17 @@ class TestActivePrintPersistence:
 
                 app = _TestableUsageSync(args={
                     "lifecycle_phase1_enabled": True,
+                    "data_dir": tmp_dir,
                 })
                 result = app._load_active_print("full_dict_test")
                 assert result is not None
                 assert result["threemf_data"] == [{"index": 0, "used_g": 10.0}]
                 assert result["trays_used"] == {1, 5}
                 assert result["spool_id_snapshot"] == {1: 61, 5: 29}
-            finally:
-                self._cleanup()
 
     def test_spool_id_snapshot_captured_at_print_start(self):
         """_spool_id_snapshot populated after PRINT_START_CAPTURED."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                import filament_iq.ams_print_usage_sync as mod
-                mod.ACTIVE_PRINT_FILE = pathlib.Path(tmp_dir) / "active_print.json"
 
                 app = _TestableUsageSync(state_map={
                     "sensor.p1s_01p00c5a3101668_task_name": "test_print",
@@ -1518,8 +1456,6 @@ class TestActivePrintPersistence:
                 assert app._spool_id_snapshot == {1: 61, 3: 45, 5: 29}
                 assert _has_log(app, "PRINT_START_CAPTURED")
                 assert _has_log(app, "spool_ids=3")
-            finally:
-                self._cleanup()
 
 
 # ── lifecycle method tests ────────────────────────────────────────────
@@ -1915,34 +1851,29 @@ class TestRehydratePrintState:
     def test_rehydrate_helper_key_matches_active_print_json(self):
         """Full rehydrate chain: helper key matches active_print.json → threemf_data restored."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                import filament_iq.ams_print_usage_sync as mod
-                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-                mod.ACTIVE_PRINT_FILE = ap_file
+            ap_file = pathlib.Path(tmp_dir) / "active_print.json"
 
-                threemf = [{"index": 0, "used_g": 100.67}]
-                ap_file.write_text(json.dumps({
-                    "job_key": "0.28mm_layer,_2_walls,_15%_infill_1773438415",
-                    "start_snapshot": {"1": 940.0},
-                    "threemf_data": threemf,
-                }))
+            threemf = [{"index": 0, "used_g": 100.67}]
+            ap_file.write_text(json.dumps({
+                "job_key": "0.28mm_layer,_2_walls,_15%_infill_1773438415",
+                "start_snapshot": {"1": 940.0},
+                "threemf_data": threemf,
+            }))
 
-                app = _TestableUsageSync(
-                    state_map={
-                        "sensor.p1s_01p00c5a3101668_print_status": "running",
-                        "input_text.filament_iq_start_json": '{"1": 940.0}',
-                        "sensor.p1s_01p00c5a3101668_task_name": "0.28mm layer, 2 walls, 15% infill",
-                        "input_text.filament_iq_active_job_key": "0.28mm_layer,_2_walls,_15%_infill_1773438415",
-                    },
-                    args={"lifecycle_phase1_enabled": True},
-                )
-                app._rehydrate_print_state()
-                assert app._job_key == "0.28mm_layer,_2_walls,_15%_infill_1773438415"
-                assert app._threemf_data == threemf
-                assert _has_log(app, "ACTIVE_PRINT_RESTORED")
-                assert not _has_log(app, "ACTIVE_PRINT_STALE")
-            finally:
-                mod.ACTIVE_PRINT_FILE = pathlib.Path(tmp_dir) / "active_print.json"
+            app = _TestableUsageSync(
+                state_map={
+                    "sensor.p1s_01p00c5a3101668_print_status": "running",
+                    "input_text.filament_iq_start_json": '{"1": 940.0}',
+                    "sensor.p1s_01p00c5a3101668_task_name": "0.28mm layer, 2 walls, 15% infill",
+                    "input_text.filament_iq_active_job_key": "0.28mm_layer,_2_walls,_15%_infill_1773438415",
+                },
+                args={"lifecycle_phase1_enabled": True, "data_dir": tmp_dir},
+            )
+            app._rehydrate_print_state()
+            assert app._job_key == "0.28mm_layer,_2_walls,_15%_infill_1773438415"
+            assert app._threemf_data == threemf
+            assert _has_log(app, "ACTIVE_PRINT_RESTORED")
+            assert not _has_log(app, "ACTIVE_PRINT_STALE")
 
 
 class TestResolveActiveTraySlot:
@@ -2522,27 +2453,27 @@ class TestLoadSeenJobKeys:
         app = _TestableUsageSync()
         with _tf.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(["key1", "key2"], f)
-            f.flush()
-            with mock.patch("filament_iq.ams_print_usage_sync.SEEN_JOBS_PATH", f.name):
-                result = app._load_seen_job_keys()
+            fname = f.name
+        app._seen_jobs_path = fname
+        result = app._load_seen_job_keys()
         assert list(result.keys()) == ["key1", "key2"]
-        os.unlink(f.name)
+        os.unlink(fname)
 
     def test_load_dict(self):
         import tempfile as _tf
         app = _TestableUsageSync()
         with _tf.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump({"k1": True, "k2": True}, f)
-            f.flush()
-            with mock.patch("filament_iq.ams_print_usage_sync.SEEN_JOBS_PATH", f.name):
-                result = app._load_seen_job_keys()
+            fname = f.name
+        app._seen_jobs_path = fname
+        result = app._load_seen_job_keys()
         assert "k1" in result
-        os.unlink(f.name)
+        os.unlink(fname)
 
     def test_missing_file(self):
         app = _TestableUsageSync()
-        with mock.patch("filament_iq.ams_print_usage_sync.SEEN_JOBS_PATH", "/nonexistent/path.json"):
-            result = app._load_seen_job_keys()
+        app._seen_jobs_path = "/nonexistent/path.json"
+        result = app._load_seen_job_keys()
         assert len(result) == 0
 
     def test_invalid_json(self):
@@ -2550,12 +2481,12 @@ class TestLoadSeenJobKeys:
         app = _TestableUsageSync()
         with _tf.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             f.write("not json{{{")
-            f.flush()
-            with mock.patch("filament_iq.ams_print_usage_sync.SEEN_JOBS_PATH", f.name):
-                result = app._load_seen_job_keys()
+            fname = f.name
+        app._seen_jobs_path = fname
+        result = app._load_seen_job_keys()
         assert len(result) == 0
         assert any("could not load" in msg for msg, _ in app._log_calls)
-        os.unlink(f.name)
+        os.unlink(fname)
 
     def test_overflow_trimmed(self):
         import tempfile as _tf
@@ -2563,11 +2494,11 @@ class TestLoadSeenJobKeys:
         keys = [f"key_{i}" for i in range(100)]
         with _tf.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(keys, f)
-            f.flush()
-            with mock.patch("filament_iq.ams_print_usage_sync.SEEN_JOBS_PATH", f.name):
-                result = app._load_seen_job_keys()
+            fname = f.name
+        app._seen_jobs_path = fname
+        result = app._load_seen_job_keys()
         assert len(result) == 50  # MAX_SEEN_JOBS
-        os.unlink(f.name)
+        os.unlink(fname)
 
 
 class TestEnsureDataDir:
@@ -2577,15 +2508,15 @@ class TestEnsureDataDir:
         import tempfile as _tf
         with _tf.TemporaryDirectory() as td:
             path = os.path.join(td, "data", "seen.json")
-            with mock.patch("filament_iq.ams_print_usage_sync.SEEN_JOBS_PATH", path):
-                app = _TestableUsageSync()
-                app._ensure_data_dir()
+            app = _TestableUsageSync()
+            app._seen_jobs_path = path
+            app._ensure_data_dir()
             assert os.path.isfile(path)
 
     def test_oserror_logged(self):
         app = _TestableUsageSync()
-        with mock.patch("filament_iq.ams_print_usage_sync.SEEN_JOBS_PATH", "/proc/fake/path.json"):
-            app._ensure_data_dir()
+        app._seen_jobs_path = "/proc/fake/path.json"
+        app._ensure_data_dir()
         assert any("could not ensure" in msg for msg, _ in app._log_calls)
 
 
@@ -2904,96 +2835,69 @@ class TestActiveSlotsNarrowing:
     def test_rehydrated_trays_used_restored(self):
         """After rehydrate from active_print.json, _trays_used is restored."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                import filament_iq.ams_print_usage_sync as mod
-                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-                mod.ACTIVE_PRINT_FILE = ap_file
+            ap_file = pathlib.Path(tmp_dir) / "active_print.json"
 
-                ap_file.write_text(json.dumps({
-                    "job_key": "rehydrate_test",
-                    "start_snapshot": {"1": 500.0, "5": 200.0},
-                    "trays_used": [1, 5],
-                    "spool_id_snapshot": {"1": 61, "5": 29},
-                    "threemf_data": None,
-                }))
+            ap_file.write_text(json.dumps({
+                "job_key": "rehydrate_test",
+                "start_snapshot": {"1": 500.0, "5": 200.0},
+                "trays_used": [1, 5],
+                "spool_id_snapshot": {"1": 61, "5": 29},
+                "threemf_data": None,
+            }))
 
-                app = _TestableUsageSync(state_map={
-                    "sensor.p1s_01p00c5a3101668_print_status": "running",
-                    "sensor.p1s_01p00c5a3101668_task_name": "rehydrate_test",
-                    "input_text.filament_iq_active_job_key": "rehydrate_test",
-                    "input_boolean.filament_iq_print_active": "on",
-                }, args={"lifecycle_phase1_enabled": True})
-                app._rehydrate_print_state()
-                assert app._trays_used == {1, 5}
-                assert app._spool_id_snapshot == {1: 61, 5: 29}
-            finally:
-                orig = getattr(mod, '_ACTIVE_PRINT_FILE_ORIG', None)
-                if orig:
-                    mod.ACTIVE_PRINT_FILE = orig
-                elif ap_file.exists():
-                    ap_file.unlink()
+            app = _TestableUsageSync(state_map={
+                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "sensor.p1s_01p00c5a3101668_task_name": "rehydrate_test",
+                "input_text.filament_iq_active_job_key": "rehydrate_test",
+                "input_boolean.filament_iq_print_active": "on",
+            }, args={"lifecycle_phase1_enabled": True, "data_dir": tmp_dir})
+            app._rehydrate_print_state()
+            assert app._trays_used == {1, 5}
+            assert app._spool_id_snapshot == {1: 61, 5: 29}
 
     def test_rehydrate_restores_print_start_time(self):
         """_print_start_time is restored from active_print.json on rehydrate."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                import filament_iq.ams_print_usage_sync as mod
-                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-                mod.ACTIVE_PRINT_FILE = ap_file
+            ap_file = pathlib.Path(tmp_dir) / "active_print.json"
 
-                ap_file.write_text(json.dumps({
-                    "job_key": "start_time_test",
-                    "start_snapshot": {"1": 500.0},
-                    "trays_used": [1],
-                    "spool_id_snapshot": {"1": 61},
-                    "print_start_time": 1710700000.0,
-                    "threemf_data": None,
-                }))
+            ap_file.write_text(json.dumps({
+                "job_key": "start_time_test",
+                "start_snapshot": {"1": 500.0},
+                "trays_used": [1],
+                "spool_id_snapshot": {"1": 61},
+                "print_start_time": 1710700000.0,
+                "threemf_data": None,
+            }))
 
-                app = _TestableUsageSync(state_map={
-                    "sensor.p1s_01p00c5a3101668_print_status": "running",
-                    "sensor.p1s_01p00c5a3101668_task_name": "start_time_test",
-                    "input_text.filament_iq_active_job_key": "start_time_test",
-                    "input_boolean.filament_iq_print_active": "on",
-                }, args={"lifecycle_phase1_enabled": True})
-                app._rehydrate_print_state()
-                assert app._print_start_time == 1710700000.0
-            finally:
-                orig = getattr(mod, '_ACTIVE_PRINT_FILE_ORIG', None)
-                if orig:
-                    mod.ACTIVE_PRINT_FILE = orig
-                elif ap_file.exists():
-                    ap_file.unlink()
+            app = _TestableUsageSync(state_map={
+                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "sensor.p1s_01p00c5a3101668_task_name": "start_time_test",
+                "input_text.filament_iq_active_job_key": "start_time_test",
+                "input_boolean.filament_iq_print_active": "on",
+            }, args={"lifecycle_phase1_enabled": True, "data_dir": tmp_dir})
+            app._rehydrate_print_state()
+            assert app._print_start_time == 1710700000.0
 
     def test_duration_unknown_when_start_time_missing(self):
         """Missing print_start_time from disk leaves _print_start_time as None."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                import filament_iq.ams_print_usage_sync as mod
-                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-                mod.ACTIVE_PRINT_FILE = ap_file
+            ap_file = pathlib.Path(tmp_dir) / "active_print.json"
 
-                ap_file.write_text(json.dumps({
-                    "job_key": "no_start_time",
-                    "start_snapshot": {"1": 500.0},
-                    "threemf_data": None,
-                }))
+            ap_file.write_text(json.dumps({
+                "job_key": "no_start_time",
+                "start_snapshot": {"1": 500.0},
+                "threemf_data": None,
+            }))
 
-                app = _TestableUsageSync(state_map={
-                    "sensor.p1s_01p00c5a3101668_print_status": "running",
-                    "sensor.p1s_01p00c5a3101668_task_name": "no_start_time",
-                    "input_text.filament_iq_active_job_key": "no_start_time",
-                    "input_boolean.filament_iq_print_active": "on",
-                }, args={"lifecycle_phase1_enabled": True})
-                app._print_start_time = None
-                app._rehydrate_print_state()
-                assert app._print_start_time is None
-            finally:
-                orig = getattr(mod, '_ACTIVE_PRINT_FILE_ORIG', None)
-                if orig:
-                    mod.ACTIVE_PRINT_FILE = orig
-                elif ap_file.exists():
-                    ap_file.unlink()
+            app = _TestableUsageSync(state_map={
+                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "sensor.p1s_01p00c5a3101668_task_name": "no_start_time",
+                "input_text.filament_iq_active_job_key": "no_start_time",
+                "input_boolean.filament_iq_print_active": "on",
+            }, args={"lifecycle_phase1_enabled": True, "data_dir": tmp_dir})
+            app._print_start_time = None
+            app._rehydrate_print_state()
+            assert app._print_start_time is None
 
 
 class TestExecuteWritesDepletedNonrfid:
@@ -3302,261 +3206,6 @@ class TestCollectPrintInputs:
         assert "retry_delays = [15, 45, 90]" in source
 
 
-class TestNotificationSkipReasonLabels:
-    """v1.7.5: `_send_notification` surfaces per-slot skip_reason labels."""
-
-    def _make_app(self):
-        app = _TestableUsageSync(
-            state_map=_default_state_map(),
-            args={"lifecycle_phase1_enabled": True},
-        )
-        app._print_start_time = __import__("time").time() - 60
-        return app
-
-    def _decisions_with_skip(self, skip_reason):
-        from filament_iq.consumption_engine import SlotDecision
-        return [SlotDecision(
-            slot=2, spool_id=99, consumption_g=0.0,
-            method="no_evidence", skip_reason=skip_reason, confidence="none",
-        )]
-
-    def _notify_message(self, app):
-        notif = [c for c in app._service_calls if "notify" in c.get("service", "")]
-        assert len(notif) == 1, f"expected one notify call, got {notif}"
-        return notif[0].get("message", "")
-
-    def test_no_3mf_label(self):
-        app = self._make_app()
-        app._send_notification(
-            self._decisions_with_skip("NO_3MF_AND_TRAY_NOT_EMPTY"),
-            "model.3mf", "finish", 0.0, "j",
-        )
-        msg = self._notify_message(app)
-        assert "Slot 2: No slicer data" in msg
-        assert "No data" not in msg.replace("No slicer data", "")
-
-    def test_below_min_label(self):
-        app = self._make_app()
-        app._send_notification(
-            self._decisions_with_skip("BELOW_MIN: 1.50g < min 2.00g"),
-            "model.3mf", "finish", 0.0, "j",
-        )
-        assert "Slot 2: Below minimum threshold" in self._notify_message(app)
-
-    def test_sanity_cap_label(self):
-        app = self._make_app()
-        app._send_notification(
-            self._decisions_with_skip("SANITY_CAP: 1234.5g > max 1000.0g"),
-            "model.3mf", "finish", 0.0, "j",
-        )
-        assert "Slot 2: Estimate exceeded sanity limit" in self._notify_message(app)
-
-    def test_data_loss_label(self):
-        app = self._make_app()
-        app._send_notification(
-            self._decisions_with_skip("DATA_LOSS: start_g not captured"),
-            "model.3mf", "finish", 0.0, "j",
-        )
-        assert "Slot 2: Sensor data unavailable" in self._notify_message(app)
-
-    def test_depleted_no_spoolman_label(self):
-        app = self._make_app()
-        app._send_notification(
-            self._decisions_with_skip("DEPLETED_BUT_NO_SPOOLMAN_REMAINING"),
-            "model.3mf", "finish", 0.0, "j",
-        )
-        assert "Slot 2: Depleted, no Spoolman record" in self._notify_message(app)
-
-    def test_unknown_label(self):
-        app = self._make_app()
-        app._send_notification(
-            self._decisions_with_skip("UNKNOWN"),
-            "model.3mf", "finish", 0.0, "j",
-        )
-        assert "Slot 2: Unknown reason" in self._notify_message(app)
-
-    def test_unmapped_skip_reason_falls_back_to_default(self):
-        app = self._make_app()
-        app._send_notification(
-            self._decisions_with_skip("SOMETHING_NEW_NOT_IN_MAP"),
-            "model.3mf", "finish", 0.0, "j",
-        )
-        assert "Slot 2: No data" in self._notify_message(app)
-
-    def test_empty_skip_reason_falls_back_to_default(self):
-        app = self._make_app()
-        app._send_notification(
-            self._decisions_with_skip(None),
-            "model.3mf", "finish", 0.0, "j",
-        )
-        assert "Slot 2: No data" in self._notify_message(app)
-
-    def test_per_slot_lines_for_multiple_skips(self):
-        from filament_iq.consumption_engine import SlotDecision
-        app = self._make_app()
-        decisions = [
-            SlotDecision(slot=2, spool_id=99, consumption_g=0.0,
-                         method="no_evidence",
-                         skip_reason="NO_3MF_AND_TRAY_NOT_EMPTY",
-                         confidence="none"),
-            SlotDecision(slot=4, spool_id=77, consumption_g=0.0,
-                         method="no_evidence",
-                         skip_reason="BELOW_MIN: 0.5g < min 2.0g",
-                         confidence="none"),
-        ]
-        app._send_notification(decisions, "m.3mf", "finish", 0.0, "j")
-        msg = self._notify_message(app)
-        assert "Slot 2: No slicer data" in msg
-        assert "Slot 4: Below minimum threshold" in msg
-
-    def test_written_slots_render_unchanged_no_regression(self):
-        from filament_iq.consumption_engine import SlotDecision
-        app = self._make_app()
-        decisions = [SlotDecision(
-            slot=1, spool_id=10, consumption_g=42.5,
-            method="rfid_delta", skip_reason=None, confidence="high",
-            post_write_remaining=731.0, depleted=False,
-        )]
-        app._send_notification(decisions, "model.3mf", "finish", 100.0, "j")
-        msg = self._notify_message(app)
-        assert "Slot 1" in msg
-        assert "-42.5g" in msg
-        assert "731g remaining" in msg
-        assert "RFID sensor" in msg
-
-    def test_label_helper_handles_prefix_and_literal(self):
-        from filament_iq.ams_print_usage_sync import (
-            _label_skip_reason, _SKIP_REASON_LABELS, _SKIP_REASON_DEFAULT,
-        )
-        assert _label_skip_reason("BELOW_MIN: 1g < 2g") == _SKIP_REASON_LABELS["BELOW_MIN"]
-        assert _label_skip_reason("UNKNOWN") == _SKIP_REASON_LABELS["UNKNOWN"]
-        assert _label_skip_reason("not_in_map") == _SKIP_REASON_DEFAULT
-        assert _label_skip_reason(None) == _SKIP_REASON_DEFAULT
-        assert _label_skip_reason("") == _SKIP_REASON_DEFAULT
-
-
-def test_consumption_engine_skip_reason_keys_match_label_map():
-    """Every skip_reason prefix produced by consumption_engine must have
-    a label in `_SKIP_REASON_LABELS`. Catches new reasons added to the
-    decision engine that are not surfaced in notifications."""
-    import re
-    import filament_iq.consumption_engine as ce
-    from filament_iq.ams_print_usage_sync import _SKIP_REASON_LABELS
-    src = open(ce.__file__).read()
-    # Match `skip_reason="LITERAL"` and `skip_reason=f"PREFIX: ..."`.
-    found = set()
-    for m in re.finditer(r'skip_reason\s*=\s*f?"([^"{]+?)(?::|")', src):
-        key = m.group(1).strip()
-        if key:
-            found.add(key)
-    # `_no_evidence_reason` returns these literals — also collect them.
-    for m in re.finditer(r'return\s+"([A-Z_]+)"', src):
-        found.add(m.group(1))
-    unmapped = found - set(_SKIP_REASON_LABELS.keys())
-    assert not unmapped, (
-        f"skip_reasons not in _SKIP_REASON_LABELS: {sorted(unmapped)} "
-        f"— add labels in ams_print_usage_sync.py"
-    )
-
-
-def test_transient_status_blip_preserves_print_start_time():
-    """Mid-print status blip (running → prepare → running) must NOT reset
-    `_print_start_time` or `_job_key`. Reproduces the v1.7.4 duration bug:
-    a 2h+ print reported as 14m because a transient HA status flip re-fired
-    `_on_print_start` and reset the start-time baseline."""
-    app = _TestableUsageSync(
-        state_map=_default_state_map({3: 39}),
-        args={"lifecycle_phase1_enabled": True},
-    )
-    app._on_print_status_change(None, None, "idle", "running", {})
-    t0 = app._print_start_time
-    job_key_0 = app._job_key
-    assert t0 > 0
-    assert job_key_0
-
-    # Transient blip: status drops to "prepare" (or unknown/unavailable)
-    # mid-print, then returns to running. The outer status_change handler
-    # WILL fire `_on_print_start` again, but the set-once guard must hold.
-    app._on_print_status_change(None, None, "running", "prepare", {})
-    app._on_print_status_change(None, None, "prepare", "running", {})
-    assert app._print_start_time == t0, (
-        f"_print_start_time reset on transient blip: "
-        f"was {t0}, now {app._print_start_time}"
-    )
-    assert app._job_key == job_key_0, (
-        f"_job_key reset on transient blip: "
-        f"was {job_key_0!r}, now {app._job_key!r}"
-    )
-
-
-def test_rehydrate_fills_empty_print_start_time():
-    """Rehydration restores `_print_start_time` from disk when in-memory is None."""
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        try:
-            import filament_iq.ams_print_usage_sync as mod
-            ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-            mod.ACTIVE_PRINT_FILE = ap_file
-
-            ap_file.write_text(json.dumps({
-                "job_key": "fill_empty",
-                "start_snapshot": {"1": 500.0},
-                "trays_used": [1],
-                "spool_id_snapshot": {"1": 61},
-                "print_start_time": 1710700000.0,
-                "threemf_data": None,
-            }))
-
-            app = _TestableUsageSync(state_map={
-                "sensor.p1s_01p00c5a3101668_print_status": "running",
-                "sensor.p1s_01p00c5a3101668_task_name": "fill_empty",
-                "input_text.filament_iq_active_job_key": "fill_empty",
-                "input_boolean.filament_iq_print_active": "on",
-            }, args={"lifecycle_phase1_enabled": True})
-            app._print_start_time = None
-            app._job_key = ""
-            app._rehydrate_print_state()
-            assert app._print_start_time == 1710700000.0
-        finally:
-            if ap_file.exists():
-                ap_file.unlink()
-
-
-def test_rehydrate_does_not_overwrite_live_print_start_time():
-    """Rehydration must NOT overwrite a live in-memory `_print_start_time`
-    with a stale disk value. Set-once invariant: live wins over disk."""
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        try:
-            import filament_iq.ams_print_usage_sync as mod
-            ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-            mod.ACTIVE_PRINT_FILE = ap_file
-
-            ap_file.write_text(json.dumps({
-                "job_key": "stale_disk",
-                "start_snapshot": {"1": 500.0},
-                "trays_used": [1],
-                "spool_id_snapshot": {"1": 61},
-                "print_start_time": 1710700000.0,
-                "threemf_data": None,
-            }))
-
-            app = _TestableUsageSync(state_map={
-                "sensor.p1s_01p00c5a3101668_print_status": "running",
-                "sensor.p1s_01p00c5a3101668_task_name": "stale_disk",
-                "input_text.filament_iq_active_job_key": "stale_disk",
-                "input_boolean.filament_iq_print_active": "on",
-            }, args={"lifecycle_phase1_enabled": True})
-            live_t = 1710800000.0
-            app._print_start_time = live_t
-            app._rehydrate_print_state()
-            assert app._print_start_time == live_t, (
-                f"rehydrate overwrote live start_time: expected {live_t}, "
-                f"got {app._print_start_time}"
-            )
-        finally:
-            if ap_file.exists():
-                ap_file.unlink()
-
-
 def test_pause_resume_preserves_print_start_time():
     """Paused → running resume must NOT reset _print_start_time, _job_key, or _start_snapshot."""
     app = _TestableUsageSync(
@@ -3591,364 +3240,4 @@ def test_pause_resume_preserves_print_start_time():
     )
 
 
-# ── multi-plate 3MF merge tests (v1.7.6) ─────────────────────────────
 
-
-def _make_slice_xml(entries):
-    """Build minimal slice_info.config XML bytes from a list of filament dicts."""
-    parts = ["<config><plate>"]
-    for e in entries:
-        parts.append(
-            f'<filament id="{e["id"]}" used_g="{e["used_g"]}"'
-            f' used_m="{e.get("used_m", 0)}"'
-            f' color="{e.get("color", "000000")}"'
-            f' type="{e.get("mat", "PLA")}"'
-            f' tray_info_idx="{e["tray_idx"]}"/>'
-        )
-    parts.append("</plate></config>")
-    return "".join(parts).encode()
-
-
-def test_try_cache_3mf_multi_plate_merge():
-    """_try_cache_3mf globs sibling slice_info.config files that share the same
-    project-ID prefix and merges their filament lists.
-
-    NOTE (v1.7.7): Siblings must share the same project-ID prefix (the portion
-    before the first dash in the gcode filename). The previous test used different
-    plate-number prefixes (1, 5) which matched under the old broad glob
-    (*{task}*) but are NOT siblings under the new prefix-scoped glob (1-*).
-    Updated to use the same prefix (1051895) for both the primary file and its
-    sibling, which is the correct model: ha-bambulab writes all plate files for
-    the same project upload under the same project-ID prefix.
-    """
-    project_id = "1051895"
-    task = "All_sizes_on_individual_plates"
-    plate1_xml = _make_slice_xml([
-        {"id": 0, "used_g": 32.13, "used_m": 10.74, "color": "000000", "mat": "PLA", "tray_idx": "0"},
-    ])
-    plate2_xml = _make_slice_xml([
-        {"id": 0, "used_g": 128.72, "used_m": 43.00, "color": "808080", "mat": "PLA", "tray_idx": "2"},
-    ])
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        # Primary: 1051895-{task}.slice_info.config
-        pathlib.Path(tmp_dir, f"{project_id}-{task}.slice_info.config").write_bytes(plate1_xml)
-        # Sibling: same project-ID prefix, different plate suffix
-        pathlib.Path(tmp_dir, f"{project_id}-{task}_plate2.slice_info.config").write_bytes(plate2_xml)
-
-        app = _TestableUsageSync(state_map={})
-        app._bambulab_cache_path = tmp_dir
-        app._gcode_file_entity = "sensor.test_gcode"
-        app._state_map[app._gcode_file_entity] = f"{project_id}-{task}.gcode"
-        app._state_map[app._task_name_entity] = task
-        app.threemf_enabled = True
-
-        result = app._try_cache_3mf()
-
-    assert result is True
-    assert app._threemf_data is not None
-    assert len(app._threemf_data) == 2
-    g_by_idx = {f["tray_info_idx"]: f["used_g"] for f in app._threemf_data}
-    assert abs(g_by_idx["0"] - 32.13) < 0.01
-    assert abs(g_by_idx["2"] - 128.72) < 0.01
-    assert app._threemf_from_disk_restore is False
-    assert _has_log(app, "3MF_CACHE_MULTI_PLATE")
-
-
-def test_try_cache_3mf_multi_plate_dedup_keeps_max_used_g():
-    """When two sibling plates share a tray_info_idx, the entry with the higher used_g wins.
-
-    NOTE (v1.7.7): Updated to use the same project-ID prefix for both files.
-    The old test used prefixes 1 and 2 (different) which matched under the
-    old broad glob but are treated as unrelated projects under the new
-    prefix-scoped glob. Both files now share prefix 1051895.
-    """
-    project_id = "1051895"
-    task = "Shared_slot_test"
-    plate1_xml = _make_slice_xml([
-        {"id": 0, "used_g": 5.00, "mat": "PLA", "tray_idx": "0"},
-    ])
-    plate2_xml = _make_slice_xml([
-        {"id": 0, "used_g": 18.50, "mat": "PLA", "tray_idx": "0"},
-    ])
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        pathlib.Path(tmp_dir, f"{project_id}-{task}.slice_info.config").write_bytes(plate1_xml)
-        pathlib.Path(tmp_dir, f"{project_id}-{task}_plate2.slice_info.config").write_bytes(plate2_xml)
-
-        app = _TestableUsageSync(state_map={})
-        app._bambulab_cache_path = tmp_dir
-        app._gcode_file_entity = "sensor.test_gcode"
-        app._state_map[app._gcode_file_entity] = f"{project_id}-{task}.gcode"
-        app._state_map[app._task_name_entity] = task
-        app.threemf_enabled = True
-
-        result = app._try_cache_3mf()
-
-    assert result is True
-    assert len(app._threemf_data) == 1
-    assert abs(app._threemf_data[0]["used_g"] - 18.50) < 0.01
-
-
-def test_try_cache_3mf_single_plate_unchanged():
-    """Single-plate print: _try_cache_3mf behavior is unchanged from pre-v1.7.6."""
-    task = "Benchy"
-    xml = _make_slice_xml([
-        {"id": 0, "used_g": 6.12, "mat": "PLA", "tray_idx": "0"},
-    ])
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        pathlib.Path(tmp_dir, f"1-{task}.slice_info.config").write_bytes(xml)
-
-        app = _TestableUsageSync(state_map={})
-        app._bambulab_cache_path = tmp_dir
-        app._gcode_file_entity = "sensor.test_gcode"
-        app._state_map[app._gcode_file_entity] = f"1-{task}.gcode"
-        app._state_map[app._task_name_entity] = task
-        app.threemf_enabled = True
-
-        result = app._try_cache_3mf()
-
-    assert result is True
-    assert len(app._threemf_data) == 1
-    assert abs(app._threemf_data[0]["used_g"] - 6.12) < 0.01
-    assert not _has_log(app, "3MF_CACHE_MULTI_PLATE")
-
-
-def test_threemf_filename_survives_restart():
-    """threemf_file key in active_print.json is restored into _threemf_filename on disk restore."""
-    import filament_iq.ams_print_usage_sync as mod
-    orig = mod.ACTIVE_PRINT_FILE
-    threemf = [{"index": 0, "used_g": 32.13, "color_hex": "000000", "material": "pla", "tray_info_idx": "0"}]
-    try:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-            mod.ACTIVE_PRINT_FILE = ap_file
-            ap_file.write_text(json.dumps({
-                "job_key": "test_fname_001",
-                "start_snapshot": {"4": 420.0},
-                "threemf_data": threemf,
-                "threemf_file": "1-My_Model.slice_info.config",
-                "trays_used": [4],
-                "spool_id_snapshot": {},
-            }))
-
-            app = _TestableUsageSync(
-                state_map=_default_state_map({4: 10}),
-                args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
-            )
-            app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
-            app._job_key = "test_fname_001"
-            app._start_snapshot = {4: 420.0}
-            app._trays_used = {4}
-            app._print_active = True
-            app.threemf_enabled = True
-            app._threemf_data = None
-
-            captured = {}
-            original_do_finish = app._do_finish
-            def capture_do_finish(status):
-                captured["filename"] = app._threemf_filename
-                captured["from_disk_restore"] = app._threemf_from_disk_restore
-                original_do_finish(status)
-            app._do_finish = capture_do_finish
-            app._state_map[app._fuel_gauge_pattern.format(slot=4)] = "370.0"
-
-            app._on_print_finish("finish")
-
-    finally:
-        mod.ACTIVE_PRINT_FILE = orig
-
-    assert captured.get("filename") == "1-My_Model.slice_info.config"
-    assert captured.get("from_disk_restore") is True
-
-
-def test_disk_restore_flag_allows_recheck():
-    """_threemf_from_disk_restore=True bypasses ALREADY_SET guard and calls _try_cache_3mf."""
-    app = _TestableUsageSync(state_map={})
-    app.threemf_enabled = True
-    app._threemf_data = [{"index": 0, "used_g": 10.0, "tray_info_idx": "0"}]
-    app._threemf_from_disk_restore = True
-
-    try_cache_calls = []
-
-    def fake_try_cache():
-        try_cache_calls.append(True)
-        app._threemf_from_disk_restore = False
-        return True
-
-    app._try_cache_3mf = fake_try_cache
-    app._fetch_3mf_background({"attempt": 1})
-
-    assert len(try_cache_calls) == 1, "_try_cache_3mf must be called when disk-restore flag is set"
-    assert _has_log(app, "3MF_CACHE_DISK_RESTORE_RECHECK")
-
-
-def test_disk_restore_flag_false_respects_already_set_guard():
-    """When _threemf_from_disk_restore=False, ALREADY_SET guard blocks _try_cache_3mf."""
-    app = _TestableUsageSync(state_map={})
-    app.threemf_enabled = True
-    app._threemf_data = [{"index": 0, "used_g": 10.0, "tray_info_idx": "0"}]
-    app._threemf_from_disk_restore = False
-
-    try_cache_calls = []
-    app._try_cache_3mf = lambda: try_cache_calls.append(True) or True
-    app._fetch_3mf_background({"attempt": 1})
-
-    assert len(try_cache_calls) == 0, "_try_cache_3mf must NOT be called when flag is False"
-    assert _has_log(app, "3MF_CACHE_ALREADY_SET")
-
-
-# ── v1.7.7 new tests ──────────────────────────────────────────────────────────
-
-
-def test_try_cache_3mf_ignores_unrelated_projects_with_same_task_name():
-    """Two slice_info files with same task name but different project-ID prefixes
-    must not be merged. Reproduces the broad-glob bug fixed in v1.7.7.
-
-    The old pattern *{task}*.slice_info.config would match BOTH files even though
-    they belong to different MakerWorld project uploads. The new prefix-scoped
-    pattern {project_id}-*.slice_info.config matches only files in the same project.
-    """
-    task = "0.2mm_layer_2_walls_15pct_infill"  # generic MakerWorld profile name
-    project_id = "1051895"
-    other_project_id = "1054813"
-
-    # Active project's data
-    active_xml = _make_slice_xml([
-        {"id": 0, "used_g": 12.50, "mat": "PLA", "tray_idx": "0"},
-    ])
-    # Unrelated project with the same generic task name
-    unrelated_xml = _make_slice_xml([
-        {"id": 0, "used_g": 99.99, "mat": "PETG", "tray_idx": "1"},
-    ])
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        pathlib.Path(tmp_dir, f"{project_id}-{task}.slice_info.config").write_bytes(active_xml)
-        pathlib.Path(tmp_dir, f"{other_project_id}-{task}.slice_info.config").write_bytes(unrelated_xml)
-
-        app = _TestableUsageSync(state_map={})
-        app._bambulab_cache_path = tmp_dir
-        app._gcode_file_entity = "sensor.test_gcode"
-        app._state_map[app._gcode_file_entity] = f"{project_id}-{task}.gcode"
-        app._state_map[app._task_name_entity] = task
-        app.threemf_enabled = True
-
-        result = app._try_cache_3mf()
-
-    assert result is True
-    assert len(app._threemf_data) == 1, "Only active project's data should be in _threemf_data"
-    assert abs(app._threemf_data[0]["used_g"] - 12.50) < 0.01
-    # No sibling match within the same project prefix → multi-plate log must NOT fire
-    assert not _has_log(app, "3MF_CACHE_MULTI_PLATE"), (
-        "3MF_CACHE_MULTI_PLATE must not fire when the only other file belongs to "
-        "a different project-ID prefix"
-    )
-
-
-def test_try_cache_3mf_malformed_sibling_skipped_primary_preserved():
-    """A bad sibling slice_info.config logs a warning and is skipped;
-    primary plate data is preserved.
-
-    Both files share the same project-ID prefix so they ARE siblings under the
-    new prefix-scoped glob. The sibling contains invalid XML. The primary is valid.
-    Assert: _try_cache_3mf returns True, _threemf_data holds only primary data,
-    and 3MF_CACHE_SIBLING_PARSE_ERROR is logged.
-    """
-    project_id = "100"
-    task = "Malformed_sibling_test"
-
-    primary_xml = _make_slice_xml([
-        {"id": 0, "used_g": 7.77, "mat": "PLA", "tray_idx": "0"},
-    ])
-    bad_xml = b"NOT VALID XML <<<"
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        # Primary file — valid
-        pathlib.Path(tmp_dir, f"{project_id}-{task}.slice_info.config").write_bytes(primary_xml)
-        # Sibling — same prefix, invalid XML; glob pattern is "100-*.slice_info.config"
-        pathlib.Path(tmp_dir, f"{project_id}-{task}_plate2.slice_info.config").write_bytes(bad_xml)
-
-        app = _TestableUsageSync(state_map={})
-        app._bambulab_cache_path = tmp_dir
-        app._gcode_file_entity = "sensor.test_gcode"
-        app._state_map[app._gcode_file_entity] = f"{project_id}-{task}.gcode"
-        app._state_map[app._task_name_entity] = task
-        app.threemf_enabled = True
-
-        result = app._try_cache_3mf()
-
-    assert result is True, "_try_cache_3mf must return True when primary is valid"
-    assert app._threemf_data is not None
-    assert len(app._threemf_data) == 1, "Only primary data should survive; malformed sibling skipped"
-    assert abs(app._threemf_data[0]["used_g"] - 7.77) < 0.01
-    assert _has_log(app, "3MF_CACHE_SIBLING_PARSE_ERROR"), (
-        "3MF_CACHE_SIBLING_PARSE_ERROR must be logged when a sibling file fails to parse"
-    )
-
-
-def test_ftps_success_resets_disk_restore_flag():
-    """After FTPS fetch succeeds following a disk-restore, the _threemf_from_disk_restore
-    flag must be reset to False.
-
-    This tests that _on_3mf_fetched sets _threemf_from_disk_restore = False on
-    the success path, so a subsequent _fetch_3mf_background call will not
-    re-enter the disk-restore recheck branch.
-    """
-    app = _TestableUsageSync(state_map={})
-    app.threemf_enabled = True
-    app._threemf_from_disk_restore = True  # simulate state after disk restore recheck miss
-    app._job_key = "test_ftps_reset_001"
-
-    filaments = [{"index": 0, "used_g": 15.0, "color_hex": "FF0000", "material": "pla", "tray_info_idx": "0"}]
-    fetch_result = {
-        "job_key": "test_ftps_reset_001",
-        "attempt": 1,
-        "status": "success",
-        "filaments": filaments,
-        "filename": "1-My_Model.gcode.3mf",
-        "found_dir": "/cache",
-        "timing": {},
-        "file_count": 1,
-    }
-
-    app._on_3mf_fetched({"fetch_result": fetch_result})
-
-    assert app._threemf_from_disk_restore is False, (
-        "_threemf_from_disk_restore must be reset to False after FTPS success"
-    )
-    assert app._threemf_data == filaments
-    assert app._threemf_filename == "1-My_Model.gcode.3mf"
-
-
-def test_disk_restore_recheck_with_fewer_trays_than_original():
-    """If the recheck returns fewer trays than disk-restored data, the new data wins.
-
-    _fetch_3mf_background with _threemf_from_disk_restore=True and _threemf_data
-    set to 3 trays calls _try_cache_3mf. When _try_cache_3mf replaces data with
-    1 tray (and resets the flag), the caller must accept the replacement.
-    """
-    app = _TestableUsageSync(state_map={})
-    app.threemf_enabled = True
-    app._threemf_data = [
-        {"index": 0, "used_g": 10.0, "tray_info_idx": "0"},
-        {"index": 1, "used_g": 5.0, "tray_info_idx": "1"},
-        {"index": 2, "used_g": 3.0, "tray_info_idx": "2"},
-    ]
-    app._threemf_from_disk_restore = True
-
-    replacement_data = [{"index": 0, "used_g": 10.0, "tray_info_idx": "0"}]
-
-    def fake_try_cache():
-        app._threemf_data = replacement_data
-        app._threemf_from_disk_restore = False
-        return True
-
-    app._try_cache_3mf = fake_try_cache
-    app._fetch_3mf_background({"attempt": 1})
-
-    assert len(app._threemf_data) == 1, (
-        "New data with fewer trays should replace disk-restored data"
-    )
-    assert app._threemf_from_disk_restore is False
-    assert _has_log(app, "3MF_CACHE_DISK_RESTORE_RECHECK")

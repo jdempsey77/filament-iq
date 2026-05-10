@@ -44,6 +44,7 @@ try:
         normalize_color,
         normalize_material,
         parse_3mf_filaments,
+        parse_3mf_metadata,
         parse_lot_nr_color,
         parse_slice_info_file,
     )
@@ -51,13 +52,12 @@ try:
 except ImportError:
     THREEMF_AVAILABLE = False
 
-# Path next to this app so it works under /config/appdaemon/apps or /addon_configs/.../apps
-_APP_DIR = os.path.dirname(os.path.abspath(__file__))
-SEEN_JOBS_PATH = os.path.join(_APP_DIR, "data", "seen_job_keys.json")
+_DEFAULT_DATA_DIR = "/addon_configs/a0d7b954_appdaemon/data/filament_iq"
+SEEN_JOBS_PATH = os.path.join(_DEFAULT_DATA_DIR, "seen_job_keys.json")
 
 MAX_SEEN_JOBS = 50
-ACTIVE_PRINT_FILE = pathlib.Path(_APP_DIR) / "data" / "active_print.json"
-PRINT_HISTORY_DIR = pathlib.Path(_APP_DIR) / "data" / "print_history"
+ACTIVE_PRINT_FILE = pathlib.Path(_DEFAULT_DATA_DIR) / "active_print.json"
+PRINT_HISTORY_DIR = pathlib.Path(_DEFAULT_DATA_DIR) / "print_history"
 PRINT_HISTORY_MAX = 50
 
 # Notification display labels
@@ -94,6 +94,7 @@ _SKIP_REASON_LABELS = {
     "SANITY_CAP":                        "Estimate exceeded sanity limit",
     "BELOW_MIN":                         "Below minimum threshold",
     "DATA_LOSS":                         "Sensor data unavailable",
+    "SPOOLMAN_CONTRADICTS_EMPTY":        "Spoolman record contradicts depletion signal",
     "NO_3MF_AND_TRAY_NOT_EMPTY":         "No slicer data",
     "DEPLETED_BUT_NO_SPOOLMAN_REMAINING": "Depleted, no Spoolman record",
     "UNKNOWN":                           "Unknown reason",
@@ -138,6 +139,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 "min_tray_active_seconds": (float, 10.0),
                 "printer_ftps_port": (int, 990),
                 "dry_run": (bool, False),
+                "data_dir": (str, ""),
             },
             range_keys={
                 "max_consumption_g": (1.0, None),
@@ -161,6 +163,10 @@ class AmsPrintUsageSync(FilamentIQBase):
         )
         self.min_tray_active_seconds = float(self.args.get("min_tray_active_seconds", 10))
         self.notify_service = str(self.args.get("notify_service", "mobile_app_jd_pixel_10_pro_xl"))
+        _data_dir = str(self.args.get("data_dir", "")).strip().rstrip("/") or _DEFAULT_DATA_DIR
+        self._seen_jobs_path = os.path.join(_data_dir, "seen_job_keys.json")
+        self._active_print_file = pathlib.Path(_data_dir) / "active_print.json"
+        self._print_history_dir = pathlib.Path(_data_dir) / "print_history"
         self._seen_job_keys = self._load_seen_job_keys()
         self._ensure_data_dir()
 
@@ -565,6 +571,32 @@ class AmsPrintUsageSync(FilamentIQBase):
                 patched += 1
                 continue
 
+            # FIX A1: Pre-write depletion guard.
+            # Fetch current remaining_weight before writing; skip if already <= 0.
+            # Fail open: if the fetch fails, proceed with the write.
+            _pre_spool = None
+            try:
+                _pre_spool = self._spoolman_get(f"/api/v1/spool/{decision.spool_id}")
+                if _pre_spool is None:
+                    raise ValueError("fetch_returned_none")
+            except Exception as _e:
+                self.log(
+                    f"USAGE_DEPLETED_CHECK_FAILED slot={decision.slot} "
+                    f"spool_id={decision.spool_id} error={_e}",
+                    level="WARNING",
+                )
+            else:
+                _pre_remaining = float(_pre_spool.get("remaining_weight", 0))
+                if _pre_remaining <= 0:
+                    self.log(
+                        f"USAGE_DEPLETED_SKIP slot={decision.slot} "
+                        f"spool_id={decision.spool_id} remaining={_pre_remaining} "
+                        f"method={decision.method} "
+                        f"would_have_consumed={decision.consumption_g}",
+                        level="WARNING",
+                    )
+                    continue
+
             result = self._spoolman_use(decision.spool_id, decision.consumption_g)
             if result:
                 decision.post_write_remaining = float(
@@ -633,6 +665,33 @@ class AmsPrintUsageSync(FilamentIQBase):
                                 f"spool_id={decision.spool_id}: {e}",
                                 level="WARNING",
                             )
+                    # FIX A2: Always clear slot helper and notify on depletion.
+                    self.call_service(
+                        "input_text/set_value",
+                        entity_id=f"input_text.ams_slot_{decision.slot}_spool_id",
+                        value="",
+                    )
+                    self.log(
+                        f"SLOT_HELPER_CLEARED_ON_DEPLETION slot={decision.slot} "
+                        f"spool_id={decision.spool_id}",
+                        level="INFO",
+                    )
+                    try:
+                        self.call_service(
+                            f"notify/{self.notify_service}",
+                            title=f"Spool depleted — slot {decision.slot}",
+                            message=(
+                                f"Spool #{decision.spool_id} is empty. "
+                                f"Load a new spool and bind it to slot {decision.slot} "
+                                f"to resume tracking."
+                            ),
+                        )
+                    except Exception as e:
+                        self.log(
+                            f"SLOT_HELPER_NOTIFY_FAILED slot={decision.slot} "
+                            f"spool_id={decision.spool_id} error={e}",
+                            level="WARNING",
+                        )
                     if (
                         self.auto_empty_spools
                         and not self._is_tray_physically_present(decision.slot)
@@ -672,7 +731,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         if not self._job_key:
             return
         try:
-            PRINT_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+            self._print_history_dir.mkdir(parents=True, exist_ok=True)
             written = [d for d in decisions if d.method != "no_evidence"]
             record = {
                 "job_key": self._job_key,
@@ -700,12 +759,12 @@ class AmsPrintUsageSync(FilamentIQBase):
                     for d in decisions
                 },
             }
-            path = PRINT_HISTORY_DIR / f"{self._job_key}.json"
+            path = self._print_history_dir / f"{self._job_key}.json"
             tmp = path.with_suffix(".tmp")
             tmp.write_text(json.dumps(record, indent=2))
             tmp.replace(path)
             files = sorted(
-                PRINT_HISTORY_DIR.glob("*.json"),
+                self._print_history_dir.glob("*.json"),
                 key=lambda f: f.stat().st_mtime,
             )
             for old in files[:-PRINT_HISTORY_MAX]:
@@ -1003,6 +1062,9 @@ class AmsPrintUsageSync(FilamentIQBase):
             )
             return
         self._print_start_time = time.time()
+        self._threemf_filename = None
+        self._write_threemf_sensor()
+        self._write_makerworld_sensors()
         task_name = str(self.get_state(self._task_name_entity) or "")
         self._job_key = f"{task_name.replace(' ', '_')}_{int(time.time())}"
         self._start_snapshot = self._build_start_snapshot()
@@ -1089,6 +1151,8 @@ class AmsPrintUsageSync(FilamentIQBase):
         """Phase 1 print end handler: clear snapshot, set print_active off."""
         self._start_snapshot = {}
         self._job_key = ""
+        self._threemf_filename = None
+        self._write_threemf_sensor()
         try:
             self.call_service(
                 "input_boolean/turn_off",
@@ -1162,10 +1226,22 @@ class AmsPrintUsageSync(FilamentIQBase):
                     fname = restored.get("threemf_file")
                     if fname:
                         self._threemf_filename = fname
+                        self._write_threemf_sensor()
                         self.log(
                             f"REHYDRATE_THREEMF_FILENAME filename={fname}",
                             level="INFO",
                         )
+                        _3mf_fname = fname.replace(".slice_info.config", ".3mf") if fname.endswith(".slice_info.config") else fname
+                        _cache_path = os.path.join(self._bambulab_cache_path, _3mf_fname)
+                        if self._bambulab_cache_path and os.path.exists(_cache_path):
+                            _mw_meta = parse_3mf_metadata(_cache_path)
+                            self._write_makerworld_sensors(
+                                makerworld_url=_mw_meta.get("makerworld_url"),
+                                title=_mw_meta.get("title"),
+                            )
+                            self.log(f"MW_RESULT url={_mw_meta.get('makerworld_url')} title={_mw_meta.get('title')}", level="INFO")
+                        else:
+                            self.log(f"MW_SKIP cache_path={_cache_path} bambulab={bool(self._bambulab_cache_path)} exists={os.path.exists(_cache_path)}", level="INFO")
                 if restored["trays_used"]:
                     self._trays_used = restored["trays_used"]
                 if restored["spool_id_snapshot"]:
@@ -1526,10 +1602,22 @@ class AmsPrintUsageSync(FilamentIQBase):
                     fname = restored.get("threemf_file")
                     if fname:
                         self._threemf_filename = fname
+                        self._write_threemf_sensor()
                         self.log(
                             f"REHYDRATE_THREEMF_FILENAME filename={fname}",
                             level="INFO",
                         )
+                        _3mf_fname = fname.replace(".slice_info.config", ".3mf") if fname.endswith(".slice_info.config") else fname
+                        _cache_path = os.path.join(self._bambulab_cache_path, _3mf_fname)
+                        if self._bambulab_cache_path and os.path.exists(_cache_path):
+                            _mw_meta = parse_3mf_metadata(_cache_path)
+                            self._write_makerworld_sensors(
+                                makerworld_url=_mw_meta.get("makerworld_url"),
+                                title=_mw_meta.get("title"),
+                            )
+                            self.log(f"MW_RESULT url={_mw_meta.get('makerworld_url')} title={_mw_meta.get('title')}", level="INFO")
+                        else:
+                            self.log(f"MW_SKIP cache_path={_cache_path} bambulab={bool(self._bambulab_cache_path)} exists={os.path.exists(_cache_path)}", level="INFO")
                 if restored["trays_used"]:
                     self._trays_used = restored["trays_used"]
                 if restored["spool_id_snapshot"]:
@@ -1719,6 +1807,13 @@ class AmsPrintUsageSync(FilamentIQBase):
 
             self._threemf_data = merged
             self._threemf_filename = os.path.basename(full_path)
+            self._write_threemf_sensor()
+            _3mf_path = full_path.replace(".slice_info.config", ".3mf") if full_path.endswith(".slice_info.config") else full_path
+            mw_meta = parse_3mf_metadata(_3mf_path) if THREEMF_AVAILABLE and os.path.exists(_3mf_path) else {}
+            self._write_makerworld_sensors(
+                makerworld_url=mw_meta.get("makerworld_url"),
+                title=mw_meta.get("title"),
+            )
             self._threemf_from_disk_restore = False
             total_g = sum(f["used_g"] for f in merged)
             self.log(
@@ -1764,6 +1859,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             # cache_retry=True: second attempt also missed — proceed to FTPS
             self._threemf_data = None
             self._threemf_filename = None
+            self._write_threemf_sensor()
 
         access_code = self._get_access_code()
         if not access_code:
@@ -1859,6 +1955,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                         return
 
                     filaments = parse_3mf_filaments(local_path)
+                    result["mw_meta"] = parse_3mf_metadata(local_path)
                     result["timing"]["parse"] = time.monotonic() - t_download
 
                 if not filaments:
@@ -1903,6 +2000,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                         return
 
                     filaments = parse_3mf_filaments(local_path)
+                    result["mw_meta"] = parse_3mf_metadata(local_path)
                     result["timing"]["parse"] = time.monotonic() - t_download
 
                 if not filaments:
@@ -1965,8 +2063,14 @@ class AmsPrintUsageSync(FilamentIQBase):
             filaments = result["filaments"]
             best_file = result["filename"]
             found_dir = result["found_dir"]
+            mw_meta = result.get("mw_meta", {})
             self._threemf_data = filaments
             self._threemf_filename = best_file
+            self._write_threemf_sensor()
+            self._write_makerworld_sensors(
+                makerworld_url=mw_meta.get("makerworld_url"),
+                title=mw_meta.get("title"),
+            )
             self._threemf_from_disk_restore = False
             total_g = sum(f["used_g"] for f in filaments)
             self.log(
@@ -2137,7 +2241,7 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     def _load_seen_job_keys(self):
         try:
-            with open(SEEN_JOBS_PATH, "r", encoding="utf-8") as f:
+            with open(self._seen_jobs_path, "r", encoding="utf-8") as f:
                 raw = json.load(f)
             if isinstance(raw, list):
                 keys = [str(k) for k in raw if k]
@@ -2152,40 +2256,40 @@ class AmsPrintUsageSync(FilamentIQBase):
             return OrderedDict()
         except (json.JSONDecodeError, TypeError, OSError) as e:
             self.log(
-                f"AmsPrintUsageSync: could not load seen_job_keys from {SEEN_JOBS_PATH}: {e}. Starting empty.",
+                f"AmsPrintUsageSync: could not load seen_job_keys from {self._seen_jobs_path}: {e}. Starting empty.",
                 level="WARNING",
             )
             return OrderedDict()
 
     def _ensure_data_dir(self):
         try:
-            dir_path = os.path.dirname(SEEN_JOBS_PATH)
+            dir_path = os.path.dirname(self._seen_jobs_path)
             os.makedirs(dir_path, exist_ok=True)
-            if not os.path.isfile(SEEN_JOBS_PATH):
-                with open(SEEN_JOBS_PATH, "w", encoding="utf-8") as f:
+            if not os.path.isfile(self._seen_jobs_path):
+                with open(self._seen_jobs_path, "w", encoding="utf-8") as f:
                     json.dump([], f)
         except OSError as e:
             self.log(
-                f"AmsPrintUsageSync: could not ensure data dir {os.path.dirname(SEEN_JOBS_PATH)}: {e}",
+                f"AmsPrintUsageSync: could not ensure data dir {os.path.dirname(self._seen_jobs_path)}: {e}",
                 level="WARNING",
             )
 
     def _persist_seen_job_keys(self):
         try:
-            dir_path = os.path.dirname(SEEN_JOBS_PATH)
+            dir_path = os.path.dirname(self._seen_jobs_path)
             os.makedirs(dir_path, exist_ok=True)
             keys = list(self._seen_job_keys.keys())
-            tmp_path = SEEN_JOBS_PATH + ".tmp"
+            tmp_path = self._seen_jobs_path + ".tmp"
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(keys, f, indent=None)
-            os.replace(tmp_path, SEEN_JOBS_PATH)
+            os.replace(tmp_path, self._seen_jobs_path)
         except Exception as e:
             self.log(
                 f"PERSIST_JOB_KEYS_FAILED: {e}",
                 level="ERROR",
             )
             try:
-                os.unlink(SEEN_JOBS_PATH + ".tmp")
+                os.unlink(self._seen_jobs_path + ".tmp")
             except OSError:
                 pass
 
@@ -2212,9 +2316,9 @@ class AmsPrintUsageSync(FilamentIQBase):
             "threemf_unavailable": threemf_unavailable,
         }
         try:
-            tmp = ACTIVE_PRINT_FILE.with_suffix(".tmp")
+            tmp = self._active_print_file.with_suffix(".tmp")
             tmp.write_text(json.dumps(data))
-            tmp.replace(ACTIVE_PRINT_FILE)
+            tmp.replace(self._active_print_file)
             self.log(
                 f"ACTIVE_PRINT_PERSISTED job_key={self._job_key} "
                 f"has_3mf={self._threemf_data is not None} "
@@ -2227,9 +2331,9 @@ class AmsPrintUsageSync(FilamentIQBase):
     def _load_active_print(self, job_key):
         """Read active_print.json on rehydrate. Returns dict with threemf_data, trays_used, spool_id_snapshot."""
         try:
-            if not ACTIVE_PRINT_FILE.exists():
+            if not self._active_print_file.exists():
                 return None
-            data = json.loads(ACTIVE_PRINT_FILE.read_text())
+            data = json.loads(self._active_print_file.read_text())
             if data.get("job_key") != job_key:
                 self.log(
                     f"ACTIVE_PRINT_STALE persisted={data.get('job_key')} "
@@ -2260,11 +2364,33 @@ class AmsPrintUsageSync(FilamentIQBase):
     def _clear_active_print(self):
         """Delete active_print.json after print finish."""
         try:
-            if ACTIVE_PRINT_FILE.exists():
-                ACTIVE_PRINT_FILE.unlink()
+            if self._active_print_file.exists():
+                self._active_print_file.unlink()
                 self.log("ACTIVE_PRINT_CLEARED", level="DEBUG")
         except Exception as e:
             self.log(f"ACTIVE_PRINT_CLEAR_FAILED: {e}", level="WARNING")
+
+    def _write_threemf_sensor(self) -> None:
+        """Write _threemf_filename to a HA sensor for card consumption."""
+        value = self._threemf_filename if self._threemf_filename else "unknown"
+        self.set_state(
+            "sensor.filament_iq_threemf_filename",
+            state=value,
+            attributes={"friendly_name": "Filament IQ 3MF Filename"},
+        )
+
+    def _write_makerworld_sensors(self, makerworld_url=None, title=None) -> None:
+        """Write Makerworld metadata sensors for card consumption."""
+        self.set_state(
+            "sensor.filament_iq_makerworld_url",
+            state=makerworld_url if makerworld_url else "unknown",
+            attributes={"friendly_name": "Filament IQ Makerworld URL"},
+        )
+        self.set_state(
+            "sensor.filament_iq_model_title",
+            state=title if title else "unknown",
+            attributes={"friendly_name": "Filament IQ Model Title"},
+        )
 
     # ── helpers ───────────────────────────────────────────────────────
 

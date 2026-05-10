@@ -173,6 +173,15 @@ def _decide_nonrfid(inp: SlotInput) -> SlotDecision:
         )
 
     if inp.tray_empty and inp.spoolman_remaining is not None:
+        if inp.end_g is not None and inp.end_g > 50.0:
+            return SlotDecision(
+                slot=inp.slot,
+                spool_id=inp.spool_id,
+                consumption_g=0.0,
+                method="no_evidence",
+                skip_reason=f"SPOOLMAN_CONTRADICTS_EMPTY: end_g={inp.end_g:.1f}g",
+                confidence="none",
+            )
         return SlotDecision(
             slot=inp.slot,
             spool_id=inp.spool_id,

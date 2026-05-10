@@ -71,15 +71,18 @@ ok = step(4, `Updating lovelace_resources ?v=${version} (printer-dashboard)`, ()
   ssh(`sed -i 's|/local/printer-dashboard.js[^"]*|/local/printer-dashboard.js?v=${version}|g' ${REMOTE_RESOURCES}`)
 ) && ok
 
+// 4b. Ensure printer-dashboard resource type is "js" not "module"
+ok = step('4b', 'Fixing printer-dashboard type → js in lovelace_resources', () =>
+  ssh(`jq '(.data.items[] | select(.url | contains("printer-dashboard")) | .type) = "js"' ${REMOTE_RESOURCES} > /tmp/lr_tmp && mv /tmp/lr_tmp ${REMOTE_RESOURCES}`)
+) && ok
+
 // 5. Deploy custom component
 ok = step(5, 'Deploying filament_iq_proxy custom component', () =>
   scpDir(LOCAL_COMPONENT, REMOTE_COMPONENT)
 ) && ok
 
-// 6. Deploy configuration.yaml
-ok = step(6, 'Deploying configuration.yaml', () =>
-  scp(resolve(__dirname, '../../../configuration.yaml'), '/config/configuration.yaml')
-) && ok
+// 6. configuration.yaml is deployed by manage_ha.sh — skip here
+ok = step(6, 'Skipping configuration.yaml (deployed by manage_ha.sh)', () => true) && ok
 
 // 7. Bust browser cache via browser_mod.javascript
 if (ok && HA_TOKEN) {

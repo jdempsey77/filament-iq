@@ -458,6 +458,59 @@ def parse_3mf_filaments(local_path):
         return []
 
 
+def parse_3mf_metadata(local_path):
+    """Extract Makerworld metadata from a cached 3MF file.
+
+    Reads 3D/3dmodel.model and extracts Title, Designer, and a Makerworld URL.
+
+    Returns dict with keys:
+        title (str or None)
+        designer (str or None)
+        makerworld_url (str or None) — direct model URL if DSM ID found,
+                                       search URL if only Title available,
+                                       None if neither
+    Returns empty dict on any error.
+    """
+    try:
+        with zipfile.ZipFile(local_path, "r") as zf:
+            if "3D/3dmodel.model" not in zf.namelist():
+                return {}
+            content = zf.read("3D/3dmodel.model").decode("utf-8", errors="replace")
+
+        metadata = {}
+        for m in re.finditer(r'<metadata name="([^"]+)">([^<]*)</metadata>', content):
+            metadata[m.group(1)] = m.group(2)
+
+        title = metadata.get("Title", "").strip() or None
+        designer = metadata.get("Designer", "").strip() or None
+        description = metadata.get("Description", "")
+
+        makerworld_url = None
+
+        # Priority 1: extract model ID from DSM pattern in description image URLs
+        # e.g. DSM00000001378181 → 1378181 → makerworld.com/en/models/1378181
+        dsm_match = re.search(r'DSM0*(\d+)', description)
+        if dsm_match:
+            model_id = dsm_match.group(1)
+            makerworld_url = f"https://makerworld.com/en/models/{model_id}"
+        elif title:
+            # Priority 2: search URL from title
+            makerworld_url = (
+                f"https://makerworld.com/en/search/models"
+                f"?keyword={urllib.parse.quote(title)}"
+            )
+
+        return {
+            "title": title,
+            "designer": designer,
+            "makerworld_url": makerworld_url,
+        }
+
+    except Exception as e:
+        logger.warning("parse_3mf_metadata failed for %s: %s: %s", local_path, type(e).__name__, e)
+        return {}
+
+
 def match_filaments_to_slots(filaments, slot_data, trays_used=None):
     """Match 3MF filament entries to physical AMS slots.
 

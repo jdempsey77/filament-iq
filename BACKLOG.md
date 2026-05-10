@@ -18,6 +18,21 @@
 ### In Progress
 
 ### High Priority
+- [ ] **Move `data/` directory out of AppDaemon app scan path** — AppDaemon's
+  `check_app_updates()` does `os.walk()` + `os.stat()` on every file under the
+  apps directory. The `data/` subdirectory contains 55+ JSON files (print
+  history, active print state, seen job keys) that grow over time. On HA eMMC
+  storage each stat() takes ~25ms — 80+ files = ~2s scan, which blocks the
+  AppDaemon event loop and can trigger supervisor SIGTERM on cold-boot restarts.
+  **Fix:** Move data directory from `apps/filament_iq/data/` (inside scan path)
+  to `/addon_configs/a0d7b954_appdaemon/data/filament_iq/` (outside scan path).
+  Change `_data_dir` path derivation in `ams_print_usage_sync.py` and
+  `ams_rfid_reconcile.py` from `os.path.join(os.path.dirname(__file__), "data")`
+  to a configurable path via `apps.yaml` (e.g. `data_dir` arg). Also update
+  `apps.yaml` and migrate existing files on first run. Reduces scanned file
+  count from 80 to ~25, cutting `check_app_updates()` from ~2s to ~0.5s —
+  below the warning threshold. Needs SDLC treatment (SR + Skeptic) since it
+  touches all persistence paths. (2026-05-09)
 - [x] Slot display shows unknown · unknown after manual bind — template sensor
   race: update_entity hadn't refreshed before template sensors re-evaluated.
   Fixed in home_assistant repo: delay + targeted update_entity + missing
@@ -79,6 +94,17 @@
   unbound_reason from HA. Covers fast-exit paths (non-RFID spool_id=0)
   that never reach a _write_presentation_state() call. 2 new tests.
   (v1.8.2, 2026-05-06)
+- [x] depleted_nonrfid Spoolman contradiction guard — prevents false
+  full-spool depletion writes when end_g (Spoolman via HA template) > 50g
+  contradicts tray_empty signal. Falls to no_evidence with
+  SPOOLMAN_CONTRADICTS_EMPTY skip_reason. Root cause: spool 70 (1000g new)
+  falsely written as fully consumed on 2026-05-07 during rehydrated print
+  with multiple depleted slots. PE-reviewed. 6 new + 4 updated tests.
+  (v1.8.3, 2026-05-08)
+- [ ] 3mf_depleted max() path exposed to same overconsumption risk — when
+  spoolman_remaining is very large and end_g contradicts it, the guard in
+  _decide_nonrfid does not cover the 3mf_depleted branch. Requires separate
+  analysis. (PE-required follow-on from v1.8.3)
 - [x] Phase 2 dashboard consolidation — sensor.ams_slot_N_status template
   sensors now read input_text.ams_slot_N_presentation_state instead of
   raw unbound_reason Jinja string matching. ams_unbound_slot_count fixed:
@@ -140,6 +166,13 @@
 - [ ] Print cache auto-cleanup automation — ha-bambulab print cache at `/config/www/media/ha-bambulab/{serial}/prints/cache/` has no built-in expiry. 99 prints accumulated 1.3GB (avg ~13MB/print: 3MF + gcode + PNG + slice_info.config). Implement: (1) `shell_command.cleanup_bambulab_cache` in `configuration.yaml` that deletes files older than 30 days, (2) weekly automation triggered Sunday 02:00, (3) manual button on 3D Printer dashboard. Also consider timelapse cleanup (25MB currently, will grow). Path: `/config/www/media/ha-bambulab/{serial}/` covers both `prints/cache/` and `timelapse/`.
 - [ ] Print cache cleanup — manual immediate fix — 1.3GB of ha-bambulab print cache deleted manually on 2026-03-24 (99 prints x ~13MB). Disk: 87% -> 82%. Swap was nearly exhausted (1293/1295MB used) due to memory pressure from accumulated cache + ha-bambulab v2.2.21 update loading new entities. Recurring issue without the auto-cleanup automation above. Monitor disk usage periodically: `du -sh /config/www/media/ha-bambulab/`.
 - [ ] Print cache auto-cleanup documentation for OSS users — recommend documenting cleanup command in README or docs/09_runbooks.md: `find /config/www/media/ha-bambulab -type f -mtime +30 -delete`.
+
+## ~~Makerworld model link from hero card~~ — DONE (v1.7.6, 2026-05-09)
+
+`parse_3mf_metadata()` reads `3D/3dmodel.model` from cached 3MF zips, extracts
+DSM model ID from description image URLs → direct model URL, or falls back to
+search URL from Title. Two new sensors: `sensor.filament_iq_makerworld_url` and
+`sensor.filament_iq_model_title`. Card reads the URL sensor directly.
 
 
 ### Done

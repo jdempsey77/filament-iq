@@ -139,30 +139,25 @@ class TestPrintLifecycle:
 
     def test_print_end_loads_3mf_from_disk_when_not_in_memory(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
-            import filament_iq.ams_print_usage_sync as mod
-            orig = mod.ACTIVE_PRINT_FILE
-            try:
-                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-                mod.ACTIVE_PRINT_FILE = ap_file
-                threemf = [{"index": 0, "used_g": 50.0}]
-                ap_file.write_text(json.dumps({
-                    "job_key": "disk_test",
-                    "start_snapshot": {"1": 900.0},
-                    "threemf_data": threemf,
-                }))
-                app = _TestableUsageSync(
-                    state_map={},
-                    args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
-                )
-                app._job_key = "disk_test"
-                app._start_snapshot = {1: 900.0}
-                app._trays_used = set()
-                app._print_active = True
-                app.threemf_enabled = True
-                app._threemf_data = None
-                app._do_finish = mock.MagicMock()
-                app._on_print_finish("finish")
-                assert app._threemf_data == threemf
-                assert _has_log(app, "3MF_RECOVERED_FROM_DISK")
-            finally:
-                mod.ACTIVE_PRINT_FILE = orig
+            ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+            threemf = [{"index": 0, "used_g": 50.0}]
+            ap_file.write_text(json.dumps({
+                "job_key": "disk_test",
+                "start_snapshot": {"1": 900.0},
+                "threemf_data": threemf,
+            }))
+            app = _TestableUsageSync(
+                state_map={},
+                args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True,
+                      "data_dir": tmp_dir},
+            )
+            app._job_key = "disk_test"
+            app._start_snapshot = {1: 900.0}
+            app._trays_used = set()
+            app._print_active = True
+            app.threemf_enabled = True
+            app._threemf_data = None
+            app._do_finish = mock.MagicMock()
+            app._on_print_finish("finish")
+            assert app._threemf_data == threemf
+            assert _has_log(app, "3MF_RECOVERED_FROM_DISK")

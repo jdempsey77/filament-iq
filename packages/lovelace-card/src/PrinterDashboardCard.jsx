@@ -1,55 +1,100 @@
 import { h, Component } from 'preact'
 import { useState } from 'preact/hooks'
 
-function CameraView({ getHass }) {
-  const hass = getHass()
-  const printerOn = hass?.states?.['switch.officeoutlet01_3dprinter']?.state === 'on'
-  const token = hass?.auth?.data?.access_token
-
-  const camStyle = {
-    width: '100%',
-    aspectRatio: '16/9',
-    objectFit: 'cover',
-    borderRadius: 8,
-    display: 'block',
-    background: '#0a0a0a',
+class CamerasSegment extends Component {
+  constructor(props) {
+    super(props)
+    this.tapoRef = null
+    this.bambuRef = null
+    this._tapoCard = null
+    this._bambuCard = null
   }
 
-  const labelStyle = {
-    fontSize: 8,
-    color: '#2c2c2e',
-    marginTop: 3,
-    textAlign: 'center',
+  async _createCard(config) {
+    const helpers = await window.loadCardHelpers()
+    const card = await helpers.createCardElement(config)
+    card.hass = this.props.getHass()
+    return card
   }
 
-  const tapoCam = `/api/camera_proxy/camera.tapo_c111_live_view?token=${token}&t=${Date.now()}`
-  const bambuCam = `/api/camera_proxy/camera.p1s_01p00c5a3101668_camera?token=${token}&t=${Date.now()}`
+  async componentDidMount() {
+    if (this.tapoRef) {
+      this._tapoCard = await this._createCard({
+        type: 'custom:webrtc-camera',
+        entity: 'camera.tapo_c111_live_view',
+        ui: false,
+        card_mod: {
+          style: `ha-card {
+            border: 1px solid #3a3a3c !important;
+            border-radius: 12px !important;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.7) !important;
+            background: #1c1c1e !important;
+          }
+          #video-container .header { display: none !important; }`
+        }
+      })
+      if (this._tapoCard) this.tapoRef.appendChild(this._tapoCard)
+    }
 
-  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 } },
-    h('div', null,
-      h('img', {
-        src: tapoCam,
-        style: camStyle,
-        alt: 'Tapo office',
-        onError: e => { e.target.style.display = 'none' },
-      }),
-      h('div', { style: labelStyle }, 'Tapo · office')
-    ),
-    printerOn && h('div', null,
-      h('img', {
-        src: bambuCam,
-        style: camStyle,
-        alt: 'Bambu chamber',
-        onError: e => { e.target.style.display = 'none' },
-      }),
-      h('div', { style: labelStyle }, 'Bambu · chamber')
+    const hass = this.props.getHass()
+    const printerOn = hass?.states?.['switch.officeoutlet01_3dprinter']?.state === 'on'
+    if (this.bambuRef && printerOn) {
+      this._bambuCard = await this._createCard({
+        type: 'conditional',
+        conditions: [{ entity: 'switch.officeoutlet01_3dprinter', state: 'on' }],
+        card: {
+          type: 'picture-entity',
+          entity: 'camera.p1s_01p00c5a3101668_camera',
+          show_state: false,
+          show_name: false,
+          camera_view: 'live',
+          fit_mode: 'cover',
+          card_mod: {
+            style: `ha-card {
+              border: 1px solid #3a3a3c !important;
+              border-radius: 12px !important;
+              box-shadow: 0 6px 16px rgba(0,0,0,0.7) !important;
+              background: #2c2c2e !important;
+            }`
+          }
+        }
+      })
+      if (this._bambuCard) this.bambuRef.appendChild(this._bambuCard)
+    }
+  }
+
+  componentDidUpdate() {
+    const hass = this.props.getHass()
+    if (this._tapoCard) this._tapoCard.hass = hass
+    if (this._bambuCard) this._bambuCard.hass = hass
+  }
+
+  componentWillUnmount() {
+    if (this._tapoCard) this._tapoCard.remove()
+    if (this._bambuCard) this._bambuCard.remove()
+    this._tapoCard = null
+    this._bambuCard = null
+  }
+
+  render() {
+    const labelStyle = { fontSize: 10, color: '#444', marginTop: 4, textAlign: 'center' }
+    return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 400, margin: '0 auto' } },
+      h('div', null,
+        h('div', { ref: el => this.tapoRef = el }),
+        h('div', { style: labelStyle }, 'Tapo · office')
+      ),
+      h('div', null,
+        h('div', { ref: el => this.bambuRef = el }),
+        h('div', { style: labelStyle }, 'Bambu · chamber')
+      )
     )
-  )
+  }
 }
 
 // ── MDI SVG paths — inline, no external dependency ──────────
 const ICONS = {
   printer:      'M6,2A2,2 0 0,0 4,4V10A2,2 0 0,0 6,12H10A2,2 0 0,0 12,10V4A2,2 0 0,0 10,2H6M6,4H10V10H6V4M4,14A2,2 0 0,0 2,16V22H22V16A2,2 0 0,0 20,14H4M6,16H18V20H6V16Z',
+  video:        'M17,10.5V7A1,1 0 0,0 16,6H4A1,1 0 0,0 3,7V17A1,1 0 0,0 4,18H16A1,1 0 0,0 17,17V13.5L21,17.5V6.5L17,10.5Z',
   slots:        'M2,2H8V8H2V2M10,2H16V8H10V2M18,2H22V8H18V2M2,10H8V16H2V10M10,10H16V16H10V10M18,10H22V16H18V10M2,18H8V22H2V18M10,18H16V22H10V18M18,18H22V22H18V18Z',
   brain:        'M13,3A9,9 0 0,0 4,12H2A11,11 0 0,1 13,1V3M13,21V23A11,11 0 0,0 24,12H22A9,9 0 0,1 13,21M4,12A9,9 0 0,0 13,21V23A11,11 0 0,1 2,12H4M22,12A9,9 0 0,0 13,3V1A11,11 0 0,1 24,12H22Z',
   clock:        'M12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22C6.47,22 2,17.5 2,12A10,10 0 0,1 12,2M12.5,7V12.25L17,14.92L16.25,16.15L11,13V7H12.5Z',
@@ -85,6 +130,7 @@ function hexToRgb(hex) {
 function SegBar({ active, onSwitch }) {
   const segs = [
     { id: 'printer', label: 'Printer',     icon: ICONS.printer },
+    { id: 'cameras', label: 'Cameras',     icon: ICONS.video },
     { id: 'slots',   label: 'Slots',       icon: ICONS.slots },
     { id: 'fiq',     label: 'Filament IQ', icon: ICONS.brain },
   ]
@@ -108,14 +154,14 @@ function PrinterSegment({ getHass }) {
   const sv = id => hass?.states?.[id]?.state ?? '—'
   const sa = (id, attr) => hass?.states?.[id]?.attributes?.[attr]
 
-  const status    = sv('sensor.p1s_01p00c5a3101668_print_status')
-  const progress  = parseFloat(sv('sensor.p1s_01p00c5a3101668_print_progress')) || 0
-  const remaining = parseFloat(sv('sensor.p1s_01p00c5a3101668_remaining_time')) || 0
-  const curLayer  = sv('sensor.p1s_01p00c5a3101668_current_layer')
+  const status     = sv('sensor.p1s_01p00c5a3101668_print_status')
+  const progress   = parseFloat(sv('sensor.p1s_01p00c5a3101668_print_progress')) || 0
+  const remaining  = parseFloat(sv('sensor.p1s_01p00c5a3101668_remaining_time')) || 0
+  const curLayer   = sv('sensor.p1s_01p00c5a3101668_current_layer')
   const totalLayer = sv('sensor.p1s_01p00c5a3101668_total_layer_count')
-  const taskName  = sv('sensor.p1s_01p00c5a3101668_task_name')
-  const stage     = sv('sensor.p1s_01p00c5a3101668_current_stage')
-  const imgUrl    = sa('image.p1s_01p00c5a3101668_cover_image', 'entity_picture')
+  const taskName   = sv('sensor.p1s_01p00c5a3101668_task_name')
+  const stage      = sv('sensor.p1s_01p00c5a3101668_current_stage')
+  const imgUrl     = sa('image.p1s_01p00c5a3101668_cover_image', 'entity_picture')
 
   const isPrinting = status === 'running'
   const isPaused   = status === 'pause'
@@ -135,16 +181,17 @@ function PrinterSegment({ getHass }) {
   const tray        = hass?.states?.['sensor.p1s_01p00c5a3101668_ams_1_tray_2']
   const activeColor = tray?.attributes?.color
     ? '#' + tray.attributes.color.replace('#', '').substring(0, 6) : '#888'
-  const activeType  = tray?.attributes?.type ?? ''
-  const remainG     = sv('sensor.ams_slot_2_remaining_g')
+  const material    = tray?.attributes?.type ?? ''
+  const remainG     = parseFloat(sv('sensor.ams_slot_2_remaining_g')) || 0
+  const remainPct   = Math.round(remainG / 1000 * 100)
   const vendor      = sv('sensor.ams_slot_2_vendor')
   const spoolId     = sv('input_text.ams_slot_2_spool_id')
   const activeName  = tray?.attributes?.name ?? '—'
 
-  const nozzle    = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_nozzle_temperature')) || 0)
-  const nozzleTgt = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_nozzle_target_temperature')) || 0)
-  const bed       = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_bed_temperature')) || 0)
-  const bedTgt    = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_bed_target_temperature')) || 0)
+  const nozzle     = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_nozzle_temperature')) || 0)
+  const nozzleTgt  = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_nozzle_target_temperature')) || 0)
+  const bed        = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_bed_temperature')) || 0)
+  const bedTgt     = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_bed_target_temperature')) || 0)
   const chamberPct = sa('fan.p1s_01p00c5a3101668_chamber_fan', 'percentage') ?? 0
   const chamberOn  = sv('fan.p1s_01p00c5a3101668_chamber_fan') === 'on'
   const coolingPct = sa('fan.p1s_01p00c5a3101668_cooling_fan', 'percentage') ?? 0
@@ -166,107 +213,120 @@ function PrinterSegment({ getHass }) {
       call('switch', 'toggle', { entity_id: 'switch.officeoutlet01_3dprinter' })
   }
 
+  const vitals = [
+    { label: 'Nozzle',  value: `${nozzle}° / ${nozzleTgt}°`,       color: nozzleTgt > 0 ? '#e8784a' : '#555', icon: ICONS.nozzle },
+    { label: 'Bed',     value: `${bed}° / ${bedTgt}°`,              color: bedTgt > 0    ? '#e8784a' : '#555', icon: ICONS.nozzle },
+    { label: 'Chamber', value: chamberOn ? `${chamberPct}%` : 'Off', color: chamberOn ? '#6aabda' : '#444',   icon: ICONS.fan },
+    { label: 'Cooling', value: coolingOn ? `${coolingPct}%` : 'Off', color: coolingOn ? '#6aabda' : '#444',   icon: ICONS.fan },
+    { label: 'WiFi',    value: wifiLabel,                            color: wifiColor,                         icon: ICONS.wifi },
+    { label: 'Hours',   value: `${hours}h`,                         color: '#aaa',                            icon: ICONS.clock },
+  ]
+
+  const mwUrlRaw = sv('sensor.filament_iq_makerworld_url')
+  const mwUrl = mwUrlRaw && mwUrlRaw !== 'unknown' ? mwUrlRaw : null
+
+  const controls = [
+    { label: 'Power',    on: printerOn,  onClick: togglePrinter,                                                                              icon: ICONS.refresh },
+    { label: 'Light',    on: lightOn,    onClick: () => call('light',  'toggle', { entity_id: 'light.p1s_01p00c5a3101668_chamber_light' }),    icon: ICONS.layers },
+    { label: 'Purifier', on: purifierOn, onClick: () => call('fan',    'toggle', { entity_id: 'fan.office_air_purifier' }),                    icon: ICONS.fan },
+    { label: 'Bento',    on: bentoOn,    onClick: () => call('switch', 'toggle', { entity_id: 'switch.officeoutlet_02' }),                     icon: ICONS.link },
+  ]
+
   return h('div', null,
 
-    // Print hero card
-    h('div', { style: S.card },
-      h('div', { style: { display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 12 } },
-        imgUrl && isActive && h('img', {
-          src: imgUrl,
-          style: S.coverImg,
-          onError: e => { e.target.style.display = 'none' },
-        }),
-        h('div', { style: { flex: 1, minWidth: 0 } },
+    // Hero card
+    h('div', { style: S.heroCard },
+      h('div', { style: S.heroTop },
+        imgUrl
+          ? h('div', { style: S.heroThumb },
+              mwUrl
+                ? h('a', { href: mwUrl, target: '_blank', rel: 'noopener', style: { display: 'block', flexShrink: 0 } },
+                    h('img', { src: imgUrl, style: S.heroThumbImg, onError: e => { e.target.style.display = 'none' } })
+                  )
+                : h('img', { src: imgUrl, style: S.heroThumbImg, onError: e => { e.target.style.display = 'none' } })
+            )
+          : h('div', { style: S.heroThumbPlaceholder },
+              h(Icon, { path: ICONS.printer, size: 36, color: '#333' })
+            ),
+        h('div', { style: S.heroRight },
           h('div', { style: S.statusBadge(statusColor) },
             h('div', { style: { ...S.statusDot, background: statusColor } }),
             h('span', { style: { ...S.statusText, color: statusColor } }, statusLabel)
           ),
-          h('div', { style: S.taskName }, taskName),
-          h('div', { style: S.stageName }, stage?.replace(/_/g, ' ') || '—'),
-          isActive && h('div', null,
-            h('div', { style: S.progBar },
-              h('div', { style: { ...S.progFill, width: `${Math.min(progress, 100)}%` } })
-            ),
-            h('div', { style: S.progRow },
-              h('span', { style: S.progPct }, `${Math.round(progress)}%`),
-              h('div', { style: S.chips },
-                h('div', { style: S.chip },
-                  h(Icon, { path: ICONS.clock, size: 9, color: '#6aabda' }),
-                  remStr
-                ),
-                h('div', { style: S.chip },
-                  h(Icon, { path: ICONS.layers, size: 9, color: '#6aabda' }),
-                  `${curLayer} / ${totalLayer}`
-                )
+          mwUrl
+            ? h('a', { href: mwUrl, target: '_blank', rel: 'noopener', style: { color: 'inherit', textDecoration: 'none' } },
+                h('div', { style: S.heroTask }, taskName || '—')
               )
+            : h('div', { style: S.heroTask }, taskName || '—'),
+          h('div', { style: S.heroStage }, stage?.replace(/_/g, ' ') || '—')
+        )
+      ),
+      isActive && h('div', null,
+        h('div', { style: S.progBar },
+          h('div', { style: { ...S.progFill, width: `${Math.min(progress, 100)}%` } })
+        ),
+        h('div', { style: S.progRow },
+          h('span', { style: S.progPct }, `${Math.round(progress)}%`),
+          h('div', { style: S.chips },
+            h('div', { style: S.chip },
+              h(Icon, { path: ICONS.clock, size: 9, color: '#6aabda' }),
+              remStr
+            ),
+            h('div', { style: S.chip },
+              h(Icon, { path: ICONS.layers, size: 9, color: '#6aabda' }),
+              `${curLayer} / ${totalLayer}`
             )
           )
         )
       ),
-      h('div', { style: S.swatchRow },
-        h('div', { style: { ...S.swatch, background: activeColor } }),
+      h('div', { style: S.filStrip },
+        h('div', { style: { ...S.filDot, background: activeColor } }),
         h('div', { style: { flex: 1, minWidth: 0 } },
-          h('div', { style: S.swatchName }, `${vendor} · ${activeName}`),
-          h('div', { style: S.swatchSub },
-            [activeType, 'Slot 2', spoolId && spoolId !== '—' ? `#${spoolId}` : ''].filter(Boolean).join(' · ')
+          h('div', { style: S.filName }, `${vendor} · ${activeName}`),
+          h('div', { style: S.filSub },
+            [material, 'Slot 2', spoolId && spoolId !== '—' ? `#${spoolId}` : ''].filter(Boolean).join(' · ')
           )
         ),
-        h('div', { style: { textAlign: 'right' } },
-          h('div', { style: S.swatchRemain },
-            `${Math.round(sa('sensor.p1s_01p00c5a3101668_ams_1_tray_2', 'remain') || 0)}%`
-          ),
-          remainG && remainG !== '—' &&
-            h('div', { style: S.swatchG }, `${Math.round(parseFloat(remainG))}g`)
+        h('div', { style: { textAlign: 'right', flexShrink: 0 } },
+          h('div', { style: S.filG }, `${Math.round(remainG)}g`),
+          h('div', { style: S.filPct }, `${remainPct}% left`)
         )
       )
     ),
 
-    // Controls row
-    h('div', { style: S.ctrlGrid },
-      [
-        { label: 'Power',    on: printerOn,  onClick: togglePrinter,                                                                      icon: '⏻' },
-        { label: 'Light',    on: lightOn,    onClick: () => call('light',  'toggle', { entity_id: 'light.p1s_01p00c5a3101668_chamber_light' }), icon: '💡' },
-        { label: 'Purifier', on: purifierOn, onClick: () => call('fan',    'toggle', { entity_id: 'fan.office_air_purifier' }),              icon: '💨' },
-        { label: 'Bento',    on: bentoOn,    onClick: () => call('switch', 'toggle', { entity_id: 'switch.officeoutlet_02' }),               icon: '📦' },
-      ].map(b =>
+    // Controls 2×2
+    h('div', { style: S.ctrl2x2 },
+      controls.map(c =>
         h('div', {
-          key: b.label,
-          style: { ...S.ctrlBtn, ...(b.on ? S.ctrlBtnOn : {}) },
-          onClick: b.onClick,
+          key: c.label,
+          style: { ...S.ctrlCard, ...(c.on ? S.ctrlCardOn : {}) },
+          onClick: c.onClick,
         },
-          h('span', { style: { fontSize: 16 } }, b.icon),
-          h('span', { style: { ...S.ctrlName, color: b.on ? '#1c1c1e' : '#555' } }, b.label)
-        )
-      )
-    ),
-
-    // Cameras
-    h(CameraView, { getHass }),
-
-    // Vitals card
-    h('div', { style: S.card },
-      h('div', { style: S.sectionLabel }, 'Printer status'),
-      h('div', { style: S.vitalsGrid },
-        [
-          { label: 'Nozzle',  value: `${nozzle}° / ${nozzleTgt}°`, color: nozzleTgt > 0 ? '#e8784a' : '#555', icon: ICONS.nozzle },
-          { label: 'Bed',     value: `${bed}° / ${bedTgt}°`,       color: bedTgt > 0    ? '#e8784a' : '#555', icon: ICONS.nozzle },
-          { label: 'Chamber', value: chamberOn ? `${chamberPct}%` : 'Off', color: chamberOn ? '#6aabda' : '#444', icon: ICONS.fan },
-          { label: 'Cooling', value: coolingOn ? `${coolingPct}%` : 'Off', color: coolingOn ? '#6aabda' : '#444', icon: ICONS.fan },
-          { label: 'WiFi',    value: wifiLabel, color: wifiColor, icon: ICONS.wifi },
-          { label: 'Hours',   value: `${hours}h`, color: '#aaa', icon: ICONS.clock },
-        ].map(v =>
-          h('div', { key: v.label, style: S.vitalRow },
-            h('div', { style: S.vitalLeft },
-              h(Icon, { path: v.icon, size: 11, color: v.color }),
-              h('span', { style: S.vitalLabel }, v.label)
-            ),
-            h('span', { style: { ...S.vitalValue, color: v.color } }, v.value)
+          h('div', { style: { ...S.ctrlIconBox, ...(c.on ? S.ctrlIconBoxOn : {}) } },
+            h(Icon, { path: c.icon, size: 16, color: c.on ? '#1c1c1e' : '#888' })
+          ),
+          h('div', null,
+            h('div', { style: { ...S.ctrlLabel, ...(c.on ? { color: '#1c1c1e' } : {}) } }, c.label),
+            h('div', { style: { ...S.ctrlState, ...(c.on ? { color: '#888' } : {}) } }, c.on ? 'On' : 'Off')
           )
         )
       )
     ),
 
-    // Reconcile action
+    // Vitals 2×3
+    h('div', { style: S.vitals2x3 },
+      vitals.map(v =>
+        h('div', { key: v.label, style: S.vitalCard },
+          h('div', { style: S.vitalLabelRow },
+            h(Icon, { path: v.icon, size: 11, color: v.color }),
+            h('span', { style: S.vitalLabelText }, v.label)
+          ),
+          h('div', { style: { ...S.vitalValue, color: v.color } }, v.value)
+        )
+      )
+    ),
+
+    // Reconcile
     h('div', {
       style: S.actionBtn,
       onClick: () => call('script', 'turn_on', { entity_id: 'script.reconcile_all_ams_slots' }),
@@ -281,30 +341,34 @@ function PrinterSegment({ getHass }) {
 const AMS_UNITS = [
   {
     name: 'AMS 2 Pro',
-    humEntity:  'sensor.p1s_01p00c5a3101668_ams_1_humidity',
-    tempEntity: 'sensor.p1s_01p00c5a3101668_ams_1_temperature',
-    dryEntity:  'binary_sensor.p1s_01p00c5a3101668_ams_1_drying',
+    humEntity:     'sensor.p1s_01p00c5a3101668_ams_1_humidity',
+    tempEntity:    'sensor.p1s_01p00c5a3101668_ams_1_temperature',
+    dryEntity:     'binary_sensor.p1s_01p00c5a3101668_ams_1_drying',
+    dryTimeEntity: 'sensor.p1s_01p00c5a3101668_ams_1_remaining_drying_time',
     slots: [1, 2, 3, 4],
   },
   {
     name: 'AMS HT 1',
-    humEntity:  'sensor.p1s_01p00c5a3101668_ams_128_humidity',
-    tempEntity: 'sensor.p1s_01p00c5a3101668_ams_128_temperature',
-    dryEntity:  'binary_sensor.p1s_01p00c5a3101668_ams_128_drying',
+    humEntity:     'sensor.p1s_01p00c5a3101668_ams_128_humidity',
+    tempEntity:    'sensor.p1s_01p00c5a3101668_ams_128_temperature',
+    dryEntity:     'binary_sensor.p1s_01p00c5a3101668_ams_128_drying',
+    dryTimeEntity: 'sensor.p1s_01p00c5a3101668_ams_128_remaining_drying_time',
     slots: [5],
   },
   {
     name: 'AMS HT 2',
-    humEntity:  'sensor.p1s_01p00c5a3101668_ams_129_humidity',
-    tempEntity: 'sensor.p1s_01p00c5a3101668_ams_129_temperature',
-    dryEntity:  'binary_sensor.p1s_01p00c5a3101668_ams_129_drying',
+    humEntity:     'sensor.p1s_01p00c5a3101668_ams_129_humidity',
+    tempEntity:    'sensor.p1s_01p00c5a3101668_ams_129_temperature',
+    dryEntity:     'binary_sensor.p1s_01p00c5a3101668_ams_129_drying',
+    dryTimeEntity: 'sensor.p1s_01p00c5a3101668_ams_129_remaining_drying_time',
     slots: [6],
   },
   {
     name: 'AMS HT 3',
-    humEntity:  'sensor.p1s_01p00c5a3101668_ams_130_humidity',
-    tempEntity: 'sensor.p1s_01p00c5a3101668_ams_130_temperature',
-    dryEntity:  'binary_sensor.p1s_01p00c5a3101668_ams_130_drying',
+    humEntity:     'sensor.p1s_01p00c5a3101668_ams_130_humidity',
+    tempEntity:    'sensor.p1s_01p00c5a3101668_ams_130_temperature',
+    dryEntity:     'binary_sensor.p1s_01p00c5a3101668_ams_130_drying',
+    dryTimeEntity: 'sensor.p1s_01p00c5a3101668_ams_130_remaining_drying_time',
     slots: [7],
     external: true,
   },
@@ -419,9 +483,14 @@ function SlotsSegment({ getHass, onPopup }) {
   return h('div', null,
 
     AMS_UNITS.map(unit => {
-      const hum       = sv(unit.humEntity)
-      const temp      = sv(unit.tempEntity)
-      const connected = !['unavailable', 'unknown', '—'].includes(hum)
+      const hum        = sv(unit.humEntity)
+      const temp       = sv(unit.tempEntity)
+      const connected  = !['unavailable', 'unknown', '—'].includes(hum)
+      const isDrying   = sv(unit.dryEntity) === 'on'
+      const dryTimeRaw = parseFloat(sv(unit.dryTimeEntity)) || 0
+      const dryH       = Math.floor(dryTimeRaw)
+      const dryM       = Math.round((dryTimeRaw - dryH) * 60)
+      const dryTimeStr = dryH > 0 ? `${dryH}h ${dryM}m remaining` : `${dryM}m remaining`
 
       return h('div', { key: unit.name, style: S.fiqCard },
         h('div', { style: S.unitHeader },
@@ -432,14 +501,21 @@ function SlotsSegment({ getHass, onPopup }) {
           )
         ),
         unit.slots.map((n, i) =>
-          h(SlotRow, { key: n, n, last: i === unit.slots.length - 1 && !unit.external })
+          h(SlotRow, { key: n, n, last: i === unit.slots.length - 1 && !unit.external && !isDrying })
         ),
         unit.external && h('div', null,
           h('div', { style: { ...S.unitHeader, borderTop: '1px solid rgba(255,255,255,0.06)', borderBottom: 'none' } },
             h(Icon, { path: ICONS.externalLink, size: 14, color: '#4caf50' }),
             h('div', { style: S.unitName }, 'External')
           ),
-          h(SlotRow, { n: 8, last: true })
+          h(SlotRow, { n: 8, last: !isDrying })
+        ),
+        isDrying && h('div', { style: S.dryingRow },
+          h(Icon, { path: ICONS.fan, size: 14, color: '#64b4dc' }),
+          h('div', null,
+            h('div', { style: S.dryingPrimary }, `Drying Active · ${temp}°C`),
+            h('div', { style: S.dryingSub }, dryTimeStr)
+          )
         )
       )
     })
@@ -577,6 +653,7 @@ export function PrinterDashboardCard({ config, getHass }) {
     h(SegBar, { active: seg, onSwitch: setSeg }),
     h('div', { style: S.scrollArea },
       seg === 'printer' && h(PrinterSegment, { getHass }),
+      seg === 'cameras' && h(CamerasSegment, { getHass }),
       seg === 'slots'   && h(SlotsSegment,   { getHass, onPopup: setPopup }),
       seg === 'fiq'     && h(FiqSegment, { getHass }),
     ),
@@ -593,7 +670,6 @@ const S = {
   segLabel:     { fontSize: 10, fontWeight: 500, whiteSpace: 'nowrap' },
   scrollArea:   { flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 10 },
   card:         { background: '#1c1c1e', border: '1px solid #2c2c2e', borderRadius: 12, padding: 12, marginBottom: 8, overflow: 'hidden' },
-  coverImg:     { width: 72, height: 72, borderRadius: 8, objectFit: 'cover', flexShrink: 0, background: '#2c2c2e' },
   statusBadge:  c => ({ display: 'inline-flex', alignItems: 'center', gap: 5, background: `rgba(${hexToRgb(c)},0.12)`, border: `1px solid rgba(${hexToRgb(c)},0.2)`, borderRadius: 5, padding: '2px 8px', marginBottom: 7 }),
   statusDot:    { width: 5, height: 5, borderRadius: '50%' },
   statusText:   { fontSize: 10, letterSpacing: '0.06em' },
@@ -605,23 +681,33 @@ const S = {
   progPct:      { fontSize: 14, fontWeight: 500, color: '#6aabda' },
   chips:        { display: 'flex', gap: 4 },
   chip:         { background: 'rgba(106,171,218,0.12)', border: '1px solid rgba(106,171,218,0.25)', borderRadius: 5, padding: '3px 6px', display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: '#6aabda', fontWeight: 500 },
-  swatchRow:    { display: 'flex', alignItems: 'center', gap: 8, paddingTop: 8, borderTop: '1px solid #2c2c2e' },
-  swatch:       { width: 26, height: 26, borderRadius: 4, flexShrink: 0, border: '2px solid rgba(255,255,255,0.25)' },
-  swatchName:   { fontSize: 11, fontWeight: 500, color: '#e8e8ea' },
-  swatchSub:    { fontSize: 9, color: '#555', marginTop: 1 },
-  swatchRemain: { fontSize: 11, color: '#aaa' },
-  swatchG:      { fontSize: 9, color: '#555' },
-  ctrlGrid:     { display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 5, marginBottom: 8 },
-  ctrlBtn:      { background: '#232323', border: '1px solid #2a2a2a', borderRadius: 8, padding: '8px 4px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, cursor: 'pointer', transition: 'all 0.15s' },
-  ctrlBtnOn:    { background: '#f5f5f7', borderColor: '#d8d8da' },
-  ctrlName:     { fontSize: 9, textAlign: 'center' },
-  sectionLabel: { fontSize: 8, color: '#444', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 7 },
-  vitalsGrid:   { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 },
-  vitalRow:     { background: '#2c2c2e', borderRadius: 6, padding: '6px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
-  vitalLeft:    { display: 'flex', alignItems: 'center', gap: 5 },
-  vitalLabel:   { fontSize: 9, color: '#888' },
-  vitalValue:   { fontSize: 10, fontWeight: 500 },
-  actionBtn:    { background: '#2c2c2e', border: '1px solid #3a3a3c', borderRadius: 9, padding: '9px 11px', display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8, cursor: 'pointer' },
+  heroCard:          { background: '#1c1c1e', border: '1px solid #2c2c2e', borderRadius: 14, padding: 12, marginBottom: 8 },
+  heroTop:           { display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 10 },
+  heroThumb:         { width: 96, height: 96, borderRadius: 6, background: '#f0f0f0', overflow: 'hidden', flexShrink: 0 },
+  heroThumbImg:      { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
+  heroThumbPlaceholder: { width: 96, height: 96, borderRadius: 6, background: '#2c2c2e', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  heroRight:         { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' },
+  heroTask:          { fontSize: 13, fontWeight: 500, color: '#f5f5f5', marginBottom: 3, lineHeight: 1.3 },
+  heroStage:         { fontSize: 10, color: '#555' },
+  filStrip:          { display: 'flex', alignItems: 'center', gap: 9, paddingTop: 10, borderTop: '1px solid #2c2c2e', marginTop: 10 },
+  filDot:            { width: 24, height: 24, borderRadius: 5, flexShrink: 0, border: '2px solid rgba(255,255,255,0.2)' },
+  filName:           { fontSize: 12, fontWeight: 500, color: '#e8e8ea' },
+  filSub:            { fontSize: 10, color: '#555', marginTop: 1 },
+  filG:              { fontSize: 12, fontWeight: 500, color: '#aaa' },
+  filPct:            { fontSize: 10, color: '#555', marginTop: 1 },
+  ctrl2x2:           { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginBottom: 8 },
+  ctrlCard:          { background: '#1c1c1e', border: '1px solid #2c2c2e', borderRadius: 12, padding: 12, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' },
+  ctrlCardOn:        { background: '#f5f5f7', borderColor: '#d8d8da' },
+  ctrlIconBox:       { width: 36, height: 36, borderRadius: 9, background: '#2c2c2e', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  ctrlIconBoxOn:     { background: '#e0e0e2' },
+  ctrlLabel:         { fontSize: 12, fontWeight: 500, color: '#999' },
+  ctrlState:         { fontSize: 10, color: '#444', marginTop: 1 },
+  vitals2x3:         { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginBottom: 8 },
+  vitalCard:         { background: '#1c1c1e', border: '1px solid #2c2c2e', borderRadius: 11, padding: '11px 12px' },
+  vitalLabelRow:     { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 },
+  vitalLabelText:    { fontSize: 9, color: '#555', textTransform: 'uppercase', letterSpacing: '0.07em' },
+  vitalValue:        { fontSize: 15, fontWeight: 500 },
+  actionBtn:    { background: '#1c1c1e', border: '1px solid #2c2c2e', borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, cursor: 'pointer' },
   actionLabel:  { fontSize: 11, color: '#e8e8ea' },
   fiqCard:      { background: '#2c2c2e', border: '1px solid #3a3a3c', borderRadius: 11, overflow: 'hidden', marginBottom: 8 },
   unitHeader:   { padding: '7px 11px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 7 },
@@ -633,6 +719,9 @@ const S = {
   slotSecondary:{ fontSize: 10, color: '#555', marginTop: 1 },
   slotBar:      { position: 'absolute', bottom: 0, left: 0, right: 0, height: 2, background: 'rgba(255,255,255,0.05)' },
   slotBarFill:  { height: 2, background: 'rgba(255,255,255,0.4)' },
+  dryingRow:    { padding: '8px 11px', borderTop: '1px solid rgba(100,180,220,0.20)', display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(80,160,210,0.08)', borderRadius: '0 0 11px 11px' },
+  dryingPrimary:{ fontSize: 11, fontWeight: 500, color: '#64b4dc' },
+  dryingSub:    { fontSize: 10, color: '#4a8aaa', marginTop: 2 },
   popupOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', zIndex: 9999 },
   popupSheet:   { background: '#1c1c1e', borderRadius: '16px 16px 0 0', borderTop: '1px solid #3a3a3c', maxHeight: '85vh', overflowY: 'auto' },
   popupDrag:    { width: 36, height: 4, background: '#3a3a3c', borderRadius: 2, margin: '10px auto 0' },

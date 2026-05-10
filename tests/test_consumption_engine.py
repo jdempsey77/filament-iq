@@ -100,7 +100,7 @@ def _make_slot(**overrides) -> SlotInput:
         id="nonrfid_3mf_depleted_spoolman_value_larger",
     ),
     pytest.param(
-        dict(is_rfid=False, tray_empty=True,
+        dict(is_rfid=False, tray_empty=True, end_g=None,
              threemf_used_g=None, spoolman_remaining=432.0),
         dict(method="depleted_nonrfid", consumption_g=432.0, confidence="low"),
         id="nonrfid_depleted_no_3mf",
@@ -206,7 +206,7 @@ class TestSanityGates:
 
     def test_depleted_nonrfid_below_min_suppressed(self):
         """depleted_nonrfid at 0.5g → suppressed by floor."""
-        inp = _make_slot(is_rfid=False, tray_empty=True,
+        inp = _make_slot(is_rfid=False, tray_empty=True, end_g=None,
                          threemf_used_g=None, spoolman_remaining=0.5)
         d = decide_consumption([inp])[0]
         assert d.method == "no_evidence"
@@ -259,7 +259,7 @@ class TestConfidenceLevels:
         assert d.confidence == "high"
 
     def test_depleted_nonrfid_always_low(self):
-        inp = _make_slot(is_rfid=False, tray_empty=True,
+        inp = _make_slot(is_rfid=False, tray_empty=True, end_g=None,
                          threemf_used_g=None, spoolman_remaining=400)
         d = decide_consumption([inp])[0]
         assert d.confidence == "low"
@@ -293,7 +293,7 @@ class TestMultiSlot:
             _make_slot(slot=1, spool_id=10, is_rfid=True,
                        tray_empty=True, start_g=900, end_g=50),
             _make_slot(slot=3, spool_id=30, is_rfid=False,
-                       tray_empty=True, threemf_used_g=None,
+                       tray_empty=True, end_g=None, threemf_used_g=None,
                        spoolman_remaining=432),
         ]
         decisions = decide_consumption(inputs)
@@ -321,3 +321,78 @@ class TestMultiSlot:
         assert len(decisions) == 2
         assert decisions[0].method == "rfid_delta"
         assert decisions[1].method == "no_evidence"
+
+
+# ── Spoolman contradiction guard (v1.8.3) ────────────────────────────
+
+
+class TestSpoolmanContradictsEmptyGuard:
+
+    def test_nonrfid_spoolman_contradicts_empty_blocked(self):
+        """Guard fires: tray empty but Spoolman shows 1000g — spool 70 incident."""
+        inp = SlotInput(
+            slot=4, spool_id=70, is_rfid=False, tray_empty=True,
+            tray_active_seconds=9348.0, start_g=None, end_g=1000.0,
+            threemf_used_g=None, threemf_method=None, spoolman_remaining=1000.0,
+        )
+        d = decide_consumption([inp], min_consumption_g=2.0, max_consumption_g=1000.0)[0]
+        assert d.method == "no_evidence"
+        assert d.skip_reason is not None
+        assert "SPOOLMAN_CONTRADICTS_EMPTY" in d.skip_reason
+        assert "1000.0" in d.skip_reason
+
+    def test_nonrfid_spoolman_contradicts_empty_threshold_edge(self):
+        """Guard fires at 51g (above 50g threshold)."""
+        inp = SlotInput(
+            slot=1, spool_id=1, is_rfid=False, tray_empty=True,
+            tray_active_seconds=100.0, start_g=None, end_g=51.0,
+            threemf_used_g=None, threemf_method=None, spoolman_remaining=51.0,
+        )
+        d = decide_consumption([inp], min_consumption_g=2.0, max_consumption_g=1000.0)[0]
+        assert d.method == "no_evidence"
+        assert "SPOOLMAN_CONTRADICTS_EMPTY" in d.skip_reason
+
+    def test_nonrfid_below_threshold_depleted_nonrfid_fires(self):
+        """Guard does not fire at 49g (below threshold) — depleted_nonrfid proceeds."""
+        inp = SlotInput(
+            slot=1, spool_id=1, is_rfid=False, tray_empty=True,
+            tray_active_seconds=100.0, start_g=None, end_g=49.0,
+            threemf_used_g=None, threemf_method=None, spoolman_remaining=49.0,
+        )
+        d = decide_consumption([inp], min_consumption_g=2.0, max_consumption_g=1000.0)[0]
+        assert d.method == "depleted_nonrfid"
+        assert d.consumption_g == 49.0
+
+    def test_nonrfid_end_g_none_depleted_nonrfid_fires(self):
+        """Guard does not fire when end_g is None — depleted_nonrfid proceeds."""
+        inp = SlotInput(
+            slot=1, spool_id=1, is_rfid=False, tray_empty=True,
+            tray_active_seconds=100.0, start_g=None, end_g=None,
+            threemf_used_g=None, threemf_method=None, spoolman_remaining=400.0,
+        )
+        d = decide_consumption([inp], min_consumption_g=2.0, max_consumption_g=1000.0)[0]
+        assert d.method == "depleted_nonrfid"
+        assert d.consumption_g == 400.0
+
+    def test_nonrfid_end_g_zero_depleted_nonrfid_fires(self):
+        """Guard does not fire when end_g=0 — spool genuinely depleted."""
+        inp = SlotInput(
+            slot=1, spool_id=1, is_rfid=False, tray_empty=True,
+            tray_active_seconds=100.0, start_g=None, end_g=0.0,
+            threemf_used_g=None, threemf_method=None, spoolman_remaining=400.0,
+        )
+        d = decide_consumption([inp], min_consumption_g=2.0, max_consumption_g=1000.0)[0]
+        assert d.method == "depleted_nonrfid"
+        assert d.consumption_g == 400.0
+
+    def test_nonrfid_guard_does_not_affect_3mf_depleted(self):
+        """Guard does not block 3mf_depleted path — 3mf evidence takes priority."""
+        inp = SlotInput(
+            slot=1, spool_id=1, is_rfid=False, tray_empty=True,
+            tray_active_seconds=100.0, start_g=None, end_g=1000.0,
+            threemf_used_g=200.0, threemf_method="exact_color_material",
+            spoolman_remaining=1000.0,
+        )
+        d = decide_consumption([inp], min_consumption_g=2.0, max_consumption_g=1000.0)[0]
+        assert d.method == "3mf_depleted"
+        assert d.consumption_g == 1000.0
