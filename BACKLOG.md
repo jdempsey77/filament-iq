@@ -18,6 +18,21 @@
 ### In Progress
 
 ### High Priority
+- [ ] **Move `data/` directory out of AppDaemon app scan path** — AppDaemon's
+  `check_app_updates()` does `os.walk()` + `os.stat()` on every file under the
+  apps directory. The `data/` subdirectory contains 55+ JSON files (print
+  history, active print state, seen job keys) that grow over time. On HA eMMC
+  storage each stat() takes ~25ms — 80+ files = ~2s scan, which blocks the
+  AppDaemon event loop and can trigger supervisor SIGTERM on cold-boot restarts.
+  **Fix:** Move data directory from `apps/filament_iq/data/` (inside scan path)
+  to `/addon_configs/a0d7b954_appdaemon/data/filament_iq/` (outside scan path).
+  Change `_data_dir` path derivation in `ams_print_usage_sync.py` and
+  `ams_rfid_reconcile.py` from `os.path.join(os.path.dirname(__file__), "data")`
+  to a configurable path via `apps.yaml` (e.g. `data_dir` arg). Also update
+  `apps.yaml` and migrate existing files on first run. Reduces scanned file
+  count from 80 to ~25, cutting `check_app_updates()` from ~2s to ~0.5s —
+  below the warning threshold. Needs SDLC treatment (SR + Skeptic) since it
+  touches all persistence paths. (2026-05-09)
 - [x] Slot display shows unknown · unknown after manual bind — template sensor
   race: update_entity hadn't refreshed before template sensors re-evaluated.
   Fixed in home_assistant repo: delay + targeted update_entity + missing
@@ -152,31 +167,12 @@
 - [ ] Print cache cleanup — manual immediate fix — 1.3GB of ha-bambulab print cache deleted manually on 2026-03-24 (99 prints x ~13MB). Disk: 87% -> 82%. Swap was nearly exhausted (1293/1295MB used) due to memory pressure from accumulated cache + ha-bambulab v2.2.21 update loading new entities. Recurring issue without the auto-cleanup automation above. Monitor disk usage periodically: `du -sh /config/www/media/ha-bambulab/`.
 - [ ] Print cache auto-cleanup documentation for OSS users — recommend documenting cleanup command in README or docs/09_runbooks.md: `find /config/www/media/ha-bambulab -type f -mtime +30 -delete`.
 
-## Makerworld model link from hero card
+## ~~Makerworld model link from hero card~~ — DONE (v1.7.6, 2026-05-09)
 
-**Goal:** Tapping the thumbnail or print title in the hero card opens the
-Makerworld model page for the current print.
-
-**Background:** Makerworld cache filenames follow `{model_id}-{plate_name}`
-(e.g. `4562882-Basis und normale Schubladen.3mf`). The numeric prefix maps
-directly to `https://makerworld.com/en/models/{model_id}`. However,
-`sensor.p1s_..._task_name` and `sensor.p1s_..._gcode_filename` both strip
-the numeric prefix — the ID is only present in the AppDaemon-side
-`_threemf_filename` value.
-
-**Required change (filament-iq):** Expose `_threemf_filename` (or just the
-parsed Makerworld model ID) as a HA state — either via a new sensor written
-by the AppDaemon app, or as an attribute on an existing proxy-accessible
-entity.
-
-**Card change (home_assistant):** `PrinterDashboardCard.jsx` already has
-`mwId`/`mwUrl` helpers and anchor wrapping in place (added 2026-05-08),
-parsing `/^(\d+)-/` from the source value. Once the full filename is
-exposed as a readable entity, swap `taskName` for that entity and the
-links go live automatically.
-
-**Repo boundary:** AppDaemon exposure = `filament-iq`; card entity read =
-`home_assistant/PrinterDashboardCard.jsx`.
+`parse_3mf_metadata()` reads `3D/3dmodel.model` from cached 3MF zips, extracts
+DSM model ID from description image URLs → direct model URL, or falls back to
+search URL from Title. Two new sensors: `sensor.filament_iq_makerworld_url` and
+`sensor.filament_iq_model_title`. Card reads the URL sensor directly.
 
 
 ### Done
