@@ -506,8 +506,8 @@ def parse_3mf_metadata(local_path):
             "makerworld_url": makerworld_url,
         }
 
-    except (zipfile.BadZipFile, OSError, ET.ParseError) as e:
-        logger.warning("parse_3mf_metadata failed for %s: %s", local_path, e)
+    except Exception as e:
+        logger.warning("parse_3mf_metadata failed for %s: %s: %s", local_path, type(e).__name__, e)
         return {}
 
 

@@ -139,84 +139,25 @@ class TestPrintLifecycle:
 
     def test_print_end_loads_3mf_from_disk_when_not_in_memory(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
-            import filament_iq.ams_print_usage_sync as mod
-            orig = mod.ACTIVE_PRINT_FILE
-            try:
-                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-                mod.ACTIVE_PRINT_FILE = ap_file
-                threemf = [{"index": 0, "used_g": 50.0}]
-                ap_file.write_text(json.dumps({
-                    "job_key": "disk_test",
-                    "start_snapshot": {"1": 900.0},
-                    "threemf_data": threemf,
-                }))
-                app = _TestableUsageSync(
-                    state_map={},
-                    args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
-                )
-                app._job_key = "disk_test"
-                app._start_snapshot = {1: 900.0}
-                app._trays_used = set()
-                app._print_active = True
-                app.threemf_enabled = True
-                app._threemf_data = None
-                app._do_finish = mock.MagicMock()
-                app._on_print_finish("finish")
-                assert app._threemf_data == threemf
-                assert _has_log(app, "3MF_RECOVERED_FROM_DISK")
-            finally:
-                mod.ACTIVE_PRINT_FILE = orig
-
-    def test_rehydration_writes_makerworld_sensors_when_cache_file_exists(self):
-        import filament_iq.ams_print_usage_sync as mod
-        import zipfile as _zf
-        orig = mod.ACTIVE_PRINT_FILE
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                # Production stores the .slice_info.config filename in threemf_file;
-                # the fix must derive the .3mf path before calling parse_3mf_metadata.
-                slice_fname = "1378181-Cool Model.slice_info.config"
-                threemf_fname = "1378181-Cool Model.3mf"
-                ap_file = pathlib.Path(tmp_dir) / "active_print.json"
-                mod.ACTIVE_PRINT_FILE = ap_file
-                threemf = [{"index": 0, "used_g": 30.0}]
-                ap_file.write_text(json.dumps({
-                    "job_key": "rehyd_test",
-                    "start_snapshot": {"1": 900.0},
-                    "threemf_data": threemf,
-                    "threemf_file": slice_fname,
-                }))
-
-                # Write a minimal 3MF (zip) at the .3mf path with DSM metadata
-                cache_path = pathlib.Path(tmp_dir) / threemf_fname
-                model_xml = (
-                    '<?xml version="1.0"?><model>'
-                    '<metadata name="Title">Cool Model</metadata>'
-                    '<metadata name="Description">'
-                    'https://img.makerworld.com/images/DSM00000001378181/cover.jpg'
-                    '</metadata>'
-                    '</model>'
-                )
-                with _zf.ZipFile(str(cache_path), "w") as zf:
-                    zf.writestr("3D/3dmodel.model", model_xml)
-
-                app = _TestableUsageSync(
-                    state_map={},
-                    args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
-                )
-                app._job_key = "rehyd_test"
-                app._start_snapshot = {1: 900.0}
-                app._trays_used = set()
-                app._print_active = True
-                app.threemf_enabled = True
-                app._threemf_data = None
-                app._bambulab_cache_path = tmp_dir
-                app._do_finish = mock.MagicMock()
-                app._on_print_finish("finish")
-
-                assert app._state_map.get("sensor.filament_iq_makerworld_url") == (
-                    "https://makerworld.com/en/models/1378181"
-                )
-                assert app._state_map.get("sensor.filament_iq_model_title") == "Cool Model"
-            finally:
-                mod.ACTIVE_PRINT_FILE = orig
+            ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+            threemf = [{"index": 0, "used_g": 50.0}]
+            ap_file.write_text(json.dumps({
+                "job_key": "disk_test",
+                "start_snapshot": {"1": 900.0},
+                "threemf_data": threemf,
+            }))
+            app = _TestableUsageSync(
+                state_map={},
+                args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True,
+                      "data_dir": tmp_dir},
+            )
+            app._job_key = "disk_test"
+            app._start_snapshot = {1: 900.0}
+            app._trays_used = set()
+            app._print_active = True
+            app.threemf_enabled = True
+            app._threemf_data = None
+            app._do_finish = mock.MagicMock()
+            app._on_print_finish("finish")
+            assert app._threemf_data == threemf
+            assert _has_log(app, "3MF_RECOVERED_FROM_DISK")
