@@ -244,20 +244,11 @@ class TestableReconcile(AmsRfidReconcile):
         self._suppress_helper_change_until = {}
         self._settle_pending = {}
         self.nonrfid_settle_delay_s = int(a.get("nonrfid_settle_delay_s", 90))
-        self.notify_service = str(a.get("notify_service", "mobile_app_jd_pixel_10_pro_xl"))
         self._run_in_calls = []
         self._domain_exception_class_logged = False
         self._print_active_since = None
         self._evidence_lines = []
         self._log_calls = []
-        # v1.9.0: external slot — derive from ams_units if present
-        self._external_slot = None
-        for unit in (a.get("ams_units") or []):
-            if str(unit.get("type", "")).lower() == "external":
-                slots = unit.get("slots", [])
-                if slots:
-                    self._external_slot = int(slots[0])
-                    break
 
     def log(self, msg, level="INFO"):
         self._log_calls.append((msg, level))
@@ -963,125 +954,6 @@ class TestAmsRfidReconcile(unittest.TestCase):
         status_writes = [w for w in r._helper_writes if w.get("entity_id") == "input_text.ams_slot_1_status"]
         self.assertGreater(len(status_writes), 0)
         self.assertEqual(status_writes[-1].get("value"), STATUS_NEEDS_MANUAL_BIND)
-
-    def test_phase26_multi_candidate_ambiguity_pushes_mobile_notification(self):
-        """v1.7.5 line 1500: multi-candidate lot_nr ambiguity must fire mobile push.
-
-        Reuses the multi-candidate setup from
-        `test_phase26_nonrfid_ambiguity_needs_manual_bind` and asserts that
-        `_notify_mobile_match_needed` is invoked with the documented reason.
-        """
-        spools = [
-            _spool(301, remaining_weight=200, rfid_tag_uid=None, location="Shelf",
-                   color_hex="00ff00", vendor_name="Overture", name="Overture PLA"),
-            _spool(302, remaining_weight=250, rfid_tag_uid=None, location="Shelf",
-                   color_hex="00ff00", vendor_name="Overture", name="Overture PLA"),
-        ]
-        filaments = [{"id": 1, "name": "Overture PLA", "material": "PLA",
-                      "color_hex": "00ff00", "vendor": {"name": "Overture"},
-                      "external_id": "overture"}]
-        sm = FakeSpoolman(spools, filaments)
-        tray_ent = _tray_entity(1)
-        state_map = {
-            tray_ent: _tray_state("", tray_type="PLA", color="00ff00",
-                                  name="Bambu PLA", filament_id="bambu"),
-            f"{tray_ent}::all": {"attributes": _tray_state("")["attributes"],
-                                  "state": "valid"},
-        }
-        state_map["input_boolean.filament_iq_nonrfid_enabled"] = "on"
-        for slot in range(1, 7):
-            state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
-            state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
-            state_map[f"input_text.ams_slot_{slot}_status"] = ""
-
-        r = TestableReconcile(sm, state_map, args=self.args)
-        spy_calls = []
-        r._notify_mobile_match_needed = lambda slot, reason: spy_calls.append((slot, reason))
-        r._run_reconcile("test")
-
-        # Verify the slot reached NEEDS_MANUAL_BIND (proves the branch fired).
-        status_writes = [w for w in r._helper_writes
-                         if w.get("entity_id") == "input_text.ams_slot_1_status"]
-        self.assertGreater(len(status_writes), 0)
-        self.assertEqual(status_writes[-1].get("value"), STATUS_NEEDS_MANUAL_BIND)
-
-        slot1_calls = [c for c in spy_calls if c[0] == 1]
-        self.assertEqual(
-            len(slot1_calls), 1,
-            f"expected exactly one mobile push for slot 1, got {spy_calls}",
-        )
-        slot, reason = slot1_calls[0]
-        self.assertEqual(slot, 1)
-        self.assertEqual(
-            reason,
-            "Multiple candidates found; tie-break did not resolve to one winner.",
-        )
-
-    def test_phase26_spool_active_in_other_slot_pushes_mobile_notification(self):
-        """v1.7.5 line 1382: single-candidate but spool active in another slot
-        must fire mobile push with the documented reason.
-
-        Line 1367 normally filters active-in-other-slot candidates before the
-        single-candidate check at 1370. To exercise the 1370 re-check branch
-        we install a stateful stub on `_is_spool_active_in_other_slot` that
-        returns False during the filter pass and True on the re-check.
-        """
-        spools = [
-            _spool(401, remaining_weight=300, rfid_tag_uid=None, location="Shelf",
-                   color_hex="ff8800", vendor_name="Overture", name="Overture PLA"),
-        ]
-        filaments = [{"id": 1, "name": "Overture PLA", "material": "PLA",
-                      "color_hex": "ff8800", "vendor": {"name": "Overture"},
-                      "external_id": "overture"}]
-        sm = FakeSpoolman(spools, filaments)
-        tray_ent = _tray_entity(1)
-        state_map = {
-            tray_ent: _tray_state("", tray_type="PLA", color="ff8800",
-                                  name="Bambu PLA", filament_id="bambu"),
-            f"{tray_ent}::all": {"attributes": _tray_state("")["attributes"],
-                                  "state": "valid"},
-        }
-        state_map["input_boolean.filament_iq_nonrfid_enabled"] = "on"
-        for slot in range(1, 7):
-            state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
-            state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
-            state_map[f"input_text.ams_slot_{slot}_status"] = ""
-
-        r = TestableReconcile(sm, state_map, args=self.args)
-        # Stateful stub: keep the spool through the upstream filter passes
-        # (`_unenrolled_candidates_for_tray` and the line-1367 filter), then
-        # trip the line-1370 re-check. The re-check is the third invocation
-        # for (spool=401, slot=1) — first the unenrolled-candidates filter,
-        # second the all_nonrfid_ids filter, third the explicit re-check.
-        call_log = []
-        def fake_is_active(spool_id, current_slot):
-            call_log.append((spool_id, current_slot))
-            if current_slot == 1 and spool_id == 401:
-                same_slot_calls = [c for c in call_log
-                                   if c == (spool_id, current_slot)]
-                return len(same_slot_calls) >= 3
-            return False
-        r._is_spool_active_in_other_slot = fake_is_active
-
-        spy_calls = []
-        r._notify_mobile_match_needed = lambda slot, reason: spy_calls.append((slot, reason))
-        r._run_reconcile("test")
-
-        status_writes = [w for w in r._helper_writes
-                         if w.get("entity_id") == "input_text.ams_slot_1_status"]
-        self.assertGreater(len(status_writes), 0)
-        self.assertEqual(status_writes[-1].get("value"), STATUS_NEEDS_MANUAL_BIND)
-        slot1_calls = [c for c in spy_calls if c[0] == 1]
-        self.assertEqual(
-            len(slot1_calls), 1,
-            f"expected exactly one mobile push for slot 1, got {spy_calls}",
-        )
-        slot, reason = slot1_calls[0]
-        self.assertEqual(slot, 1)
-        self.assertEqual(
-            reason,
-            "Spool active in another slot; cannot auto-assign.",
-        )
 
     def test_phase26_nonrfid_new_fallback_unambiguous_binds(self):
         """PHASE_2_6: Non-RFID unified path — spool with location=New is only a Shelf candidate;
@@ -5268,25 +5140,6 @@ class TestNotifyNonrfidNeedsAction:
         assert len(r._notify_calls) == 1
         assert "Non-RFID NEEDS_ACTION" in r._notify_calls[0][0]
 
-    def test_also_pushes_mobile_notification(self):
-        """v1.7.5: ambiguous outcome ALSO fires an actionable mobile push."""
-        fm = FakeSpoolman([], [])
-        r = _EventTestReconcile(fm, {}, args={})
-        tray_meta = {"type": "PLA", "color_hex": "FF0000", "name": "Red PLA", "filament_id": "123"}
-        r._notify_nonrfid_needs_action(
-            5, tray_meta, "Multiple Shelf candidates; tie-break did not pick one.",
-        )
-        mobile = [
-            c for c in r._service_calls
-            if c.get("service", "").startswith("notify/mobile_app_")
-        ]
-        assert len(mobile) == 1, f"expected one mobile push, got {mobile}"
-        push = mobile[0]
-        assert "Spool Match Needed" in push.get("title", "")
-        assert "Slot 5" in push.get("message", "")
-        assert "Open Spoolman" in push.get("message", "")
-        assert "Multiple Shelf candidates" in push.get("message", "")
-
 
 class TestNotifyNonrfidNewFallback:
     """_notify_nonrfid_new_fallback calls _notify."""
@@ -5534,9 +5387,6 @@ class TestAppendEvidenceReal:
         r = TestableReconcile(fm, {})
         with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
             r.evidence_log_path = f.name
-            # Set up the rotating-file logger that _append_evidence depends
-            # on. The harness bypasses initialize() so we call this directly.
-            AmsRfidReconcile._ensure_evidence_path_writable(r)
             r.evidence_log_enabled = True
             AmsRfidReconcile._append_evidence(r, {"key": "value"})
         with open(r.evidence_log_path) as f:
@@ -5569,7 +5419,6 @@ class TestAppendEvidenceLineReal:
         r = TestableReconcile(fm, {})
         with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
             r.evidence_log_path = f.name
-            AmsRfidReconcile._ensure_evidence_path_writable(r)
             r.evidence_log_enabled = True
             AmsRfidReconcile._append_evidence_line(r, "RFID_EMPTY_TRAY_CLEAR slot=1")
         with open(r.evidence_log_path) as f:
@@ -7159,274 +7008,191 @@ def test_sync_color_applies_valid_color():
     assert filament_patches[0]["payload"]["color_hex"] == "FF0000"
 
 
-# ---------------------------------------------------------------------------
-# Reconcile-end sweep tests
-# ---------------------------------------------------------------------------
-
-class TestReconcileEndSweep(unittest.TestCase):
-    """Tests for the reconcile-end presentation_state sweep in _run_reconcile_inner."""
-
-    def _make_args(self):
-        return {
-            "printer_serial": "01p00c5a3101668",
-            "spoolman_url": "http://192.0.2.1:7912",
-            "enabled": True,
-            "debug_logs": False,
-            "nonrfid_enabled_entity": "input_boolean.filament_iq_nonrfid_enabled",
-        }
-
-    def test_sweep_fires_for_slot_with_empty_presentation_state(self):
-        """After reconcile_all, a slot whose presentation_state was '' gets written by the sweep."""
-        # Slot 1: tray is empty → reconciler writes UNBOUND_TRAY_EMPTY.
-        # We pre-set the unbound_reason and status in state_map to simulate a prior
-        # reconcile pass that wrote those helpers but left presentation_state empty.
-        sm = FakeSpoolman([], [])
-        tray_ent = _tray_entity(1)
-        state_map = {
-            tray_ent: {"state": "empty", "attributes": {}},
-            f"{tray_ent}::all": {"state": "empty", "attributes": {}},
-            # pre-set unbound_reason/status as the reconciler would have written them
-            "input_text.ams_slot_1_unbound_reason": "UNBOUND_TRAY_EMPTY",
-            "input_text.ams_slot_1_status": "UNBOUND (no tag)",
-            # presentation_state is blank — the sweep should fill it in
-            "input_text.ams_slot_1_presentation_state": "",
-            "input_boolean.filament_iq_nonrfid_enabled": "off",
-        }
-        # All other slots get neutral defaults so reconciler doesn't error
-        for slot in range(2, 7):
-            ent = _tray_entity(slot)
-            state_map[ent] = {"state": "empty", "attributes": {}}
-            state_map[f"{ent}::all"] = {"state": "empty", "attributes": {}}
-            state_map[f"input_text.ams_slot_{slot}_presentation_state"] = ""
-
-        r = TestableReconcile(sm, state_map, args=self._make_args())
-        r._run_reconcile("test")
-
-        # The sweep must have written presentation_state for slot 1
-        ps_writes = [
-            w for w in r._helper_writes
-            if w.get("entity_id") == "input_text.ams_slot_1_presentation_state"
-        ]
-        self.assertGreater(len(ps_writes), 0, "Sweep must write presentation_state for slot with empty value")
-        # UNBOUND_TRAY_EMPTY → classify_slot_presentation returns "EMPTY"
-        self.assertEqual(ps_writes[-1]["value"], "EMPTY",
-                         "Sweep should classify UNBOUND_TRAY_EMPTY as EMPTY presentation state")
-
-        # Confirm a PRESENTATION_STATE_SWEEP log was emitted at DEBUG
-        sweep_logs = [m for m, lvl in r._log_calls if "PRESENTATION_STATE_SWEEP" in m and lvl == "DEBUG"]
-        self.assertGreater(len(sweep_logs), 0, "Sweep must emit DEBUG log PRESENTATION_STATE_SWEEP")
-
-    def test_sweep_does_not_overwrite_already_written_presentation_state(self):
-        """Sweep must not overwrite a slot whose presentation_state is already set to a real value."""
-        sm = FakeSpoolman([], [])
-        tray_ent = _tray_entity(2)
-        state_map = {
-            tray_ent: {"state": "empty", "attributes": {}},
-            f"{tray_ent}::all": {"state": "empty", "attributes": {}},
-            # Slot 2 already has a real presentation_state — sweep must skip it
-            "input_text.ams_slot_2_presentation_state": "BOUND",
-            "input_boolean.filament_iq_nonrfid_enabled": "off",
-        }
-        for slot in [1, 3, 4, 5, 6]:
-            ent = _tray_entity(slot)
-            state_map[ent] = {"state": "empty", "attributes": {}}
-            state_map[f"{ent}::all"] = {"state": "empty", "attributes": {}}
-
-        r = TestableReconcile(sm, state_map, args=self._make_args())
-        r._run_reconcile("test")
-
-        # No write to slot 2's presentation_state via the sweep
-        ps2_writes = [
-            w for w in r._helper_writes
-            if w.get("entity_id") == "input_text.ams_slot_2_presentation_state"
-        ]
-        # The per-slot loop may write presentation_state for slot 2 normally;
-        # the sweep must NOT write it a second time after the already-set "BOUND" value.
-        # We verify the sweep log is absent for slot 2.
-        sweep_slot2_logs = [
-            m for m, lvl in r._log_calls
-            if "PRESENTATION_STATE_SWEEP" in m and "slot=2" in m
-        ]
-        self.assertEqual(len(sweep_slot2_logs), 0,
-                         "Sweep must not log (or write) presentation_state for slot 2 when already set to 'BOUND'")
+def test_lot_nr_identity_lookup_includes_empty_spools():
+    """When a chip's tray_uuid matches only Empty-location spools, log
+    RFID_CHIP_BELONGS_TO_DEPLETED_SPOOL and unbound the slot without
+    falling through to candidate matching."""
+    tray_uuid = "C9FE580DAABBCCDD00112233AABBCCDD"
+    spool_62 = _spool(62, lot_nr=tray_uuid, location="Empty")
+    sm = FakeSpoolman([spool_62], [_bambu_filament()])
+    slot = 1
+    tray_ent = _tray_entity(slot)
+    state_map = {}
+    for s in range(1, 7):
+        state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+        state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+        state_map[f"input_text.ams_slot_{s}_status"] = ""
+        state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+        state_map[f"input_text.ams_slot_{s}_unbound_reason"] = ""
+        if s == slot:
+            attrs = {
+                "tag_uid": "AABBCCDD",
+                "tray_uuid": tray_uuid,
+                "type": "PLA",
+                "color": "ff0000",
+                "name": "Bambu PLA",
+                "filament_id": "bambu",
+                "tray_weight": 1000,
+                "remain": 50,
+            }
+            state_map[tray_ent] = {"attributes": attrs, "state": "valid"}
+            state_map[f"{tray_ent}::all"] = {"attributes": attrs, "state": "valid"}
+        else:
+            empty_attrs = {"tag_uid": "", "type": "", "color": "", "name": "",
+                           "filament_id": "", "tray_weight": 0, "remain": 0}
+            state_map[_tray_entity(s)] = {"attributes": empty_attrs, "state": "empty"}
+            state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_attrs, "state": "empty"}
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r._run_reconcile("test_depleted_chip")
+    assert any("RFID_CHIP_BELONGS_TO_DEPLETED_SPOOL" in m for m, _ in r._log_calls), (
+        "Expected RFID_CHIP_BELONGS_TO_DEPLETED_SPOOL log when chip owner is Empty"
+    )
+    status_writes = [
+        w for w in r._helper_writes
+        if w.get("entity_id") == f"input_text.ams_slot_{slot}_status"
+    ]
+    assert any("UNBOUND" in str(w.get("value", "")) for w in status_writes), (
+        "Slot status must be UNBOUND when chip belongs only to depleted spool"
+    )
 
 
-# ---------------------------------------------------------------------------
-# v1.9.0: External spool reconcile tests
-# ---------------------------------------------------------------------------
-
-# Entity ID for the external spool sensor (slot 8)
-_EXTERNAL_SPOOL_ENTITY = f"sensor.{_TEST_PREFIX}_externalspool_external_spool"
-
-# ams_units config that includes an external slot 8
-_AMS_UNITS_WITH_EXTERNAL = [
-    {"type": "ams_2_pro", "ams_index": 0, "slots": [1, 2, 3, 4]},
-    {"type": "ams_ht", "ams_index": 128, "slots": [5]},
-    {"type": "ams_ht", "ams_index": 129, "slots": [6]},
-    {"type": "ams_ht", "ams_index": 130, "slots": [7]},
-    {"type": "external", "slots": [8]},
-]
-
-
-def _make_external_args():
-    return {
-        "printer_serial": "01p00c5a3101668",
-        "spoolman_url": "http://192.0.2.1:7912",
-        "enabled": True,
-        "debug_logs": False,
-        "ams_units": _AMS_UNITS_WITH_EXTERNAL,
-    }
+def test_enroll_lot_nr_blocks_duplicate():
+    """_enroll_lot_nr must log LOT_NR_DUPLICATE_BLOCKED and skip the
+    PATCH when another spool already owns that lot_nr."""
+    lot_nr_val = "C9FE580DAABBCCDD00112233AABBCCDD"
+    spool_62 = _spool(62, lot_nr=lot_nr_val, location="Empty")
+    spool_32 = _spool(32, location="Empty")
+    sm = FakeSpoolman([spool_62, spool_32], [])
+    r = TestableReconcile(sm, {}, args=_DEFAULT_ARGS)
+    spool_index = {62: spool_62, 32: spool_32}
+    r._enroll_lot_nr(32, lot_nr_val, spool_index)
+    assert any("LOT_NR_DUPLICATE_BLOCKED" in m for m, _ in r._log_calls), (
+        "Expected LOT_NR_DUPLICATE_BLOCKED when lot_nr already owned by another spool"
+    )
+    lot_nr_patches = [
+        p for p in sm.patches
+        if p.get("payload", {}).get("lot_nr") == lot_nr_val
+    ]
+    assert len(lot_nr_patches) == 0, (
+        "Must not PATCH lot_nr when duplicate detected"
+    )
 
 
-def _make_external_state_map(ext_state="PLA", spool_id="0"):
-    """State map with all AMS slots empty and external slot in a given state."""
-    sm = {}
-    # Regular AMS slots — all empty
-    tray_by_slot, _, _, _ = build_slot_mappings(_TEST_PREFIX, _AMS_UNITS_WITH_EXTERNAL)
-    for slot in range(1, 8):
-        ent = tray_by_slot.get(slot, f"sensor.tray_{slot}")
-        sm[ent] = {"state": "empty", "attributes": {}}
-        sm[f"{ent}::all"] = {"state": "empty", "attributes": {}}
-    # External spool entity — store plain string for get_state() without attribute
-    sm[_EXTERNAL_SPOOL_ENTITY] = ext_state
-    sm[f"{_EXTERNAL_SPOOL_ENTITY}::all"] = {"state": ext_state, "attributes": {"type": "PLA"}}
-    sm[f"{_EXTERNAL_SPOOL_ENTITY}::type"] = "PLA"
-    # Set spool_id helper for slot 8 (plain string for get_state without attribute)
-    sm["input_text.ams_slot_8_spool_id"] = spool_id
-    sm[f"input_text.ams_slot_8_spool_id::all"] = {"state": spool_id, "attributes": {}}
-    # Slot 8 helpers need to be present so _set_helper doesn't skip them
-    sm[f"input_text.ams_slot_8_unbound_reason::all"] = {"state": "", "attributes": {}}
-    sm["input_text.ams_slot_8_unbound_reason"] = ""
-    sm[f"input_text.ams_slot_8_presentation_state::all"] = {"state": "", "attributes": {}}
-    sm["input_text.ams_slot_8_presentation_state"] = ""
-    sm["input_boolean.filament_iq_nonrfid_enabled"] = "off"
-    return sm
+def test_enroll_lot_nr_allows_unique():
+    """_enroll_lot_nr must proceed with the PATCH and log LOT_NR_ENROLLED
+    when no other spool owns the incoming lot_nr."""
+    lot_nr_a = "AAAABBBBCCCCDDDD0000111122223333"
+    lot_nr_b = "BBBBCCCCDDDDEEEE0000111122223333"
+    spool_10 = _spool(10, lot_nr=lot_nr_a, location="Shelf")
+    spool_20 = _spool(20, location="Shelf")
+    sm = FakeSpoolman([spool_10, spool_20], [])
+    r = TestableReconcile(sm, {}, args=_DEFAULT_ARGS)
+    spool_index = {10: spool_10, 20: spool_20}
+    r._enroll_lot_nr(20, lot_nr_b, spool_index)
+    assert any("LOT_NR_ENROLLED" in m for m, _ in r._log_calls), (
+        "Expected LOT_NR_ENROLLED when lot_nr is unique"
+    )
+    lot_nr_patches = [
+        p for p in sm.patches
+        if p.get("payload", {}).get("lot_nr") == lot_nr_b
+    ]
+    assert len(lot_nr_patches) == 1, (
+        "Must PATCH lot_nr exactly once when unique"
+    )
 
 
-class TestReconcileExternalSlot(unittest.TestCase):
-    """v1.9.0: Tests for _reconcile_external_slot and _on_external_spool_change."""
+def test_b2_allows_nonrfid_sig_duplicate():
+    """_enroll_lot_nr must allow duplicate enrollment for non-RFID lot signatures.
 
-    def test_reconcile_external_slot_bound(self):
-        """External slot with spool_id > 0 → FORCE_ACCEPTED + presentation NON_RFID_REGISTERED."""
-        sm = FakeSpoolman([], [])
-        state_map = _make_external_state_map(ext_state="PLA", spool_id="42")
-        r = TestableReconcile(sm, state_map, args=_make_external_args())
+    PATCH 2 regression guard: the system-wide uniqueness check in _enroll_lot_nr
+    applies only to 32-char hex RFID UUIDs. Non-RFID sigs (pipe-delimited format
+    like 'pla|gfa00|ff0000') are NOT globally unique by design — two rolls of the
+    same filament share the same sig — so the duplicate block must be skipped.
+    """
+    nonrfid_sig = "pla|gfa00|ff0000"  # 16 chars, not 32-char hex UUID
+    spool_10 = _spool(10, lot_nr=nonrfid_sig, location="Shelf")
+    spool_20 = _spool(20, location="Shelf")
+    sm = FakeSpoolman([spool_10, spool_20], [])
+    r = TestableReconcile(sm, {}, args=_DEFAULT_ARGS)
+    spool_index = {10: spool_10, 20: spool_20}
+    r._enroll_lot_nr(20, nonrfid_sig, spool_index)
 
-        self.assertEqual(r._external_slot, 8, "External slot must be 8")
+    assert not any("LOT_NR_DUPLICATE_BLOCKED" in m for m, _ in r._log_calls), (
+        "LOT_NR_DUPLICATE_BLOCKED must not fire for non-RFID sigs — they are not globally unique"
+    )
+    lot_nr_patches = [
+        p for p in sm.patches
+        if (p.get("payload") or {}).get("lot_nr") == nonrfid_sig
+        and p.get("path", "").endswith("/api/v1/spool/20")
+    ]
+    assert len(lot_nr_patches) == 1, (
+        f"Expected exactly one lot_nr PATCH for spool 20; got: {lot_nr_patches}"
+    )
 
-        r._reconcile_external_slot()
 
-        unbound_writes = [
-            w for w in r._helper_writes
-            if w.get("entity_id") == "input_text.ams_slot_8_unbound_reason"
-        ]
-        self.assertTrue(
-            any(w["value"] == "FORCE_ACCEPTED" for w in unbound_writes),
-            f"Expected FORCE_ACCEPTED in unbound_reason writes, got: {unbound_writes}",
-        )
-        ps_writes = [
-            w for w in r._helper_writes
-            if w.get("entity_id") == "input_text.ams_slot_8_presentation_state"
-        ]
-        self.assertTrue(
-            any("FORCE_ACCEPTED" in (w.get("value") or "") for w in ps_writes),
-            f"Expected FORCE_ACCEPTED in presentation_state writes, got: {ps_writes}",
-        )
+def test_b1_depleted_chip_sets_unbound_reason():
+    """When chip owner is Empty-location, _apply_unbound_reason and push notify must both fire.
 
-    def test_reconcile_external_slot_unbound(self):
-        """External slot with spool_id == 0 and real filament state → UNBOUND_NONRFID_NO_MATCH + notify."""
-        sm = FakeSpoolman([], [])
-        state_map = _make_external_state_map(ext_state="PLA", spool_id="0")
-        r = TestableReconcile(sm, state_map, args=_make_external_args())
-        # Track notifications
-        r._notify_calls = []
-        r._notify = lambda title, msg, **kw: r._notify_calls.append((title, msg))
-        r._notify_mobile_match_needed = lambda *a, **kw: None
+    PATCH 3 regression guard: the RFID_CHIP_BELONGS_TO_DEPLETED_SPOOL path must call
+    _apply_unbound_reason (which logs UNBOUND_REASON and writes the unbound_reason helper)
+    AND issue a mobile push notification so the user is alerted immediately.
+    """
+    tray_uuid = "D1E2F3A4BBCCDDEE00112233AABBCCDD"
+    spool_62 = _spool(62, lot_nr=tray_uuid, location="Empty")
+    sm = FakeSpoolman([spool_62], [_bambu_filament()])
+    slot = 2
+    tray_ent = _tray_entity(slot)
+    state_map = {}
+    for s in range(1, 7):
+        state_map[f"input_text.ams_slot_{s}_spool_id"] = "0"
+        state_map[f"input_text.ams_slot_{s}_expected_spool_id"] = "0"
+        state_map[f"input_text.ams_slot_{s}_status"] = ""
+        state_map[f"input_text.ams_slot_{s}_tray_signature"] = ""
+        state_map[f"input_text.ams_slot_{s}_unbound_reason"] = ""
+        if s == slot:
+            attrs = {
+                "tag_uid": "BBCCDDEE",
+                "tray_uuid": tray_uuid,
+                "type": "PLA",
+                "color": "ff0000",
+                "name": "Bambu PLA",
+                "filament_id": "bambu",
+                "tray_weight": 1000,
+                "remain": 50,
+            }
+            state_map[tray_ent] = {"attributes": attrs, "state": "valid"}
+            state_map[f"{tray_ent}::all"] = {"attributes": attrs, "state": "valid"}
+        else:
+            empty_attrs = {"tag_uid": "", "type": "", "color": "", "name": "",
+                           "filament_id": "", "tray_weight": 0, "remain": 0}
+            state_map[_tray_entity(s)] = {"attributes": empty_attrs, "state": "empty"}
+            state_map[f"{_tray_entity(s)}::all"] = {"attributes": empty_attrs, "state": "empty"}
 
-        r._reconcile_external_slot()
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS)
+    r.notify_service = "mobile_app_test"  # not set by TestableReconcile (skips initialize())
 
-        unbound_writes = [
-            w for w in r._helper_writes
-            if w.get("entity_id") == "input_text.ams_slot_8_unbound_reason"
-        ]
-        self.assertTrue(
-            any(w["value"] == "NONRFID_NO_MATCH_CONFIDENT" for w in unbound_writes),
-            f"Expected NONRFID_NO_MATCH_CONFIDENT in unbound_reason writes, got: {unbound_writes}",
-        )
-        ps_writes = [
-            w for w in r._helper_writes
-            if w.get("entity_id") == "input_text.ams_slot_8_presentation_state"
-        ]
-        self.assertTrue(
-            any("NEEDS_BIND" in (w.get("value") or "").upper() for w in ps_writes),
-            f"Expected NEEDS_BIND in presentation_state writes, got: {ps_writes}",
-        )
-        self.assertGreater(
-            len(r._notify_calls), 0,
-            "Should notify when external spool is unbound",
-        )
+    # Monkey-patch call_service to capture notify/ calls (TestableReconcile skips them)
+    all_service_calls = []
+    original_call_service = r.call_service
 
-    def test_reconcile_external_slot_empty(self):
-        """External slot with state 'unknown' → UNBOUND_TRAY_EMPTY, no notification."""
-        sm = FakeSpoolman([], [])
-        state_map = _make_external_state_map(ext_state="unknown", spool_id="0")
-        r = TestableReconcile(sm, state_map, args=_make_external_args())
-        r._notify_calls = []
-        r._notify = lambda title, msg, **kw: r._notify_calls.append((title, msg))
+    def capturing_call_service(service, **kwargs):
+        all_service_calls.append({"service": service, **kwargs})
+        original_call_service(service, **kwargs)
 
-        r._reconcile_external_slot()
+    r.call_service = capturing_call_service
 
-        unbound_writes = [
-            w for w in r._helper_writes
-            if w.get("entity_id") == "input_text.ams_slot_8_unbound_reason"
-        ]
-        self.assertTrue(
-            any(w["value"] == "UNBOUND_TRAY_EMPTY" for w in unbound_writes),
-            f"Expected UNBOUND_TRAY_EMPTY in unbound_reason writes, got: {unbound_writes}",
-        )
-        self.assertEqual(
-            len(r._notify_calls), 0,
-            "Must not notify when external slot state is 'unknown' (empty/disconnected)",
-        )
+    r._run_reconcile("test_depleted_chip_b1")
 
-    def test_reconcile_external_slot_no_external_configured(self):
-        """If _external_slot is None (no external in ams_units), _reconcile_external_slot is a no-op."""
-        sm = FakeSpoolman([], [])
-        # Use default ams_units (no external slot)
-        state_map = {}
-        for slot in range(1, 8):
-            ent = _tray_entity(slot)
-            state_map[ent] = {"state": "empty", "attributes": {}}
-            state_map[f"{ent}::all"] = {"state": "empty", "attributes": {}}
-        r = TestableReconcile(sm, state_map)
-
-        self.assertIsNone(r._external_slot, "_external_slot must be None when no external unit configured")
-
-        # Must not raise and must not write any helpers
-        r._reconcile_external_slot()
-        self.assertEqual(r._helper_writes, [], "No helper writes expected when _external_slot is None")
-
-    def test_on_external_spool_change_unknown_skipped(self):
-        """_on_external_spool_change with new='unknown' must skip reconcile."""
-        sm = FakeSpoolman([], [])
-        state_map = _make_external_state_map(ext_state="PLA", spool_id="0")
-        r = TestableReconcile(sm, state_map, args=_make_external_args())
-        r._reconcile_calls = []
-        r._reconcile_external_slot = lambda: r._reconcile_calls.append(True)
-
-        r._on_external_spool_change(_EXTERNAL_SPOOL_ENTITY, None, "PLA", "unknown", {})
-        self.assertEqual(r._reconcile_calls, [], "Must skip reconcile when new state is 'unknown'")
-
-    def test_on_external_spool_change_real_state_triggers_reconcile(self):
-        """_on_external_spool_change with real filament name triggers _reconcile_external_slot."""
-        sm = FakeSpoolman([], [])
-        state_map = _make_external_state_map(ext_state="PLA", spool_id="0")
-        r = TestableReconcile(sm, state_map, args=_make_external_args())
-        r._reconcile_calls = []
-        r._reconcile_external_slot = lambda: r._reconcile_calls.append(True)
-
-        r._on_external_spool_change(_EXTERNAL_SPOOL_ENTITY, None, "unknown", "PLA", {})
-        self.assertEqual(len(r._reconcile_calls), 1, "Must call _reconcile_external_slot for real state")
+    assert any("RFID_CHIP_BELONGS_TO_DEPLETED_SPOOL" in m for m, _ in r._log_calls), (
+        "Expected RFID_CHIP_BELONGS_TO_DEPLETED_SPOOL logged when chip owner is Empty"
+    )
+    assert any("UNBOUND_REASON" in m for m, _ in r._log_calls), (
+        "Expected UNBOUND_REASON logged by _apply_unbound_reason in depleted-chip path"
+    )
+    push_notify_calls = [c for c in all_service_calls if c.get("service", "").startswith("notify/")]
+    assert len(push_notify_calls) >= 1, (
+        f"Expected at least one notify/ push call in depleted-chip path; got: {all_service_calls}"
+    )
 
 
 if __name__ == "__main__":

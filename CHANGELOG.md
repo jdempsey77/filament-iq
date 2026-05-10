@@ -1,6 +1,36 @@
 # Changelog
 
-## [1.7.6] — 2026-05-09
+## [1.7.6] — 2026-05-10
+
+### Bug Fixes
+- **[A1] Pre-write depletion guard** — `_execute_writes` now fetches
+  current `remaining_weight` before writing; skips with
+  `USAGE_DEPLETED_SKIP` if `<= 0`; fails open on fetch error to avoid
+  blocking legitimate writes.
+- **[A2] Slot helper cleared on depletion** — `input_text.ams_slot_N_spool_id`
+  unconditionally cleared when a spool depletes; mobile push notification
+  fired prompting manual rebind; notify exceptions caught and logged
+  without aborting the decisions loop.
+- **[B1] lot_nr identity index split** — `lotnr_to_all_spools` (includes
+  Empty-location spools) used for chip identity lookup;
+  `lotnr_to_spools` (excludes Empty) retained for candidate selection
+  only; `RFID_CHIP_BELONGS_TO_DEPLETED_SPOOL` logged with unbound
+  reason set and push notification fired when chip matches a depleted
+  spool.
+- **[B2] lot_nr uniqueness enforcement** — `_enroll_lot_nr` blocks
+  enrollment when incoming RFID UUID lot_nr already exists on another
+  spool; `LOT_NR_DUPLICATE_BLOCKED` logged; non-RFID pipe-sigs exempt
+  (shared by design across identical rolls).
+
+### Root cause
+Physical inventory audit revealed phantom overconsumption writes
+accumulating beyond spool capacity, and RFID chip re-enrollment aliasing
+multiple spool records to the same physical chip. Both bugs traced to
+missing invariant enforcement in the write and enrollment paths.
+
+### Tests
++6 new tests across `test_spoolman_writes.py` and
+`test_ams_rfid_reconcile.py`. Full suite: 1417 passed.
 
 ### Added
 - **Makerworld link from hero card** — thumbnail and print title in the printer

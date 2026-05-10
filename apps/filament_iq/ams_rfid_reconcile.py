@@ -965,12 +965,17 @@ class AmsRfidReconcile(FilamentIQBase):
 
         # v4 lot_nr index: primary identity lookup (tray_uuid for RFID, sig for non-RFID)
         lotnr_to_spools = {}
+        # Identity index: all locations including Empty — for RFID chip ownership lookup
+        lotnr_to_all_spools = {}
         # Legacy RFID UID map (migration fallback): extra.rfid_tag_uid
         tag_to_spools = {}
         for spool in spools:
             spool_id = self._safe_int(spool.get("id"), 0)
             if spool_id <= 0:
                 continue
+            lot_nr = str(spool.get("lot_nr") or "").strip()
+            if lot_nr:
+                lotnr_to_all_spools.setdefault(lot_nr, []).append(spool_id)
             loc = str(spool.get("location", "")).strip().lower()
             if loc == LOCATION_EMPTY.lower():
                 continue
@@ -978,7 +983,6 @@ class AmsRfidReconcile(FilamentIQBase):
                 continue
             if loc != "shelf" and not loc.startswith("ams"):
                 continue
-            lot_nr = str(spool.get("lot_nr") or "").strip()
             if lot_nr:
                 lotnr_to_spools.setdefault(lot_nr, []).append(spool_id)
             uid = self._extract_spool_uid(spool)
@@ -1956,9 +1960,52 @@ class AmsRfidReconcile(FilamentIQBase):
                 slot_tag = _normalize_rfid_tag_uid(tag_uid)
                 _lotnr_match = False
                 if tray_uuid:
-                    mapped_ids = list(set(lotnr_to_spools.get(tray_uuid, [])))
-                    if mapped_ids:
+                    all_owner_ids = list(set(lotnr_to_all_spools.get(tray_uuid, [])))
+                    if all_owner_ids:
                         _lotnr_match = True
+                        all_empty = all(
+                            str(spool_index.get(sid, {}).get("location", "")).strip().lower() == LOCATION_EMPTY.lower()
+                            for sid in all_owner_ids
+                        )
+                        if all_empty:
+                            self.log(
+                                f"RFID_CHIP_BELONGS_TO_DEPLETED_SPOOL slot={slot} tray_uuid={tray_uuid} "
+                                f"depleted_spools={all_owner_ids}",
+                                level="WARNING",
+                            )
+                            status = STATUS_UNBOUND_ACTION_REQUIRED
+                            unbound += 1
+                            t["decision"], t["reason"], t["action"] = (
+                                "UNBOUND", "rfid_chip_depleted", "unbound_chip_depleted"
+                            )
+                            t["final_slot_status"] = status
+                            self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                            self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str, tray_uuid=tray_uuid)
+                            self._notify_unbound_rfid_no_shelf(slot, tag_uid, tray_meta)
+                            try:
+                                self.call_service(
+                                    f"notify/{self.notify_service}",
+                                    title=f"Filament IQ — Slot {slot} blocked",
+                                    message=(
+                                        f"Slot {slot}: RFID chip belongs to a depleted spool {all_owner_ids}. "
+                                        "Remove it and load a replacement spool."
+                                    ),
+                                )
+                            except Exception as exc:
+                                self.log(
+                                    f"RFID_CHIP_DEPLETED_NOTIFY_FAILED slot={slot}: {exc}",
+                                    level="WARNING",
+                                )
+                            self._active_run["validation_transcripts"].append(t)
+                            if validation_mode:
+                                self._log_validation_transcript(t)
+                            continue
+                        mapped_ids = [
+                            sid for sid in all_owner_ids
+                            if str(spool_index.get(sid, {}).get("location", "")).strip().lower() != LOCATION_EMPTY.lower()
+                        ]
+                    else:
+                        mapped_ids = []
                 else:
                     mapped_ids = []
                 if not mapped_ids:
@@ -2201,6 +2248,9 @@ class AmsRfidReconcile(FilamentIQBase):
                             lotnr_to_spools.setdefault(tray_uuid, [])
                             if resolved_spool_id not in lotnr_to_spools[tray_uuid]:
                                 lotnr_to_spools[tray_uuid].append(resolved_spool_id)
+                            lotnr_to_all_spools.setdefault(tray_uuid, [])
+                            if resolved_spool_id not in lotnr_to_all_spools[tray_uuid]:
+                                lotnr_to_all_spools[tray_uuid].append(resolved_spool_id)
                             if not self._rfid_bind_guard_ok(resolved_spool_id, tag_uid, spool_index, tray_uuid=tray_uuid):
                                 self._apply_rfid_bind_guard_fail(slot, t, tray_meta, tag_uid, resolved_spool_id, validation_mode)
                                 unbound += 1
@@ -2656,6 +2706,18 @@ class AmsRfidReconcile(FilamentIQBase):
             return
         spool = spool_index.get(spool_id) or self._spoolman_get(f"/api/v1/spool/{spool_id}")
         existing = str(spool.get("lot_nr") or "").strip() if isinstance(spool, dict) else ""
+        if _is_lot_nr_uuid(lot_nr_value):
+            existing_owners = [
+                sid for sid, s in spool_index.items()
+                if sid != spool_id and isinstance(s, dict) and str(s.get("lot_nr") or "").strip() == lot_nr_value
+            ]
+            if existing_owners:
+                self.log(
+                    f"LOT_NR_DUPLICATE_BLOCKED spool_id={spool_id} lot_nr={lot_nr_value} "
+                    f"already_owned_by={existing_owners}",
+                    level="WARNING",
+                )
+                return
         if existing == lot_nr_value:
             self._record_no_write(spool_id, "lot_nr_already_set", {"spool_id": spool_id, "lot_nr": lot_nr_value})
             return

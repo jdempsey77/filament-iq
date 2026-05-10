@@ -559,6 +559,50 @@ def test_archive_failure_does_not_block_unbind():
     assert len(binding_clears) == 1
 
 
+def test_a2_notify_exception_does_not_abort_decisions_loop():
+    """Notify failure on a depleted decision must not abort remaining decisions in the loop.
+
+    PATCH 1 regression guard: the try/except around the A2 notify call must
+    catch RuntimeError without propagating it, so subsequent decisions still run.
+    """
+    app = _TestableUsageSync(
+        state_map={},
+        args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
+    )
+
+    # Override call_service: record all calls but raise for notify/ to simulate failure
+    def failing_notify(service, **kwargs):
+        app._service_calls.append({"service": service, **kwargs})
+        if service.startswith("notify/"):
+            raise RuntimeError("simulated push notification failure")
+
+    app.call_service = failing_notify
+
+    recorder = SpoolmanRecorder()
+    recorder.set_use_response(47, remaining=0.0)    # depleted → triggers notify
+    recorder.set_use_response(48, remaining=200.0)  # normal write
+    app._spoolman_use = recorder.use
+    app._spoolman_patch = recorder.patch
+
+    decision1 = SlotDecision(
+        slot=3, spool_id=47, consumption_g=432.0,
+        method="rfid_delta_depleted", skip_reason=None, confidence="high",
+    )
+    decision2 = SlotDecision(
+        slot=1, spool_id=48, consumption_g=50.0,
+        method="rfid_delta", skip_reason=None, confidence="high",
+    )
+
+    app._execute_writes([decision1, decision2], "notify_fail_test")
+
+    assert recorder.use_count == 2, (
+        f"Expected both spools written despite notify failure; got use_count={recorder.use_count}"
+    )
+    assert _has_log(app, "SLOT_HELPER_NOTIFY_FAILED"), (
+        "Expected SLOT_HELPER_NOTIFY_FAILED logged when notify raises"
+    )
+
+
 def test_dry_run_suppresses_archive():
     """dry_run=True → no Spoolman calls at all, including archive."""
     app = _TestableUsageSync(
@@ -580,3 +624,89 @@ def test_dry_run_suppresses_archive():
     assert recorder.patch_count == 0
     assert _has_log(app, "WOULD_PATCH")
     assert not _has_log(app, "SPOOL_ARCHIVED")
+
+
+# ---------------------------------------------------------------------------
+# FIX A1 — Pre-write depletion guard
+# ---------------------------------------------------------------------------
+
+def test_execute_writes_skips_depleted_spool():
+    """_execute_writes must skip the /use call when remaining_weight is already <= 0."""
+    app = _TestableUsageSync(state_map={}, args={})
+    app._spoolman_get_override = lambda path: {"remaining_weight": 0.0}
+
+    recorder = SpoolmanRecorder()
+    app._spoolman_use = recorder.use
+    app._spoolman_patch = recorder.patch
+
+    decision = SlotDecision(
+        slot=2, spool_id=84, consumption_g=133.69,
+        method="3mf", skip_reason=None, confidence="high",
+    )
+    app._execute_writes([decision], "phantom_write_test")
+
+    assert recorder.use_count == 0, "must not call /use when spool is already depleted"
+    assert _has_log(app, "USAGE_DEPLETED_SKIP")
+
+
+def test_execute_writes_proceeds_on_fetch_failure():
+    """_execute_writes must proceed with the write (fail open) when the pre-check fetch fails."""
+    app = _TestableUsageSync(state_map={}, args={})
+
+    def _raise(path):
+        raise ConnectionError("simulated network error")
+    app._spoolman_get_override = _raise
+
+    recorder = SpoolmanRecorder()
+    app._spoolman_use = recorder.use
+    app._spoolman_patch = recorder.patch
+    recorder.set_use_response(84, remaining=50.0)
+
+    decision = SlotDecision(
+        slot=2, spool_id=84, consumption_g=50.0,
+        method="3mf", skip_reason=None, confidence="high",
+    )
+    app._execute_writes([decision], "fetch_fail_test")
+
+    assert recorder.use_count == 1, "must proceed with write when pre-check fetch fails"
+    assert _has_log(app, "USAGE_DEPLETED_CHECK_FAILED")
+
+
+# ---------------------------------------------------------------------------
+# FIX A2 — Clear slot helper on depletion
+# ---------------------------------------------------------------------------
+
+def test_depletion_clears_slot_helper():
+    """On depletion: slot helper set to '', SLOT_HELPER_CLEARED_ON_DEPLETION logged, push fired."""
+    app = _TestableUsageSync(state_map={}, args={})
+    # Default _spoolman_get returns remaining=100 — pre-write guard passes.
+    recorder = SpoolmanRecorder()
+    app._spoolman_use = recorder.use
+    app._spoolman_patch = recorder.patch
+    recorder.set_use_response(47, remaining=0.0)
+
+    decision = SlotDecision(
+        slot=3, spool_id=47, consumption_g=100.0,
+        method="3mf", skip_reason=None, confidence="high",
+    )
+    app._execute_writes([decision], "depletion_clear_test")
+
+    # Slot helper must be cleared unconditionally
+    helper_clears = [
+        c for c in app._service_calls
+        if c.get("entity_id") == "input_text.ams_slot_3_spool_id"
+        and c.get("value") == ""
+    ]
+    assert len(helper_clears) >= 1, "slot helper must be cleared to '' on depletion"
+
+    assert _has_log(app, "SLOT_HELPER_CLEARED_ON_DEPLETION")
+
+    # Push notification must be fired
+    push_calls = [
+        c for c in app._service_calls
+        if "notify" in c.get("service", "")
+        and "depleted" in c.get("title", "").lower()
+    ]
+    assert len(push_calls) == 1, "depletion push notification must fire exactly once"
+    assert "47" in push_calls[0].get("message", "")
+    assert "slot 3" in push_calls[0].get("message", "").lower()
