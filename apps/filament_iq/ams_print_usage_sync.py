@@ -571,6 +571,32 @@ class AmsPrintUsageSync(FilamentIQBase):
                 patched += 1
                 continue
 
+            # FIX A1: Pre-write depletion guard.
+            # Fetch current remaining_weight before writing; skip if already <= 0.
+            # Fail open: if the fetch fails, proceed with the write.
+            _pre_spool = None
+            try:
+                _pre_spool = self._spoolman_get(f"/api/v1/spool/{decision.spool_id}")
+                if _pre_spool is None:
+                    raise ValueError("fetch_returned_none")
+            except Exception as _e:
+                self.log(
+                    f"USAGE_DEPLETED_CHECK_FAILED slot={decision.slot} "
+                    f"spool_id={decision.spool_id} error={_e}",
+                    level="WARNING",
+                )
+            else:
+                _pre_remaining = float(_pre_spool.get("remaining_weight", 0))
+                if _pre_remaining <= 0:
+                    self.log(
+                        f"USAGE_DEPLETED_SKIP slot={decision.slot} "
+                        f"spool_id={decision.spool_id} remaining={_pre_remaining} "
+                        f"method={decision.method} "
+                        f"would_have_consumed={decision.consumption_g}",
+                        level="WARNING",
+                    )
+                    continue
+
             result = self._spoolman_use(decision.spool_id, decision.consumption_g)
             if result:
                 decision.post_write_remaining = float(
@@ -639,6 +665,33 @@ class AmsPrintUsageSync(FilamentIQBase):
                                 f"spool_id={decision.spool_id}: {e}",
                                 level="WARNING",
                             )
+                    # FIX A2: Always clear slot helper and notify on depletion.
+                    self.call_service(
+                        "input_text/set_value",
+                        entity_id=f"input_text.ams_slot_{decision.slot}_spool_id",
+                        value="",
+                    )
+                    self.log(
+                        f"SLOT_HELPER_CLEARED_ON_DEPLETION slot={decision.slot} "
+                        f"spool_id={decision.spool_id}",
+                        level="INFO",
+                    )
+                    try:
+                        self.call_service(
+                            f"notify/{self.notify_service}",
+                            title=f"Spool depleted — slot {decision.slot}",
+                            message=(
+                                f"Spool #{decision.spool_id} is empty. "
+                                f"Load a new spool and bind it to slot {decision.slot} "
+                                f"to resume tracking."
+                            ),
+                        )
+                    except Exception as e:
+                        self.log(
+                            f"SLOT_HELPER_NOTIFY_FAILED slot={decision.slot} "
+                            f"spool_id={decision.spool_id} error={e}",
+                            level="WARNING",
+                        )
                     if (
                         self.auto_empty_spools
                         and not self._is_tray_physically_present(decision.slot)
@@ -1100,7 +1153,6 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._job_key = ""
         self._threemf_filename = None
         self._write_threemf_sensor()
-        self._write_makerworld_sensors()
         try:
             self.call_service(
                 "input_boolean/turn_off",
