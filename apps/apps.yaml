@@ -89,3 +89,4 @@ label_printer:
   printer_model: "QL-810W"
   label_size: "d24"
   dry_run: true
+  filament_profiles_path: "/config/filament_profiles/filaments.json"
