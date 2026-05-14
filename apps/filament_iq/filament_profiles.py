@@ -16,6 +16,15 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+_TYPE_KEYWORDS: tuple = (
+    "matte", "silk", "sparkle", "glitter", "glow", "marble",
+    "wood", "metal", "carbon", "fiber", "filled", "flex",
+    "tpu", "high speed", "hs", "rapid", "pro", "plus", "basic",
+    "galaxy", "rainbow", "multicolor", "dual", "gradient",
+    "68d",
+)
+
+
 def _norm(s: str) -> str:
     """Lowercase, collapse whitespace — used for all fuzzy comparisons."""
     return re.sub(r"\s+", " ", str(s).strip().lower()) if s else ""
@@ -97,7 +106,8 @@ class FilamentProfilesClient:
     def lookup(self, vendor: str, material: str, filament_name: str) -> FilamentProfile:
         """Return the best-matching FilamentProfile, or a no-match sentinel."""
         try:
-            return self._lookup(_norm(vendor), _norm(material), _norm(filament_name))
+            material_n = _norm(material.replace("+", "-plus"))
+            return self._lookup(_norm(vendor), material_n, _norm(filament_name))
         except Exception as exc:
             logger.warning("FilamentProfilesClient.lookup failed: %s", exc)
             return _NO_MATCH
@@ -159,8 +169,12 @@ class FilamentProfilesClient:
             elif material_n in cand_material or cand_material in material_n:
                 score += 0.1
 
-        # Type: +0.2 if the type slug (e.g. "matte") appears in the filament name
+        # Type: +0.2 if the type slug appears in the filament name
+        # Also infer type from name using known keywords for scoring
+        inferred_type = next((kw for kw in _TYPE_KEYWORDS if kw in name_n), None) if name_n else None
         if name_n and cand_type and cand_type in name_n:
+            score += 0.2
+        elif inferred_type and cand_type and inferred_type == cand_type:
             score += 0.2
 
         return min(score, 1.0)
