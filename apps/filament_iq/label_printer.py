@@ -116,15 +116,40 @@ class LabelPrinter(FilamentIQBase):
 
     def generate_label_image(self, spool_data, filament_data):
         """Route to enhanced or standard label; falls back to standard on any error."""
+        spool_id = spool_data.get("id", "?")
         try:
             profile = self._get_profile(filament_data)
+            if profile:
+                self.log(
+                    f"LABEL_PROFILE spool_id={spool_id} matched={profile.matched} "
+                    f"confidence={profile.confidence} source={profile.source} "
+                    f"temp={profile.temp_min}-{profile.temp_max} "
+                    f"bed={profile.bed_temp_min} flow={profile.flow_ratio}",
+                    level="INFO",
+                )
+            else:
+                self.log(
+                    f"LABEL_PROFILE spool_id={spool_id} profile=None "
+                    f"(client={'available' if getattr(getattr(self, 'profiles_client', None), 'available', False) else 'unavailable'})",
+                    level="INFO",
+                )
             if profile and profile.confidence in ("high", "medium"):
+                self.log(
+                    f"LABEL_PATH spool_id={spool_id} path=enhanced "
+                    f"reason=confidence:{profile.confidence}",
+                    level="INFO",
+                )
                 return self._generate_enhanced_label(spool_data, filament_data, profile)
         except Exception as e:
             self.log(
                 f"LABEL: Enhanced label failed, falling back to standard: {e}",
                 level="WARNING",
             )
+        self.log(
+            f"LABEL_PATH spool_id={spool_id} path=standard "
+            f"reason={'no_profile' if not profile else 'low_confidence:' + (profile.confidence if profile else 'none')}",
+            level="INFO",
+        )
         return self._generate_standard_label(spool_data, filament_data)
 
     def _generate_standard_label(self, spool_data, filament_data):
