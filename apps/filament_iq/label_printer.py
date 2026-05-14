@@ -223,8 +223,11 @@ class LabelPrinter(FilamentIQBase):
         if profile and profile.material_type:
             mat_type = profile.material_type.title()
 
-        if profile and profile.profile_id:
-            qr_content = f"https://3dfilamentprofiles.com/filament/details/{profile.profile_id}"
+        if profile and profile.brand_key and profile.material_key and profile.material_type:
+            qr_content = (
+                f"https://3dfilamentprofiles.com/filaments/"
+                f"{profile.brand_key}/{profile.material_key}/{profile.material_type}"
+            )
         else:
             qr_content = f"#{spool_id}"
 

@@ -48,6 +48,8 @@ class FilamentProfile:
     source: str                  # "user" | "community" | "none"
     material_type: Optional[str] = None  # e.g. "basic", "matte", "silk"
     profile_id: Optional[int] = None     # id from 3dfilamentprofiles.com
+    brand_key: Optional[str] = None      # slug used in profile URLs
+    material_key: Optional[str] = None   # slug used in profile URLs
 
 
 _NO_MATCH = FilamentProfile(
@@ -94,17 +96,6 @@ class FilamentProfilesClient:
 
     def lookup(self, vendor: str, material: str, filament_name: str) -> FilamentProfile:
         """Return the best-matching FilamentProfile, or a no-match sentinel."""
-        # TEMP TEST — remove after visual verification
-        if "bambu" in vendor.lower():
-            return FilamentProfile(
-                matched=True, confidence="high",
-                temp_min=220, temp_max=240,
-                bed_temp_min=35, bed_temp_max=35,
-                flow_ratio=0.98, max_volumetric_speed=12.0,
-                source="test",
-                material_type="basic",
-                profile_id=42,
-            )
         try:
             return self._lookup(_norm(vendor), _norm(material), _norm(filament_name))
         except Exception as exc:
@@ -206,4 +197,6 @@ class FilamentProfilesClient:
             source=source,
             material_type=candidate.get("material_type_key") or None,
             profile_id=_opt_int(candidate.get("id")),
+            brand_key=candidate.get("brand_key") or None,
+            material_key=candidate.get("material_key") or None,
         )
