@@ -18,6 +18,7 @@ import urllib.error
 import urllib.request
 
 from .base import FilamentIQBase
+from .filament_profiles import FilamentProfilesClient
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,9 @@ class LabelPrinter(FilamentIQBase):
         self.printer_model = str(self.args.get("printer_model", "QL-810W")).strip()
         self.label_size = str(self.args.get("label_size", "29x90")).strip()
         self.dry_run = bool(self.args.get("dry_run", True))
+
+        profiles_path = self.args.get("filament_profiles_path")
+        self.profiles_client = FilamentProfilesClient(str(profiles_path)) if profiles_path else None
 
         self.listen_event(self._on_print_label_event, "filament_iq_print_label")
         self.listen_event(self._on_font_test_event, "filament_iq_print_font_test")
@@ -99,7 +103,31 @@ class LabelPrinter(FilamentIQBase):
             self.log(f"LABEL_FETCH_FILAMENT_FAILED filament_id={filament_id}: {e}", level="WARNING")
             return None
 
+    def _get_profile(self, filament_data):
+        """Return a FilamentProfile if client is available, else None."""
+        client = getattr(self, "profiles_client", None)
+        if not (client and client.available):
+            return None
+        return client.lookup(
+            vendor=str(filament_data.get("vendor", {}).get("name") or ""),
+            material=str(filament_data.get("material") or ""),
+            filament_name=str(filament_data.get("name") or ""),
+        )
+
     def generate_label_image(self, spool_data, filament_data):
+        """Route to enhanced or standard label; falls back to standard on any error."""
+        try:
+            profile = self._get_profile(filament_data)
+            if profile and profile.confidence in ("high", "medium"):
+                return self._generate_enhanced_label(spool_data, filament_data, profile)
+        except Exception as e:
+            self.log(
+                f"LABEL: Enhanced label failed, falling back to standard: {e}",
+                level="WARNING",
+            )
+        return self._generate_standard_label(spool_data, filament_data)
+
+    def _generate_standard_label(self, spool_data, filament_data):
         """Draw landscape on 991x306, rotate -90° into 306x991 for brother_ql. rotate='0' in convert."""
         from PIL import Image, ImageDraw, ImageFont
 
@@ -196,6 +224,88 @@ class LabelPrinter(FilamentIQBase):
         tmp_rotated = tmp.rotate(-90, expand=True)
         img = Image.new("RGB", (W, H), (255, 255, 255))
         img.paste(tmp_rotated, (0, 0))
+
+        return img
+
+    def _generate_enhanced_label(self, spool_data, filament_data, profile):
+        """236×236 d24 round-label layout with profile print settings."""
+        from PIL import Image, ImageDraw, ImageFont
+
+        W, H = 236, 236
+        img = Image.new("RGB", (W, H), (255, 255, 255))
+        draw = ImageDraw.Draw(img)
+
+        # Color + contrast
+        color_hex = str(filament_data.get("color_hex") or "").strip().lstrip("#")
+        try:
+            r = int(color_hex[0:2], 16)
+            g = int(color_hex[2:4], 16)
+            b = int(color_hex[4:6], 16)
+        except Exception:
+            r, g, b = 128, 128, 128
+        lum = 0.299 * r + 0.587 * g + 0.114 * b
+        fg       = (255, 255, 255) if lum < 128 else (17, 17, 17)
+        div_col  = (180, 180, 180) if lum < 128 else (100, 100, 100)
+
+        # Circle background
+        draw.ellipse([0, 0, W - 1, H - 1], fill=(r, g, b))
+
+        try:
+            font_large = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 42)
+            font_med   = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+            font_small = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
+        except Exception:
+            font_large = font_med = font_small = ImageFont.load_default()
+
+        vendor   = str(filament_data.get("vendor", {}).get("name") or "")[:12]
+        material = str(filament_data.get("material") or "").upper()
+        spool_id = spool_data.get("id", "?")
+
+        # Build line list: (text, font) — "---" sentinel = divider
+        lines = [
+            (f"#{spool_id}", font_large),
+            (vendor,         font_med),
+            (material,       font_med),
+        ]
+
+        has_temp = profile.temp_min is not None and profile.temp_max is not None
+        has_bed  = profile.bed_temp_min is not None
+        if has_temp or has_bed:
+            lines.append(("---", None))
+            parts = []
+            if has_temp:
+                parts.append(f"{profile.temp_min}-{profile.temp_max}°")
+            if has_bed:
+                parts.append(f"Bed:{profile.bed_temp_min}°")
+            lines.append((" ".join(parts), font_small))
+
+        if profile.flow_ratio is not None:
+            lines.append((f"Flow:{profile.flow_ratio:.2f}", font_small))
+
+        # Measure total height
+        gap = 4
+        row_heights = []
+        for text, font in lines:
+            if text == "---":
+                row_heights.append(8)
+            else:
+                bb = draw.textbbox((0, 0), text, font=font)
+                row_heights.append(bb[3] - bb[1])
+        total_h = sum(row_heights) + gap * (len(lines) - 1)
+
+        y = (H - total_h) // 2
+        for i, (text, font) in enumerate(lines):
+            if text == "---":
+                mx = W // 5
+                draw.line([(mx, y + 4), (W - mx, y + 4)], fill=div_col, width=1)
+            else:
+                bb = draw.textbbox((0, 0), text, font=font)
+                x = (W - (bb[2] - bb[0])) // 2
+                draw.text((x, y), text, font=font, fill=fg)
+            y += row_heights[i] + gap
 
         return img
 
