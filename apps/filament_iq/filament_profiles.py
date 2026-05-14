@@ -92,6 +92,15 @@ class FilamentProfilesClient:
 
     def lookup(self, vendor: str, material: str, filament_name: str) -> FilamentProfile:
         """Return the best-matching FilamentProfile, or a no-match sentinel."""
+        # TEMP TEST — remove after visual verification
+        if "bambu" in vendor.lower():
+            return FilamentProfile(
+                matched=True, confidence="high",
+                temp_min=220, temp_max=240,
+                bed_temp_min=35, bed_temp_max=35,
+                flow_ratio=0.98, max_volumetric_speed=12.0,
+                source="test",
+            )
         try:
             return self._lookup(_norm(vendor), _norm(material), _norm(filament_name))
         except Exception as exc:
