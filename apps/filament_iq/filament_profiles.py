@@ -135,9 +135,9 @@ class FilamentProfilesClient:
     def _score(
         vendor_n: str, material_n: str, name_n: str, candidate: dict
     ) -> float:
-        cand_brand  = _norm(candidate.get("brand_name", ""))
-        cand_simple = _norm(candidate.get("simple_type", ""))
-        cand_type   = _norm(candidate.get("type_name", ""))
+        cand_brand    = _norm(candidate.get("brand_name", ""))
+        cand_material = candidate.get("material_key", "")       # e.g. "pla", "petg"
+        cand_type     = candidate.get("material_type_key", "")  # e.g. "matte", "basic"
 
         score = 0.0
 
@@ -148,19 +148,16 @@ class FilamentProfilesClient:
             elif vendor_n in cand_brand or cand_brand in vendor_n:
                 score += 0.25
 
-        # Material: 0.3 exact, 0.1 partial
-        if material_n and cand_simple:
-            if material_n == cand_simple:
+        # Material: 0.3 exact, 0.1 partial (material_key is already a lowercase slug)
+        if material_n and cand_material:
+            if material_n == cand_material:
                 score += 0.3
-            elif material_n in cand_simple or cand_simple in material_n:
+            elif material_n in cand_material or cand_material in material_n:
                 score += 0.1
 
-        # Type name: 0.2 exact, 0.1 partial (cand type keyword inside lookup name or vice-versa)
-        if name_n and cand_type:
-            if name_n == cand_type:
-                score += 0.2
-            elif cand_type in name_n or name_n in cand_type:
-                score += 0.1
+        # Type: +0.2 if the type slug (e.g. "matte") appears in the filament name
+        if name_n and cand_type and cand_type in name_n:
+            score += 0.2
 
         return min(score, 1.0)
 

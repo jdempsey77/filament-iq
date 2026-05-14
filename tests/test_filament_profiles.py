@@ -46,8 +46,8 @@ def _write_json(tmp_path, data):
 
 SUNLU_PLA_MATTE = {
     "brand_name": "SUNLU",
-    "simple_type": "PLA",
-    "type_name": "PLA Matte",
+    "material_key": "pla",
+    "material_type_key": "matte",
     "user_properties": {
         "nozzle_temperature_range_low": 220,
         "nozzle_temperature_range_high": 240,
@@ -111,12 +111,21 @@ def test_match_no_brand(tmp_path):
     assert result.matched is False
 
 
+def test_match_medium_confidence(tmp_path):
+    """Brand + material exact match, no type keyword in name → confidence 'medium'."""
+    path = _write_json(tmp_path, {"filaments": [SUNLU_PLA_MATTE]})
+    client = FilamentProfilesClient(path)
+    result = client.lookup("SUNLU", "PLA", "Red")  # no type keyword
+    assert result.matched is True
+    assert result.confidence == "medium"
+
+
 def test_fallback_to_default_properties(tmp_path):
     """No user_properties → falls back to default_properties, source='community'."""
     record = {
         "brand_name": "SUNLU",
-        "simple_type": "PLA",
-        "type_name": "PLA Matte",
+        "material_key": "pla",
+        "material_type_key": "matte",
         "user_properties": {},
         "default_properties": {
             "nozzle_temperature_range_low": 210,
