@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 _TYPE_KEYWORDS: tuple = (
     "matte", "silk", "sparkle", "glitter", "glow", "marble",
     "wood", "metal", "carbon", "fiber", "filled", "flex",
-    "tpu", "high speed", "hs", "rapid", "pro", "plus", "basic",
+    "tpu", "high speed", "high-speed", "hs", "rapid", "pro", "plus", "basic",
     "galaxy", "rainbow", "multicolor", "dual", "gradient",
     "68d",
 )
