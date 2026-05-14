@@ -17,7 +17,15 @@ import logging
 import urllib.error
 import urllib.request
 
+try:
+    import qrcode as _qrcode_lib
+    from qrcode.constants import ERROR_CORRECT_M as _QR_ECM
+except ImportError:
+    _qrcode_lib = None
+    _QR_ECM = None
+
 from .base import FilamentIQBase
+from .filament_profiles import FilamentProfilesClient
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +47,9 @@ class LabelPrinter(FilamentIQBase):
         self.printer_model = str(self.args.get("printer_model", "QL-810W")).strip()
         self.label_size = str(self.args.get("label_size", "29x90")).strip()
         self.dry_run = bool(self.args.get("dry_run", True))
+
+        profiles_path = self.args.get("filament_profiles_path")
+        self.profiles_client = FilamentProfilesClient(str(profiles_path)) if profiles_path else None
 
         self.listen_event(self._on_print_label_event, "filament_iq_print_label")
         self.listen_event(self._on_font_test_event, "filament_iq_print_font_test")
@@ -99,105 +110,319 @@ class LabelPrinter(FilamentIQBase):
             self.log(f"LABEL_FETCH_FILAMENT_FAILED filament_id={filament_id}: {e}", level="WARNING")
             return None
 
+    def _get_profile(self, filament_data):
+        """Return a FilamentProfile if client is available, else None."""
+        client = getattr(self, "profiles_client", None)
+        if not (client and client.available):
+            return None
+        return client.lookup(
+            vendor=str(filament_data.get("vendor", {}).get("name") or ""),
+            material=str(filament_data.get("material") or ""),
+            filament_name=str(filament_data.get("name") or ""),
+        )
+
     def generate_label_image(self, spool_data, filament_data):
-        """Draw landscape on 991x306, rotate -90° into 306x991 for brother_ql. rotate='0' in convert."""
+        """Route to enhanced or standard label; falls back to standard on any error."""
+        spool_id = spool_data.get("id", "?")
+        profile = None
+        try:
+            profile = self._get_profile(filament_data)
+            if profile:
+                self.log(
+                    f"LABEL_PROFILE spool_id={spool_id} matched={profile.matched} "
+                    f"confidence={profile.confidence} source={profile.source} "
+                    f"temp={profile.temp_min}-{profile.temp_max} "
+                    f"bed={profile.bed_temp_min} flow={profile.flow_ratio}",
+                    level="INFO",
+                )
+            else:
+                self.log(
+                    f"LABEL_PROFILE spool_id={spool_id} profile=None "
+                    f"(client={'available' if getattr(getattr(self, 'profiles_client', None), 'available', False) else 'unavailable'})",
+                    level="INFO",
+                )
+            if profile and profile.confidence in ("high", "medium"):
+                self.log(
+                    f"LABEL_PATH spool_id={spool_id} path=enhanced "
+                    f"reason=confidence:{profile.confidence}",
+                    level="INFO",
+                )
+                return self._generate_enhanced_label(spool_data, filament_data, profile)
+        except Exception as e:
+            self.log(
+                f"LABEL: Enhanced label failed, falling back to standard: {e}",
+                level="WARNING",
+            )
+        self.log(
+            f"LABEL_PATH spool_id={spool_id} path=standard "
+            f"reason={'no_profile' if not profile else 'low_confidence:' + profile.confidence}",
+            level="INFO",
+        )
+        return self._generate_standard_label(spool_data, filament_data)
+
+    # ── QR code ───────────────────────────────────────────────────────
+
+    def _make_qr_image(self, qr_content: str):
+        """Generate a QR code PIL image for the given content string.
+
+        Returns a PIL Image, or None if qrcode library is not installed.
+        Install via AppDaemon addon options: python_packages: [qrcode[pil]]
+        """
+        if _qrcode_lib is None:
+            return None
+        qr = _qrcode_lib.QRCode(
+            version=None, error_correction=_QR_ECM, box_size=8, border=2,
+        )
+        qr.add_data(qr_content)
+        qr.make(fit=True)
+        return qr.make_image(fill_color="black", back_color="white").convert("RGB")
+
+    # ── Portrait label (29x90 and other non-round sizes) ─────────────
+
+    def _generate_standard_label(self, spool_data, filament_data):
+        """Standard label: QR code + text, no temp line."""
+        return self._generate_label_portrait(spool_data, filament_data, profile=None)
+
+    def _generate_enhanced_label(self, spool_data, filament_data, profile):
+        """Route to d24 round layout or portrait layout based on label_size."""
+        if self.label_size == "d24":
+            return self._generate_enhanced_d24(spool_data, filament_data, profile)
+        return self._generate_enhanced_portrait(spool_data, filament_data, profile)
+
+    def _generate_enhanced_portrait(self, spool_data, filament_data, profile):
+        """Enhanced portrait label: QR code + text + temps (when available)."""
+        return self._generate_label_portrait(spool_data, filament_data, profile=profile)
+
+    def _generate_label_portrait(self, spool_data, filament_data, profile=None):
+        """
+        Shared landscape→portrait label layout.
+
+        Left zone:  6px color stripe  |  QR code (or placeholder box)
+        Right zone: vendor (bold) + #ID badge | material [type] | color name | divider | temps
+        Temps line only drawn when profile has non-None temp values.
+        """
         from PIL import Image, ImageDraw, ImageFont
 
-        W, H = 306, 991
-        TW, TH = 991, 306
+        W, H = LABEL_DIMENSIONS.get(self.label_size, (306, 991))
+        TW, TH = H, W  # landscape canvas; rotated -90 CW -> portrait W x H
 
-        tmp = Image.new("RGB", (TW, TH), (255, 255, 255))
-        draw = ImageDraw.Draw(tmp)
+        spool_id   = spool_data.get("id", "?")
+        vendor     = str(filament_data.get("vendor", {}).get("name") or "Unknown")
+        material   = str(filament_data.get("material") or "?").upper()
+        color_name = str(filament_data.get("name") or "")
+        color_hex  = str(filament_data.get("color_hex") or "").strip().lstrip("#")
 
         try:
-            font_main = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 53)
-            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
-            font_mono = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 36)
+            cr = int(color_hex[0:2], 16)
+            cg = int(color_hex[2:4], 16)
+            cb = int(color_hex[4:6], 16)
         except Exception:
-            font_main = ImageFont.load_default()
-            font_small = font_main
-            font_mono = font_main
+            cr, cg, cb = 128, 128, 128
 
-        vendor = str(filament_data.get("vendor", {}).get("name") or "Unknown")
-        material = str(filament_data.get("material") or "?").upper()
-        color_name = str(filament_data.get("name") or "")
-        color_hex = str(filament_data.get("color_hex") or "").strip().lstrip("#")
-        hex_display = f"#{color_hex.upper()}" if color_hex else ""
-        ext_temp = filament_data.get("settings_extruder_temp")
-        bed_temp = filament_data.get("settings_bed_temp")
-        spool_id = spool_data.get("id", "?")
+        mat_type = ""
+        if profile and profile.material_type:
+            mat_type = profile.material_type.title()
 
-        # --- Black strip x=0→200 ---
-        draw.rectangle([0, 0, 240, TH], fill=(17, 17, 17))
+        if profile and profile.brand_key and profile.material_key and profile.material_type:
+            qr_content = (
+                f"https://3dfilamentprofiles.com/filaments/"
+                f"{profile.brand_key}/{profile.material_key}/{profile.material_type}"
+            )
+        else:
+            qr_content = f"#{spool_id}"
 
-        # Vendor 36px white centered at y=80
-        vb = draw.textbbox((0, 0), vendor, font=font_small)
-        draw.text(((240 - (vb[2] - vb[0])) // 2, 80), vendor, font=font_small, fill=(255, 255, 255))
+        tmp  = Image.new("RGB", (TW, TH), (255, 255, 255))
+        draw = ImageDraw.Draw(tmp)
 
-        # Material 53px white bold centered at y=160
-        mb = draw.textbbox((0, 0), material, font=font_main)
-        draw.text(((240 - (mb[2] - mb[0])) // 2, 160), material, font=font_main, fill=(255, 255, 255))
+        BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+        REG  = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        MONO = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+        try:
+            f_vendor = ImageFont.truetype(BOLD, 40)
+            f_mat    = ImageFont.truetype(REG,  28)
+            f_color  = ImageFont.truetype(REG,  28)
+            f_temp   = ImageFont.truetype(REG,  26)
+            f_badge  = ImageFont.truetype(MONO, 36)
+        except Exception:
+            f_vendor = f_mat = f_color = f_temp = f_badge = ImageFont.load_default()
 
-        # --- Content zone starting at x=230 ---
-        x = 260
-        y = 30
+        def _tw(text, font):
+            bb = draw.textbbox((0, 0), text, font=font)
+            return bb[2] - bb[0]
 
-        # Color name — auto-shrink if too wide
+        def _th(text, font):
+            bb = draw.textbbox((0, 0), text, font=font)
+            return bb[3] - bb[1]
+
+        # ── Left zone: color stripe + QR ─────────────────────────────
+        STRIPE_W  = 6
+        QR_MARGIN = 10
+        QR_SIZE   = TH - QR_MARGIN * 2   # fits full label height with small margin
+
+        draw.rectangle([0, 0, STRIPE_W - 1, TH - 1], fill=(cr, cg, cb))
+
+        qr_img = self._make_qr_image(qr_content)
+        QR_X = STRIPE_W + QR_MARGIN
+        if qr_img:
+            qr_img = qr_img.resize((QR_SIZE, QR_SIZE), Image.LANCZOS)
+            tmp.paste(qr_img, (QR_X, QR_MARGIN))
+        else:
+            # Placeholder when qrcode library is not installed
+            draw.rectangle(
+                [QR_X, QR_MARGIN, QR_X + QR_SIZE - 1, QR_MARGIN + QR_SIZE - 1],
+                outline=(210, 210, 210), width=2,
+            )
+            ph = qr_content if len(qr_content) <= 6 else f"#{spool_id}"
+            draw.text(
+                (QR_X + (QR_SIZE - _tw(ph, f_badge)) // 2,
+                 QR_MARGIN + (QR_SIZE - _th(ph, f_badge)) // 2),
+                ph, font=f_badge, fill=(210, 210, 210),
+            )
+
+        DIV_X = QR_X + QR_SIZE + QR_MARGIN
+        draw.line([(DIV_X, 12), (DIV_X, TH - 12)], fill=(210, 210, 210), width=1)
+
+        # ── Right zone: text ─────────────────────────────────────────
+        TX     = DIV_X + 14   # text left margin
+        TX_END = TW - 12      # text right edge
+        TY     = 14           # text top margin
+
+        # ID badge — bottom-right corner
+        badge_str = f"#{spool_id}"
+        bw = _tw(badge_str, f_badge)
+        bh = _th(badge_str, f_badge)
+        bpx, bpy = 12, 8
+        bdg_x2 = TX_END
+        bdg_x1 = bdg_x2 - bw - bpx * 2
+        bdg_y2 = TH - 10
+        bdg_y1 = bdg_y2 - bh - bpy * 2
+        draw.rounded_rectangle([bdg_x1, bdg_y1, bdg_x2, bdg_y2], radius=6, fill=(17, 17, 17))
+        draw.text((bdg_x1 + bpx, bdg_y1 + bpy), badge_str, font=f_badge, fill=(255, 255, 255))
+
+        # Line 1: Vendor — full text zone width (badge is now bottom-right, no conflict)
+        vf = f_vendor
+        vendor_max_w = TX_END - TX - 8
+        for sz in [40, 34, 28, 22]:
+            try:
+                vf = ImageFont.truetype(BOLD, sz)
+            except Exception:
+                vf = f_vendor
+            if _tw(vendor, vf) <= vendor_max_w:
+                break
+        draw.text((TX, TY), vendor, font=vf, fill=(17, 17, 17))
+        y = TY + _th(vendor, vf) + 8
+
+        # Line 2: Material [+ type]
+        mat_str = f"{material} {mat_type}".strip() if mat_type else material
+        draw.text((TX, y), mat_str, font=f_mat, fill=(51, 51, 51))
+        y += _th(mat_str, f_mat) + 6
+
+        # Line 3: Color name (muted gray)
         if color_name:
-            max_w = TW - x - 30
-            cn_font = font_main
-            for sz in [53, 44, 36, 28]:
-                try:
-                    from PIL import ImageFont as IF
-                    cn_font = IF.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", sz)
-                except Exception:
-                    cn_font = font_main
-                cn_bb = draw.textbbox((0, 0), color_name, font=cn_font)
-                if (cn_bb[2] - cn_bb[0]) <= max_w:
-                    break
-            draw.text((x, y), color_name, font=cn_font, fill=(0, 0, 0))
-            cn_bb = draw.textbbox((0, 0), color_name, font=cn_font)
-            y += (cn_bb[3] - cn_bb[1]) + 8
+            draw.text((TX, y), color_name, font=f_color, fill=(136, 136, 136))
+            y += _th(color_name, f_color) + 10
 
-        # Hex 36px mono gray
-        if hex_display:
-            draw.text((x, y), hex_display, font=font_mono, fill=(102, 102, 102))
-            hb = draw.textbbox((0, 0), hex_display, font=font_mono)
-            y += (hb[3] - hb[1]) + 12
+        # Divider
+        draw.line([(TX, y), (TX_END, y)], fill=(218, 218, 218), width=1)
+        y += 10
 
-        # Divider 1px #eee
-        draw.line([(x, y), (TW - 30, y)], fill=(238, 238, 238), width=1)
-        y += 12
+        # Line 4: Temps — only when profile provides values
+        if profile:
+            temp_parts = []
+            if profile.temp_min is not None and profile.temp_max is not None:
+                temp_parts.append(f"{profile.temp_min}-{profile.temp_max}°C")
+            if profile.bed_temp_min is not None:
+                temp_parts.append(f"Bed {profile.bed_temp_min}°C")
+            if temp_parts:
+                draw.text((TX, y), " · ".join(temp_parts), font=f_temp, fill=(85, 85, 85))
 
-        # Temps on one line: "220°C nozzle · 60°C bed"
-        temp_parts = []
-        if ext_temp:
-            temp_parts.append(f"{ext_temp}\u00b0C nozzle")
-        if bed_temp:
-            temp_parts.append(f"{bed_temp}\u00b0C bed")
-        if temp_parts:
-            temp_text = " \u00b7 ".join(temp_parts)
-            draw.text((x, y), temp_text, font=font_small, fill=(85, 85, 85))
-
-        # ID badge bottom-right: black pill, white mono
-        id_text = f"#{spool_id}"
-        ib = draw.textbbox((0, 0), id_text, font=font_mono)
-        id_tw = ib[2] - ib[0]
-        id_th = ib[3] - ib[1]
-        pad_x, pad_y = 10, 5
-        bx2 = TW - 10
-        bx1 = bx2 - id_tw - pad_x * 2
-        by2 = TH - 10
-        by1 = by2 - id_th - pad_y * 2
-        draw.rounded_rectangle([bx1, by1, bx2, by2], radius=4, fill=(17, 17, 17))
-        draw.text((bx1 + pad_x, by1 + pad_y), id_text, font=font_mono, fill=(255, 255, 255))
-
-        # Rotate -90° CW into 306×991
+        # Rotate -90 CW into portrait W x H
         tmp_rotated = tmp.rotate(-90, expand=True)
         img = Image.new("RGB", (W, H), (255, 255, 255))
         img.paste(tmp_rotated, (0, 0))
+        return img
+
+    # ── d24 round label ───────────────────────────────────────────────
+
+    def _generate_enhanced_d24(self, spool_data, filament_data, profile):
+        """236x236 d24 round-label layout with profile print settings."""
+        from PIL import Image, ImageDraw, ImageFont
+
+        W, H = 236, 236
+        img = Image.new("RGB", (W, H), (255, 255, 255))
+        draw = ImageDraw.Draw(img)
+
+        color_hex = str(filament_data.get("color_hex") or "").strip().lstrip("#")
+        try:
+            r = int(color_hex[0:2], 16)
+            g = int(color_hex[2:4], 16)
+            b = int(color_hex[4:6], 16)
+        except Exception:
+            r, g, b = 128, 128, 128
+        lum     = 0.299 * r + 0.587 * g + 0.114 * b
+        fg      = (255, 255, 255) if lum < 128 else (17, 17, 17)
+        div_col = (180, 180, 180) if lum < 128 else (100, 100, 100)
+
+        draw.ellipse([0, 0, W - 1, H - 1], fill=(r, g, b))
+
+        try:
+            font_large = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 42)
+            font_med   = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+            font_small = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
+        except Exception:
+            font_large = font_med = font_small = ImageFont.load_default()
+
+        vendor   = str(filament_data.get("vendor", {}).get("name") or "")[:12]
+        material = str(filament_data.get("material") or "").upper()
+        spool_id = spool_data.get("id", "?")
+
+        lines = [
+            (f"#{spool_id}", font_large),
+            (vendor,         font_med),
+            (material,       font_med),
+        ]
+
+        has_temp = profile.temp_min is not None and profile.temp_max is not None
+        has_bed  = profile.bed_temp_min is not None
+        if has_temp or has_bed:
+            lines.append(("---", None))
+            parts = []
+            if has_temp:
+                parts.append(f"{profile.temp_min}-{profile.temp_max}°")
+            if has_bed:
+                parts.append(f"Bed:{profile.bed_temp_min}°")
+            lines.append((" ".join(parts), font_small))
+
+        if profile.flow_ratio is not None:
+            lines.append((f"Flow:{profile.flow_ratio:.2f}", font_small))
+
+        gap = 4
+        row_heights = []
+        for text, font in lines:
+            if text == "---":
+                row_heights.append(8)
+            else:
+                bb = draw.textbbox((0, 0), text, font=font)
+                row_heights.append(bb[3] - bb[1])
+        total_h = sum(row_heights) + gap * (len(lines) - 1)
+
+        y = (H - total_h) // 2
+        for i, (text, font) in enumerate(lines):
+            if text == "---":
+                mx = W // 5
+                draw.line([(mx, y + 4), (W - mx, y + 4)], fill=div_col, width=1)
+            else:
+                bb = draw.textbbox((0, 0), text, font=font)
+                x = (W - (bb[2] - bb[0])) // 2
+                draw.text((x, y), text, font=font, fill=fg)
+            y += row_heights[i] + gap
 
         return img
+
+    # ── Font test ─────────────────────────────────────────────────────
 
     def _on_font_test_event(self, event_name, data, kwargs):
         """Print a font calibration label with sample text at various sizes."""
@@ -215,9 +440,9 @@ class LabelPrinter(FilamentIQBase):
         draw = ImageDraw.Draw(tmp)
 
         samples = [
-            (40, "Bambu Lab PLA Black 220\u00b0C"),
+            (40, "Bambu Lab PLA Black 220°C"),
             (50, "Bambu Lab PLA Black"),
-            (60, "Black 220\u00b0C"),
+            (60, "Black 220°C"),
             (72, "Bambu Lab"),
             (82, "PLA #9"),
         ]
@@ -240,6 +465,8 @@ class LabelPrinter(FilamentIQBase):
         img.paste(tmp_rotated, (0, 0))
         return img
 
+    # ── Printer I/O ───────────────────────────────────────────────────
+
     def send_to_printer(self, image, spool_id):
         """Send label image to Brother QL printer.
 
@@ -254,8 +481,6 @@ class LabelPrinter(FilamentIQBase):
             )
             return
 
-        # Import brother_ql only when actually printing — avoids startup
-        # failure if the package isn't installed yet.
         from brother_ql.conversion import convert
         from brother_ql.backends.helpers import send
         from brother_ql.raster import BrotherQLRaster

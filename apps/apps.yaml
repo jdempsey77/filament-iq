@@ -89,3 +89,5 @@ label_printer:
   printer_model: "QL-810W"
   label_size: "d24"
   dry_run: true
+  # AppDaemon maps HA /config → /homeassistant/ inside container
+  filament_profiles_path: "/homeassistant/filament_profiles/filaments.json"
