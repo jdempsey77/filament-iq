@@ -1,234 +1,46 @@
-# LABELS.md — Filament IQ Label Printing
+# Labels — source of truth
 
-Spec and implementation notes for the Brother QL label printing feature.
-
----
+## Current status
+Live and printing. Enhanced label path active for all 44 filaments (100% high confidence).
 
 ## Hardware
+- Brother QL-810W, DK-1218 24mm round labels (d24) and 29x90mm continuous (portrait)
+- Printer at tcp://192.168.4.156:9100
 
-| Item | Detail |
-|---|---|
-| Printer | Brother QL-810W (WiFi only, no Ethernet/BT) |
-| Label stock | Brother DK-1201, 29mm × 90mm address label, white, 400/roll (or compatible BETCKEY 4000-pack) |
-| Connectivity | WiFi — assign static DHCP lease in UniFi UDM Pro |
-| Python library | `brother_ql` (PyPI: `brother_ql`) |
-| Label ID in brother_ql | `29x90` (306 × 991 px printable area) |
+## Label types
 
-**Printer identifier format:**
-```
-tcp://192.168.4.156:9100
-```
-Assign a static DHCP lease in UniFi once the printer is on the network. Update this file with the final IP.
+### Enhanced label (high/medium confidence match)
+- QR code encoding 3dfilamentprofiles.com profile URL
+- Spool ID badge (bottom right, prominent)
+- Vendor, material, type
+- Nozzle + bed temps (when available in dataset — currently none)
+- Left color stripe from filament color_hex
 
-**VLAN note:** Printer must be on the same VLAN as HA (`192.168.4.x` IoT) or a firewall rule must allow TCP 9100 from HA to the printer IP.
+### Standard label (low/no match fallback)
+- Same layout, QR encodes plain #spool_id text
+- Spool ID badge always present
 
----
+## Profile dataset
+- Source: 3dfilamentprofiles.com (scraped via jklewa/filament-profiles-data parser)
+- Location on HA: `/config/filament_profiles/filaments.json`
+- Size: 25,945 profiles, 897 brands
+- NOT committed to repo (scraped data, gray area)
+- To refresh: re-run scraper from filament-profiles-data repo with fresh browser cookies
+- apps.yaml key: `filament_profiles_path: "/config/filament_profiles/filaments.json"`
 
-## Label Design
+## Matching
+- Brand + material + type keyword extraction via _TYPE_KEYWORDS
+- High confidence (≥0.9): enhanced label + brand/material/type QR URL
+- Medium confidence (≥0.7): enhanced label + brand/material QR URL
+- Low/none: standard label + plain spool ID QR
 
-Canvas: 306 × 991 px (29x90 portrait address label)
+## Inventory coverage
+44/44 filaments at high confidence as of 2026-05-14.
+Known gap: print settings (temps/flow) not available in current dataset.
 
-Layout (top to bottom):
-- Color bar: full-width rectangle, 80px tall, filled with filament hex color
-  (border: 1px #333 if color is very light)
-- Vendor name: 28px bold, top-left, 8px margin, dark gray #222
-- Material badge: 28px bold, top-right, 8px margin, dark gray #222
-  (same line as vendor, right-aligned)
-- Color name: 40px bold, 12px margin left/right, wraps if long, #111
-- Divider line: 1px #ccc, 8px margin left/right
-- Nozzle temp: "Nozzle: 220°C" — 24px, #444, 10px margin
-- Bed temp: "Bed:    60°C"  — 24px, #444, 10px margin
-  (if temps missing, omit both rows)
-- Weight: "1000g remaining" — 22px, #666, 10px margin
-- Bottom: Spoolman ID "#42" — 18px monospace, #888, bottom-right, 8px margin
+## Naming convention for new spools
+Follow pattern: `{MATERIAL} {TYPE} {COLOR}`
+Examples: "PLA Basic Red", "PETG Transparent Clear", "TPU 68D Gray", "PLA+ High-Speed Gray"
 
-Text color auto-contrast: if color bar luminance < 0.4 → white text on bar,
-else dark text on bar.
-
----
-
-## Architecture
-
-```
-Lovelace card (Preact)
-  → checkbox: "Print label & move to shelf" (Add Spool dialog)
-  → button: "Print Label" (Edit Spool inline panel)
-      |
-      v
-hass.connection.sendMessage({ type: 'fire_event' })
-  (direct WebSocket — NOT via filament_iq_proxy)
-      |
-      v
-HA event: filament_iq_print_label
-  payload: { spool_id: int }
-      |
-      v
-AppDaemon: label_printer.py
-  → GET spool from Spoolman API
-  → GET filament from Spoolman API (for color hex, material, vendor)
-  → Generate 236x236 PNG with Pillow
-  → Send to QL-810W via brother_ql (tcp://192.168.4.156:9100)
-  → PATCH spool location: "New" → "Shelf"
-  → Fire HA event: filament_iq_label_result
-      payload: { spool_id: int, success: bool, error: str|null }
-      |
-      v
-Lovelace card (subscribeEvents)
-  → toast: "Label printed — spool moved to shelf" or "Print failed: <error>"
-  → 15s timeout if no result event received
-```
-
-**Note:** The card fires the print event via `hass.connection.sendMessage`
-directly — same pattern as `FILAMENT_IQ_SLOT_ASSIGNED`. The
-`filament_iq_proxy` component is NOT involved in the print trigger path.
-This works identically local and via Nabu Casa — the HA WebSocket is
-tunneled by Nabu Casa transparently. AppDaemon handles the printer
-connection server-side; the browser never touches the printer directly.
-
----
-
-## AppDaemon App: `label_printer.py`
-
-**Location:** `appdaemon/apps/filament_iq/label_printer.py`
-
-**Trigger:** listens for HA event `filament_iq_print_label`
-
-**Dependencies:**
-```
-brother_ql
-Pillow
-```
-
-Install in AppDaemon addon:
-```yaml
-# appdaemon/apps/apps.yaml — label_printer entry
-label_printer:
-  module: filament_iq.label_printer
-  class: LabelPrinter
-  spoolman_url: "http://192.168.4.124:7912"
-  printer_url: "tcp://192.168.4.156:9100"
-  printer_model: "QL-810W"
-  label_size: "29x90"
-```
-
-**Key methods:**
-- `on_print_label_event(event_name, data, kwargs)` — event handler
-- `fetch_spool(spool_id)` → spool + filament data from Spoolman
-- `generate_label_image(spool_data)` → PIL Image (236x236 PNG)
-- `send_to_printer(image)` → brother_ql send, raises on failure
-- `update_spool_location(spool_id)` → PATCH location New → Shelf
-- `fire_result_event(spool_id, success, error)` → HA event back to card
-
----
-
-## Lovelace Card Changes
-
-**File:** `packages/lovelace-card/src/`
-
-### Add Spool dialog
-- Add checkbox: `☑ Print label & move to shelf after saving` (default: ON)
-- On save: if checked, after POST spool succeeds → call proxy to fire
-  `filament_iq_print_label` with new spool_id
-- Show loading spinner on print button while waiting for result event
-- Toast on `filament_iq_label_result`: "Label printed — spool moved to shelf"
-  or "Label print failed: <error>"
-
-### Edit Spool inline panel
-- Add button: `[🖨 Print Label]` at bottom of edit panel
-- Same proxy call + result event pattern as above
-- Does NOT auto-move to shelf (location already set on existing spools)
-  — location move is optional/separate action on edit
-
----
-
-## Event Pattern (actual implementation)
-
-The card fires print events directly via the HA WebSocket connection
-(NOT via filament_iq_proxy — same pattern as FILAMENT_IQ_SLOT_ASSIGNED):
-
-```javascript
-// Fire print event
-hass.connection.sendMessage({
-  type: 'fire_event',
-  event_type: 'filament_iq_print_label',
-  event_data: { spool_id: spoolId },
-})
-
-// Subscribe to result event
-hass.connection.subscribeEvents(
-  (event) => handleResult(event.data),
-  'filament_iq_label_result'
-)
-```
-
----
-
-## Error Handling
-
-| Failure | Behavior |
-|---|---|
-| Printer offline | `brother_ql` raises — caught, fires result event with error |
-| Out of labels | Printer returns error state — caught, fires result event |
-| Spoolman fetch fails | Log + fire result event, do not attempt print |
-| Location PATCH fails | Log warning — label already printed, don't block |
-
-Location PATCH failure is non-fatal: label printed is more important than
-the location update. User can manually update location in the card.
-
----
-
-## Phase Checklist
-
-### P_LABELS — Label Printing Feature
-
-- [x] `label_printer.py` implemented + unit tests (dry_run mode)
-- [x] `apps.yaml` updated with label_printer entry (dry_run: true)
-- [x] Card: Add Spool dialog checkbox added (v1.1.0)
-- [x] Card: Edit Spool print button added (v1.1.0)
-- [x] Card: result event subscription + toast notification (v1.1.0)
-- [x] Card fires event via hass.connection.sendMessage (no proxy needed)
-- [ ] `pip install brother_ql Pillow` verified in AppDaemon addon environment
-- [ ] Printer on network, static DHCP lease assigned, IP confirmed
-- [ ] `apps.yaml` printer_url updated with real IP, dry_run: false
-- [ ] End-to-end test: add spool → label prints → location moves to Shelf
-- [ ] End-to-end test: edit spool → print button → label prints
-- [ ] Remote test via Nabu Casa
-- [ ] Error test: printer offline → toast shows error message
-- [ ] BACKLOG.md updated, LABELS.md printer IP filled in
-
----
-
-## Printer Arrival Checklist
-
-1. Power on printer, connect to WiFi via Brother's initial setup (USB to laptop
-   required for first-time WiFi config — see Brother QL-810W quick setup guide)
-2. Assign static DHCP lease in UniFi UDM Pro for the printer MAC address
-3. Confirm printer IP — update `printer_url` in `appdaemon/apps/apps.yaml`
-   and in this file (Hardware table + apps.yaml section)
-4. Confirm printer VLAN — must be on IoT (192.168.4.x) with HA, or add
-   firewall rule allowing TCP 9100 from 192.168.4.124 to printer IP
-5. Verify pip dependencies in AppDaemon addon:
-   SSH to HA: `ssh root@192.168.4.124 -p 2222 -i ~/.ssh/id_ed25519_ha`
-   Then: `docker exec -it addon_a0d7b954_appdaemon pip install brother_ql Pillow`
-   Confirm both install without error before proceeding
-6. Flip `dry_run: false` in `appdaemon/apps/apps.yaml`
-7. Deploy AppDaemon: `./scripts/manage_ha.sh --appdaemon`
-8. Load a DK-1201 roll (or BETCKEY compatible) into the printer
-9. Trigger a test print — use HA Developer Tools > Events > fire
-   `filament_iq_print_label` with `{ "spool_id": <any valid id> }`
-10. Confirm label prints and spool location moves New → Shelf
-11. Promote card 1.1.0 from stage to prod: `./scripts/manage_ha.sh --prod-prep`
-12. Update BACKLOG_HA.md — mark P_LABELS done with date
-13. Update filament-iq/BACKLOG.md — mark P_LABELS done with date
-14. Tag release in filament-iq repo
-
----
-
-## Open Questions / Decisions Deferred
-
-- [x] Label stock decided: DK-1201 29x90mm (or compatible BETCKEY 4000-pack)
-- [x] All Spoolman filament temps populated (2026-03-28)
-- [ ] Confirm printer VLAN placement (IoT `192.168.4.x` recommended)
-- [ ] Confirm static DHCP IP — update `printer_url` in apps.yaml and this file
-- [ ] Auto-contrast text color threshold (suggest: luminance < 0.4 → white text)
-- [ ] Whether Edit Spool print button should also offer location move
+## Next steps
+- Print settings data source TBD (Bambu Studio profiles is a candidate)
