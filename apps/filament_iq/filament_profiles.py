@@ -47,6 +47,7 @@ class FilamentProfile:
     max_volumetric_speed: Optional[float]
     source: str                  # "user" | "community" | "none"
     material_type: Optional[str] = None  # e.g. "basic", "matte", "silk"
+    profile_id: Optional[int] = None     # id from 3dfilamentprofiles.com
 
 
 _NO_MATCH = FilamentProfile(
@@ -102,6 +103,7 @@ class FilamentProfilesClient:
                 flow_ratio=0.98, max_volumetric_speed=12.0,
                 source="test",
                 material_type="basic",
+                profile_id=42,
             )
         try:
             return self._lookup(_norm(vendor), _norm(material), _norm(filament_name))
@@ -203,4 +205,5 @@ class FilamentProfilesClient:
             max_volumetric_speed=_opt_float(props.get("max_volumetric_speed")),
             source=source,
             material_type=candidate.get("material_type_key") or None,
+            profile_id=_opt_int(candidate.get("id")),
         )

@@ -162,20 +162,18 @@ class LabelPrinter(FilamentIQBase):
 
     # ── QR code ───────────────────────────────────────────────────────
 
-    def _make_qr_image(self, spool_id):
-        """Generate a QR code PIL image for the Spoolman spool URL.
+    def _make_qr_image(self, qr_content: str):
+        """Generate a QR code PIL image for the given content string.
 
         Returns a PIL Image, or None if qrcode library is not installed.
         Install via AppDaemon addon options: python_packages: [qrcode[pil]]
         """
         if _qrcode_lib is None:
             return None
-        from PIL import Image
-        url = f"{self.spoolman_url}/spool/{spool_id}"
         qr = _qrcode_lib.QRCode(
             version=None, error_correction=_QR_ECM, box_size=8, border=2,
         )
-        qr.add_data(url)
+        qr.add_data(qr_content)
         qr.make(fit=True)
         return qr.make_image(fill_color="black", back_color="white").convert("RGB")
 
@@ -225,6 +223,11 @@ class LabelPrinter(FilamentIQBase):
         if profile and profile.material_type:
             mat_type = profile.material_type.title()
 
+        if profile and profile.profile_id:
+            qr_content = f"https://3dfilamentprofiles.com/filament/details/{profile.profile_id}"
+        else:
+            qr_content = f"#{spool_id}"
+
         tmp  = Image.new("RGB", (TW, TH), (255, 255, 255))
         draw = ImageDraw.Draw(tmp)
 
@@ -236,7 +239,7 @@ class LabelPrinter(FilamentIQBase):
             f_mat    = ImageFont.truetype(REG,  28)
             f_color  = ImageFont.truetype(REG,  28)
             f_temp   = ImageFont.truetype(REG,  26)
-            f_badge  = ImageFont.truetype(MONO, 28)
+            f_badge  = ImageFont.truetype(MONO, 36)
         except Exception:
             f_vendor = f_mat = f_color = f_temp = f_badge = ImageFont.load_default()
 
@@ -255,7 +258,7 @@ class LabelPrinter(FilamentIQBase):
 
         draw.rectangle([0, 0, STRIPE_W - 1, TH - 1], fill=(cr, cg, cb))
 
-        qr_img = self._make_qr_image(spool_id)
+        qr_img = self._make_qr_image(qr_content)
         QR_X = STRIPE_W + QR_MARGIN
         if qr_img:
             qr_img = qr_img.resize((QR_SIZE, QR_SIZE), Image.LANCZOS)
@@ -266,7 +269,7 @@ class LabelPrinter(FilamentIQBase):
                 [QR_X, QR_MARGIN, QR_X + QR_SIZE - 1, QR_MARGIN + QR_SIZE - 1],
                 outline=(210, 210, 210), width=2,
             )
-            ph = f"#{spool_id}"
+            ph = qr_content if len(qr_content) <= 6 else f"#{spool_id}"
             draw.text(
                 (QR_X + (QR_SIZE - _tw(ph, f_badge)) // 2,
                  QR_MARGIN + (QR_SIZE - _th(ph, f_badge)) // 2),
@@ -281,21 +284,21 @@ class LabelPrinter(FilamentIQBase):
         TX_END = TW - 12      # text right edge
         TY     = 14           # text top margin
 
-        # ID badge — top-right corner
+        # ID badge — bottom-right corner
         badge_str = f"#{spool_id}"
         bw = _tw(badge_str, f_badge)
         bh = _th(badge_str, f_badge)
-        bpx, bpy = 8, 4
+        bpx, bpy = 12, 8
         bdg_x2 = TX_END
         bdg_x1 = bdg_x2 - bw - bpx * 2
-        bdg_y1 = TY
-        bdg_y2 = TY + bh + bpy * 2
-        draw.rounded_rectangle([bdg_x1, bdg_y1, bdg_x2, bdg_y2], radius=4, fill=(17, 17, 17))
+        bdg_y2 = TH - 10
+        bdg_y1 = bdg_y2 - bh - bpy * 2
+        draw.rounded_rectangle([bdg_x1, bdg_y1, bdg_x2, bdg_y2], radius=6, fill=(17, 17, 17))
         draw.text((bdg_x1 + bpx, bdg_y1 + bpy), badge_str, font=f_badge, fill=(255, 255, 255))
 
-        # Line 1: Vendor — auto-shrink to avoid badge overlap
-        vendor_max_w = bdg_x1 - TX - 8
+        # Line 1: Vendor — full text zone width (badge is now bottom-right, no conflict)
         vf = f_vendor
+        vendor_max_w = TX_END - TX - 8
         for sz in [40, 34, 28, 22]:
             try:
                 vf = ImageFont.truetype(BOLD, sz)
@@ -304,7 +307,7 @@ class LabelPrinter(FilamentIQBase):
             if _tw(vendor, vf) <= vendor_max_w:
                 break
         draw.text((TX, TY), vendor, font=vf, fill=(17, 17, 17))
-        y = TY + max(_th(vendor, vf), bh + bpy * 2) + 8
+        y = TY + _th(vendor, vf) + 8
 
         # Line 2: Material [+ type]
         mat_str = f"{material} {mat_type}".strip() if mat_type else material
