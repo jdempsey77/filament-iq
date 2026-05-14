@@ -228,6 +228,111 @@ class LabelPrinter(FilamentIQBase):
         return img
 
     def _generate_enhanced_label(self, spool_data, filament_data, profile):
+        """Route to d24 round layout or portrait layout based on label_size."""
+        if self.label_size == "d24":
+            return self._generate_enhanced_d24(spool_data, filament_data, profile)
+        return self._generate_enhanced_portrait(spool_data, filament_data, profile)
+
+    def _generate_enhanced_portrait(self, spool_data, filament_data, profile):
+        """Portrait enhanced label matching the standard label layout with profile temps/flow."""
+        from PIL import Image, ImageDraw, ImageFont
+
+        W, H = LABEL_DIMENSIONS.get(self.label_size, (306, 991))
+        TW, TH = H, W  # landscape canvas, rotated to portrait
+
+        tmp = Image.new("RGB", (TW, TH), (255, 255, 255))
+        draw = ImageDraw.Draw(tmp)
+
+        try:
+            font_main  = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 53)
+            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
+            font_mono  = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 36)
+        except Exception:
+            font_main = ImageFont.load_default()
+            font_small = font_main
+            font_mono = font_main
+
+        vendor     = str(filament_data.get("vendor", {}).get("name") or "Unknown")
+        material   = str(filament_data.get("material") or "?").upper()
+        color_name = str(filament_data.get("name") or "")
+        color_hex  = str(filament_data.get("color_hex") or "").strip().lstrip("#")
+        hex_display = f"#{color_hex.upper()}" if color_hex else ""
+        spool_id   = spool_data.get("id", "?")
+
+        # Left black strip
+        draw.rectangle([0, 0, 240, TH], fill=(17, 17, 17))
+        vb = draw.textbbox((0, 0), vendor, font=font_small)
+        draw.text(((240 - (vb[2] - vb[0])) // 2, 80), vendor, font=font_small, fill=(255, 255, 255))
+        mb = draw.textbbox((0, 0), material, font=font_main)
+        draw.text(((240 - (mb[2] - mb[0])) // 2, 160), material, font=font_main, fill=(255, 255, 255))
+
+        x = 260
+        y = 30
+
+        if color_name:
+            max_w = TW - x - 30
+            cn_font = font_main
+            for sz in [53, 44, 36, 28]:
+                try:
+                    from PIL import ImageFont as IF
+                    cn_font = IF.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", sz)
+                except Exception:
+                    cn_font = font_main
+                cn_bb = draw.textbbox((0, 0), color_name, font=cn_font)
+                if (cn_bb[2] - cn_bb[0]) <= max_w:
+                    break
+            draw.text((x, y), color_name, font=cn_font, fill=(0, 0, 0))
+            y += (draw.textbbox((0, 0), color_name, font=cn_font)[3]
+                  - draw.textbbox((0, 0), color_name, font=cn_font)[1]) + 8
+
+        if hex_display:
+            draw.text((x, y), hex_display, font=font_mono, fill=(102, 102, 102))
+            y += (draw.textbbox((0, 0), hex_display, font=font_mono)[3]
+                  - draw.textbbox((0, 0), hex_display, font=font_mono)[1]) + 12
+
+        draw.line([(x, y), (TW - 30, y)], fill=(238, 238, 238), width=1)
+        y += 12
+
+        temp_parts = []
+        if profile.temp_min is not None and profile.temp_max is not None:
+            temp_parts.append(f"{profile.temp_min}-{profile.temp_max}°C nozzle")
+        elif filament_data.get("settings_extruder_temp"):
+            temp_parts.append(f"{filament_data['settings_extruder_temp']}°C nozzle")
+        if profile.bed_temp_min is not None:
+            temp_parts.append(f"{profile.bed_temp_min}°C bed")
+        elif filament_data.get("settings_bed_temp"):
+            temp_parts.append(f"{filament_data['settings_bed_temp']}°C bed")
+        if temp_parts:
+            temp_text = " · ".join(temp_parts)
+            draw.text((x, y), temp_text, font=font_small, fill=(85, 85, 85))
+            y += (draw.textbbox((0, 0), temp_text, font=font_small)[3]
+                  - draw.textbbox((0, 0), temp_text, font=font_small)[1]) + 8
+
+        flow_parts = []
+        if profile.flow_ratio is not None:
+            flow_parts.append(f"Flow {profile.flow_ratio:.2f}")
+        if profile.max_volumetric_speed is not None:
+            flow_parts.append(f"Vol {profile.max_volumetric_speed:.1f}mm³/s")
+        if flow_parts:
+            draw.text((x, y), " · ".join(flow_parts), font=font_small, fill=(85, 85, 85))
+
+        id_text = f"#{spool_id}"
+        ib = draw.textbbox((0, 0), id_text, font=font_mono)
+        id_tw, id_th = ib[2] - ib[0], ib[3] - ib[1]
+        pad_x, pad_y = 10, 5
+        bx2 = TW - 10
+        bx1 = bx2 - id_tw - pad_x * 2
+        by2 = TH - 10
+        by1 = by2 - id_th - pad_y * 2
+        draw.rounded_rectangle([bx1, by1, bx2, by2], radius=4, fill=(17, 17, 17))
+        draw.text((bx1 + pad_x, by1 + pad_y), id_text, font=font_mono, fill=(255, 255, 255))
+
+        tmp_rotated = tmp.rotate(-90, expand=True)
+        img = Image.new("RGB", (W, H), (255, 255, 255))
+        img.paste(tmp_rotated, (0, 0))
+        return img
+
+    def _generate_enhanced_d24(self, spool_data, filament_data, profile):
         """236×236 d24 round-label layout with profile print settings."""
         from PIL import Image, ImageDraw, ImageFont
 
