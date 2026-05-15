@@ -15,6 +15,8 @@ try {
       this._hass = hass
       if (!this._mounted && this.isConnected) {
         this._mount()
+      } else if (this._mounted) {
+        render(h(PrinterDashboardCard, { config: this._config, getHass: () => this._hass }), this)
       }
     }
 
