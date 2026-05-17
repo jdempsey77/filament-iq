@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.8.6] — 2026-05-17
+
+### Fixes
+- **MW badge real tap_action** — replaced `window.open()` in `custom_fields` HTML
+  (blocked by HA shadow DOM) with a standalone `custom:button-card` using
+  `tap_action: url`. Badge appears just below the hero thumbnail, left-aligned.
+- **Tab bar config error + sticky removal** — removed `position: fixed` from the
+  tab bar grid card_mod (HA layout containers prevent true fixed positioning).
+  Removed 64px spacer card. Tab bar now sits at bottom of page content, full-bleed
+  via `margin: 0 -16px`.
+- **AMS 2 Pro humidity/temp contrast** — `sectionSubStyle` color bumped from
+  `#636366` to `#8e8e93` to match HT bay humidity text visibility.
+
+---
+
+## [1.8.5] — 2026-05-17
+
+### Fixes
+- **Tab bar sticky** — position:fixed + 64px spacer card approach (partially worked).
+- **MW badge click** — onclick in custom_fields HTML (partially worked, blocked in some HA contexts).
+- Various minor dashboard tweaks.
+
+---
+
 ## [1.8.4] — 2026-05-17
 
 ### Fixes

@@ -247,7 +247,7 @@ function SlotsSegment({ getHass, onPopup }) {
   const sectionStyle = { background: '#1c1c1e', borderRadius: 10, border: '1px solid #3a3a3c', overflow: 'hidden' }
   const sectionHeaderStyle = { padding: '8px 12px', borderBottom: '1px solid #3a3a3c', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }
   const sectionTitleStyle = { fontSize: 11, fontWeight: 600, color: '#e5e5e7' }
-  const sectionSubStyle = { fontSize: 10, color: '#636366' }
+  const sectionSubStyle = { fontSize: 10, color: '#8e8e93' }
 
   const ams2pro = AMS_UNITS[0]
   const ams2proHum = sv(ams2pro.humEntity)
