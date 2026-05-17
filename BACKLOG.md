@@ -48,6 +48,13 @@
 - [x] Snapshot trust validation (Shape 1) — `_build_start_snapshot` now excludes slots where fuel gauge reads 0.0 but spool is bound (`_read_spool_id > 0`) and physically present. Logs `SNAPSHOT_IMPLAUSIBLE` at WARNING. Rehydration helper-recovery path also validated (`SNAPSHOT_IMPLAUSIBLE_REHYDRATE`). Excluded slots produce explicit `DATA_LOSS: start_g not captured` instead of silent `BELOW_MIN`. Shape 2 (Spoolman discrepancy) deferred — requires print-start Spoolman fetch. 5 new tests. (v1.5.2)
 
 ### Medium Priority
+- [ ] filament-iq-manager card: handle `filament_iq_select_slot` HA event to
+  pre-select a slot when navigating from the Slots tab. The HA dashboard Slots
+  tab taps call `input_select.select_option` (→ Filament IQ tab) but can't pass
+  slot context. A fired event (`hass.fire_event('filament_iq_select_slot', {slot: N})`)
+  from an AppDaemon script, or a browser-fired custom event from the dashboard,
+  could let the card auto-focus the correct row. Implement as an optional
+  `addEventListener('filament_iq_select_slot', ...)` in the card's `connectedCallback`.
 - [x] Print duration resets on pause/resume — `_on_print_status_change` fired
   `_on_print_start()` on paused → running, resetting `_print_start_time`,
   `_job_key`, and `_start_snapshot`. Fixed: added `"pause", "paused"` to
