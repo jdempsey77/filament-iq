@@ -26,6 +26,19 @@ const SLOT_LABELS = {
   7: 'HT3 · Slot 7',
 }
 
+function parseNavIntent(intent) {
+  if (!intent) return null
+  const idx = intent.indexOf(':')
+  if (idx === -1) return null
+  const type = intent.slice(0, idx)
+  const value = intent.slice(idx + 1)
+  if (type === 'spool' && value && !isNaN(parseInt(value, 10)) && parseInt(value, 10) > 0) {
+    return { type: 'spool', id: parseInt(value, 10) }
+  }
+  // Reserved for future: 'slot', 'action'
+  return null
+}
+
 /**
  * Returns spools eligible for slot binding.
  * Uses .filter() to evaluate ALL spools — never exits early on Empty/New spools.
@@ -317,12 +330,31 @@ function SpoolAddRow({ filaments, onCreate, onCancel, hass }) {
   )
 }
 
-export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createSpool, refresh, hass }) {
+export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createSpool, refresh, hass, getHass, navIntent }) {
   const [search, setSearch] = useState('')
   const [vendorFilter, setVendorFilter] = useState('')
   const [materialFilter, setMaterialFilter] = useState('')
   const [locationFilter, setLocationFilter] = useState('')
   const [editId, setEditId] = useState(null)
+
+  // Nav intent: read once at mount, clear entity, pre-open spool edit panel
+  useEffect(() => {
+    const parsed = parseNavIntent(navIntent)
+    if (parsed?.type === 'spool') {
+      try {
+        getHass().connection.sendMessage({
+          type: 'call_service',
+          domain: 'input_text',
+          service: 'set_value',
+          service_data: {
+            entity_id: 'input_text.filament_iq_nav_intent',
+            value: '',
+          },
+        })
+      } catch (_) { /* non-fatal — entity may not exist on this install */ }
+      setEditId(parsed.id)
+    }
+  }, [])
   const [adding, setAdding] = useState(false)
   const [binding, setBinding] = useState(false)
   const [archiveConfirm, setArchiveConfirm] = useState(false)

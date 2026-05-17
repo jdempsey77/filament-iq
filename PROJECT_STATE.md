@@ -9,7 +9,7 @@ Snapshot of released versions, test coverage, key decisions, and open work. Upda
 | Component | Version | Commit | Branch | Released |
 |-----------|---------|--------|--------|----------|
 | AppDaemon package | v1.7.6 | b93ed7c | feature/printer-dashboard | 2026-05-10 |
-| Manager card (lovelace) | v1.2.1 | — | — | — |
+| Manager card (lovelace) | v1.8.0 | — | main | 2026-05-16 |
 
 > v1.7.6 is tagged on `feature/printer-dashboard`. PR to `main` pending.
 

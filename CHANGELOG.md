@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.8.0] — 2026-05-16
+
+### New feature: Nav intent support
+
+The card now supports external navigation via a Home Assistant helper entity.
+When `input_text.filament_iq_nav_intent` is set to `"spool:N"` (where N is a
+Spoolman spool ID) before the card mounts, the card will pre-open the edit
+panel for that spool.
+
+**Setup required (opt-in):**
+1. Add `input_text.filament_iq_nav_intent` helper to `configuration.yaml`
+2. Create `script.slot_tap_to_filament_iq` in `scripts.yaml`
+3. Update slot button-card `tap_action` to call the script
+
+**Payload format:** `"type:value"` — currently supported: `"spool:N"`.
+Reserved for future: `"slot:N"`, `"action:add"`.
+
+**Behavior notes:**
+- Intent is consumed once at card mount and cleared immediately
+- If the card remains mounted (rare, HA version dependent), subsequent
+  intents will not be processed until the card remounts
+- Last intent wins on rapid consecutive taps
+- Absent, empty, unparseable, or zero-value intent → card opens normally, no error
+
+---
+
 ## [1.7.6] — 2026-05-10
 
 ### Bug Fixes

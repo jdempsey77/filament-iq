@@ -8,7 +8,7 @@ import { FilamentsTab } from './components/FilamentsTab'
 import { VendorsTab } from './components/VendorsTab'
 import { FilamentIQLogo } from './components/FilamentIQLogo'
 
-export function FilamentIQCard({ hass, getHass }) {
+export function FilamentIQCard({ hass, getHass, navIntent }) {
   const [activeTab, setActiveTab] = useState('spools')
 
   const client = useMemo(() => {
@@ -40,7 +40,7 @@ export function FilamentIQCard({ hass, getHass }) {
       </div>
       <StatsBar spools={data.spools} />
       <div class="fiq-body">
-        {activeTab === 'spools'    && <SpoolsTab    {...data} hass={hass} />}
+        {activeTab === 'spools'    && <SpoolsTab    {...data} hass={hass} getHass={getHass} navIntent={navIntent} />}
         {activeTab === 'filaments' && <FilamentsTab {...data} client={client} />}
         {activeTab === 'vendors'   && <VendorsTab   {...data} />}
       </div>
