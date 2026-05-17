@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.9.1] — 2026-05-17
+
+### Changes
+- **SlotsTab horizontal rows** — replaced square `SlotCard` grid with `SlotRow`
+  horizontal component for all sections (AMS 2 Pro, HT Units, External).
+  Each row: 44×52px color swatch · brand + ID + active badge · material bold ·
+  color name · fuel bar · grams + chevron. Active slot gets blue tint background.
+- **HT Units sub-headers** — each HT unit gets a labeled sub-header row (HT1/HT2/HT3)
+  showing humidity + temp, or an amber drying badge (`♨️ temp°C · time`) when drying.
+- **Section background** — cards use `#2c2c2e` (was `#1c1c1e`) for better contrast.
+
+---
+
 ## [1.8.6] — 2026-05-17
 
 ### Fixes

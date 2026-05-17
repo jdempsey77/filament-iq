@@ -122,7 +122,74 @@ const S = {
   assignLabel:  { fontSize: 13, color: '#6aabda', fontWeight: 500 },
 }
 
-// ── SlotsSegment — card grid layout ─────────────────────────
+// ── Shared helpers ────────────────────────────────────────────
+const weightPct = d => {
+  const g = parseFloat(d.g) || 0
+  return Math.min(100, Math.max(0, Math.round(g / 1000 * 100)))
+}
+
+// ── SlotRow — horizontal layout used by all sections ─────────
+function SlotRow({ n, data, onPopup, borderBottom = true }) {
+  const isEmpty = data.status === 'empty'
+  const isActive = data.isActive
+  const pct = weightPct(data)
+  const barColor = pct < 20 ? '#ff453a' : data.color
+
+  return h('div', {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 12,
+      padding: '10px 12px',
+      background: isActive ? 'rgba(10,132,255,0.06)' : 'transparent',
+      cursor: 'pointer',
+      position: 'relative',
+      borderBottom: borderBottom ? '1px solid #3a3a3c' : 'none',
+    },
+    onClick: () => onPopup(data),
+  },
+    // Color swatch — 44×52px rounded rect
+    h('div', {
+      style: {
+        width: 44,
+        height: 52,
+        borderRadius: 6,
+        flexShrink: 0,
+        background: isEmpty ? 'transparent' : data.color,
+        border: isEmpty ? '2px dashed #3a3a3c' : 'none',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }
+    }, isEmpty && h('span', { style: { fontSize: 16, opacity: 0.3, color: '#636366' } }, '—')),
+
+    // Text stack
+    h('div', { style: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 } },
+      !isEmpty && h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+        h('span', { style: { fontSize: 9, color: '#636366', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' } },
+          data.vendor),
+        h('span', { style: { fontSize: 9, color: '#636366' } }, `#${data.id}`),
+        isActive && h('span', { style: { fontSize: 7, background: 'rgba(10,132,255,0.2)', color: '#0a84ff', padding: '1px 5px', borderRadius: 3, fontWeight: 700, marginLeft: 'auto' } }, 'ACTIVE'),
+      ),
+      h('div', { style: { fontSize: 13, fontWeight: 700, color: isEmpty ? '#636366' : '#e5e5e7', lineHeight: 1.1 } },
+        isEmpty ? 'Empty' : primaryLabel(data)),
+      !isEmpty && h('div', { style: { fontSize: 11, color: '#8e8e93', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+        data.name),
+      !isEmpty && h('div', { style: { width: '100%', height: 2, background: '#3a3a3c', borderRadius: 2, overflow: 'hidden', marginTop: 2 } },
+        h('div', { style: { width: `${pct}%`, height: '100%', borderRadius: 2, background: barColor } })
+      ),
+    ),
+
+    // Grams + chevron
+    h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 } },
+      !isEmpty && h('span', { style: { fontSize: 13, fontWeight: 600, color: pct < 20 ? '#ff453a' : '#8e8e93' } },
+        `${Math.round(parseFloat(data.g) || 0)}g`),
+      h('span', { style: { fontSize: 14, color: '#636366' } }, '›'),
+    ),
+  )
+}
+
+// ── SlotsSegment — row layout ─────────────────────────────────
 function SlotsSegment({ getHass, onPopup }) {
   const hass = getHass()
   const sv = id => hass?.states?.[id]?.state ?? '—'
@@ -151,100 +218,7 @@ function SlotsSegment({ getHass, onPopup }) {
     }
   }
 
-  const weightPct = d => {
-    const g = parseFloat(d.g) || 0
-    return Math.min(100, Math.max(0, Math.round(g / 1000 * 100)))
-  }
-
-  const SlotCard = ({ n }) => {
-    const d = slotData(n)
-    const pct = weightPct(d)
-    const isWarn = pct < 20
-    const isEmpty = d.status === 'empty'
-    const isNeedsAction = !isEmpty && (d.status === 'needs_bind' || d.reason?.includes('RFID_NOT_REFRESHED'))
-
-    return h('div', {
-      style: {
-        flex: 1,
-        minWidth: 0,
-        background: '#2c2c2e',
-        borderRadius: 8,
-        border: `1px solid ${d.isActive ? '#0a84ff' : '#3a3a3c'}`,
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-        cursor: 'pointer',
-        opacity: isEmpty ? 0.45 : 1,
-      },
-      onClick: () => onPopup(slotData(n)),
-    },
-      h('div', { style: { padding: '7px 7px 5px', display: 'flex', gap: 6, alignItems: 'flex-start' } },
-        h('div', {
-          style: {
-            width: 32,
-            height: 40,
-            borderRadius: 5,
-            flexShrink: 0,
-            background: isEmpty ? '#1c1c1e' : d.color,
-            border: '1px solid rgba(255,255,255,0.08)',
-          }
-        }),
-        h('div', { style: { flex: 1, minWidth: 0, paddingTop: 1 } },
-          h('div', {
-            style: {
-              fontSize: 9,
-              color: '#636366',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }
-          }, isEmpty ? `Slot ${n}` : `${d.vendor !== '—' ? d.vendor : ''} #${d.id !== '—' ? d.id : '—'}`),
-          h('div', {
-            style: {
-              fontSize: 11,
-              fontWeight: 600,
-              color: isNeedsAction ? '#ff453a' : '#e5e5e7',
-              marginTop: 2,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }
-          }, isEmpty ? 'Empty' : isNeedsAction ? primaryLabel(d) : d.material),
-          !isEmpty && h('div', {
-            style: {
-              fontSize: 9,
-              color: '#8e8e93',
-              marginTop: 1,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }
-          }, d.name !== '—' ? d.name : ''),
-          !isEmpty && h('div', {
-            style: {
-              fontSize: 10,
-              color: isWarn ? '#ff453a' : '#8e8e93',
-              marginTop: 2,
-              fontWeight: isWarn ? 600 : 400,
-            }
-          }, `${Math.round(parseFloat(d.g) || 0)}g`)
-        )
-      ),
-      h('div', { style: { height: 3, background: 'rgba(255,255,255,0.08)', marginTop: 'auto' } },
-        !isEmpty && h('div', {
-          style: {
-            height: 3,
-            width: `${pct}%`,
-            background: isWarn ? '#ff453a' : d.color,
-          }
-        })
-      )
-    )
-  }
-
-  const sectionStyle = { background: '#1c1c1e', borderRadius: 10, border: '1px solid #3a3a3c', overflow: 'hidden' }
+  const sectionStyle = { background: '#2c2c2e', borderRadius: 10, border: '1px solid #3a3a3c', overflow: 'hidden' }
   const sectionHeaderStyle = { padding: '8px 12px', borderBottom: '1px solid #3a3a3c', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }
   const sectionTitleStyle = { fontSize: 11, fontWeight: 600, color: '#e5e5e7' }
   const sectionSubStyle = { fontSize: 10, color: '#8e8e93' }
@@ -258,54 +232,67 @@ function SlotsSegment({ getHass, onPopup }) {
 
   return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
 
+    // AMS 2 Pro — 4 slot rows
     h('div', { style: sectionStyle },
       h('div', { style: sectionHeaderStyle },
         h('div', { style: sectionTitleStyle }, 'AMS 2 Pro'),
         h('div', { style: sectionSubStyle },
-          ams2proConnected ? `${ams2proHum}% hum · ${ams2proTemp}°C` : 'Disconnected'
+          ams2proConnected ? `${ams2proHum}% · ${ams2proTemp}°C` : 'Disconnected'
         )
       ),
-      h('div', { style: { padding: 8, display: 'flex', gap: 6 } },
-        [1, 2, 3, 4].map(n => h(SlotCard, { key: n, n }))
+      [1, 2, 3, 4].map((n, i) =>
+        h(SlotRow, { key: n, n, data: slotData(n), onPopup, borderBottom: i < 3 })
       )
     ),
 
+    // HT Units — sub-header per unit, single card
     h('div', { style: sectionStyle },
       h('div', { style: { ...sectionHeaderStyle, justifyContent: 'flex-start' } },
         h('div', { style: sectionTitleStyle }, 'HT Units')
       ),
-      h('div', { style: { padding: 8, display: 'flex', gap: 6 } },
-        htUnits.map(unit => {
-          const hum = sv(unit.humEntity)
-          const temp = sv(unit.tempEntity)
-          const connected = !['unavailable', 'unknown', '—'].includes(hum)
-          return h('div', {
-            key: unit.name,
-            style: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 },
+      htUnits.map((unit, i) => {
+        const hum      = sv(unit.humEntity)
+        const temp     = sv(unit.tempEntity)
+        const isDrying = sv(unit.dryEntity) === 'on'
+        const dryMins  = parseFloat(sv(unit.dryTimeEntity)) || 0
+        const dh = Math.floor(dryMins / 60), dm = Math.round(dryMins % 60)
+        const dryTimeStr = dh > 0 ? `${dh}h ${String(dm).padStart(2, '0')}m` : `${dm}m`
+        const connected = !['unavailable', 'unknown', '—'].includes(hum)
+        const isLast = i === htUnits.length - 1
+        return h('div', { key: unit.name },
+          h('div', {
+            style: {
+              display: 'flex',
+              alignItems: 'center',
+              padding: '6px 12px 4px',
+              background: 'rgba(255,255,255,0.02)',
+              borderBottom: '1px solid #3a3a3c',
+              borderTop: i > 0 ? '1px solid #3a3a3c' : 'none',
+            }
           },
-            h('div', {
+            h('span', { style: { fontSize: 9, color: '#636366', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' } },
+              `HT${i + 1}`),
+            !isDrying && connected && h('span', { style: { fontSize: 9, color: '#8e8e93', marginLeft: 8 } },
+              `${hum}% · ${temp}°C`),
+            isDrying && h('span', {
               style: {
-                fontSize: 10,
-                color: '#8e8e93',
-                textAlign: 'center',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
+                fontSize: 9, color: '#ff9f0a',
+                background: 'rgba(255,159,10,0.1)', border: '1px solid rgba(255,159,10,0.3)',
+                borderRadius: 8, padding: '1px 7px', marginLeft: 'auto',
               }
-            }, connected ? `${hum}% · ${temp}°C` : unit.name),
-            h(SlotCard, { n: unit.slots[0] })
-          )
-        })
-      )
+            }, `♨️ ${temp}°C · ${dryTimeStr}`),
+          ),
+          h(SlotRow, { n: unit.slots[0], data: slotData(unit.slots[0]), onPopup, borderBottom: !isLast })
+        )
+      })
     ),
 
+    // External — single row
     h('div', { style: sectionStyle },
       h('div', { style: { ...sectionHeaderStyle, justifyContent: 'flex-start' } },
         h('div', { style: sectionTitleStyle }, 'External')
       ),
-      h('div', { style: { padding: 8 } },
-        h(SlotCard, { n: 8 })
-      )
+      h(SlotRow, { n: 8, data: slotData(8), onPopup, borderBottom: false })
     )
   )
 }
