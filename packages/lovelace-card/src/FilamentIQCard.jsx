@@ -34,10 +34,10 @@ export function FilamentIQCard({ hass, getHass, navIntent, config }) {
           <span class="fiq-dot" />
           <FilamentIQLogo height={28} showWordmark={true} />
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button class="fiq-btn-refresh" onClick={() => data.refresh()} title="Reload from Spoolman">↺</button>
-          <TabBar active={activeTab} onChange={setActiveTab} />
-        </div>
+        <button class="fiq-btn-refresh" onClick={() => data.refresh()} title="Reload from Spoolman">↺</button>
+      </div>
+      <div class="fiq-subnav">
+        <TabBar active={activeTab} onChange={setActiveTab} />
       </div>
       <StatsBar spools={data.spools} />
       <div class="fiq-body">

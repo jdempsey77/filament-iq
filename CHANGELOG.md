@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.9.2] — 2026-05-17
+
+### Changes
+- **Sub-nav moved to top** — Slots / Spools / Filaments / Vendors tab bar now renders
+  as its own full-width row immediately below the card header, above the stats row.
+  Tabs stretch to fill the row evenly.
+- **SpoolsTab filters confirmed** — location filter (All locations / In AMS / Shelf /
+  New / Unassigned), vendor filter, and material filter all present and working.
+
+---
+
 ## [1.9.1] — 2026-05-17
 
 ### Changes
