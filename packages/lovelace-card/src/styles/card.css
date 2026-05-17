@@ -17,6 +17,8 @@
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 13px;
   color: var(--text);
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── Topbar ──────────────────────────────────────────── */

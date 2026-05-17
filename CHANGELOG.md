@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.3] — 2026-05-17
+
+### Fixes
+- **fiq-card flex layout** — add `display: flex; flex-direction: column` to `.fiq-card`
+  so subnav, stats, and body stack correctly as a column.
+
+---
+
 ## [1.9.2] — 2026-05-17
 
 ### Changes
