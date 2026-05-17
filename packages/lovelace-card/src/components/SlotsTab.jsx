@@ -122,7 +122,7 @@ const S = {
   assignLabel:  { fontSize: 13, color: '#6aabda', fontWeight: 500 },
 }
 
-// ── SlotsSegment (ported verbatim from PrinterDashboardCard) ─
+// ── SlotsSegment — card grid layout ─────────────────────────
 function SlotsSegment({ getHass, onPopup }) {
   const hass = getHass()
   const sv = id => hass?.states?.[id]?.state ?? '—'
@@ -151,96 +151,162 @@ function SlotsSegment({ getHass, onPopup }) {
     }
   }
 
-  const secondaryLabel = d => {
-    if (d.status === 'empty') return 'No spool loaded'
-    const r = d.reason
-    if (r.includes('RFID_NOT_REFRESHED')) return `${d.name} · RFID not refreshed`
-    if (d.status === 'needs_bind')        return 'Tap to select spool'
-    const g = parseFloat(d.g) || 0
-    return `${d.name} · #${d.id} · ${Math.round(g)}g`
-  }
-
-  const slotStateStyle = d => {
-    if (d.isActive && d.status === 'ok')      return { background: 'rgba(255,255,255,0.06)' }
-    if (d.status === 'empty')                 return { opacity: 0.35 }
-    if (d.reason?.includes('RFID_NOT_REFRESHED')) return { background: 'rgba(255,152,0,0.05)' }
-    if (d.status === 'needs_bind')            return { background: 'rgba(239,83,80,0.05)' }
-    return {}
-  }
-
   const weightPct = d => {
     const g = parseFloat(d.g) || 0
     return Math.min(100, Math.max(0, Math.round(g / 1000 * 100)))
   }
 
-  const SlotRow = ({ n, last = false }) => {
+  const SlotCard = ({ n }) => {
     const d = slotData(n)
     const pct = weightPct(d)
-    const isNeedsAction = d.status === 'needs_bind' || d.reason?.includes('RFID_NOT_REFRESHED')
+    const isWarn = pct < 20
+    const isEmpty = d.status === 'empty'
+    const isNeedsAction = !isEmpty && (d.status === 'needs_bind' || d.reason?.includes('RFID_NOT_REFRESHED'))
+
     return h('div', {
-      style: { ...S.slotRow, ...(last ? { borderBottom: 'none' } : {}), ...slotStateStyle(d) },
-      onClick: () => d.status !== 'empty' && onPopup(slotData(n)),
+      style: {
+        flex: 1,
+        minWidth: 0,
+        background: '#2c2c2e',
+        borderRadius: 8,
+        border: `1px solid ${d.isActive ? '#0a84ff' : '#3a3a3c'}`,
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        cursor: isEmpty ? 'default' : 'pointer',
+        opacity: isEmpty ? 0.45 : 1,
+      },
+      onClick: () => !isEmpty && onPopup(slotData(n)),
     },
-      d.status === 'empty'
-        ? h('div', { style: { ...S.slotDot, background: '#1c1c1e', border: '1px solid #3a3a3c', display: 'flex', alignItems: 'center', justifyContent: 'center' } },
-            h(Icon, { path: ICONS.cancel, size: 12, color: '#444' })
-          )
-        : h('div', { style: { ...S.slotDot, background: d.color } }),
-      h('div', { style: { flex: 1, minWidth: 0 } },
-        h('div', { style: { ...S.slotPrimary, ...(isNeedsAction ? { color: '#ef5350' } : d.isActive && d.status === 'ok' ? { color: d.color } : {}) } },
-          primaryLabel(d)
-        ),
-        h('div', { style: { ...S.slotSecondary, ...(isNeedsAction ? { color: '#a04040' } : {}) } },
-          secondaryLabel(d)
+      h('div', { style: { padding: '7px 7px 5px', display: 'flex', gap: 6, alignItems: 'flex-start' } },
+        h('div', {
+          style: {
+            width: 32,
+            height: 40,
+            borderRadius: 5,
+            flexShrink: 0,
+            background: isEmpty ? '#1c1c1e' : d.color,
+            border: '1px solid rgba(255,255,255,0.08)',
+          }
+        }),
+        h('div', { style: { flex: 1, minWidth: 0, paddingTop: 1 } },
+          h('div', {
+            style: {
+              fontSize: 9,
+              color: '#636366',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }
+          }, isEmpty ? `Slot ${n}` : `${d.vendor !== '—' ? d.vendor : ''} #${d.id !== '—' ? d.id : '—'}`),
+          h('div', {
+            style: {
+              fontSize: 11,
+              fontWeight: 600,
+              color: isNeedsAction ? '#ff453a' : '#e5e5e7',
+              marginTop: 2,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }
+          }, isEmpty ? 'Empty' : isNeedsAction ? primaryLabel(d) : d.material),
+          !isEmpty && h('div', {
+            style: {
+              fontSize: 9,
+              color: '#8e8e93',
+              marginTop: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }
+          }, d.name !== '—' ? d.name : ''),
+          !isEmpty && h('div', {
+            style: {
+              fontSize: 10,
+              color: isWarn ? '#ff453a' : '#8e8e93',
+              marginTop: 2,
+              fontWeight: isWarn ? 600 : 400,
+            }
+          }, `${Math.round(parseFloat(d.g) || 0)}g`)
         )
       ),
-      d.isActive && d.status === 'ok' && h(Icon, { path: ICONS.nozzle, size: 12, color: '#63cab7' }),
-      isNeedsAction                   && h(Icon, { path: ICONS.alert,   size: 12, color: '#ef5350' }),
-      d.status !== 'empty'            && h(Icon, { path: ICONS.chevron, size: 11, color: '#555' }),
-      d.status !== 'empty' && h('div', { style: S.slotBar },
-        h('div', { style: { ...S.slotBarFill, width: `${pct}%` } })
+      h('div', { style: { height: 3, background: 'rgba(255,255,255,0.08)', marginTop: 'auto' } },
+        !isEmpty && h('div', {
+          style: {
+            height: 3,
+            width: `${pct}%`,
+            background: isWarn ? '#ff453a' : d.color,
+          }
+        })
       )
     )
   }
 
-  return h('div', null,
-    AMS_UNITS.map(unit => {
-      const hum        = sv(unit.humEntity)
-      const temp       = sv(unit.tempEntity)
-      const connected  = !['unavailable', 'unknown', '—'].includes(hum)
-      const isDrying   = sv(unit.dryEntity) === 'on'
-      const dryTimeRaw = parseFloat(sv(unit.dryTimeEntity)) || 0
-      const dryH       = Math.floor(dryTimeRaw)
-      const dryM       = Math.round((dryTimeRaw - dryH) * 60)
-      const dryTimeStr = dryH > 0 ? `${dryH}h ${dryM}m remaining` : `${dryM}m remaining`
+  const sectionStyle = { background: '#1c1c1e', borderRadius: 10, border: '1px solid #3a3a3c', overflow: 'hidden' }
+  const sectionHeaderStyle = { padding: '8px 12px', borderBottom: '1px solid #3a3a3c', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }
+  const sectionTitleStyle = { fontSize: 11, fontWeight: 600, color: '#e5e5e7' }
+  const sectionSubStyle = { fontSize: 10, color: '#636366' }
 
-      return h('div', { key: unit.name, style: S.fiqCard },
-        h('div', { style: S.unitHeader },
-          h(Icon, { path: ICONS.printer, size: 14, color: connected ? '#4caf50' : '#ef5350' }),
-          h('div', null,
-            h('div', { style: S.unitName }, unit.name),
-            h('div', { style: S.unitSub }, connected ? `${hum}% humidity · ${temp}°C` : 'Disconnected')
-          )
-        ),
-        unit.slots.map((n, i) =>
-          h(SlotRow, { key: n, n, last: i === unit.slots.length - 1 && !unit.external && !isDrying })
-        ),
-        unit.external && h('div', null,
-          h('div', { style: { ...S.unitHeader, borderTop: '1px solid rgba(255,255,255,0.06)', borderBottom: 'none' } },
-            h(Icon, { path: ICONS.externalLink, size: 14, color: '#4caf50' }),
-            h('div', { style: S.unitName }, 'External')
-          ),
-          h(SlotRow, { n: 8, last: !isDrying })
-        ),
-        isDrying && h('div', { style: S.dryingRow },
-          h(Icon, { path: ICONS.fan, size: 14, color: '#64b4dc' }),
-          h('div', null,
-            h('div', { style: S.dryingPrimary }, `Drying Active · ${temp}°C`),
-            h('div', { style: S.dryingSub }, dryTimeStr)
-          )
+  const ams2pro = AMS_UNITS[0]
+  const ams2proHum = sv(ams2pro.humEntity)
+  const ams2proTemp = sv(ams2pro.tempEntity)
+  const ams2proConnected = !['unavailable', 'unknown', '—'].includes(ams2proHum)
+
+  const htUnits = AMS_UNITS.slice(1)
+
+  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+
+    h('div', { style: sectionStyle },
+      h('div', { style: sectionHeaderStyle },
+        h('div', { style: sectionTitleStyle }, 'AMS 2 Pro'),
+        h('div', { style: sectionSubStyle },
+          ams2proConnected ? `${ams2proHum}% hum · ${ams2proTemp}°C` : 'Disconnected'
         )
+      ),
+      h('div', { style: { padding: 8, display: 'flex', gap: 6 } },
+        [1, 2, 3, 4].map(n => h(SlotCard, { key: n, n }))
       )
-    })
+    ),
+
+    h('div', { style: sectionStyle },
+      h('div', { style: { ...sectionHeaderStyle, justifyContent: 'flex-start' } },
+        h('div', { style: sectionTitleStyle }, 'HT Units')
+      ),
+      h('div', { style: { padding: 8, display: 'flex', gap: 6 } },
+        htUnits.map(unit => {
+          const hum = sv(unit.humEntity)
+          const temp = sv(unit.tempEntity)
+          const connected = !['unavailable', 'unknown', '—'].includes(hum)
+          return h('div', {
+            key: unit.name,
+            style: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 },
+          },
+            h('div', {
+              style: {
+                fontSize: 9,
+                color: '#636366',
+                textAlign: 'center',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }
+            }, connected ? `${hum}% · ${temp}°C` : unit.name),
+            h(SlotCard, { n: unit.slots[0] })
+          )
+        })
+      )
+    ),
+
+    h('div', { style: sectionStyle },
+      h('div', { style: { ...sectionHeaderStyle, justifyContent: 'flex-start' } },
+        h('div', { style: sectionTitleStyle }, 'External')
+      ),
+      h('div', { style: { padding: 8 } },
+        h(SlotCard, { n: 8 })
+      )
+    )
   )
 }
 
