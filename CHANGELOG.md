@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.8.3] — 2026-05-17
+
+### Features
+- **Slots tab card grid** — `SlotsSegment` redesigned from list rows to a three-section
+  card grid: AMS 2 Pro (4 cards in flex row), HT Units (3 bays side by side with
+  per-bay humidity label), and External (standalone slot 8). Each slot card shows a
+  32×40 color swatch, brand + spool ID, material (bold), color name, grams remaining
+  (red if <20%), and a 3px fuel bar (color-matched, red if warn). Active slot gets a
+  blue border (`#0a84ff`). Needs-action states show in red. `SlotPopup` unchanged.
+
+---
+
 ## [1.8.2] — 2026-05-17
 
 ### Features
