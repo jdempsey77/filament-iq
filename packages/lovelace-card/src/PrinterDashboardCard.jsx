@@ -652,11 +652,11 @@ class FiqSegment extends Component {
 
 // ── Root component ───────────────────────────────────────────
 export function PrinterDashboardCard({ config, getHass }) {
-  const [seg, setSeg] = useState('printer')
+  const [seg, setSeg] = useState(config?.initial_segment || 'printer')
   const [popup, setPopup] = useState(null)
 
   return h('div', { style: S.root },
-    h(SegBar, { active: seg, onSwitch: setSeg }),
+    !config?.initial_segment && h(SegBar, { active: seg, onSwitch: setSeg }),
     h('div', { style: S.scrollArea },
       seg === 'printer' && h(PrinterSegment, { getHass }),
       seg === 'cameras' && h(CamerasSegment, { getHass }),

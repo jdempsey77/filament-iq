@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.8.1] — 2026-05-17
+
+### Features
+- **`initial_segment` config prop** — `custom:printer-dashboard` now accepts
+  `initial_segment: slots` (or any segment key) to mount directly on a specific
+  segment. When set, the `SegBar` is hidden (the host dashboard's tab bar is
+  the navigation mechanism). Enables the Slots tab in the 3D Printer dashboard
+  to embed the card locked to the slots segment.
+
+---
+
 ## [1.8.0] — 2026-05-16
 
 ### New feature: Nav intent support
