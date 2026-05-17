@@ -470,6 +470,10 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
         </div>
       )}
 
+      <div class="fiq-bind-row">
+        <button class="fiq-btn-bind" onClick={() => { setBinding(!binding); setAdding(false); setEditId(null) }}>⇄ Bind slot</button>
+      </div>
+
       <div class="fiq-toolbar">
         <input class="fiq-search" type="text" placeholder="Search..." value={search} onInput={e => setSearch(e.target.value)} />
         <select class="fiq-filter" value={vendorFilter} onChange={e => setVendorFilter(e.target.value)}>
@@ -493,7 +497,6 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
             {archiving ? 'Archiving...' : `Archive empty (${emptySpools.length})`}
           </button>
         )}
-        <button class="fiq-btn-bind" onClick={() => { setBinding(!binding); setAdding(false); setEditId(null) }}>⇄ Bind slot</button>
         <button class="fiq-btn-add" onClick={() => { setAdding(true); setBinding(false); setEditId(null) }}>+ Add spool</button>
       </div>
 

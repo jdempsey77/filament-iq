@@ -113,8 +113,26 @@
 
 /* ── Body / toolbar ──────────────────────────────────── */
 .fiq-body { padding: 12px 14px; }
+.fiq-bind-row {
+  margin-bottom: 8px;
+}
+.fiq-btn-bind {
+  display: block;
+  width: 100%;
+  background: rgba(10, 132, 255, 0.08);
+  color: var(--accent);
+  border: 1px solid rgba(10, 132, 255, 0.2);
+  border-radius: 10px;
+  padding: 7px 11px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: center;
+}
 .fiq-toolbar {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
   margin-bottom: 10px;
@@ -128,7 +146,7 @@
   color: var(--text);
   font-family: inherit;
   outline: none;
-  width: 110px;
+  flex: 1 1 100%;
 }
 .fiq-search:focus { border-color: var(--accent); }
 .fiq-filter {
@@ -139,6 +157,7 @@
   font-size: 11px;
   color: var(--text);
   font-family: inherit;
+  flex: 1 1 auto;
 }
 .fiq-spacer { flex: 1; }
 .fiq-btn-add {

@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.8.4] — 2026-05-17
+
+### Fixes
+- **SpoolsTab filter row overflow** — Bind Slot button moved to its own full-width
+  row above the filter row. Toolbar now wraps: search input takes the full first
+  line (`flex: 1 1 100%`), dropdowns share the second line (`flex: 1 1 auto`).
+  Eliminates horizontal overflow and scrollbar on mobile viewports.
+
+---
+
 ## [1.8.3] — 2026-05-17
 
 ### Features
