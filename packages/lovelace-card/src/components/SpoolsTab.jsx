@@ -397,6 +397,36 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
     return () => clearTimeout(timer)
   }, [printingSpoolId])
 
+  const handleReconcile = useCallback(() => {
+    getHass()?.callService('input_button', 'press', {
+      entity_id: 'input_button.filament_iq_reconcile_now',
+    })
+  }, [getHass])
+
+  const handleExport = useCallback(() => {
+    const rows = [
+      ['ID', 'Name', 'Material', 'Vendor', 'Color', 'Remaining (g)', 'Location', 'Lot Nr'],
+      ...(spools || []).filter(s => !s.archived).map(s => [
+        s.id,
+        s.filament?.name || '',
+        s.filament?.material || '',
+        s.filament?.vendor?.name || '',
+        s.filament?.color_hex || '',
+        Math.round(s.remaining_weight || 0),
+        s.location || '',
+        s.lot_nr || '',
+      ])
+    ]
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `filament-iq-spools-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [spools])
+
   const handlePrintLabel = useCallback((spoolId) => {
     if (!hass) return
     setPrintingSpoolId(spoolId)
@@ -472,6 +502,8 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
 
       <div class="fiq-bind-row">
         <button class="fiq-btn-bind" onClick={() => { setBinding(!binding); setAdding(false); setEditId(null) }}>⇄ Bind slot</button>
+        <button class="fiq-btn-bind" onClick={handleReconcile}>↺ Reconcile</button>
+        <button class="fiq-btn-bind" onClick={handleExport}>↓ CSV</button>
       </div>
 
       <div class="fiq-toolbar">

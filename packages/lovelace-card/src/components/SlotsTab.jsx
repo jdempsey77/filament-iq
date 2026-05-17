@@ -173,10 +173,10 @@ function SlotsSegment({ getHass, onPopup }) {
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        cursor: isEmpty ? 'default' : 'pointer',
+        cursor: 'pointer',
         opacity: isEmpty ? 0.45 : 1,
       },
-      onClick: () => !isEmpty && onPopup(slotData(n)),
+      onClick: () => onPopup(slotData(n)),
     },
       h('div', { style: { padding: '7px 7px 5px', display: 'flex', gap: 6, alignItems: 'flex-start' } },
         h('div', {
@@ -285,8 +285,8 @@ function SlotsSegment({ getHass, onPopup }) {
           },
             h('div', {
               style: {
-                fontSize: 9,
-                color: '#636366',
+                fontSize: 10,
+                color: '#8e8e93',
                 textAlign: 'center',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
