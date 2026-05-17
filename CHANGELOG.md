@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.8.2] — 2026-05-17
+
+### Features
+- **Slots tab in filament-iq-manager** — `SlotsSegment` and `SlotPopup` ported
+  from `PrinterDashboardCard` into a standalone `SlotsTab` component. The
+  `filament-iq-manager` card now has a Slots tab (first in the tab bar) showing
+  all AMS units with per-slot status, weight bars, and a tap-to-assign popup.
+- **`initial_tab` config prop** — Card accepts `initial_tab: slots` (or any tab
+  id) to mount on a specific tab. Used by the dashboard Slots tab to open the
+  card directly on the Slots view.
+- **`PrinterDashboardCard` `initial_segment` reverted** — No longer needed since
+  the Slots tab embeds `filament-iq-manager` instead of `printer-dashboard`.
+
+---
+
 ## [1.8.1] — 2026-05-17
 
 ### Features

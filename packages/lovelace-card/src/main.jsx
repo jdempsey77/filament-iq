@@ -31,7 +31,7 @@ class FilamentIQManagerElement extends HTMLElement {
       const self = this
       const rawIntent = hass?.states?.['input_text.filament_iq_nav_intent']?.state || ''
       const navIntent = rawIntent && rawIntent !== '—' ? rawIntent : null
-      render(h(FilamentIQCard, { hass, getHass: () => self._hass, navIntent }), this)
+      render(h(FilamentIQCard, { hass, getHass: () => self._hass, navIntent, config: self._config }), this)
     }
   }
 

@@ -7,9 +7,10 @@ import { SpoolsTab } from './components/SpoolsTab'
 import { FilamentsTab } from './components/FilamentsTab'
 import { VendorsTab } from './components/VendorsTab'
 import { FilamentIQLogo } from './components/FilamentIQLogo'
+import SlotsTab from './components/SlotsTab'
 
-export function FilamentIQCard({ hass, getHass, navIntent }) {
-  const [activeTab, setActiveTab] = useState('spools')
+export function FilamentIQCard({ hass, getHass, navIntent, config }) {
+  const [activeTab, setActiveTab] = useState(config?.initial_tab || 'spools')
 
   const client = useMemo(() => {
     if (!hass) return null
@@ -43,6 +44,7 @@ export function FilamentIQCard({ hass, getHass, navIntent }) {
         {activeTab === 'spools'    && <SpoolsTab    {...data} hass={hass} getHass={getHass} navIntent={navIntent} />}
         {activeTab === 'filaments' && <FilamentsTab {...data} client={client} />}
         {activeTab === 'vendors'   && <VendorsTab   {...data} />}
+        {activeTab === 'slots'     && <SlotsTab     getHass={getHass} />}
       </div>
     </div>
   )

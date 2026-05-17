@@ -1,7 +1,8 @@
 const TABS = [
-  { id: 'spools', label: 'Spools' },
+  { id: 'slots',     label: 'Slots' },
+  { id: 'spools',    label: 'Spools' },
   { id: 'filaments', label: 'Filaments' },
-  { id: 'vendors', label: 'Vendors' },
+  { id: 'vendors',   label: 'Vendors' },
 ]
 
 export function TabBar({ active, onChange }) {
