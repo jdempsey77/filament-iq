@@ -34,6 +34,13 @@ class NiimbotPrinter(FilamentIQBase):
 
         profiles_path = self.args.get("filament_profiles_path")
         self.profiles_client = get_profiles_client(str(profiles_path)) if profiles_path else None
+        if self.profiles_client:
+            self.log(
+                f"NIIMBOT_PROFILES available={self.profiles_client.available} "
+                f"error={getattr(self.profiles_client, '_load_error', 'none')} "
+                f"index_size={len(self.profiles_client._index)}",
+                level="WARNING",
+            )
 
         self.listen_event(self._on_print_niimbot_event, "filament_iq_print_niimbot_label")
         self.log(

@@ -80,6 +80,7 @@ class FilamentProfilesClient:
 
     def __init__(self, data_path: str) -> None:
         self.available = False
+        self._load_error: str = ""
         self._index: dict[str, list] = {}   # normalized brand_name → [candidates]
 
         if not data_path:
@@ -97,8 +98,10 @@ class FilamentProfilesClient:
                 len(self._index), data_path,
             )
         except FileNotFoundError:
+            self._load_error = f"FileNotFoundError: {data_path}"
             logger.warning("FilamentProfilesClient: file not found: %s", data_path)
         except Exception as exc:
+            self._load_error = f"{type(exc).__name__}: {exc}"
             logger.warning(
                 "FilamentProfilesClient: failed to load %s: %s", data_path, exc
             )
