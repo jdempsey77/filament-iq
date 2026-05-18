@@ -178,11 +178,14 @@ class FilamentProfilesClient:
             score += 0.2
 
         # Color: +0.15 if color name appears in filament_name
-        cand_color = _norm(candidate.get("color", ""))
+        # Strip product codes like "Red (10400)" → "red"
+        # Note: intentionally not capped at 1.0 so color breaks ties on otherwise-equal candidates
+        raw_color = candidate.get("color", "") or ""
+        cand_color = _norm(raw_color.split("(")[0])
         if cand_color and name_n and cand_color in name_n:
             score += 0.15
 
-        return min(score, 1.0)
+        return score
 
     @staticmethod
     def _build_profile(candidate: dict, score: float) -> FilamentProfile:
