@@ -133,7 +133,7 @@ class FilamentProfilesClient:
                 best_score = s
                 best = c
 
-        if best is None or best_score < 0.7:
+        if best is None or best_score < 0.75:
             return FilamentProfile(
                 matched=False,
                 confidence="low" if best_score > 0 else "none",
@@ -176,6 +176,11 @@ class FilamentProfilesClient:
             score += 0.2
         elif inferred_type and cand_type and inferred_type == cand_type:
             score += 0.2
+
+        # Color: +0.15 if color name appears in filament_name
+        cand_color = _norm(candidate.get("color", ""))
+        if cand_color and name_n and cand_color in name_n:
+            score += 0.15
 
         return min(score, 1.0)
 
