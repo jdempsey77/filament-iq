@@ -232,6 +232,13 @@ function SlotsSegment({ getHass, onPopup }) {
 
   return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
 
+    h('div', { style: { display: 'flex', justifyContent: 'flex-end', padding: '0 2px 4px' } },
+      h('button', {
+        class: 'fiq-btn-bind',
+        onClick: () => getHass()?.callService('input_button', 'press', { entity_id: 'input_button.filament_iq_reconcile_now' }),
+      }, '↺ Reconcile')
+    ),
+
     // AMS 2 Pro — 4 slot rows
     h('div', { style: sectionStyle },
       h('div', { style: sectionHeaderStyle },
@@ -254,8 +261,9 @@ function SlotsSegment({ getHass, onPopup }) {
         const hum      = sv(unit.humEntity)
         const temp     = sv(unit.tempEntity)
         const isDrying = sv(unit.dryEntity) === 'on'
-        const dryMins  = parseFloat(sv(unit.dryTimeEntity)) || 0
-        const dh = Math.floor(dryMins / 60), dm = Math.round(dryMins % 60)
+        const dryTimeRaw = parseFloat(sv(unit.dryTimeEntity)) || 0
+        const dh = Math.floor(dryTimeRaw)
+        const dm = Math.round((dryTimeRaw - dh) * 60)
         const dryTimeStr = dh > 0 ? `${dh}h ${String(dm).padStart(2, '0')}m` : `${dm}m`
         const connected = !['unavailable', 'unknown', '—'].includes(hum)
         const isLast = i === htUnits.length - 1

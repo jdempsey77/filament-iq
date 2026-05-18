@@ -2,7 +2,6 @@ import { useState, useMemo } from 'preact/hooks'
 import { ProxyClient } from './api/proxy'
 import { useSpoolman } from './hooks/useSpoolman'
 import { TabBar } from './components/TabBar'
-import { StatsBar } from './components/StatsBar'
 import { SpoolsTab } from './components/SpoolsTab'
 import { FilamentsTab } from './components/FilamentsTab'
 import { VendorsTab } from './components/VendorsTab'
@@ -39,7 +38,6 @@ export function FilamentIQCard({ hass, getHass, navIntent, config }) {
       <div class="fiq-subnav">
         <TabBar active={activeTab} onChange={setActiveTab} />
       </div>
-      <StatsBar spools={data.spools} />
       <div class="fiq-body">
         {activeTab === 'spools'    && <SpoolsTab    {...data} hass={hass} getHass={getHass} navIntent={navIntent} />}
         {activeTab === 'filaments' && <FilamentsTab {...data} client={client} />}

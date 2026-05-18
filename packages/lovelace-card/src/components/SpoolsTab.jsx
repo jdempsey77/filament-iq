@@ -335,6 +335,8 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
   const [vendorFilter, setVendorFilter] = useState('')
   const [materialFilter, setMaterialFilter] = useState('')
   const [locationFilter, setLocationFilter] = useState('')
+  const [showEmpty, setShowEmpty] = useState(false)
+  const [colorFamily, setColorFamily] = useState('')
   const [editId, setEditId] = useState(null)
 
   // Nav intent: read once at mount, clear entity, pre-open spool edit panel
@@ -396,12 +398,6 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
     }, 15000)
     return () => clearTimeout(timer)
   }, [printingSpoolId])
-
-  const handleReconcile = useCallback(() => {
-    getHass()?.callService('input_button', 'press', {
-      entity_id: 'input_button.filament_iq_reconcile_now',
-    })
-  }, [getHass])
 
   const handleExport = useCallback(() => {
     const rows = [
@@ -470,6 +466,30 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
     return [...set].sort()
   }, [spools])
 
+  function getColorFamily(hex) {
+    if (!hex || hex === '000000') return 'Black'
+    const r = parseInt(hex.slice(0,2),16)
+    const g = parseInt(hex.slice(2,4),16)
+    const b = parseInt(hex.slice(4,6),16)
+    const max = Math.max(r,g,b), min = Math.min(r,g,b)
+    const l = (max+min)/2
+    if (max - min < 20) {
+      if (l < 40) return 'Black'
+      if (l > 210) return 'White'
+      return 'Gray'
+    }
+    const h = max===r ? (g-b)/(max-min) : max===g ? 2+(b-r)/(max-min) : 4+(r-g)/(max-min)
+    const hue = ((h*60)+360)%360
+    if (hue < 15 || hue >= 345) return 'Red'
+    if (hue < 45) return 'Orange'
+    if (hue < 75) return 'Yellow'
+    if (hue < 165) return 'Green'
+    if (hue < 255) return 'Blue'
+    if (hue < 285) return 'Purple'
+    if (hue < 345) return 'Pink'
+    return 'Other'
+  }
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
     return (spools || []).filter(s => {
@@ -487,9 +507,14 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
       } else if (locationFilter) {
         if ((s.location || '') !== locationFilter) return false
       }
+      if (showEmpty ? !((s.remaining_weight || 0) === 0 || s.archived) : false) return false
+      if (colorFamily) {
+        const hex = (s.filament?.color_hex || s.color_hex || '').replace('#','')
+        if (getColorFamily(hex) !== colorFamily) return false
+      }
       return true
     })
-  }, [spools, search, vendorFilter, materialFilter, locationFilter])
+  }, [spools, search, vendorFilter, materialFilter, locationFilter, showEmpty, colorFamily])
 
   return (
     <div style={{position:"relative"}}>
@@ -502,7 +527,6 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
 
       <div class="fiq-bind-row">
         <button class="fiq-btn-bind" onClick={() => { setBinding(!binding); setAdding(false); setEditId(null) }}>⇄ Bind slot</button>
-        <button class="fiq-btn-bind" onClick={handleReconcile}>↺ Reconcile</button>
         <button class="fiq-btn-bind" onClick={handleExport}>↓ CSV</button>
       </div>
 
@@ -523,6 +547,16 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
           <option value="New">New</option>
           <option value="none">Unassigned</option>
         </select>
+        <select class="fiq-filter" value={colorFamily} onChange={e => setColorFamily(e.target.value)}>
+          <option value="">All colors</option>
+          {['Black','White','Gray','Red','Orange','Yellow','Green','Blue','Purple','Pink']
+            .map(f => <option key={f} value={f}>{f}</option>)}
+        </select>
+        <button
+          class={`fiq-btn-bind${showEmpty ? ' fiq-btn-active' : ''}`}
+          onClick={() => setShowEmpty(!showEmpty)}
+          style={{ whiteSpace: 'nowrap' }}
+        >⊘ Empty</button>
         <div class="fiq-spacer" />
         {emptySpools.length > 0 && (
           <button class="fiq-btn-archive" onClick={() => setArchiveConfirm(true)} disabled={archiving}>

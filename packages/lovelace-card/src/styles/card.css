@@ -147,6 +147,11 @@
   font-family: inherit;
   text-align: center;
 }
+.fiq-btn-bind.fiq-btn-active {
+  background: rgba(10,132,255,0.18);
+  border-color: rgba(10,132,255,0.5);
+  color: #0a84ff;
+}
 .fiq-toolbar {
   display: flex;
   flex-wrap: wrap;
