@@ -214,3 +214,17 @@ class FilamentProfilesClient:
             brand_key=candidate.get("brand_key") or None,
             material_key=candidate.get("material_key") or None,
         )
+
+
+_CLIENT_CACHE: dict[str, "FilamentProfilesClient"] = {}
+
+
+def get_profiles_client(data_path: str) -> "FilamentProfilesClient":
+    """Return a cached FilamentProfilesClient for the given path.
+
+    Loads the filaments.json only once per path across all AppDaemon apps.
+    Subsequent calls with the same path return the cached instance.
+    """
+    if data_path not in _CLIENT_CACHE:
+        _CLIENT_CACHE[data_path] = FilamentProfilesClient(data_path)
+    return _CLIENT_CACHE[data_path]

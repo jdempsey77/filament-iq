@@ -17,7 +17,7 @@ import urllib.error
 import urllib.request
 
 from .base import FilamentIQBase
-from .filament_profiles import FilamentProfilesClient
+from .filament_profiles import FilamentProfilesClient, get_profiles_client
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class NiimbotPrinter(FilamentIQBase):
         self.dry_run = bool(self.args.get("dry_run", True))
 
         profiles_path = self.args.get("filament_profiles_path")
-        self.profiles_client = FilamentProfilesClient(str(profiles_path)) if profiles_path else None
+        self.profiles_client = get_profiles_client(str(profiles_path)) if profiles_path else None
 
         self.listen_event(self._on_print_niimbot_event, "filament_iq_print_niimbot_label")
         self.log(
