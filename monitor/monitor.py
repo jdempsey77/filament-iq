@@ -181,6 +181,27 @@ def _ha_get_state(cfg: Config, entity_id: str) -> dict | None:
         return None
 
 
+def _ha_set_state(cfg: Config, entity_id: str, state: str) -> bool:
+    """POST a state value to a HA entity via REST API. Returns True on success."""
+    url = f"{cfg.ha_url}/api/states/{entity_id}"
+    payload = json.dumps({"state": state}).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {cfg.ha_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10.0) as resp:
+            return resp.status in (200, 201)
+    except Exception as e:
+        log.warning("_ha_set_state %s failed: %s", entity_id, e)
+        return False
+
+
 def _send_ha_notification(cfg: Config, title: str, message: str) -> None:
     """POST a mobile notification via HA notify service. Never raises."""
     url = f"{cfg.ha_url}/api/services/notify/{cfg.notify_service}"
@@ -855,6 +876,72 @@ class PrintLifecycleMonitor:
         self._persist_state()
 
 
+# ── Loop 4: Niimbot Print Queue ──────────────────────────────────────
+
+_NIIMBOT_HELPER = "input_text.filament_iq_niimbot_print_queue"
+_NIIMBOT_SCRIPT = "/home/jdempsey/print_niimbot.sh"
+_NIIMBOT_POLL_S = 5
+_NIIMBOT_TIMEOUT_S = 120
+_NIIMBOT_ERROR_SLEEP_S = 10
+
+
+class NiimbotPrintLoop:
+    """Polls the Niimbot print queue helper and runs print_niimbot.sh on ska."""
+
+    def __init__(self, cfg: Config, shutdown_event: threading.Event):
+        self.cfg = cfg
+        self.shutdown = shutdown_event
+
+    def run(self) -> None:
+        log.info("Niimbot print loop started — polling %s every %ds", _NIIMBOT_HELPER, _NIIMBOT_POLL_S)
+        while not self.shutdown.is_set():
+            try:
+                self._poll()
+            except Exception as e:
+                log.error("NIIMBOT_LOOP_ERROR: %s", e)
+                self._clear_queue()
+                self.shutdown.wait(_NIIMBOT_ERROR_SLEEP_S)
+                continue
+            self.shutdown.wait(_NIIMBOT_POLL_S)
+
+    def _poll(self) -> None:
+        state_obj = _ha_get_state(self.cfg, _NIIMBOT_HELPER)
+        if state_obj is None:
+            # HA unreachable — back off quietly
+            self.shutdown.wait(_NIIMBOT_ERROR_SLEEP_S)
+            return
+
+        filament_id = str(state_obj.get("state", "")).strip()
+        if not filament_id:
+            return
+
+        log.info("NIIMBOT_PRINT_START filament_id=%s", filament_id)
+        try:
+            result = subprocess.run(
+                [_NIIMBOT_SCRIPT, filament_id],
+                timeout=_NIIMBOT_TIMEOUT_S,
+                capture_output=True,
+                text=True,
+            )
+            rc = result.returncode
+        except subprocess.TimeoutExpired:
+            log.error("NIIMBOT_TIMEOUT filament_id=%s (>%ds)", filament_id, _NIIMBOT_TIMEOUT_S)
+            rc = -1
+        except Exception as e:
+            log.error("NIIMBOT_SUBPROCESS_ERROR filament_id=%s: %s", filament_id, e)
+            rc = -1
+        finally:
+            self._clear_queue()
+
+        log.info("NIIMBOT_PRINT_DONE filament_id=%s returncode=%d", filament_id, rc)
+
+    def _clear_queue(self) -> None:
+        """Clear the Niimbot print queue helper in HA."""
+        ok = _ha_set_state(self.cfg, _NIIMBOT_HELPER, "")
+        if not ok:
+            log.warning("NIIMBOT_CLEAR_FAILED — helper may be stuck")
+
+
 # ── Main ─────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -918,16 +1005,19 @@ def main() -> None:
     ha_monitor = HAAvailabilityMonitor(cfg, shutdown_event)
     resource_monitor = SystemResourceMonitor(cfg, shutdown_event)
     print_monitor = PrintLifecycleMonitor(cfg, shutdown_event)
+    niimbot_loop = NiimbotPrintLoop(cfg, shutdown_event)
 
     ha_thread = threading.Thread(target=ha_monitor.run, name="ha-availability", daemon=True)
     resource_thread = threading.Thread(target=resource_monitor.run, name="system-resources", daemon=True)
     print_thread = threading.Thread(target=print_monitor.run, name="print-lifecycle", daemon=True)
+    niimbot_thread = threading.Thread(target=niimbot_loop.run, name="niimbot-print", daemon=True)
 
     ha_thread.start()
     resource_thread.start()
     print_thread.start()
+    niimbot_thread.start()
 
-    log.info("Monitor running — 3 threads active")
+    log.info("Monitor running — 4 threads active")
 
     # Main thread waits for shutdown signal
     while not shutdown_event.is_set():
@@ -938,6 +1028,7 @@ def main() -> None:
     ha_thread.join(timeout=15)
     resource_thread.join(timeout=15)
     print_thread.join(timeout=15)
+    niimbot_thread.join(timeout=15)
 
     log.info("Filament IQ Monitor stopped")
 
