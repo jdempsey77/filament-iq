@@ -160,7 +160,7 @@ function MatBadge({ material }) {
   return <span class={`fiq-mat-badge ${cls}`}>{material || '—'}</span>
 }
 
-function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrintLabel, onPrintSwatchLabel, printingLabel }) {
+function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrintLabel, onPrintSwatchLabel, printingLabel, printingNiimbotLabel }) {
   const [remaining, setRemaining] = useState(Math.round(spool.remaining_weight || 0))
   const [location, setLocation] = useState(spool.location || '')
   const [firstUsed, setFirstUsed] = useState(
@@ -234,9 +234,9 @@ function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrintLabel,
           <button
             class="fiq-btn-print"
             onClick={() => onPrintSwatchLabel && onPrintSwatchLabel(spool.id)}
-            disabled={saving}
+            disabled={saving || printingNiimbotLabel}
           >
-            🏷 Swatch Label
+            {printingNiimbotLabel ? 'Queuing...' : 'Swatch'}
           </button>
         </div>
         <div class="fiq-btn-group">
@@ -369,6 +369,7 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
   const [archiveConfirm, setArchiveConfirm] = useState(false)
   const [archiving, setArchiving] = useState(false)
   const [printingSpoolId, setPrintingSpoolId] = useState(null)
+  const [printingNiimbotSpoolId, setPrintingNiimbotSpoolId] = useState(null)
   const [toast, setToast] = useState(null)
 
   // Subscribe to label result events
@@ -395,6 +396,30 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
     return () => { if (unsub) unsub() }
   }, [hass, printingSpoolId])
 
+  // Subscribe to Niimbot swatch label result events
+  useEffect(() => {
+    if (!hass) return
+    let unsub = null
+    const subscribe = async () => {
+      try {
+        unsub = await hass.connection.subscribeEvents((event) => {
+          const d = event.data || {}
+          if (d.spool_id === printingNiimbotSpoolId || printingNiimbotSpoolId) {
+            setPrintingNiimbotSpoolId(null)
+            if (d.success) {
+              setToast({ msg: 'Swatch label queued for printing', type: 'ok' })
+            } else {
+              setToast({ msg: `Swatch print failed: ${d.error || 'unknown error'}`, type: 'err' })
+            }
+            setTimeout(() => setToast(null), 5000)
+          }
+        }, 'filament_iq_niimbot_label_result')
+      } catch (e) { /* ignore subscription errors */ }
+    }
+    subscribe()
+    return () => { if (unsub) unsub() }
+  }, [hass, printingNiimbotSpoolId])
+
   // Timeout for in-flight print jobs
   useEffect(() => {
     if (!printingSpoolId) return
@@ -405,6 +430,17 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
     }, 15000)
     return () => clearTimeout(timer)
   }, [printingSpoolId])
+
+  // Timeout for in-flight Niimbot swatch print jobs
+  useEffect(() => {
+    if (!printingNiimbotSpoolId) return
+    const timer = setTimeout(() => {
+      setPrintingNiimbotSpoolId(null)
+      setToast({ msg: 'Swatch print timed out', type: 'err' })
+      setTimeout(() => setToast(null), 5000)
+    }, 15000)
+    return () => clearTimeout(timer)
+  }, [printingNiimbotSpoolId])
 
   const handleExport = useCallback(() => {
     const rows = [
@@ -448,6 +484,7 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
 
   const handlePrintSwatchLabel = useCallback((spoolId) => {
     if (!hass) return
+    setPrintingNiimbotSpoolId(spoolId)
     try {
       hass.connection.sendMessage({
         type: 'fire_event',
@@ -455,6 +492,7 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
         event_data: { spool_id: spoolId },
       })
     } catch (e) {
+      setPrintingNiimbotSpoolId(null)
       setToast({ msg: `Swatch print failed: ${e.message || e}`, type: 'err' })
       setTimeout(() => setToast(null), 5000)
     }
@@ -672,6 +710,7 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
                   onPrintLabel={handlePrintLabel}
                   onPrintSwatchLabel={handlePrintSwatchLabel}
                   printingLabel={printingSpoolId === spool.id}
+                  printingNiimbotLabel={printingNiimbotSpoolId === spool.id}
                 />
               )}
             </div>

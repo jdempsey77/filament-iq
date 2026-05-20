@@ -77,6 +77,12 @@ Claude Code MUST NEVER commit or store any of the following in this repo:
 - apps/filament_iq/apps.yaml.example — placeholder values ONLY
 - Default values in Python source — placeholder values ONLY
 
+## Source of Truth
+
+filament-iq is the SOURCE OF TRUTH for all Python source in apps/filament_iq/.
+All bug fixes and features are committed here first.
+Never accept changes that flow FROM the HA repo INTO filament-iq.
+
 ### Before every commit
 Run: grep -r "192\.168\.\|ff62e17b\|jd_pixel\|01P00C5A3101668" . --include="*.py" --include="*.yaml" --include="*.md" --include="*.js" --include="*.mjs" | grep -v ".git" | grep -v "192\.168\.1\." | grep -v ".pyc"
 
