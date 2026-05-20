@@ -10,7 +10,7 @@ ams_rfid_reconcile:
   enabled: true
   # Required
   spoolman_url: "http://YOUR_SPOOLMAN_IP:7912"
-  printer_serial: "01P00C5A3101668"
+  printer_serial: "YOUR_PRINTER_SERIAL"
   # Optional
   printer_model: "p1s"                    # default p1s; used for entity prefix
   ams_units:                             # default: AMS Pro (1-4) + HT (5-6)
@@ -77,7 +77,7 @@ ams_print_usage_sync:
   class: AmsPrintUsageSync
   enabled: true
   spoolman_url: "http://YOUR_SPOOLMAN_IP:7912"
-  printer_serial: "01P00C5A3101668"
+  printer_serial: "YOUR_PRINTER_SERIAL"
   printer_model: "p1s"
   printer_ip: "YOUR_PRINTER_IP"
   printer_ftps_port: 990
@@ -97,7 +97,7 @@ filament_weight_tracker:
   module: filament_iq.filament_weight_tracker
   class: FilamentWeightTracker
   spoolman_url: "http://YOUR_SPOOLMAN_IP:7912"
-  printer_serial: "01P00C5A3101668"
+  printer_serial: "YOUR_PRINTER_SERIAL"
   printer_model: "p1s"
   report_path: "/config/filament_weight_reports.log"
   operator_status_entity: "sensor.filament_iq_operator_status"

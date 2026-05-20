@@ -2,14 +2,14 @@ import { useState, useMemo } from 'preact/hooks'
 import { ProxyClient } from './api/proxy'
 import { useSpoolman } from './hooks/useSpoolman'
 import { TabBar } from './components/TabBar'
-import { StatsBar } from './components/StatsBar'
 import { SpoolsTab } from './components/SpoolsTab'
 import { FilamentsTab } from './components/FilamentsTab'
 import { VendorsTab } from './components/VendorsTab'
 import { FilamentIQLogo } from './components/FilamentIQLogo'
+import SlotsTab from './components/SlotsTab'
 
-export function FilamentIQCard({ hass, getHass }) {
-  const [activeTab, setActiveTab] = useState('spools')
+export function FilamentIQCard({ hass, getHass, navIntent, config }) {
+  const [activeTab, setActiveTab] = useState(config?.initial_tab || 'spools')
 
   const client = useMemo(() => {
     if (!hass) return null
@@ -33,16 +33,16 @@ export function FilamentIQCard({ hass, getHass }) {
           <span class="fiq-dot" />
           <FilamentIQLogo height={28} showWordmark={true} />
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button class="fiq-btn-refresh" onClick={() => data.refresh()} title="Reload from Spoolman">↺</button>
-          <TabBar active={activeTab} onChange={setActiveTab} />
-        </div>
+        <button class="fiq-btn-refresh" onClick={() => data.refresh()} title="Reload from Spoolman">↺</button>
       </div>
-      <StatsBar spools={data.spools} />
+      <div class="fiq-subnav">
+        <TabBar active={activeTab} onChange={setActiveTab} />
+      </div>
       <div class="fiq-body">
-        {activeTab === 'spools'    && <SpoolsTab    {...data} hass={hass} />}
+        {activeTab === 'spools'    && <SpoolsTab    {...data} hass={hass} getHass={getHass} navIntent={navIntent} />}
         {activeTab === 'filaments' && <FilamentsTab {...data} client={client} />}
         {activeTab === 'vendors'   && <VendorsTab   {...data} />}
+        {activeTab === 'slots'     && <SlotsTab     getHass={getHass} />}
       </div>
     </div>
   )

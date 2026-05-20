@@ -2662,7 +2662,7 @@ automation:
       - variables:
           slot_num: >-
             {{ trigger.entity_id | regex_findall('ams_slot_(\d+)_unbound') | first }}
-      - action: notify.mobile_app_jd_pixel_10xl
+      - action: notify.mobile_app_YOUR_DEVICE
         data:
           title: "AMS Slot {{ slot_num }} Needs Binding"
           message: >-
@@ -2697,7 +2697,7 @@ automation:
       - variables:
           slot_num: >-
             {{ trigger.entity_id | regex_findall('ams_slot_(\d+)_unbound') | first }}
-      - action: notify.mobile_app_jd_pixel_10xl
+      - action: notify.mobile_app_YOUR_DEVICE
         data:
           message: clear_notification
           data:
@@ -2727,7 +2727,7 @@ automation:
           ] %}
           {{ reasons | reject('in', ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY']) | list | length > 0 }}
     actions:
-      - action: notify.mobile_app_jd_pixel_10xl
+      - action: notify.mobile_app_YOUR_DEVICE
         data:
           title: "Print Started With Unbound Slots"
           message: "🚨 Print started with unbound slot — filament usage won't be tracked!"

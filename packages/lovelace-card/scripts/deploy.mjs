@@ -6,11 +6,11 @@ import { config } from 'dotenv'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 config({ path: resolve(__dirname, '../.env') })
 
-const SSH_HOST = '192.168.4.124'
+const SSH_HOST = 'YOUR_HA_IP'
 const SSH_PORT = '2222'
 const SSH_KEY = `${process.env.HOME}/.ssh/id_ed25519_ha`
 const HA_TOKEN = process.env.HA_TOKEN
-const HA_HOST = process.env.HA_HOST || '192.168.4.124'
+const HA_HOST = process.env.HA_HOST || 'YOUR_HA_IP'
 const HA_PORT = process.env.HA_PORT || '8123'
 
 const LOCAL_JS = resolve(__dirname, '../dist/filament-iq-manager.js')

@@ -1,6 +1,6 @@
 {
   "name": "filament-iq-manager",
-  "version": "1.2.2",
+  "version": "1.9.3",
   "type": "module",
   "scripts": {
     "dev": "vite",

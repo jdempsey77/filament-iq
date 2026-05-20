@@ -178,15 +178,21 @@ function PrinterSegment({ getHass }) {
   const remM   = Math.round((remaining - remH) * 60)
   const remStr = remH > 0 ? `${remH}h ${remM}m` : `${remM}m`
 
-  const tray        = hass?.states?.['sensor.p1s_01p00c5a3101668_ams_1_tray_2']
-  const activeColor = tray?.attributes?.color
-    ? '#' + tray.attributes.color.replace('#', '').substring(0, 6) : '#888'
-  const material    = tray?.attributes?.type ?? ''
-  const remainG     = parseFloat(sv('sensor.ams_slot_2_remaining_g')) || 0
-  const remainPct   = Math.round(remainG / 1000 * 100)
-  const vendor      = sv('sensor.ams_slot_2_vendor')
-  const spoolId     = sv('input_text.ams_slot_2_spool_id')
-  const activeName  = tray?.attributes?.name ?? '—'
+  const activeTrayAmsIdx = sa('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index')
+  const activeTrayIdx    = sa('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index')
+  const activeSlot       = parseInt(Object.entries(SLOT_AMS).find(
+    ([, v]) => v.ams === activeTrayAmsIdx && v.tray === activeTrayIdx
+  )?.[0] ?? 2)
+
+  const slotColorHex = sv(`sensor.ams_slot_${activeSlot}_color_hex`)
+  const activeColor  = slotColorHex && !['unknown', 'unavailable', '—'].includes(slotColorHex)
+    ? `#${slotColorHex}` : '#888'
+  const material     = sv(`sensor.ams_slot_${activeSlot}_material`)
+  const remainG      = parseFloat(sv(`sensor.ams_slot_${activeSlot}_remaining_g`)) || 0
+  const remainPct    = Math.round(remainG / 1000 * 100)
+  const vendor       = sv(`sensor.ams_slot_${activeSlot}_vendor`)
+  const spoolId      = sv(`input_text.ams_slot_${activeSlot}_spool_id`)
+  const activeName   = sv(`sensor.ams_slot_${activeSlot}_name`)
 
   const nozzle     = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_nozzle_temperature')) || 0)
   const nozzleTgt  = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_nozzle_target_temperature')) || 0)
@@ -206,7 +212,7 @@ function PrinterSegment({ getHass }) {
   const purifierOn = sv('fan.office_air_purifier') !== 'off'
   const bentoOn    = sv('switch.officeoutlet_02') === 'on'
 
-  const call = (domain, service, data) => hass?.callService(domain, service, data)
+  const call = (domain, service, data) => getHass()?.callService(domain, service, data)
 
   const togglePrinter = () => {
     if (window.confirm('Toggle printer power?'))
@@ -284,7 +290,7 @@ function PrinterSegment({ getHass }) {
         h('div', { style: { flex: 1, minWidth: 0 } },
           h('div', { style: S.filName }, `${vendor} · ${activeName}`),
           h('div', { style: S.filSub },
-            [material, 'Slot 2', spoolId && spoolId !== '—' ? `#${spoolId}` : ''].filter(Boolean).join(' · ')
+            [material, `Slot ${activeSlot}`, spoolId && spoolId !== '—' ? `#${spoolId}` : ''].filter(Boolean).join(' · ')
           )
         ),
         h('div', { style: { textAlign: 'right', flexShrink: 0 } },
@@ -303,11 +309,11 @@ function PrinterSegment({ getHass }) {
           onClick: c.onClick,
         },
           h('div', { style: { ...S.ctrlIconBox, ...(c.on ? S.ctrlIconBoxOn : {}) } },
-            h(Icon, { path: c.icon, size: 16, color: c.on ? '#1c1c1e' : '#888' })
+            h(Icon, { path: c.icon, size: 16, color: c.on ? '#6aabda' : '#888' })
           ),
           h('div', null,
-            h('div', { style: { ...S.ctrlLabel, ...(c.on ? { color: '#1c1c1e' } : {}) } }, c.label),
-            h('div', { style: { ...S.ctrlState, ...(c.on ? { color: '#888' } : {}) } }, c.on ? 'On' : 'Off')
+            h('div', { style: { ...S.ctrlLabel, ...(c.on ? { color: '#6aabda' } : {}) } }, c.label),
+            h('div', { style: { ...S.ctrlState, ...(c.on ? { color: '#4a8aaa' } : {}) } }, c.on ? 'On' : 'Off')
           )
         )
       )
@@ -527,14 +533,14 @@ function SlotPopup({ popup, getHass, onClose }) {
   const hass = getHass()
 
   const selectSpool = option => {
-    hass?.callService('input_select', 'select_option', {
+    getHass()?.callService('input_select', 'select_option', {
       entity_id: popup.selectEntity,
       option,
     })
   }
 
   const assignAndBind = () => {
-    hass?.callService('script', 'turn_on', {
+    getHass()?.callService('script', 'turn_on', {
       entity_id: 'script.ams_slot_assign_and_update',
       variables: { slot: String(popup.n) },
     })
@@ -696,10 +702,10 @@ const S = {
   filG:              { fontSize: 12, fontWeight: 500, color: '#aaa' },
   filPct:            { fontSize: 10, color: '#555', marginTop: 1 },
   ctrl2x2:           { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginBottom: 8 },
-  ctrlCard:          { background: '#1c1c1e', border: '1px solid #2c2c2e', borderRadius: 12, padding: 12, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' },
-  ctrlCardOn:        { background: '#f5f5f7', borderColor: '#d8d8da' },
+  ctrlCard:          { background: '#1c1c1e', border: '1px solid #1c1c1e', borderColor: '#1c1c1e', borderRadius: 12, padding: 12, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' },
+  ctrlCardOn:        { background: 'rgba(106,171,218,0.15)', borderColor: 'rgba(106,171,218,0.4)' },
   ctrlIconBox:       { width: 36, height: 36, borderRadius: 9, background: '#2c2c2e', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  ctrlIconBoxOn:     { background: '#e0e0e2' },
+  ctrlIconBoxOn:     { background: 'rgba(106,171,218,0.25)' },
   ctrlLabel:         { fontSize: 12, fontWeight: 500, color: '#999' },
   ctrlState:         { fontSize: 10, color: '#444', marginTop: 1 },
   vitals2x3:         { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginBottom: 8 },

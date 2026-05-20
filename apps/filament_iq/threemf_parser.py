@@ -36,6 +36,30 @@ def normalize_color(raw):
     return ""
 
 
+def normalize_color_hex(raw: str) -> str:
+    """
+    Normalize a color hex string to 6-char lowercase RRGGBB, no # prefix.
+    Returns "" if input is None, empty, or not valid hex.
+
+    Handles:
+      #RRGGBBAA or RRGGBBAA → strip alpha (last 2) → 6 char lower
+      #AARRGGBB or AARRGGBB → if first 2 chars are ff/00, strip alpha (first 2)
+      #RRGGBB or RRGGBB    → 6 char lower
+    """
+    if not raw:
+        return ""
+    s = str(raw).strip().lower().replace("#", "")
+    if not s:
+        return ""
+    if len(s) == 6 and re.match(r"^[0-9a-f]{6}$", s):
+        return s
+    if len(s) == 8 and re.match(r"^[0-9a-f]{8}$", s):
+        if s[:2] in ("ff", "00"):
+            return s[2:8]   # AARRGGBB → RRGGBB
+        return s[:6]        # RRGGBBAA → RRGGBB
+    return ""
+
+
 def normalize_material(raw):
     """Normalize material string: strip, lower."""
     if not raw:

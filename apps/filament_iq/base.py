@@ -160,7 +160,7 @@ class FilamentIQBase(hass.Hass):
     def _build_entity_prefix(self) -> str:
         """Construct entity prefix from printer_model + printer_serial (lowercased).
 
-        Example: printer_model='p1s', printer_serial='01P00C5A3101668'
+        Example: printer_model='p1s', printer_serial='YOUR_PRINTER_SERIAL'
         → prefix = 'p1s_01p00c5a3101668'
 
         Entity names follow: sensor.{prefix}_{sensor_name}

@@ -26,6 +26,19 @@ const SLOT_LABELS = {
   7: 'HT3 · Slot 7',
 }
 
+function parseNavIntent(intent) {
+  if (!intent) return null
+  const idx = intent.indexOf(':')
+  if (idx === -1) return null
+  const type = intent.slice(0, idx)
+  const value = intent.slice(idx + 1)
+  if (type === 'spool' && value && !isNaN(parseInt(value, 10)) && parseInt(value, 10) > 0) {
+    return { type: 'spool', id: parseInt(value, 10) }
+  }
+  // Reserved for future: 'slot', 'action'
+  return null
+}
+
 /**
  * Returns spools eligible for slot binding.
  * Uses .filter() to evaluate ALL spools — never exits early on Empty/New spools.
@@ -147,7 +160,7 @@ function MatBadge({ material }) {
   return <span class={`fiq-mat-badge ${cls}`}>{material || '—'}</span>
 }
 
-function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrintLabel, printingLabel }) {
+function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrintLabel, onPrintSwatchLabel, printingLabel }) {
   const [remaining, setRemaining] = useState(Math.round(spool.remaining_weight || 0))
   const [location, setLocation] = useState(spool.location || '')
   const [firstUsed, setFirstUsed] = useState(
@@ -216,7 +229,14 @@ function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrintLabel,
             onClick={() => onPrintLabel && onPrintLabel(spool.id)}
             disabled={saving || printingLabel}
           >
-            {printingLabel ? '⏳ Printing...' : '🖨 Print Label'}
+            {printingLabel ? '⏳ Printing...' : '🖨 Spool Label'}
+          </button>
+          <button
+            class="fiq-btn-print"
+            onClick={() => onPrintSwatchLabel && onPrintSwatchLabel(spool.id)}
+            disabled={saving}
+          >
+            🏷 Swatch Label
           </button>
         </div>
         <div class="fiq-btn-group">
@@ -317,12 +337,33 @@ function SpoolAddRow({ filaments, onCreate, onCancel, hass }) {
   )
 }
 
-export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createSpool, refresh, hass }) {
+export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createSpool, refresh, hass, getHass, navIntent }) {
   const [search, setSearch] = useState('')
   const [vendorFilter, setVendorFilter] = useState('')
   const [materialFilter, setMaterialFilter] = useState('')
   const [locationFilter, setLocationFilter] = useState('')
+  const [showEmpty, setShowEmpty] = useState(false)
+  const [colorFamily, setColorFamily] = useState('')
   const [editId, setEditId] = useState(null)
+
+  // Nav intent: read once at mount, clear entity, pre-open spool edit panel
+  useEffect(() => {
+    const parsed = parseNavIntent(navIntent)
+    if (parsed?.type === 'spool') {
+      try {
+        getHass().connection.sendMessage({
+          type: 'call_service',
+          domain: 'input_text',
+          service: 'set_value',
+          service_data: {
+            entity_id: 'input_text.filament_iq_nav_intent',
+            value: '',
+          },
+        })
+      } catch (_) { /* non-fatal — entity may not exist on this install */ }
+      setEditId(parsed.id)
+    }
+  }, [])
   const [adding, setAdding] = useState(false)
   const [binding, setBinding] = useState(false)
   const [archiveConfirm, setArchiveConfirm] = useState(false)
@@ -365,6 +406,30 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
     return () => clearTimeout(timer)
   }, [printingSpoolId])
 
+  const handleExport = useCallback(() => {
+    const rows = [
+      ['ID', 'Name', 'Material', 'Vendor', 'Color', 'Remaining (g)', 'Location', 'Lot Nr'],
+      ...(spools || []).filter(s => !s.archived).map(s => [
+        s.id,
+        s.filament?.name || '',
+        s.filament?.material || '',
+        s.filament?.vendor?.name || '',
+        s.filament?.color_hex || '',
+        Math.round(s.remaining_weight || 0),
+        s.location || '',
+        s.lot_nr || '',
+      ])
+    ]
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `filament-iq-spools-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [spools])
+
   const handlePrintLabel = useCallback((spoolId) => {
     if (!hass) return
     setPrintingSpoolId(spoolId)
@@ -377,6 +442,20 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
     } catch (e) {
       setPrintingSpoolId(null)
       setToast({ msg: `Print failed: ${e.message || e}`, type: 'err' })
+      setTimeout(() => setToast(null), 5000)
+    }
+  }, [hass])
+
+  const handlePrintSwatchLabel = useCallback((spoolId) => {
+    if (!hass) return
+    try {
+      hass.connection.sendMessage({
+        type: 'fire_event',
+        event_type: 'filament_iq_print_niimbot_label',
+        event_data: { spool_id: spoolId },
+      })
+    } catch (e) {
+      setToast({ msg: `Swatch print failed: ${e.message || e}`, type: 'err' })
       setTimeout(() => setToast(null), 5000)
     }
   }, [hass])
@@ -408,6 +487,30 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
     return [...set].sort()
   }, [spools])
 
+  function getColorFamily(hex) {
+    if (!hex || hex === '000000') return 'Black'
+    const r = parseInt(hex.slice(0,2),16)
+    const g = parseInt(hex.slice(2,4),16)
+    const b = parseInt(hex.slice(4,6),16)
+    const max = Math.max(r,g,b), min = Math.min(r,g,b)
+    const l = (max+min)/2
+    if (max - min < 20) {
+      if (l < 40) return 'Black'
+      if (l > 210) return 'White'
+      return 'Gray'
+    }
+    const h = max===r ? (g-b)/(max-min) : max===g ? 2+(b-r)/(max-min) : 4+(r-g)/(max-min)
+    const hue = ((h*60)+360)%360
+    if (hue < 15 || hue >= 345) return 'Red'
+    if (hue < 45) return 'Orange'
+    if (hue < 75) return 'Yellow'
+    if (hue < 165) return 'Green'
+    if (hue < 255) return 'Blue'
+    if (hue < 285) return 'Purple'
+    if (hue < 345) return 'Pink'
+    return 'Other'
+  }
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
     return (spools || []).filter(s => {
@@ -425,9 +528,14 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
       } else if (locationFilter) {
         if ((s.location || '') !== locationFilter) return false
       }
+      if (showEmpty ? !((s.remaining_weight || 0) === 0 || s.archived) : false) return false
+      if (colorFamily) {
+        const hex = (s.filament?.color_hex || s.color_hex || '').replace('#','')
+        if (getColorFamily(hex) !== colorFamily) return false
+      }
       return true
     })
-  }, [spools, search, vendorFilter, materialFilter, locationFilter])
+  }, [spools, search, vendorFilter, materialFilter, locationFilter, showEmpty, colorFamily])
 
   return (
     <div style={{position:"relative"}}>
@@ -437,6 +545,11 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
           {toast.msg}
         </div>
       )}
+
+      <div class="fiq-bind-row">
+        <button class="fiq-btn-bind" onClick={() => { setBinding(!binding); setAdding(false); setEditId(null) }}>⇄ Bind slot</button>
+        <button class="fiq-btn-bind" onClick={handleExport}>↓ CSV</button>
+      </div>
 
       <div class="fiq-toolbar">
         <input class="fiq-search" type="text" placeholder="Search..." value={search} onInput={e => setSearch(e.target.value)} />
@@ -455,13 +568,22 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
           <option value="New">New</option>
           <option value="none">Unassigned</option>
         </select>
+        <select class="fiq-filter" value={colorFamily} onChange={e => setColorFamily(e.target.value)}>
+          <option value="">All colors</option>
+          {['Black','White','Gray','Red','Orange','Yellow','Green','Blue','Purple','Pink']
+            .map(f => <option key={f} value={f}>{f}</option>)}
+        </select>
+        <button
+          class={`fiq-btn-bind${showEmpty ? ' fiq-btn-active' : ''}`}
+          onClick={() => setShowEmpty(!showEmpty)}
+          style={{ whiteSpace: 'nowrap' }}
+        >⊘ Empty</button>
         <div class="fiq-spacer" />
         {emptySpools.length > 0 && (
           <button class="fiq-btn-archive" onClick={() => setArchiveConfirm(true)} disabled={archiving}>
             {archiving ? 'Archiving...' : `Archive empty (${emptySpools.length})`}
           </button>
         )}
-        <button class="fiq-btn-bind" onClick={() => { setBinding(!binding); setAdding(false); setEditId(null) }}>⇄ Bind slot</button>
         <button class="fiq-btn-add" onClick={() => { setAdding(true); setBinding(false); setEditId(null) }}>+ Add spool</button>
       </div>
 
@@ -548,6 +670,7 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
                   onCancel={() => setEditId(null)}
                   onDelete={(id) => deleteSpool(id).then(() => setEditId(null))}
                   onPrintLabel={handlePrintLabel}
+                  onPrintSwatchLabel={handlePrintSwatchLabel}
                   printingLabel={printingSpoolId === spool.id}
                 />
               )}

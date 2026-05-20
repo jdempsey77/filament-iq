@@ -59,3 +59,25 @@ Tests in `tests/` mock `hassapi.Hass` with a fake class injected into `sys.modul
 - Identity stored in Spoolman `lot_nr` field: RFID spools use `tray_uuid` (32-char hex), non-RFID use `type|filament_id|color_hex`.
 - The `comment` field in Spoolman is reserved for human use — apps never write to it.
 - Deploy script uses `scripts/deploy.env` (gitignored) for SSH/HA credentials.
+
+## Security Rules — Non-Negotiable
+
+Claude Code MUST NEVER commit or store any of the following in this repo:
+
+### Prohibited in filament-iq (public repo)
+- Real IP addresses (use YOUR_HA_IP, YOUR_PRINTER_IP, YOUR_SPOOLMAN_IP)
+- Real printer serials (use YOUR_PRINTER_SERIAL)
+- Real device/notifier names (use mobile_app_YOUR_DEVICE)
+- Real access codes, auth tokens, passwords, API keys
+- Any file containing live configuration values (apps.yaml, deploy.env, *.env.local)
+
+### Required patterns
+- apps/apps.yaml — ALWAYS in .gitignore, never committed
+- scripts/deploy.env — ALWAYS in .gitignore, never committed
+- apps/filament_iq/apps.yaml.example — placeholder values ONLY
+- Default values in Python source — placeholder values ONLY
+
+### Before every commit
+Run: grep -r "192\.168\.\|ff62e17b\|jd_pixel\|01P00C5A3101668" . --include="*.py" --include="*.yaml" --include="*.md" --include="*.js" --include="*.mjs" | grep -v ".git" | grep -v "192\.168\.1\." | grep -v ".pyc"
+
+If any output appears, fix it before committing.

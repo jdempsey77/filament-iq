@@ -41,7 +41,7 @@ try:
         ftps_list_cache_native,
         find_best_3mf,
         match_filaments_to_slots,
-        normalize_color,
+        normalize_color_hex,
         normalize_material,
         parse_3mf_filaments,
         parse_3mf_metadata,
@@ -162,7 +162,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             self.args.get("auto_archive_depleted_spools", False)
         )
         self.min_tray_active_seconds = float(self.args.get("min_tray_active_seconds", 10))
-        self.notify_service = str(self.args.get("notify_service", "mobile_app_jd_pixel_10_pro_xl"))
+        self.notify_service = str(self.args.get("notify_service", "mobile_app_YOUR_DEVICE"))
         _data_dir = str(self.args.get("data_dir", "")).strip().rstrip("/") or _DEFAULT_DATA_DIR
         self._seen_jobs_path = os.path.join(_data_dir, "seen_job_keys.json")
         self._active_print_file = pathlib.Path(_data_dir) / "active_print.json"
@@ -204,6 +204,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._job_key = ""
         self._print_start_time = None
         self._start_snapshot = {}  # {slot_int: grams_float}
+        self._start_tray_uuid = {}  # {slot_int: str} tray_uuid at print start
         self._fuel_gauge_pattern = str(
             self.args.get(
                 "fuel_gauge_pattern",
@@ -288,6 +289,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             )
         ).strip()
         self._threemf_data = None
+        self._threemf_source_mtime = 0.0
         self._threemf_filename = None
         self._threemf_from_disk_restore = False
 
@@ -1007,6 +1009,7 @@ class AmsPrintUsageSync(FilamentIQBase):
     def _build_start_snapshot(self):
         """Read fuel gauge for all slots, return {slot_int: grams} for slots with valid readings."""
         snapshot = {}
+        self._start_tray_uuid = {}
         for slot in sorted(self._tray_entity_by_slot.keys()):
             grams = self._read_fuel_gauge(slot)
             if grams < 0:
@@ -1027,6 +1030,11 @@ class AmsPrintUsageSync(FilamentIQBase):
                     )
                     continue
             snapshot[slot] = grams
+            entity_id = self._tray_entity_by_slot.get(slot)
+            if entity_id:
+                tray_uuid = self.get_state(entity_id, attribute="tray_uuid") or ""
+                if tray_uuid:
+                    self._start_tray_uuid[slot] = str(tray_uuid)
         return snapshot
 
     def _snapshot_to_json_dict(self, snapshot):
@@ -1058,7 +1066,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 f"PRINT_START_SUPPRESSED: already have "
                 f"start_time={self._print_start_time}, job_key={self._job_key} "
                 f"— ignoring re-fire",
-                level="DEBUG",
+                level="WARNING",
             )
             return
         self._print_start_time = time.time()
@@ -1141,6 +1149,11 @@ class AmsPrintUsageSync(FilamentIQBase):
         if grams < 0:
             return
         self._start_snapshot[slot] = max(0.0, round(grams, 1))
+        entity_id = self._tray_entity_by_slot.get(slot)
+        if entity_id:
+            tray_uuid = self.get_state(entity_id, attribute="tray_uuid") or ""
+            if tray_uuid:
+                self._start_tray_uuid[slot] = str(tray_uuid)
         self._write_start_json_helper()
         self.log(
             f"TRAY_START_SEEDED slot={slot} grams={self._start_snapshot[slot]}",
@@ -1149,7 +1162,9 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     def _on_print_end(self):
         """Phase 1 print end handler: clear snapshot, set print_active off."""
+        self._print_start_time = None
         self._start_snapshot = {}
+        self._start_tray_uuid = {}
         self._job_key = ""
         self._threemf_filename = None
         self._write_threemf_sensor()
@@ -1178,13 +1193,18 @@ class AmsPrintUsageSync(FilamentIQBase):
     })
 
     def _build_end_snapshot(self):
-        """Read fuel gauge for slots present in start_snapshot. Returns {slot_int: grams}."""
+        """Read fuel gauge for slots present in start_snapshot. Returns ({slot: grams}, {slot: uuid})."""
         snapshot = {}
+        end_tray_uuid = {}
         for slot in sorted(self._start_snapshot.keys()):
+            entity_id = self._tray_entity_by_slot.get(slot)
             grams = self._read_fuel_gauge(slot)
             if grams >= 0:
                 snapshot[slot] = max(0.0, round(grams, 1))
-        return snapshot
+            if entity_id:
+                uuid = self.get_state(entity_id, attribute="tray_uuid") or ""
+                end_tray_uuid[slot] = str(uuid)
+        return snapshot, end_tray_uuid
 
     def _on_print_finish(self, new_status):
         """Phase 2 print finish handler: non-blocking 3MF wait, then _do_finish."""
@@ -1221,6 +1241,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             restored = self._load_active_print(self._job_key)
             if restored is not None:
                 self._threemf_data = restored["threemf_data"]
+                self._threemf_source_mtime = 0.0
                 if self._threemf_data is not None:
                     self._threemf_from_disk_restore = True
                     fname = restored.get("threemf_file")
@@ -1276,7 +1297,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         """Orchestrate the five phases of print finish processing."""
 
         # ── COLLECT ──────────────────────────────────────────────────────
-        self._end_snapshot = self._build_end_snapshot()
+        self._end_snapshot, end_tray_uuid = self._build_end_snapshot()
         spools_cache = self._fetch_spools_cache()
         task_name = str(self.get_state(self._task_name_entity) or "")
         try:
@@ -1359,6 +1380,24 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"total_g={unmatched_total:.2f}",
                     level="WARNING",
                 )
+            # BUG-04: discard single_filament_force matches from stale 3MF
+            stale_threshold = (self._print_start_time or 0) - 30
+            if self._threemf_source_mtime < stale_threshold:
+                stale_slots = [
+                    slot for slot, (used_g, method) in threemf_matched_slots.items()
+                    if method == "single_filament_force"
+                ]
+                if stale_slots:
+                    self.log(
+                        f"3MF_STALE_FORCE: single_filament_force matched but 3MF mtime "
+                        f"{self._threemf_source_mtime:.0f} predates print_start "
+                        f"{self._print_start_time:.0f} by "
+                        f"{self._print_start_time - self._threemf_source_mtime:.0f}s "
+                        f"— discarding slots {stale_slots}",
+                        level="WARNING",
+                    )
+                    for slot in stale_slots:
+                        del threemf_matched_slots[slot]
             # For rehydrated prints, active_slots narrowing ran before matching
             # and may have excluded slots active pre-restart. Re-admit any slot
             # the 3MF matcher identified as having real consumption.
@@ -1398,6 +1437,55 @@ class AmsPrintUsageSync(FilamentIQBase):
             self.log(f"DEDUP_SKIP job_key={self._job_key}", level="INFO")
             self._on_print_end()
             return
+
+        # ── SWAP DETECTION ───────────────────────────────────────────────
+        # Detect mid-print spool swap: primary signal is tray_uuid mismatch;
+        # fallback is large negative delta (new spool reads much higher than
+        # the depleted spool started at). When detected, record start_g as
+        # full consumption of the depleted spool and exclude from normal path.
+        swapped_slots = {}  # {slot: start_g} for slots where swap detected
+        for slot in sorted(self._trays_used):
+            start_uuid = self._start_tray_uuid.get(slot, "")
+            end_uuid = end_tray_uuid.get(slot, "")
+            start_g = self._start_snapshot.get(slot, 0.0)
+            end_g = self._end_snapshot.get(slot, 0.0)
+            raw_delta = start_g - end_g
+
+            uuid_swapped = bool(start_uuid and end_uuid and start_uuid != end_uuid)
+            delta_swapped = raw_delta < -50.0
+
+            if uuid_swapped or delta_swapped:
+                signal = "tray_uuid_mismatch" if uuid_swapped else "negative_delta"
+                self.log(
+                    f"SPOOL_SWAP_DETECTED slot={slot} signal={signal} "
+                    f"start_uuid={start_uuid} end_uuid={end_uuid} "
+                    f"start_g={start_g} end_g={end_g} raw_delta={raw_delta:.1f} "
+                    f"recording consumption_g={start_g} as rfid_delta_swapped",
+                    level="WARNING",
+                )
+                swapped_slots[slot] = start_g
+
+        if swapped_slots:
+            self._trays_used -= set(swapped_slots.keys())
+            for slot, consumption_g in sorted(swapped_slots.items()):
+                spool_id = self._spool_id_snapshot.get(slot, 0)
+                if spool_id <= 0:
+                    self.log(
+                        f"SPOOL_SWAP_NO_SPOOL_ID slot={slot} — cannot patch Spoolman",
+                        level="WARNING",
+                    )
+                    continue
+                result = self._spoolman_use(spool_id, consumption_g)
+                if result:
+                    remaining = float(result.get("remaining_weight", 0))
+                    self.log(
+                        f"USAGE_PATCHED slot={slot} spool_id={spool_id} "
+                        f"consumption_g={consumption_g:.2f} "
+                        f"method=rfid_delta_swapped "
+                        f"remaining={remaining:.1f} "
+                        f"job_key={self._job_key}",
+                        level="INFO",
+                    )
 
         slot_inputs = self._collect_print_inputs(
             trays_used=self._trays_used,
@@ -1597,6 +1685,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             restored = self._load_active_print(self._job_key)
             if restored is not None:
                 self._threemf_data = restored["threemf_data"]
+                self._threemf_source_mtime = 0.0
                 if self._threemf_data is not None:
                     self._threemf_from_disk_restore = True
                     fname = restored.get("threemf_file")
@@ -1806,6 +1895,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 )
 
             self._threemf_data = merged
+            self._threemf_source_mtime = os.path.getmtime(full_path)
             self._threemf_filename = os.path.basename(full_path)
             self._write_threemf_sensor()
             _3mf_path = full_path.replace(".slice_info.config", ".3mf") if full_path.endswith(".slice_info.config") else full_path
@@ -1858,6 +1948,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 return
             # cache_retry=True: second attempt also missed — proceed to FTPS
             self._threemf_data = None
+            self._threemf_source_mtime = 0.0
             self._threemf_filename = None
             self._write_threemf_sensor()
 
@@ -1956,6 +2047,7 @@ class AmsPrintUsageSync(FilamentIQBase):
 
                     filaments = parse_3mf_filaments(local_path)
                     result["mw_meta"] = parse_3mf_metadata(local_path)
+                    result["threemf_mtime"] = os.path.getmtime(local_path)
                     result["timing"]["parse"] = time.monotonic() - t_download
 
                 if not filaments:
@@ -2001,6 +2093,7 @@ class AmsPrintUsageSync(FilamentIQBase):
 
                     filaments = parse_3mf_filaments(local_path)
                     result["mw_meta"] = parse_3mf_metadata(local_path)
+                    result["threemf_mtime"] = os.path.getmtime(local_path)
                     result["timing"]["parse"] = time.monotonic() - t_download
 
                 if not filaments:
@@ -2065,6 +2158,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             found_dir = result["found_dir"]
             mw_meta = result.get("mw_meta", {})
             self._threemf_data = filaments
+            self._threemf_source_mtime = result.get("threemf_mtime", 0.0)
             self._threemf_filename = best_file
             self._write_threemf_sensor()
             self._write_makerworld_sensors(
@@ -2185,7 +2279,7 @@ class AmsPrintUsageSync(FilamentIQBase):
 
                 tray_color = self.get_state(entity, attribute="color") or ""
                 tray_type = self.get_state(entity, attribute="type") or ""
-                color = normalize_color(tray_color)
+                color = normalize_color_hex(tray_color)
                 material = normalize_material(tray_type)
 
                 if not color and spool_id > 0:
@@ -2197,7 +2291,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                             )
                             or ""
                         )
-                        color = normalize_color(spoolman_color)
+                        color = normalize_color_hex(spoolman_color)
                     except Exception:
                         pass
                 if not material and spool_id > 0:

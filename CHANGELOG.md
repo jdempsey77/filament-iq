@@ -1,5 +1,135 @@
 # Changelog
 
+## [1.9.3] — 2026-05-17
+
+### Fixes
+- **fiq-card flex layout** — add `display: flex; flex-direction: column` to `.fiq-card`
+  so subnav, stats, and body stack correctly as a column.
+
+---
+
+## [1.9.2] — 2026-05-17
+
+### Changes
+- **Sub-nav moved to top** — Slots / Spools / Filaments / Vendors tab bar now renders
+  as its own full-width row immediately below the card header, above the stats row.
+  Tabs stretch to fill the row evenly.
+- **SpoolsTab filters confirmed** — location filter (All locations / In AMS / Shelf /
+  New / Unassigned), vendor filter, and material filter all present and working.
+
+---
+
+## [1.9.1] — 2026-05-17
+
+### Changes
+- **SlotsTab horizontal rows** — replaced square `SlotCard` grid with `SlotRow`
+  horizontal component for all sections (AMS 2 Pro, HT Units, External).
+  Each row: 44×52px color swatch · brand + ID + active badge · material bold ·
+  color name · fuel bar · grams + chevron. Active slot gets blue tint background.
+- **HT Units sub-headers** — each HT unit gets a labeled sub-header row (HT1/HT2/HT3)
+  showing humidity + temp, or an amber drying badge (`♨️ temp°C · time`) when drying.
+- **Section background** — cards use `#2c2c2e` (was `#1c1c1e`) for better contrast.
+
+---
+
+## [1.8.6] — 2026-05-17
+
+### Fixes
+- **MW badge real tap_action** — replaced `window.open()` in `custom_fields` HTML
+  (blocked by HA shadow DOM) with a standalone `custom:button-card` using
+  `tap_action: url`. Badge appears just below the hero thumbnail, left-aligned.
+- **Tab bar config error + sticky removal** — removed `position: fixed` from the
+  tab bar grid card_mod (HA layout containers prevent true fixed positioning).
+  Removed 64px spacer card. Tab bar now sits at bottom of page content, full-bleed
+  via `margin: 0 -16px`.
+- **AMS 2 Pro humidity/temp contrast** — `sectionSubStyle` color bumped from
+  `#636366` to `#8e8e93` to match HT bay humidity text visibility.
+
+---
+
+## [1.8.5] — 2026-05-17
+
+### Fixes
+- **Tab bar sticky** — position:fixed + 64px spacer card approach (partially worked).
+- **MW badge click** — onclick in custom_fields HTML (partially worked, blocked in some HA contexts).
+- Various minor dashboard tweaks.
+
+---
+
+## [1.8.4] — 2026-05-17
+
+### Fixes
+- **SpoolsTab filter row overflow** — Bind Slot button moved to its own full-width
+  row above the filter row. Toolbar now wraps: search input takes the full first
+  line (`flex: 1 1 100%`), dropdowns share the second line (`flex: 1 1 auto`).
+  Eliminates horizontal overflow and scrollbar on mobile viewports.
+
+---
+
+## [1.8.3] — 2026-05-17
+
+### Features
+- **Slots tab card grid** — `SlotsSegment` redesigned from list rows to a three-section
+  card grid: AMS 2 Pro (4 cards in flex row), HT Units (3 bays side by side with
+  per-bay humidity label), and External (standalone slot 8). Each slot card shows a
+  32×40 color swatch, brand + spool ID, material (bold), color name, grams remaining
+  (red if <20%), and a 3px fuel bar (color-matched, red if warn). Active slot gets a
+  blue border (`#0a84ff`). Needs-action states show in red. `SlotPopup` unchanged.
+
+---
+
+## [1.8.2] — 2026-05-17
+
+### Features
+- **Slots tab in filament-iq-manager** — `SlotsSegment` and `SlotPopup` ported
+  from `PrinterDashboardCard` into a standalone `SlotsTab` component. The
+  `filament-iq-manager` card now has a Slots tab (first in the tab bar) showing
+  all AMS units with per-slot status, weight bars, and a tap-to-assign popup.
+- **`initial_tab` config prop** — Card accepts `initial_tab: slots` (or any tab
+  id) to mount on a specific tab. Used by the dashboard Slots tab to open the
+  card directly on the Slots view.
+- **`PrinterDashboardCard` `initial_segment` reverted** — No longer needed since
+  the Slots tab embeds `filament-iq-manager` instead of `printer-dashboard`.
+
+---
+
+## [1.8.1] — 2026-05-17
+
+### Features
+- **`initial_segment` config prop** — `custom:printer-dashboard` now accepts
+  `initial_segment: slots` (or any segment key) to mount directly on a specific
+  segment. When set, the `SegBar` is hidden (the host dashboard's tab bar is
+  the navigation mechanism). Enables the Slots tab in the 3D Printer dashboard
+  to embed the card locked to the slots segment.
+
+---
+
+## [1.8.0] — 2026-05-16
+
+### New feature: Nav intent support
+
+The card now supports external navigation via a Home Assistant helper entity.
+When `input_text.filament_iq_nav_intent` is set to `"spool:N"` (where N is a
+Spoolman spool ID) before the card mounts, the card will pre-open the edit
+panel for that spool.
+
+**Setup required (opt-in):**
+1. Add `input_text.filament_iq_nav_intent` helper to `configuration.yaml`
+2. Create `script.slot_tap_to_filament_iq` in `scripts.yaml`
+3. Update slot button-card `tap_action` to call the script
+
+**Payload format:** `"type:value"` — currently supported: `"spool:N"`.
+Reserved for future: `"slot:N"`, `"action:add"`.
+
+**Behavior notes:**
+- Intent is consumed once at card mount and cleared immediately
+- If the card remains mounted (rare, HA version dependent), subsequent
+  intents will not be processed until the card remounts
+- Last intent wins on rapid consecutive taps
+- Absent, empty, unparseable, or zero-value intent → card opens normally, no error
+
+---
+
 ## [1.7.6] — 2026-05-10
 
 ### Bug Fixes
@@ -82,7 +212,7 @@ missing invariant enforcement in the write and enrollment paths.
   fails if a new skip_reason is added to the engine without a label.
 - **Mobile push for ambiguous reconciler outcomes** — new
   `_notify_mobile_match_needed(slot, reason)` helper fires a
-  `notify/mobile_app_jd_pixel_10_pro_xl` push so the user is alerted in
+  `notify/mobile_app_YOUR_DEVICE` push so the user is alerted in
   real time when a non-RFID slot needs manual binding. Title: "Filament IQ
   — Spool Match Needed". Message includes slot number, reason detail, and
   a "Open Spoolman to assign manually" call to action. Notify service is
@@ -105,8 +235,8 @@ missing invariant enforcement in the write and enrollment paths.
     in `_TestableUsageSync.__init__`.
   - `TestCheckUnboundTrays::test_unbound_slot_warns` and
     `test_unbound_with_notify_target`: hardcoded the stale service name
-    `mobile_app_jd_pixel_10xl`; updated to current default
-    `mobile_app_jd_pixel_10_pro_xl`.
+    `mobile_app_YOUR_DEVICE`; updated to current default
+    `mobile_app_YOUR_DEVICE`.
   - `test_3mf_fetch_runs_in_thread`: written before v1.7.0 cache-retry
     logic was added; `attempt=1` now early-returns through the cache path
     without spawning a thread. Test now calls with `attempt=2`.

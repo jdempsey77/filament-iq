@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Filament IQ Monitor — HA availability + print lifecycle + system resource daemon.
 
-Runs on ska as a systemd user unit. Three concurrent loops:
+Runs on ska as a systemd user unit. Five concurrent loops:
   1. HA availability monitor (polls /api/, detects outages, grabs logs on recovery)
   2. Print lifecycle monitor (state machine: IDLE→PREPARING→PRINTING→FINISHING→IDLE)
   3. System resource monitor (polls HA + local /proc, threshold alerts)
+  4. Niimbot print queue (polls HA helper, runs print_niimbot.sh)
+  5. D11 heartbeat (BLE keepalive to D11_H label printer every 4 minutes)
 
 Artifacts written to NAS at ARTIFACT_ROOT. Secrets loaded from
 ~/.config/filament_iq/secrets.env. Config from monitor-config.env.
@@ -130,7 +132,7 @@ class Config:
 
         self.ams_slots = [int(s) for s in config.get("AMS_SLOTS", "1,2,3,4,5,6").split(",")]
 
-        self.spoolman_url = config.get("SPOOLMAN_URL", "http://192.168.4.124:7912").rstrip("/")
+        self.spoolman_url = config.get("SPOOLMAN_URL", "http://YOUR_HA_IP:7912").rstrip("/")
         self.artifact_root = Path(config.get("ARTIFACT_ROOT", "/mnt/store/filament_iq/monitor"))
         self.ha_poll_interval = int(config.get("HA_POLL_INTERVAL", "30"))
         self.print_poll_interval = int(config.get("PRINT_POLL_INTERVAL", "10"))
@@ -139,7 +141,7 @@ class Config:
         self.appdaemon_addon_id = config.get("APPDAEMON_ADDON_ID", "a0d7b954_appdaemon")
 
         # Resource monitoring
-        self.notify_service = config.get("NOTIFY_SERVICE", "mobile_app_jd_pixel_10_pro_xl")
+        self.notify_service = config.get("NOTIFY_SERVICE", "mobile_app_YOUR_DEVICE")
         self.resource_poll_interval = int(config.get("RESOURCE_POLL_INTERVAL", "60"))
         self.resource_cpu_warn = float(config.get("RESOURCE_CPU_WARN", "80"))
         self.resource_mem_warn = float(config.get("RESOURCE_MEM_WARN", "85"))
@@ -179,6 +181,27 @@ def _ha_get_state(cfg: Config, entity_id: str) -> dict | None:
         return json.loads(body)
     except (json.JSONDecodeError, ValueError):
         return None
+
+
+def _ha_set_state(cfg: Config, entity_id: str, state: str) -> bool:
+    """POST a state value to a HA entity via REST API. Returns True on success."""
+    url = f"{cfg.ha_url}/api/states/{entity_id}"
+    payload = json.dumps({"state": state}).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {cfg.ha_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10.0) as resp:
+            return resp.status in (200, 201)
+    except Exception as e:
+        log.warning("_ha_set_state %s failed: %s", entity_id, e)
+        return False
 
 
 def _send_ha_notification(cfg: Config, title: str, message: str) -> None:
@@ -855,6 +878,130 @@ class PrintLifecycleMonitor:
         self._persist_state()
 
 
+# ── Loop 4: Niimbot Print Queue ──────────────────────────────────────
+
+_NIIMBOT_HELPER = "input_text.filament_iq_niimbot_print_queue"
+_NIIMBOT_SCRIPT = "/home/jdempsey/print_niimbot.sh"
+_NIIMBOT_POLL_S = 5
+_NIIMBOT_TIMEOUT_S = 120
+_NIIMBOT_ERROR_SLEEP_S = 10
+
+
+class NiimbotPrintLoop:
+    """Polls the Niimbot print queue helper and runs print_niimbot.sh on ska."""
+
+    def __init__(self, cfg: Config, shutdown_event: threading.Event):
+        self.cfg = cfg
+        self.shutdown = shutdown_event
+
+    def run(self) -> None:
+        log.info("Niimbot print loop started — polling %s every %ds", _NIIMBOT_HELPER, _NIIMBOT_POLL_S)
+        while not self.shutdown.is_set():
+            try:
+                self._poll()
+            except Exception as e:
+                log.error("NIIMBOT_LOOP_ERROR: %s", e)
+                self._clear_queue()
+                self.shutdown.wait(_NIIMBOT_ERROR_SLEEP_S)
+                continue
+            self.shutdown.wait(_NIIMBOT_POLL_S)
+
+    def _poll(self) -> None:
+        state_obj = _ha_get_state(self.cfg, _NIIMBOT_HELPER)
+        if state_obj is None:
+            # HA unreachable — back off quietly
+            self.shutdown.wait(_NIIMBOT_ERROR_SLEEP_S)
+            return
+
+        filament_id = str(state_obj.get("state", "")).strip()
+        if not filament_id:
+            return
+
+        log.info("NIIMBOT_PRINT_START filament_id=%s", filament_id)
+        try:
+            result = subprocess.run(
+                [_NIIMBOT_SCRIPT, filament_id],
+                timeout=_NIIMBOT_TIMEOUT_S,
+                capture_output=True,
+                text=True,
+            )
+            rc = result.returncode
+        except subprocess.TimeoutExpired:
+            log.error("NIIMBOT_TIMEOUT filament_id=%s (>%ds)", filament_id, _NIIMBOT_TIMEOUT_S)
+            rc = -1
+        except Exception as e:
+            log.error("NIIMBOT_SUBPROCESS_ERROR filament_id=%s: %s", filament_id, e)
+            rc = -1
+        finally:
+            self._clear_queue()
+
+        log.info("NIIMBOT_PRINT_DONE filament_id=%s returncode=%d", filament_id, rc)
+
+    def _clear_queue(self) -> None:
+        """Clear the Niimbot print queue helper in HA."""
+        ok = _ha_set_state(self.cfg, _NIIMBOT_HELPER, "")
+        if not ok:
+            log.warning("NIIMBOT_CLEAR_FAILED — helper may be stuck")
+
+
+# ── Loop 5: D11 Heartbeat ────────────────────────────────────────────
+
+_D11_MAC = "C9:44:3A:01:03:09"
+_D11_GATT_CHAR = "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"
+_D11_PYTHON = "/home/jdempsey/niimprint-311-env/bin/python3"
+_D11_HEARTBEAT_INTERVAL_S = 240  # 4 minutes
+_D11_HEARTBEAT_TIMEOUT_S = 20
+
+_D11_SCRIPT = (
+    "import asyncio\n"
+    "from bleak import BleakClient\n"
+    "async def _hb():\n"
+    "    async with BleakClient({mac!r}) as c:\n"
+    "        pkt = bytes([0x55, 0x55, 0xdc, 0x01, 0x01, 0xdc, 0xaa, 0xaa])\n"
+    "        await c.write_gatt_char({char!r}, pkt, response=False)\n"
+    "        await asyncio.sleep(1)\n"
+    "asyncio.run(_hb())\n"
+).format(mac=_D11_MAC, char=_D11_GATT_CHAR)
+
+
+class D11HeartbeatLoop:
+    """Sends a BLE heartbeat packet to the D11_H label printer every 4 minutes."""
+
+    def __init__(self, cfg: Config, shutdown_event: threading.Event):
+        self.cfg = cfg
+        self.shutdown = shutdown_event
+
+    def run(self) -> None:
+        log.info("D11 heartbeat loop started — interval %ds MAC=%s", _D11_HEARTBEAT_INTERVAL_S, _D11_MAC)
+        while not self.shutdown.is_set():
+            try:
+                self._heartbeat()
+            except Exception as e:
+                log.warning("NIIMBOT_HEARTBEAT_FAIL MAC=%s unexpected=%s", _D11_MAC, e)
+            self.shutdown.wait(_D11_HEARTBEAT_INTERVAL_S)
+
+    def _heartbeat(self) -> None:
+        try:
+            result = subprocess.run(
+                [_D11_PYTHON, "-c", _D11_SCRIPT],
+                timeout=_D11_HEARTBEAT_TIMEOUT_S,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                log.info("NIIMBOT_HEARTBEAT_OK MAC=%s", _D11_MAC)
+            else:
+                stderr_snippet = result.stderr.strip()[:200]
+                log.warning(
+                    "NIIMBOT_HEARTBEAT_FAIL MAC=%s returncode=%d stderr=%s",
+                    _D11_MAC, result.returncode, stderr_snippet,
+                )
+        except subprocess.TimeoutExpired:
+            log.warning("NIIMBOT_HEARTBEAT_FAIL MAC=%s timeout>%ds", _D11_MAC, _D11_HEARTBEAT_TIMEOUT_S)
+        except Exception as e:
+            log.warning("NIIMBOT_HEARTBEAT_FAIL MAC=%s error=%s", _D11_MAC, e)
+
+
 # ── Main ─────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -918,16 +1065,22 @@ def main() -> None:
     ha_monitor = HAAvailabilityMonitor(cfg, shutdown_event)
     resource_monitor = SystemResourceMonitor(cfg, shutdown_event)
     print_monitor = PrintLifecycleMonitor(cfg, shutdown_event)
+    niimbot_loop = NiimbotPrintLoop(cfg, shutdown_event)
+    d11_heartbeat = D11HeartbeatLoop(cfg, shutdown_event)
 
     ha_thread = threading.Thread(target=ha_monitor.run, name="ha-availability", daemon=True)
     resource_thread = threading.Thread(target=resource_monitor.run, name="system-resources", daemon=True)
     print_thread = threading.Thread(target=print_monitor.run, name="print-lifecycle", daemon=True)
+    niimbot_thread = threading.Thread(target=niimbot_loop.run, name="niimbot-print", daemon=True)
+    d11_thread = threading.Thread(target=d11_heartbeat.run, name="d11-heartbeat", daemon=True)
 
     ha_thread.start()
     resource_thread.start()
     print_thread.start()
+    niimbot_thread.start()
+    d11_thread.start()
 
-    log.info("Monitor running — 3 threads active")
+    log.info("Monitor running — 5 threads active")
 
     # Main thread waits for shutdown signal
     while not shutdown_event.is_set():
@@ -938,6 +1091,8 @@ def main() -> None:
     ha_thread.join(timeout=15)
     resource_thread.join(timeout=15)
     print_thread.join(timeout=15)
+    niimbot_thread.join(timeout=15)
+    d11_thread.join(timeout=15)
 
     log.info("Filament IQ Monitor stopped")
 

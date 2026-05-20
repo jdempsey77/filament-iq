@@ -133,7 +133,7 @@ class FilamentProfilesClient:
                 best_score = s
                 best = c
 
-        if best is None or best_score < 0.7:
+        if best is None or best_score < 0.75:
             return FilamentProfile(
                 matched=False,
                 confidence="low" if best_score > 0 else "none",
@@ -177,7 +177,15 @@ class FilamentProfilesClient:
         elif inferred_type and cand_type and inferred_type == cand_type:
             score += 0.2
 
-        return min(score, 1.0)
+        # Color: +0.15 if color name appears in filament_name
+        # Strip product codes like "Red (10400)" → "red"
+        # Note: intentionally not capped at 1.0 so color breaks ties on otherwise-equal candidates
+        raw_color = candidate.get("color", "") or ""
+        cand_color = _norm(raw_color.split("(")[0])
+        if cand_color and name_n and cand_color in name_n:
+            score += 0.15
+
+        return score
 
     @staticmethod
     def _build_profile(candidate: dict, score: float) -> FilamentProfile:
@@ -214,3 +222,17 @@ class FilamentProfilesClient:
             brand_key=candidate.get("brand_key") or None,
             material_key=candidate.get("material_key") or None,
         )
+
+
+_CLIENT_CACHE: dict[str, "FilamentProfilesClient"] = {}
+
+
+def get_profiles_client(data_path: str) -> "FilamentProfilesClient":
+    """Return a cached FilamentProfilesClient for the given path.
+
+    Loads the filaments.json only once per path across all AppDaemon apps.
+    Subsequent calls with the same path return the cached instance.
+    """
+    if data_path not in _CLIENT_CACHE:
+        _CLIENT_CACHE[data_path] = FilamentProfilesClient(data_path)
+    return _CLIENT_CACHE[data_path]

@@ -435,7 +435,7 @@ class AmsRfidReconcile(FilamentIQBase):
         self._settle_pending = {}
         self.nonrfid_settle_delay_s = int(self.args.get("nonrfid_settle_delay_s", 90))
         self.notify_service = str(
-            self.args.get("notify_service", "mobile_app_jd_pixel_10_pro_xl")
+            self.args.get("notify_service", "mobile_app_YOUR_DEVICE")
         ).strip()
         self._missing_helper_warned = set()
         self._pending_helper_warned = set()
@@ -1447,10 +1447,7 @@ class AmsRfidReconcile(FilamentIQBase):
                             self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                             self._write_presentation_state(slot, AMBIGUOUS_SIG_NONRFID, status)
                             self._log_slot_status_change(slot, status, "", 0, tray_meta)
-                            self._notify_mobile_match_needed(
-                                slot,
-                                "Spool active in another slot; cannot auto-assign.",
-                            )
+                            # Mobile push owned by ams_bind_reminder_push HA automation (30s debounce)
                             t["decision"], t["reason"], t["action"] = "NON_RFID", "ambiguous_sig", "needs_manual_bind"
                             t["unbound_reason"] = AMBIGUOUS_SIG_NONRFID
                             t["final_slot_status"] = status
@@ -1572,10 +1569,7 @@ class AmsRfidReconcile(FilamentIQBase):
                         self._set_helper(f"input_text.ams_slot_{slot}_status", status)
                         self._write_presentation_state(slot, AMBIGUOUS_SIG_NONRFID, status)
                         self._log_slot_status_change(slot, status, "", 0, tray_meta)
-                        self._notify_mobile_match_needed(
-                            slot,
-                            "Multiple candidates found; tie-break did not resolve to one winner.",
-                        )
+                        # Mobile push owned by ams_bind_reminder_push HA automation (30s debounce)
                         t["decision"], t["reason"], t["action"] = "NON_RFID", "ambiguous_sig", "needs_manual_bind"
                         t["unbound_reason"] = AMBIGUOUS_SIG_NONRFID
                         t["final_spool_id"] = 0
@@ -3282,15 +3276,12 @@ class AmsRfidReconcile(FilamentIQBase):
             summary,
             notification_id=f"nonrfid_needs_action_slot_{slot}",
         )
-        self._notify_mobile_match_needed(slot, reason_detail)
+        # Mobile push owned by ams_bind_reminder_push HA automation (30s debounce)
 
     def _notify_mobile_match_needed(self, slot, reason_detail):
-        """Push an actionable mobile notification for an ambiguous match.
-
-        Complements `_notify_nonrfid_needs_action`'s persistent_notification
-        with a mobile push so the user is alerted in real time and can fix
-        the binding before the next print.
-        """
+        # DEPRECATED: mobile push moved to ams_bind_reminder_push HA automation
+        # This method is no longer called. Remove in next cleanup phase.
+        """Push an actionable mobile notification for an ambiguous match."""
         try:
             self.call_service(
                 f"notify/{self.notify_service}",
