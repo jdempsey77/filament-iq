@@ -18,7 +18,7 @@ Confirm the HA entity exists and has the expected attribute schema:
 ```bash
 source ~/code/home_assistant/scripts/deploy.env.local
 curl -s -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" \
-  "http://192.168.4.124:8123/api/states/sensor.p1s_YOUR_SERIAL_ams_INDEX_tray_1" \
+  "http://YOUR_HA_IP:8123/api/states/sensor.p1s_YOUR_SERIAL_ams_INDEX_tray_1" \
   | python3 -m json.tool
 ```
 

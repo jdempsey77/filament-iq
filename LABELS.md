@@ -5,7 +5,7 @@ Live and printing. Enhanced label path active for all 44 filaments (100% high co
 
 ## Hardware
 - Brother QL-810W, DK-1218 24mm round labels (d24) and 29x90mm continuous (portrait)
-- Printer at tcp://192.168.4.156:9100
+- Printer at tcp://YOUR_LABEL_PRINTER_IP:9100
 
 ## Label types
 

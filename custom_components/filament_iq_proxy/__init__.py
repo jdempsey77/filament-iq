@@ -18,7 +18,7 @@ DOMAIN = "filament_iq_proxy"
 _LOGGER = logging.getLogger(__name__)
 
 CONF_SPOOLMAN_URL = "spoolman_url"
-DEFAULT_SPOOLMAN_URL = "http://192.168.4.124:7912"
+DEFAULT_SPOOLMAN_URL = "http://YOUR_HA_IP:7912"
 
 VALID_METHODS = {"GET", "POST", "PATCH", "DELETE"}
 

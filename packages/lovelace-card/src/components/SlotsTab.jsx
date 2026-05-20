@@ -308,8 +308,10 @@ function SlotsSegment({ getHass, onPopup }) {
 // ── SlotPopup (ported verbatim from PrinterDashboardCard) ────
 function SlotPopup({ popup, getHass, onClose }) {
   const hass = getHass()
+  const [pendingOption, setPendingOption] = useState(null)
 
   const selectSpool = option => {
+    setPendingOption(option)
     getHass()?.callService('input_select', 'select_option', {
       entity_id: popup.selectEntity,
       option,
@@ -329,6 +331,7 @@ function SlotPopup({ popup, getHass, onClose }) {
   const PLACEHOLDER = allOptions.find(o => o.startsWith('—') || o.startsWith('-')) || '— Select spool —'
   const options = allOptions.filter(o => o !== PLACEHOLDER)
   const currentOption = selectState?.state || popup.selectCurrent
+  const displaySelected = pendingOption ?? currentOption
 
   return h('div', {
     style: S.popupOverlay,
@@ -368,11 +371,11 @@ function SlotPopup({ popup, getHass, onClose }) {
           : options.map(option =>
               h('div', {
                 key: option,
-                style: { ...S.pickerRow, ...(option === currentOption ? S.pickerRowSelected : {}) },
+                style: { ...S.pickerRow, ...(option === displaySelected ? S.pickerRowSelected : {}) },
                 onClick: () => selectSpool(option),
               },
-                h('div', { style: { ...S.pickerLabel, color: option === currentOption ? '#6aabda' : '#e8e8ea' } }, option),
-                option === currentOption && h(Icon, { path: ICONS.chevron, size: 14, color: '#6aabda' })
+                h('div', { style: { ...S.pickerLabel, color: option === displaySelected ? '#6aabda' : '#e8e8ea' } }, option),
+                option === displaySelected && h(Icon, { path: ICONS.chevron, size: 14, color: '#6aabda' })
               )
             )
       ),

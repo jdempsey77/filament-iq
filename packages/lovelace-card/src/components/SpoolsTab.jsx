@@ -160,7 +160,7 @@ function MatBadge({ material }) {
   return <span class={`fiq-mat-badge ${cls}`}>{material || '—'}</span>
 }
 
-function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrintLabel, printingLabel }) {
+function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrintLabel, onPrintSwatchLabel, printingLabel }) {
   const [remaining, setRemaining] = useState(Math.round(spool.remaining_weight || 0))
   const [location, setLocation] = useState(spool.location || '')
   const [firstUsed, setFirstUsed] = useState(
@@ -229,7 +229,14 @@ function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrintLabel,
             onClick={() => onPrintLabel && onPrintLabel(spool.id)}
             disabled={saving || printingLabel}
           >
-            {printingLabel ? '⏳ Printing...' : '🖨 Print Label'}
+            {printingLabel ? '⏳ Printing...' : '🖨 Spool Label'}
+          </button>
+          <button
+            class="fiq-btn-print"
+            onClick={() => onPrintSwatchLabel && onPrintSwatchLabel(spool.id)}
+            disabled={saving}
+          >
+            🏷 Swatch Label
           </button>
         </div>
         <div class="fiq-btn-group">
@@ -435,6 +442,20 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
     } catch (e) {
       setPrintingSpoolId(null)
       setToast({ msg: `Print failed: ${e.message || e}`, type: 'err' })
+      setTimeout(() => setToast(null), 5000)
+    }
+  }, [hass])
+
+  const handlePrintSwatchLabel = useCallback((spoolId) => {
+    if (!hass) return
+    try {
+      hass.connection.sendMessage({
+        type: 'fire_event',
+        event_type: 'filament_iq_print_niimbot_label',
+        event_data: { spool_id: spoolId },
+      })
+    } catch (e) {
+      setToast({ msg: `Swatch print failed: ${e.message || e}`, type: 'err' })
       setTimeout(() => setToast(null), 5000)
     }
   }, [hass])
@@ -649,6 +670,7 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
                   onCancel={() => setEditId(null)}
                   onDelete={(id) => deleteSpool(id).then(() => setEditId(null))}
                   onPrintLabel={handlePrintLabel}
+                  onPrintSwatchLabel={handlePrintSwatchLabel}
                   printingLabel={printingSpoolId === spool.id}
                 />
               )}

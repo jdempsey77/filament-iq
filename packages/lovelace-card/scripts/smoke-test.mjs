@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 config({ path: resolve(__dirname, '../.env') })
 
-const { HA_TOKEN, HA_HOST = '192.168.4.124', HA_PORT = '8123' } = process.env
+const { HA_TOKEN, HA_HOST = 'YOUR_HA_IP', HA_PORT = '8123' } = process.env
 
 async function test(name, fn) {
   try {

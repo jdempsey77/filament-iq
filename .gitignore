@@ -14,3 +14,4 @@ deploy.env
 # Conversation artifacts (prompts written for Claude Code, not repo content)
 IMPLEMENT_*.md
 ANALYZE_*.md
+apps/apps.yaml

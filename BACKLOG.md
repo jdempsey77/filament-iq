@@ -69,7 +69,7 @@
 - [x] NONRFID_EMPTY_TRAY_CLEAR sets location="Shelf" not "Empty" — _execute_writes now PATCHes location=Empty after successful depleted_nonrfid write. Prevents reconciler from returning depleted spools to Shelf candidate pool. (v1.0.3, commit 38a1aa3)
 - [x] start_map fallback over-count — active slots now narrowed to trays_used & start_snapshot.keys() in _do_finish. Phantom writes from idle RFID slots with gauge drift eliminated. (v1.0.3, commit c731414)
 - [x] min_consumption_g exempts 3MF methods — 3mf and 3mf_depleted bypass the 2g floor since slicer data is authoritative. RFID and depleted_nonrfid still subject to floor. (Audit Finding F, v1.0.1)
-- [x] Print completion notifications broken — persistent_notification called with invalid notification_id key, silently failing since v1.0.0. Fixed by switching to notify/mobile_app_jd_pixel_10xl. (v1.0.2, commit 5fe38f1) Note: service renamed to notify.mobile_app_jd_pixel_10_pro_xl after device re-registration (2026-03-24); automations.yaml updated.
+- [x] Print completion notifications broken — persistent_notification called with invalid notification_id key, silently failing since v1.0.0. Fixed by switching to notify/mobile_app_YOUR_DEVICE. (v1.0.2, commit 5fe38f1) Note: service renamed to notify.mobile_app_YOUR_DEVICE after device re-registration (2026-03-24); automations.yaml updated.
 - [x] Constants promotion — AMBIGUOUS_SIG split to RFID/NONRFID variants,
   NO_CANDIDATE and FORCE_ACCEPTED promoted to named constants. runout_split
   and runout_split_depleted labels added to _METHOD_LABELS. Two new audit

@@ -212,7 +212,7 @@ missing invariant enforcement in the write and enrollment paths.
   fails if a new skip_reason is added to the engine without a label.
 - **Mobile push for ambiguous reconciler outcomes** — new
   `_notify_mobile_match_needed(slot, reason)` helper fires a
-  `notify/mobile_app_jd_pixel_10_pro_xl` push so the user is alerted in
+  `notify/mobile_app_YOUR_DEVICE` push so the user is alerted in
   real time when a non-RFID slot needs manual binding. Title: "Filament IQ
   — Spool Match Needed". Message includes slot number, reason detail, and
   a "Open Spoolman to assign manually" call to action. Notify service is
@@ -235,8 +235,8 @@ missing invariant enforcement in the write and enrollment paths.
     in `_TestableUsageSync.__init__`.
   - `TestCheckUnboundTrays::test_unbound_slot_warns` and
     `test_unbound_with_notify_target`: hardcoded the stale service name
-    `mobile_app_jd_pixel_10xl`; updated to current default
-    `mobile_app_jd_pixel_10_pro_xl`.
+    `mobile_app_YOUR_DEVICE`; updated to current default
+    `mobile_app_YOUR_DEVICE`.
   - `test_3mf_fetch_runs_in_thread`: written before v1.7.0 cache-retry
     logic was added; `attempt=1` now early-returns through the cache path
     without spawning a thread. Test now calls with `attempt=2`.

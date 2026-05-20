@@ -2,7 +2,7 @@ import { execFileSync } from 'child_process'
 import { readFileSync, writeFileSync } from 'fs'
 
 const SSH_KEY = `${process.env.HOME}/.ssh/id_ed25519_ha`
-const SSH_HOST = 'root@192.168.4.124'
+const SSH_HOST = 'root@YOUR_HA_IP'
 const SSH_PORT = '2222'
 const TMP = '/tmp/lr_fix.json'
 
