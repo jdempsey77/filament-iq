@@ -306,7 +306,7 @@ function SlotsSegment({ getHass, onPopup }) {
 }
 
 // ── SlotPopup (ported verbatim from PrinterDashboardCard) ────
-function SlotPopup({ popup, getHass, onClose }) {
+function SlotPopup({ popup, getHass, onClose, onViewSpool }) {
   const hass = getHass()
   const [pendingOption, setPendingOption] = useState(null)
 
@@ -362,6 +362,17 @@ function SlotPopup({ popup, getHass, onClose }) {
           h('div', { style: S.csG }, `${Math.round(parseFloat(popup.g) || 0)}g left`)
         )
       ),
+      popup.status === 'ok' && onViewSpool && popup.id && popup.id !== '—' && popup.id !== 'unavailable' && popup.id !== 'unknown' && h('div', {
+        style: { padding: '4px 16px 8px' },
+      },
+        h('button', {
+          style: { background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#6aabda' },
+          onClick: () => { onViewSpool(parseInt(popup.id, 10)); onClose() },
+        },
+          h(Icon, { path: ICONS.externalLink, size: 12, color: '#6aabda' }),
+          'View in Spools'
+        )
+      ),
       h('div', { style: S.popupSec }, 'Select spool'),
       h('div', { style: S.pickerList, onTouchMove: e => e.stopPropagation() },
         options.length === 0
@@ -391,10 +402,10 @@ function SlotPopup({ popup, getHass, onClose }) {
 }
 
 // ── Default export: wires SlotsSegment + SlotPopup ──────────
-export default function SlotsTab({ getHass }) {
+export default function SlotsTab({ getHass, onViewSpool }) {
   const [popup, setPopup] = useState(null)
   return h('div', { style: { position: 'relative' } },
     h(SlotsSegment, { getHass, onPopup: setPopup }),
-    popup && h(SlotPopup, { popup, getHass, onClose: () => setPopup(null) })
+    popup && h(SlotPopup, { popup, getHass, onClose: () => setPopup(null), onViewSpool })
   )
 }
