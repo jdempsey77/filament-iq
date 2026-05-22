@@ -114,17 +114,18 @@ def test_generate_label_image_size():
 
 
 def test_generate_label_image_swatch_dark_color():
-    """Dark color (#1A1A1A) → swatch area is dark.
+    """Dark color (#1A1A1A) → 6px color stripe is dark.
 
-    After rotate(-90, expand=True), the landscape swatch center at
-    landscape (110, 153) maps to portrait (LABEL_H-1-153, 110) = (152, 110).
+    The stripe occupies landscape x=0..5, all y. After rotate(-90, expand=True)
+    into portrait (W=306, H=991), stripe maps to portrait y=0..5, all x.
+    Sample at portrait (200, 2): landscape x=2 (in stripe), mid-label height.
+    Rotation formula: portrait_x = landscape_H-1 - landscape_y, portrait_y = landscape_x.
     """
     app = TestableLabelPrinter()
     img = app.generate_label_image(SAMPLE_SPOOL_DATA, SAMPLE_FILAMENT_DATA)
-    # Portrait size is (LABEL_H, LABEL_W) = (306, 991).
-    # Swatch center in landscape (110, 153) → portrait (152, 110).
-    swatch_px = img.getpixel((152, 110))
-    assert swatch_px[0] < 100, f"Swatch area should be dark, got {swatch_px}"
+    # Portrait (200, 2) → landscape (x=2, y=305-200=105) — within the 6px stripe.
+    stripe_px = img.getpixel((200, 2))
+    assert stripe_px[0] < 100, f"Stripe area should be dark, got {stripe_px}"
 
 
 def test_generate_label_long_vendor_name():
