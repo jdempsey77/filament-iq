@@ -5388,6 +5388,7 @@ class TestAppendEvidenceReal:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
             r.evidence_log_path = f.name
             r.evidence_log_enabled = True
+            AmsRfidReconcile._ensure_evidence_path_writable(r)
             AmsRfidReconcile._append_evidence(r, {"key": "value"})
         with open(r.evidence_log_path) as f:
             line = f.read().strip()
@@ -5420,6 +5421,7 @@ class TestAppendEvidenceLineReal:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
             r.evidence_log_path = f.name
             r.evidence_log_enabled = True
+            AmsRfidReconcile._ensure_evidence_path_writable(r)
             AmsRfidReconcile._append_evidence_line(r, "RFID_EMPTY_TRAY_CLEAR slot=1")
         with open(r.evidence_log_path) as f:
             line = f.read().strip()
