@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'preact/hooks'
+import { useState, useMemo } from 'preact/hooks'
 import { ProxyClient } from './api/proxy'
 import { useSpoolman } from './hooks/useSpoolman'
 import { TabBar } from './components/TabBar'
@@ -10,12 +10,6 @@ import SlotsTab from './components/SlotsTab'
 
 export function FilamentIQCard({ hass, getHass, navIntent, config }) {
   const [activeTab, setActiveTab] = useState(config?.initial_tab || 'spools')
-  const [openSpoolId, setOpenSpoolId] = useState(null)
-
-  const handleViewSpool = useCallback((id) => {
-    setOpenSpoolId(id)
-    setActiveTab('spools')
-  }, [])
 
   const client = useMemo(() => {
     if (!hass) return null
@@ -45,10 +39,10 @@ export function FilamentIQCard({ hass, getHass, navIntent, config }) {
         <TabBar active={activeTab} onChange={setActiveTab} />
       </div>
       <div class="fiq-body">
-        {activeTab === 'spools'    && <SpoolsTab    {...data} hass={hass} getHass={getHass} navIntent={navIntent} openSpoolId={openSpoolId} />}
+        {activeTab === 'spools'    && <SpoolsTab    {...data} hass={hass} getHass={getHass} navIntent={navIntent} />}
         {activeTab === 'filaments' && <FilamentsTab {...data} client={client} />}
         {activeTab === 'vendors'   && <VendorsTab   {...data} />}
-        {activeTab === 'slots'     && <SlotsTab     getHass={getHass} onViewSpool={handleViewSpool} />}
+        {activeTab === 'slots'     && <SlotsTab     getHass={getHass} hass={hass} spools={data.spools} updateSpool={data.updateSpool} deleteSpool={data.deleteSpool} />}
       </div>
     </div>
   )
