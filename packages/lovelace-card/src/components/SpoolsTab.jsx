@@ -160,7 +160,7 @@ function MatBadge({ material }) {
   return <span class={`fiq-mat-badge ${cls}`}>{material || '—'}</span>
 }
 
-function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrintLabel, onPrintSwatchLabel, printingLabel, printingNiimbotLabel }) {
+export function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrintLabel, onPrintSwatchLabel, printingLabel, printingNiimbotLabel }) {
   const [remaining, setRemaining] = useState(Math.round(spool.remaining_weight || 0))
   const [location, setLocation] = useState(spool.location || '')
   const [firstUsed, setFirstUsed] = useState(
@@ -177,7 +177,7 @@ function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrintLabel,
         location,
         ...(firstUsed ? { first_used: firstUsed } : {}),
       })
-      // Fire FILAMENT_IQ_SLOT_ASSIGNED so reconciler writes input_text.ams_slot_N_spool_id
+      // Fire FILAMENT_IQ_SLOT_ASSIGNED so AppDaemon writes input_text.ams_slot_N_spool_id
       const slot = LOCATION_TO_SLOT[location]
       if (slot && hass) {
         hass.connection.sendMessage({
@@ -337,7 +337,7 @@ function SpoolAddRow({ filaments, onCreate, onCancel, hass }) {
   )
 }
 
-export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createSpool, refresh, hass, getHass, navIntent, openSpoolId }) {
+export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createSpool, refresh, hass, getHass, navIntent }) {
   const [search, setSearch] = useState('')
   const [vendorFilter, setVendorFilter] = useState('')
   const [materialFilter, setMaterialFilter] = useState('')
@@ -368,14 +368,6 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
   const [adding, setAdding] = useState(false)
   const [binding, setBinding] = useState(false)
 
-  // Cross-tab navigation from Slots tab
-  useEffect(() => {
-    if (openSpoolId) {
-      setEditId(openSpoolId)
-      setAdding(false)
-      setBinding(false)
-    }
-  }, [openSpoolId])
   const [archiveConfirm, setArchiveConfirm] = useState(false)
   const [archiving, setArchiving] = useState(false)
   const [printingSpoolId, setPrintingSpoolId] = useState(null)
@@ -658,8 +650,8 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
           spools={spools}
           onBind={async (spoolId, location) => {
             await updateSpool(spoolId, { location })
-            // Mirror SpoolEditPanel: fire FILAMENT_IQ_SLOT_ASSIGNED so the
-            // reconciler updates input_text.ams_slot_N_spool_id immediately.
+            // Mirror SpoolEditPanel: fire FILAMENT_IQ_SLOT_ASSIGNED so AppDaemon
+            // updates input_text.ams_slot_N_spool_id immediately.
             const slot = LOCATION_TO_SLOT[location]
             if (slot && hass) {
               hass.connection.sendMessage({

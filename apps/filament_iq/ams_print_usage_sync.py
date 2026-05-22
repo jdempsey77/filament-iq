@@ -30,7 +30,7 @@ from collections import OrderedDict
 
 import hassapi as hass
 
-from .base import FilamentIQBase, build_slot_mappings
+from .base import FilamentIQBase, build_slot_mappings, TERMINAL_PRINT_STATES
 
 try:
     from .threemf_parser import (
@@ -875,6 +875,8 @@ class AmsPrintUsageSync(FilamentIQBase):
             self._print_active = True
             self._rehydrated = False
             self._seed_active_trays()
+            self.run_in(self._delayed_seed, 5)
+            self.run_in(self._delayed_seed, 15)
             self.log(
                 f"TRAY_TRACKING_START trays_used={self._trays_used}",
                 level="INFO",
@@ -945,6 +947,17 @@ class AmsPrintUsageSync(FilamentIQBase):
                 f"TRAY_TRACKING_SEED slot={slot} state={state}",
                 level="INFO",
             )
+
+    def _delayed_seed(self, kwargs):
+        if not self._print_active:
+            return
+        if self._trays_used:
+            return
+        self._seed_active_trays()
+        self.log(
+            f"TRAY_SEED_DELAYED trays_used={self._trays_used}",
+            level="INFO",
+        )
 
     def _on_active_tray_change(self, entity, attribute, old, new, kwargs):
         if not self._print_active:
@@ -1180,17 +1193,9 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     _SUCCESS_STATES = frozenset({"finish"})
     _FAILED_STATES = frozenset({"failed", "error"})
-    # Terminal states that should trigger end-of-print teardown.
-    # Anything outside this set on a `running → X` transition is treated
-    # as a transient blip (e.g. `prepare`, `unknown`, `unavailable`, `idle`)
-    # and must NOT clear print identity. Preserves the set-once invariant
-    # for `_print_start_time` and `_job_key` so the duration baseline and
-    # job key survive HA integration reloads / sensor dropouts.
-    _TERMINAL_STATES = frozenset({
-        "finish", "finished", "completed",
-        "failed", "error",
-        "cancelled", "canceled",
-    })
+    # Terminal states: anything outside this set on running→X is a transient blip
+    # and must NOT clear print identity (preserves set-once invariant for job_key).
+    _TERMINAL_STATES = TERMINAL_PRINT_STATES
 
     def _build_end_snapshot(self):
         """Read fuel gauge for slots present in start_snapshot. Returns ({slot: grams}, {slot: uuid})."""

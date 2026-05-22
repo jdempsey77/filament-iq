@@ -117,6 +117,8 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self._threemf_from_disk_restore = False
         self.threemf_enabled = False
         self._spool_id_snapshot = {}
+        self._start_tray_uuid = {}
+        self._threemf_source_mtime = 0.0
 
         # Lifecycle phase flags (must mirror ams_print_usage_sync.py init)
         self._lifecycle_phase1 = bool(a.get("lifecycle_phase1_enabled", False))
@@ -682,7 +684,7 @@ def test_end_snapshot_includes_zero_gram_slot():
     fg3 = app._fuel_gauge_pattern.format(slot=3)
     app._state_map[fg1] = "785.0"
     app._state_map[fg3] = "0.0"
-    snapshot = app._build_end_snapshot()
+    snapshot, _ = app._build_end_snapshot()
     assert snapshot == {1: 785.0, 3: 0.0}, f"expected slot 3 at 0.0, got {snapshot}"
 
 
@@ -1609,7 +1611,7 @@ class TestBuildStartEndSnapshot:
             "sensor.p1s_tray_2_fuel_gauge_remaining": "280.0",
         })
         app._start_snapshot = {1: 500.0}
-        snap = app._build_end_snapshot()
+        snap, _ = app._build_end_snapshot()
         assert 1 in snap
         assert 2 not in snap
 
