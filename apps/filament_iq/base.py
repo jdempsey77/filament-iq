@@ -11,6 +11,12 @@ active_tray sensor uses ams_index 0 for first AMS, 128/129/130 for HT.
 
 import hassapi as hass
 
+TERMINAL_PRINT_STATES = frozenset({
+    "finish", "finished", "completed",
+    "failed", "error",
+    "cancelled", "canceled",
+})
+
 
 def _default_ams_units():
     """Default AMS layout: AMS Pro (slots 1-4) + HT (slots 5-7)."""
