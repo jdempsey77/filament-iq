@@ -168,6 +168,7 @@ export function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrin
   )
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [showMore, setShowMore] = useState(false)
 
   const handleSave = async () => {
     setSaving(true)
@@ -193,20 +194,6 @@ export function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrin
 
   return (
     <div class="fiq-edit-panel">
-      <div class="fiq-identity">
-        <div>
-          <div class="fiq-id-key">Lot #</div>
-          <div class="fiq-id-val">{spool.lot_nr || '—'}</div>
-        </div>
-        <div>
-          <div class="fiq-id-key">Spool ID</div>
-          <div class="fiq-id-val">#{spool.id}</div>
-        </div>
-        <div>
-          <div class="fiq-id-key">Last used</div>
-          <div class="fiq-id-val">{spool.last_used ? spool.last_used.substring(0, 10) : '—'}</div>
-        </div>
-      </div>
       <div class="fiq-fields">
         <div>
           <div class="fiq-field-label">Remaining (g)</div>
@@ -216,11 +203,41 @@ export function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrin
           <div class="fiq-field-label">Location</div>
           <LocationSelect value={location} onChange={setLocation} />
         </div>
-        <div>
-          <div class="fiq-field-label">First used</div>
-          <input class="fiq-input" type="date" value={firstUsed} onInput={e => setFirstUsed(e.target.value)} />
-        </div>
       </div>
+      <div
+        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 0 6px', cursor: 'pointer', color: '#8e8e93', fontSize: 12 }}
+        onClick={() => setShowMore(v => !v)}
+      >
+        <svg viewBox="0 0 24 24" style={{ width: 14, height: 14, fill: '#8e8e93', flexShrink: 0 }}>
+          <path d="M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z" />
+        </svg>
+        More info
+        <svg viewBox="0 0 24 24" style={{ width: 14, height: 14, fill: '#8e8e93', flexShrink: 0, transform: showMore ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
+          <path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z" />
+        </svg>
+      </div>
+      {showMore && (
+        <div style={{ background: '#2c2c2e', borderRadius: 8, padding: '10px 12px', marginBottom: 8 }}>
+          <div style={{ marginBottom: 8 }}>
+            <div class="fiq-id-key">Lot #</div>
+            <div class="fiq-id-val" style={{ wordBreak: 'break-all', whiteSpace: 'normal' }}>{spool.lot_nr || '—'}</div>
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <div class="fiq-id-key">Spool ID</div>
+            <div class="fiq-id-val">#{spool.id}</div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div>
+              <div class="fiq-field-label">First used</div>
+              <input class="fiq-input" type="date" value={firstUsed} onInput={e => setFirstUsed(e.target.value)} />
+            </div>
+            <div>
+              <div class="fiq-id-key">Last used</div>
+              <div class="fiq-id-val">{spool.last_used ? spool.last_used.substring(0, 10) : '—'}</div>
+            </div>
+          </div>
+        </div>
+      )}
       <div class="fiq-panel-footer">
         <div class="fiq-btn-group">
           <button class="fiq-btn-del" onClick={() => setConfirming(true)} disabled={saving}>Delete spool</button>
@@ -236,7 +253,7 @@ export function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrin
             onClick={() => onPrintSwatchLabel && onPrintSwatchLabel(spool.id)}
             disabled={saving || printingNiimbotLabel}
           >
-            {printingNiimbotLabel ? 'Queuing...' : 'Swatch'}
+            {printingNiimbotLabel ? 'Queuing...' : '🖨 Swatch'}
           </button>
         </div>
         <div class="fiq-btn-group">
@@ -257,64 +274,100 @@ export function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrin
 
 function SpoolAddRow({ filaments, onCreate, onCancel, hass }) {
   const [filamentId, setFilamentId] = useState('')
-  const [location, setLocation] = useState('Shelf')
   const [initialWeight, setInitialWeight] = useState(1000)
   const [remainingWeight, setRemainingWeight] = useState(1000)
   const [printLabel, setPrintLabel] = useState(true)
+  const [quantity, setQuantity] = useState(1)
   const [saving, setSaving] = useState(false)
+
+  const sortedFilaments = useMemo(() =>
+    [...(filaments || [])].sort((a, b) => {
+      const ak = `${a.vendor?.name || ''} · ${a.name || ''}`
+      const bk = `${b.vendor?.name || ''} · ${b.name || ''}`
+      return ak.localeCompare(bk)
+    }),
+    [filaments]
+  )
 
   const handleCreate = async () => {
     setSaving(true)
     try {
-      const newSpool = await onCreate({
-        filament_id: Number(filamentId),
-        location,
-        initial_weight: Number(initialWeight),
-        remaining_weight: Number(remainingWeight),
-      })
-      // Fire print label event if checkbox is checked and we got a spool ID back
-      if (printLabel && newSpool && newSpool.id && hass) {
-        try {
-          hass.connection.sendMessage({
-            type: 'fire_event',
-            event_type: 'filament_iq_print_label',
-            event_data: { spool_id: newSpool.id },
-          })
-        } catch (e) {
-          // Non-fatal — spool was created successfully
+      const created = []
+      for (let i = 0; i < quantity; i++) {
+        const spool = await onCreate({
+          filament_id: Number(filamentId),
+          location: 'New',
+          initial_weight: Number(initialWeight),
+          remaining_weight: Number(remainingWeight),
+        })
+        if (spool?.id) created.push(spool)
+      }
+      if (printLabel && hass && created.length > 0) {
+        for (const spool of created) {
+          try {
+            hass.connection.sendMessage({
+              type: 'fire_event',
+              event_type: 'filament_iq_print_label',
+              event_data: { spool_id: spool.id },
+            })
+          } catch (e) {
+            // Non-fatal — spool was created successfully
+          }
         }
       }
+      onCancel()
     } finally {
       setSaving(false)
     }
   }
 
+  const qty = Number(quantity)
+
   return (
     <div class="fiq-add-row">
       <div class="fiq-add-title">New spool</div>
-      <div class="fiq-add-fields">
-        <div>
-          <div class="fiq-field-label">Filament</div>
-          <select class="fiq-select" value={filamentId} onChange={e => setFilamentId(e.target.value)}>
-            <option value="">— Select —</option>
-            {(filaments || []).map(f => (
-              <option key={f.id} value={String(f.id)}>{f.vendor?.name || '?'} — {f.name || '?'}</option>
-            ))}
-          </select>
+
+      <div style={{ marginBottom: 7 }}>
+        <div class="fiq-field-label">Filament</div>
+        <select class="fiq-select" value={filamentId} onChange={e => setFilamentId(e.target.value)}>
+          <option value="">— Select —</option>
+          {sortedFilaments.map(f => (
+            <option key={f.id} value={String(f.id)}>{f.vendor?.name || '?'} · {f.name || '?'}</option>
+          ))}
+        </select>
+      </div>
+
+      <div style={{ marginBottom: 7 }}>
+        <div class="fiq-field-label">Location</div>
+        <div style={{ color: '#666', fontSize: 12, padding: '6px 8px', background: '#2c2c2e', borderRadius: 6 }}>
+          New · always set automatically
         </div>
-        <div>
-          <div class="fiq-field-label">Location</div>
-          <LocationSelect value={location} onChange={setLocation} />
-        </div>
-        <div>
-          <div class="fiq-field-label">Initial (g)</div>
-          <input class="fiq-input" type="number" value={initialWeight} onInput={e => setInitialWeight(e.target.value)} />
-        </div>
+      </div>
+
+      <div style={{ marginBottom: 7 }}>
+        <div class="fiq-field-label">Initial (g)</div>
+        <input class="fiq-input" type="number" value={initialWeight} onInput={e => setInitialWeight(e.target.value)} />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginBottom: 8 }}>
         <div>
           <div class="fiq-field-label">Remaining (g)</div>
           <input class="fiq-input" type="number" value={remainingWeight} onInput={e => setRemainingWeight(e.target.value)} />
         </div>
+        <div>
+          <div class="fiq-field-label">Quantity</div>
+          <select class="fiq-select" value={String(qty)} onChange={e => setQuantity(Number(e.target.value))}>
+            {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={String(n)}>{n}</option>)}
+          </select>
+        </div>
       </div>
+
+      {qty > 1 && (
+        <div style={{ color: '#8e8e93', fontSize: 11, marginBottom: 8, padding: '4px 8px', background: '#2c2c2e', borderRadius: 6 }}>
+          {qty} identical spools will be created, each with a unique ID
+        </div>
+      )}
+
       <div class="fiq-add-checkbox">
         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#aaa', cursor: 'pointer' }}>
           <input
@@ -323,14 +376,20 @@ function SpoolAddRow({ filaments, onCreate, onCancel, hass }) {
             onChange={e => setPrintLabel(e.target.checked)}
             style={{ accentColor: '#4a9eff' }}
           />
-          Print label & move to shelf after saving
+          Print label
+          <span style={{ color: '#666' }}>— prints {qty} label{qty !== 1 ? 's' : ''}</span>
         </label>
       </div>
+
       <div class="fiq-panel-footer">
         <div />
         <div class="fiq-btn-group">
           <button class="fiq-btn-cancel" onClick={onCancel} disabled={saving}>Cancel</button>
-          <button class="fiq-btn-save" onClick={handleCreate} disabled={saving || !filamentId}>{saving ? 'Creating...' : 'Create spool'}</button>
+          <button class="fiq-btn-save" onClick={handleCreate} disabled={saving || !filamentId}>
+            {saving
+              ? (qty > 1 ? `Creating ${qty} spools...` : 'Creating...')
+              : (qty > 1 ? `Create ${qty} spools` : 'Create spool')}
+          </button>
         </div>
       </div>
     </div>
@@ -640,7 +699,7 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
         <SpoolAddRow
           filaments={filaments}
           hass={hass}
-          onCreate={async (data) => { const result = await createSpool(data); setAdding(false); return result }}
+          onCreate={createSpool}
           onCancel={() => setAdding(false)}
         />
       )}
