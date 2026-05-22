@@ -159,34 +159,6 @@ def test_send_to_printer_dry_run():
     assert "brother_ql" not in sys.modules or not _has_log(app, "LABEL_SENT")
 
 
-# ── Location update tests ────────────────────────────────────────────
-
-def test_update_spool_location_skips_non_new():
-    """Skip PATCH when location is not 'New'."""
-    app = TestableLabelPrinter()
-    spool = {"id": 42, "location": "Shelf"}
-    with mock.patch("urllib.request.urlopen") as mock_urlopen:
-        app.update_spool_location(42, spool)
-        mock_urlopen.assert_not_called()
-    assert _has_log(app, "LABEL_LOCATION_SKIP")
-
-
-def test_update_spool_location_patches_when_new():
-    """Fire PATCH when location is 'New'."""
-    app = TestableLabelPrinter()
-    spool = {"id": 42, "location": "New"}
-    mock_resp = mock.MagicMock()
-    mock_resp.__enter__ = mock.MagicMock(return_value=mock_resp)
-    mock_resp.__exit__ = mock.MagicMock(return_value=False)
-    with mock.patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
-        app.update_spool_location(42, spool)
-        mock_urlopen.assert_called_once()
-        req = mock_urlopen.call_args[0][0]
-        assert req.method == "PATCH"
-        assert b'"location": "Shelf"' in req.data
-    assert _has_log(app, "LABEL_LOCATION_UPDATED")
-
-
 # ── Result event tests ───────────────────────────────────────────────
 
 def test_fire_result_event_success():

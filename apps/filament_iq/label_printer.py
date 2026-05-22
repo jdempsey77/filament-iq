@@ -6,7 +6,6 @@ Fetches spool + filament data from Spoolman, generates a 306x991 portrait
 label image (DK-1201 29x90mm) with Pillow, and sends to the printer via
 brother_ql.
 
-Optionally moves spool location from "New" to "Shelf" after printing.
 Fires HA event `filament_iq_label_result` with { spool_id, success, error }.
 
 Config keys: spoolman_url, printer_url, printer_model, label_size, dry_run.
@@ -81,7 +80,6 @@ class LabelPrinter(FilamentIQBase):
 
             image = self.generate_label_image(spool_data, filament_data or {})
             self.send_to_printer(image, spool_id)
-            self.update_spool_location(spool_id, spool_data)
             self.fire_result_event(spool_id, True)
 
         except Exception as e:
@@ -509,38 +507,6 @@ class LabelPrinter(FilamentIQBase):
             f"LABEL_SENT spool_id={spool_id} printer={self.printer_url}",
             level="INFO",
         )
-
-    def update_spool_location(self, spool_id, spool_data):
-        """PATCH location to Shelf if currently New. Non-fatal on failure."""
-        current_location = str(spool_data.get("location", "")).strip()
-        if current_location != "New":
-            self.log(
-                f"LABEL_LOCATION_SKIP spool_id={spool_id} "
-                f"location={current_location!r} (not 'New')",
-                level="DEBUG",
-            )
-            return
-
-        url = f"{self.spoolman_url}/api/v1/spool/{spool_id}"
-        payload = json.dumps({"location": "Shelf"}).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="PATCH",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=10):
-                pass
-            self.log(
-                f"LABEL_LOCATION_UPDATED spool_id={spool_id} New → Shelf",
-                level="INFO",
-            )
-        except Exception as e:
-            self.log(
-                f"LABEL_LOCATION_PATCH_FAILED spool_id={spool_id}: {e}",
-                level="WARNING",
-            )
 
     def fire_result_event(self, spool_id, success, error=None):
         """Fire filament_iq_label_result HA event."""
