@@ -163,16 +163,27 @@ function PrinterSegment({ getHass }) {
   const stage      = sv('sensor.p1s_01p00c5a3101668_current_stage')
   const imgUrl     = sa('image.p1s_01p00c5a3101668_cover_image', 'entity_picture')
 
-  const isPrinting = status === 'running'
-  const isPaused   = status === 'pause'
-  const isActive   = isPrinting || isPaused
+  const isPrinting  = status === 'running'
+  const isPaused    = status === 'pause'
+  const isActive    = isPrinting || isPaused
 
-  const statusColor = isPrinting ? '#6aabda' : isPaused ? '#ff9800' : '#555'
+  const hasTask     = taskName && taskName !== '—' && taskName !== 'unknown' && taskName !== 'unavailable'
+  const isFinished  = !isActive && (stage === 'finish' || (stage === 'idle' && hasTask))
+  const isIdleClean = !isActive && !isFinished
+
+  // Total elapsed time — used in FINISHED chip
+  const startTimeState = hass?.states?.['sensor.p1s_01p00c5a3101668_start_time']?.state || ''
+  const elapsedMin     = startTimeState ? Math.round((Date.now() - new Date(startTimeState).getTime()) / 60000) : 0
+  const elH            = Math.floor(elapsedMin / 60)
+  const elM            = elapsedMin % 60
+  const elStr          = elH > 0 ? `${elH}h ${elM}m` : `${elM}m`
+
+  const statusColor = isPrinting ? '#6aabda' : isPaused ? '#ff9800' : isFinished ? '#63cab7' : '#555'
   const statusLabel = isPrinting ? 'PRINTING'
     : isPaused   ? 'PAUSED'
-    : status === 'finish' ? 'FINISHED'
+    : isFinished ? '✓ FINISHED'
     : status === 'failed' ? 'FAILED'
-    : (status || 'IDLE').toUpperCase()
+    : 'IDLE'
 
   const remH   = Math.floor(remaining)
   const remM   = Math.round((remaining - remH) * 60)
@@ -240,65 +251,90 @@ function PrinterSegment({ getHass }) {
 
   return h('div', null,
 
-    // Hero card
-    h('div', { style: S.heroCard },
-      h('div', { style: S.heroTop },
-        imgUrl
-          ? h('div', { style: S.heroThumb },
+    // Hero card — three states: IDLE / FINISHED / PRINTING+PAUSED
+    isIdleClean
+      ? h('div', { style: S.heroCard },
+          h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '24px 12px' } },
+            h(Icon, { path: ICONS.printer, size: 36, color: '#333' }),
+            h('div', { style: { fontSize: 11, color: '#444' } }, 'Ready')
+          )
+        )
+      : h('div', { style: S.heroCard },
+          h('div', { style: S.heroTop },
+            imgUrl
+              ? h('div', { style: { ...S.heroThumb, ...(isFinished ? { opacity: 0.85 } : {}) } },
+                  mwUrl
+                    ? h('a', { href: mwUrl, target: '_blank', rel: 'noopener', style: { display: 'block', flexShrink: 0 } },
+                        h('img', { src: imgUrl, style: S.heroThumbImg, onError: e => { e.target.style.display = 'none' } })
+                      )
+                    : h('img', { src: imgUrl, style: S.heroThumbImg, onError: e => { e.target.style.display = 'none' } })
+                )
+              : h('div', { style: S.heroThumbPlaceholder },
+                  h(Icon, { path: ICONS.printer, size: 36, color: '#333' })
+                ),
+            h('div', { style: S.heroRight },
+              h('div', { style: S.statusBadge(statusColor) },
+                h('div', { style: { ...S.statusDot, background: statusColor } }),
+                h('span', { style: { ...S.statusText, color: statusColor } }, statusLabel)
+              ),
               mwUrl
-                ? h('a', { href: mwUrl, target: '_blank', rel: 'noopener', style: { display: 'block', flexShrink: 0 } },
-                    h('img', { src: imgUrl, style: S.heroThumbImg, onError: e => { e.target.style.display = 'none' } })
+                ? h('a', { href: mwUrl, target: '_blank', rel: 'noopener', style: { color: 'inherit', textDecoration: 'none' } },
+                    h('div', { style: S.heroTask }, taskName || '—')
                   )
-                : h('img', { src: imgUrl, style: S.heroThumbImg, onError: e => { e.target.style.display = 'none' } })
+                : h('div', { style: S.heroTask }, taskName || '—'),
+              h('div', { style: S.heroStage }, stage?.replace(/_/g, ' ') || '—')
             )
-          : h('div', { style: S.heroThumbPlaceholder },
-              h(Icon, { path: ICONS.printer, size: 36, color: '#333' })
-            ),
-        h('div', { style: S.heroRight },
-          h('div', { style: S.statusBadge(statusColor) },
-            h('div', { style: { ...S.statusDot, background: statusColor } }),
-            h('span', { style: { ...S.statusText, color: statusColor } }, statusLabel)
           ),
-          mwUrl
-            ? h('a', { href: mwUrl, target: '_blank', rel: 'noopener', style: { color: 'inherit', textDecoration: 'none' } },
-                h('div', { style: S.heroTask }, taskName || '—')
-              )
-            : h('div', { style: S.heroTask }, taskName || '—'),
-          h('div', { style: S.heroStage }, stage?.replace(/_/g, ' ') || '—')
-        )
-      ),
-      isActive && h('div', null,
-        h('div', { style: S.progBar },
-          h('div', { style: { ...S.progFill, width: `${Math.min(progress, 100)}%` } })
-        ),
-        h('div', { style: S.progRow },
-          h('span', { style: S.progPct }, `${Math.round(progress)}%`),
-          h('div', { style: S.chips },
-            h('div', { style: S.chip },
-              h(Icon, { path: ICONS.clock, size: 9, color: '#6aabda' }),
-              remStr
+          isActive && h('div', null,
+            h('div', { style: S.progBar },
+              h('div', { style: { ...S.progFill, width: `${Math.min(progress, 100)}%` } })
             ),
-            h('div', { style: S.chip },
-              h(Icon, { path: ICONS.layers, size: 9, color: '#6aabda' }),
-              `${curLayer} / ${totalLayer}`
+            h('div', { style: S.progRow },
+              h('span', { style: S.progPct }, `${Math.round(progress)}%`),
+              h('div', { style: S.chips },
+                h('div', { style: S.chip },
+                  h(Icon, { path: ICONS.clock, size: 9, color: '#6aabda' }),
+                  remStr
+                ),
+                h('div', { style: S.chip },
+                  h(Icon, { path: ICONS.layers, size: 9, color: '#6aabda' }),
+                  `${curLayer} / ${totalLayer}`
+                )
+              )
+            )
+          ),
+          isFinished && h('div', null,
+            h('div', { style: S.progBar },
+              h('div', { style: { ...S.progFill, width: '100%', background: '#63cab7', transition: 'none' } })
+            ),
+            h('div', { style: S.progRow },
+              h('span', { style: { ...S.progPct, color: '#63cab7' } }, '100%'),
+              h('div', { style: S.chips },
+                h('div', { style: { ...S.chip, background: 'rgba(99,202,183,0.12)', borderColor: 'rgba(99,202,183,0.25)', color: '#63cab7' } },
+                  h(Icon, { path: ICONS.layers, size: 9, color: '#63cab7' }),
+                  `${totalLayer} / ${totalLayer}`
+                ),
+                h('div', { style: { ...S.chip, background: 'rgba(99,202,183,0.12)', borderColor: 'rgba(99,202,183,0.25)', color: '#63cab7' } },
+                  h(Icon, { path: ICONS.clock, size: 9, color: '#63cab7' }),
+                  elStr
+                )
+              )
+            )
+          ),
+          h('div', { style: S.filStrip },
+            h('div', { style: { ...S.filDot, background: activeColor } }),
+            h('div', { style: { flex: 1, minWidth: 0 } },
+              h('div', { style: S.filName }, `${vendor} · ${activeName}`),
+              h('div', { style: S.filSub },
+                [material, `Slot ${activeSlot}`, spoolId && spoolId !== '—' ? `#${spoolId}` : ''].filter(Boolean).join(' · ')
+              )
+            ),
+            h('div', { style: { textAlign: 'right', flexShrink: 0 } },
+              h('div', { style: S.filG }, `${Math.round(remainG)}g`),
+              h('div', { style: S.filPct }, `${remainPct}% left`)
             )
           )
-        )
-      ),
-      h('div', { style: S.filStrip },
-        h('div', { style: { ...S.filDot, background: activeColor } }),
-        h('div', { style: { flex: 1, minWidth: 0 } },
-          h('div', { style: S.filName }, `${vendor} · ${activeName}`),
-          h('div', { style: S.filSub },
-            [material, `Slot ${activeSlot}`, spoolId && spoolId !== '—' ? `#${spoolId}` : ''].filter(Boolean).join(' · ')
-          )
         ),
-        h('div', { style: { textAlign: 'right', flexShrink: 0 } },
-          h('div', { style: S.filG }, `${Math.round(remainG)}g`),
-          h('div', { style: S.filPct }, `${remainPct}% left`)
-        )
-      )
-    ),
 
     // Controls 2×2
     h('div', { style: S.ctrl2x2 },
@@ -689,7 +725,7 @@ const S = {
   chip:         { background: 'rgba(106,171,218,0.12)', border: '1px solid rgba(106,171,218,0.25)', borderRadius: 5, padding: '3px 6px', display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: '#6aabda', fontWeight: 500 },
   heroCard:          { background: '#1c1c1e', border: '1px solid #2c2c2e', borderRadius: 14, padding: 12, marginBottom: 8 },
   heroTop:           { display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 10 },
-  heroThumb:         { width: 96, height: 96, borderRadius: 6, background: '#f0f0f0', overflow: 'hidden', flexShrink: 0 },
+  heroThumb:         { width: 96, height: 96, borderRadius: 6, background: '#111113', overflow: 'hidden', flexShrink: 0 },
   heroThumbImg:      { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
   heroThumbPlaceholder: { width: 96, height: 96, borderRadius: 6, background: '#2c2c2e', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' },
   heroRight:         { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' },

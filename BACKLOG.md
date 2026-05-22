@@ -174,6 +174,10 @@
 - [ ] Print cache auto-cleanup automation — ha-bambulab print cache at `/config/www/media/ha-bambulab/{serial}/prints/cache/` has no built-in expiry. 99 prints accumulated 1.3GB (avg ~13MB/print: 3MF + gcode + PNG + slice_info.config). Implement: (1) `shell_command.cleanup_bambulab_cache` in `configuration.yaml` that deletes files older than 30 days, (2) weekly automation triggered Sunday 02:00, (3) manual button on 3D Printer dashboard. Also consider timelapse cleanup (25MB currently, will grow). Path: `/config/www/media/ha-bambulab/{serial}/` covers both `prints/cache/` and `timelapse/`.
 - [ ] Print cache cleanup — manual immediate fix — 1.3GB of ha-bambulab print cache deleted manually on 2026-03-24 (99 prints x ~13MB). Disk: 87% -> 82%. Swap was nearly exhausted (1293/1295MB used) due to memory pressure from accumulated cache + ha-bambulab v2.2.21 update loading new entities. Recurring issue without the auto-cleanup automation above. Monitor disk usage periodically: `du -sh /config/www/media/ha-bambulab/`.
 - [ ] Print cache auto-cleanup documentation for OSS users — recommend documenting cleanup command in README or docs/09_runbooks.md: `find /config/www/media/ha-bambulab -type f -mtime +30 -delete`.
+- [x] Card drying badge (HT2/HT3) may not render on initial load if
+  `binary_sensor.*_drying` state arrives after first hass push — hard
+  refresh resolves. Consider explicit entity subscription or forced
+  re-render trigger on drying sensor state changes. (Fixed v1.9.4 — explicit HT_DRYING_ENTITIES subscription in main.jsx)
 
 ## ~~Makerworld model link from hero card~~ — DONE (v1.7.6, 2026-05-09)
 
@@ -267,6 +271,38 @@ search URL from Title. Two new sensors: `sensor.filament_iq_makerworld_url` and
 | v0.12.2 | 2026-03-14 | Defer RFID reconciler 60s post-print |
 | v0.12.1 | 2026-03-13 | Rehydrate job_key from HA helper |
 | v0.12.0 | 2026-03-13 | Reconciler print-active freeze |
+
+### Key Decisions
+
+- **Card v1.9.4–1.9.6: humidity display (2026-05-21)** — HT unit headers now
+  always show `💧 {hum}%` alongside the drying badge when active
+  (`🔥 {temp}°C · {time} · 💧 {hum}%`) or standalone when idle. AMS 2 Pro
+  header shows `💧 {hum}% · 🌡️ {temp}°C` always. Drying badge initial-load
+  bug fixed via explicit `state_changed` subscription on HT drying binary
+  sensors in `main.jsx`. Card version: 1.9.4 → 1.9.6.
+- **Card v1.9.7: HT unit temperature alignment (2026-05-22)** — HT unit sub-headers
+  in `SlotsTab.jsx` now show `💧 {hum}% · 🌡️ {temp}°C` matching AMS 2 Pro layout
+  exactly. Previously HT cards showed humidity only (`💧 {hum}%`), causing visual
+  misalignment relative to AMS 2 Pro. No haptic calls found in card source.
+  Card version: 1.9.7.
+
+### Bug: rfid_auto_enrolled mis-enrollment (three stacked bugs)
+- **Priority**: High | **Requires**: two-agent + PE review
+- **Production incident**: `tray_uuid 1EC4A2A0AEB848EC999B270605C446F6` written to spool 85 (Sunlu PLA+ 2.0 Black, non-Bambu) instead of spool 64 (Bambu PLA Basic Black). Manually corrected in Spoolman (2026-05-21).
+- **Three confirmed bugs**:
+  - **Bug A** (`_unenrolled_candidates_for_tray` line ~3530): `000000` treated as authoritative color — `TRAY_HEX_NON_AUTHORITATIVE` frozenset not consulted. One-line fix.
+  - **Bug B** (`rfid_auto_enrolled` line ~2241): No vendor/filament_id precondition before writing UUID-format `lot_nr`. Non-Bambu spool can receive a `tray_uuid`. Fix: dual gate (`_is_bambu_vendor` OR GF-prefix `external_id`). Non-Bambu candidate → `STATUS_NEEDS_MANUAL_BIND` / `RFID_NON_BAMBU_SPOOL`, no bind, no `lot_nr` write.
+  - **Bug C** (`rfid_auto_enrolled` lines ~2241–2248): `_rfid_bind_guard_ok` called after `_enroll_lot_nr` — guard is a no-op for fresh spools. Fix: move guard before enroll for consistency; document that fresh spools are gated by candidate selection (Bug A), not the guard.
+- **Skeptic findings (must address before implementation)**:
+  - Bug C does NOT fix the production incident scenario — Bug B does 100% of the protective work for fresh spools
+  - "Still bind without `lot_nr`" approach for non-Bambu spools creates an infinite warn loop — must be UNBOUND instead
+  - `_is_bambu_vendor` alone is fragile for Bambu spools with missing vendor metadata — needs GF-prefix `external_id` fallback
+  - Do NOT update `lotnr_to_spools` / `lotnr_to_all_spools` indices when `lot_nr` write is skipped
+- **Required tests before merge**:
+  - RFID tray + single non-Bambu unenrolled candidate → verify UNBOUND / `RFID_NON_BAMBU_SPOOL`
+  - Two consecutive reconcile cycles with bound non-Bambu spool → verify no repeat auto-enroll loop
+  - Bambu spool with missing vendor metadata → verify `lot_nr` still written (regression guard against false-negative in `_is_bambu_vendor`)
+- **SR + Skeptic analysis complete. Next step**: PE review prompt → implementation.
 
 ### Bug: 3MF cache staleness — same filename, different plate
 - **Severity**: High — causes incorrect consumption writes

@@ -337,7 +337,7 @@ function SpoolAddRow({ filaments, onCreate, onCancel, hass }) {
   )
 }
 
-export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createSpool, refresh, hass, getHass, navIntent }) {
+export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createSpool, refresh, hass, getHass, navIntent, openSpoolId }) {
   const [search, setSearch] = useState('')
   const [vendorFilter, setVendorFilter] = useState('')
   const [materialFilter, setMaterialFilter] = useState('')
@@ -364,8 +364,18 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
       setEditId(parsed.id)
     }
   }, [])
+
   const [adding, setAdding] = useState(false)
   const [binding, setBinding] = useState(false)
+
+  // Cross-tab navigation from Slots tab
+  useEffect(() => {
+    if (openSpoolId) {
+      setEditId(openSpoolId)
+      setAdding(false)
+      setBinding(false)
+    }
+  }, [openSpoolId])
   const [archiveConfirm, setArchiveConfirm] = useState(false)
   const [archiving, setArchiving] = useState(false)
   const [printingSpoolId, setPrintingSpoolId] = useState(null)

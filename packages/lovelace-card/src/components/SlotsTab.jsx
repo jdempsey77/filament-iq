@@ -1,5 +1,6 @@
 import { h } from 'preact'
 import { useState } from 'preact/hooks'
+import { LocationSelect } from './LocationSelect'
 
 // ── MDI SVG paths ────────────────────────────────────────────
 const ICONS = {
@@ -8,6 +9,8 @@ const ICONS = {
   fan:          'M12,11A1,1 0 0,0 11,12A1,1 0 0,0 12,13A1,1 0 0,0 13,12A1,1 0 0,0 12,11M12.5,2C17,2 17.11,5.57 14.75,6.75C13.76,7.24 13.32,8.29 13.13,9.22C13.61,9.42 14.03,9.73 14.35,10.13C18.05,8.13 22.03,8.92 22.03,12.5C22.03,17 18.46,17.1 17.28,14.73C16.78,13.74 15.72,13.3 14.79,13.11C14.59,13.59 14.28,14 13.88,14.34C15.87,18.03 15.08,22 11.5,22C7,22 6.91,18.42 9.27,17.24C10.25,16.75 10.69,15.71 10.89,14.79C10.4,14.59 9.97,14.27 9.65,13.87C5.96,15.85 2,15.07 2,11.5C2,7 5.56,6.89 6.74,9.26C7.24,10.25 8.29,10.68 9.22,10.87C9.41,10.39 9.73,9.97 10.14,9.65C8.15,5.96 8.94,2 12.5,2Z',
   link:         'M10.59,13.41C11,13.8 11,14.44 10.59,14.83C10.2,15.22 9.56,15.22 9.17,14.83C7.22,12.88 7.22,9.71 9.17,7.76V7.76L12.76,4.17C14.71,2.22 17.88,2.22 19.83,4.17C21.78,6.12 21.78,9.29 19.83,11.24L18.07,13C18.07,11.96 17.89,10.92 17.51,9.94L18.42,9C19.59,7.85 19.59,5.96 18.42,4.79C17.25,3.62 15.36,3.62 14.19,4.79L10.59,8.38C9.42,9.55 9.42,11.44 10.59,12.61L10.59,13.41M13.41,10.59C13.8,10.2 14.44,10.2 14.83,10.59C16.78,12.54 16.78,15.71 14.83,17.66V17.66L11.24,21.25C9.29,23.2 6.12,23.2 4.17,21.25C2.22,19.3 2.22,16.13 4.17,14.18L5.93,12.46C5.93,13.5 6.11,14.54 6.49,15.52L5.58,16.43C4.41,17.6 4.41,19.49 5.58,20.66C6.75,21.83 8.64,21.83 9.81,20.66L13.41,17.07C14.58,15.9 14.58,14.01 13.41,12.84C13,12.45 13,11.81 13.41,11.42L13.41,10.59Z',
   chevron:      'M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z',
+  chevronDown:  'M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z',
+  chevronUp:    'M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z',
   alert:        'M13,14H11V10H13M13,18H11V16H13M1,21H23L12,2L1,21Z',
   cancel:       'M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12C4,13.85 4.57,15.55 5.54,16.95L16.95,5.54C15.55,4.57 13.85,4 12,4M12,20A8,8 0 0,0 20,12C20,10.15 19.43,8.45 18.46,7.05L7.05,18.46C8.45,19.43 10.15,20 12,20Z',
   externalLink: 'M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z',
@@ -66,6 +69,16 @@ const SLOT_AMS = {
   6: { ams: 129, tray: 0 },
   7: { ams: 130, tray: 0 },
   8: { ams: 255, tray: 0 },
+}
+
+const LOCATION_TO_SLOT = {
+  'AMS1_Slot1':   1,
+  'AMS1_Slot2':   2,
+  'AMS1_Slot3':   3,
+  'AMS1_Slot4':   4,
+  'AMS128_Slot1': 5,
+  'AMS129_Slot1': 6,
+  'AMS130_Slot1': 7,
 }
 
 const primaryLabel = d => {
@@ -173,6 +186,7 @@ function SlotRow({ n, data, onPopup, borderBottom = true }) {
       ),
       h('div', { style: { fontSize: 13, fontWeight: 700, color: isEmpty ? '#636366' : '#e5e5e7', lineHeight: 1.1 } },
         isEmpty ? 'Empty' : primaryLabel(data)),
+      isEmpty && data.ranOut && h('div', { style: { fontSize: 10, color: '#ff9f0a', marginTop: 1 } }, '🪫 Ran out during print'),
       !isEmpty && h('div', { style: { fontSize: 11, color: '#8e8e93', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
         data.name),
       !isEmpty && h('div', { style: { width: '100%', height: 2, background: '#3a3a3c', borderRadius: 2, overflow: 'hidden', marginTop: 2 } },
@@ -192,6 +206,7 @@ function SlotRow({ n, data, onPopup, borderBottom = true }) {
 // ── SlotsSegment — row layout ─────────────────────────────────
 function SlotsSegment({ getHass, onPopup }) {
   const hass = getHass()
+  const [reconciling, setReconciling] = useState(false)
   const sv = id => hass?.states?.[id]?.state ?? '—'
   const sa = (id, attr) => hass?.states?.[id]?.attributes?.[attr]
 
@@ -213,6 +228,7 @@ function SlotsSegment({ getHass, onPopup }) {
       name:          sv(`sensor.ams_slot_${n}_name`),
       id:            sv(`input_text.ams_slot_${n}_spool_id`),
       g:             sv(`sensor.ams_slot_${n}_remaining_g`),
+      ranOut:        sv(`input_boolean.ams_slot_${n}_ran_out`) === 'on',
       selectEntity:  `input_select.ams_slot_${n}_select_spool`,
       selectCurrent: sv(`input_select.ams_slot_${n}_select_spool`),
     }
@@ -230,13 +246,22 @@ function SlotsSegment({ getHass, onPopup }) {
 
   const htUnits = AMS_UNITS.slice(1)
 
+  const handleReconcile = () => {
+    if (!getHass()) return
+    getHass().callService('input_button', 'press', { entity_id: 'input_button.filament_iq_reconcile_now' })
+    setReconciling(true)
+    setTimeout(() => setReconciling(false), 4000)
+  }
+
   return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
 
     h('div', { style: { display: 'flex', justifyContent: 'flex-end', padding: '0 2px 4px' } },
       h('button', {
         class: 'fiq-btn-bind',
-        onClick: () => getHass()?.callService('input_button', 'press', { entity_id: 'input_button.filament_iq_reconcile_now' }),
-      }, '↺ Reconcile')
+        onClick: handleReconcile,
+        disabled: reconciling,
+        style: reconciling ? { opacity: 0.6, cursor: 'default' } : undefined,
+      }, reconciling ? '↻ Reconciling…' : '↺ Reconcile')
     ),
 
     // AMS 2 Pro — 4 slot rows
@@ -244,7 +269,7 @@ function SlotsSegment({ getHass, onPopup }) {
       h('div', { style: sectionHeaderStyle },
         h('div', { style: sectionTitleStyle }, 'AMS 2 Pro'),
         h('div', { style: sectionSubStyle },
-          ams2proConnected ? `${ams2proHum}% · ${ams2proTemp}°C` : 'Disconnected'
+          ams2proConnected ? `💧 ${ams2proHum}% · 🌡️ ${ams2proTemp}°C` : 'Disconnected'
         )
       ),
       [1, 2, 3, 4].map((n, i) =>
@@ -280,15 +305,15 @@ function SlotsSegment({ getHass, onPopup }) {
           },
             h('span', { style: { fontSize: 9, color: '#636366', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' } },
               `HT${i + 1}`),
-            !isDrying && connected && h('span', { style: { fontSize: 9, color: '#8e8e93', marginLeft: 8 } },
-              `${hum}% · ${temp}°C`),
+            connected && !isDrying && h('span', { style: { fontSize: 9, color: '#8e8e93', marginLeft: 8 } },
+              `💧 ${hum}% · 🌡️ ${temp}°C`),
             isDrying && h('span', {
               style: {
                 fontSize: 9, color: '#ff9f0a',
                 background: 'rgba(255,159,10,0.1)', border: '1px solid rgba(255,159,10,0.3)',
                 borderRadius: 8, padding: '1px 7px', marginLeft: 'auto',
               }
-            }, `♨️ ${temp}°C · ${dryTimeStr}`),
+            }, `🔥 ${temp}°C · ${dryTimeStr} · 💧 ${hum}%`),
           ),
           h(SlotRow, { n: unit.slots[0], data: slotData(unit.slots[0]), onPopup, borderBottom: !isLast })
         )
@@ -305,10 +330,316 @@ function SlotsSegment({ getHass, onPopup }) {
   )
 }
 
-// ── SlotPopup (ported verbatim from PrinterDashboardCard) ────
-function SlotPopup({ popup, getHass, onClose }) {
-  const hass = getHass()
+// ── SpoolModal — bottom-sheet spool editor ───────────────────
+function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll }) {
+  const [remaining, setRemaining] = useState(Math.round(spool.remaining_weight || 0))
+  const [location, setLocation] = useState(spool.location || '')
+  const [firstUsed, setFirstUsed] = useState(
+    spool.first_used ? spool.first_used.substring(0, 10) : ''
+  )
+  const [saving, setSaving] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [printingLabel, setPrintingLabel] = useState(false)
+  const [printingNiimbotLabel, setPrintingNiimbotLabel] = useState(false)
+
+  const f = spool.filament || {}
+  const vendor = f.vendor?.name || ''
+  const material = f.material || ''
+  const name = f.name || '—'
+  const colorHex = (f.color_hex || '555555').replace('#', '')
+  const swatchColor = `#${colorHex}`
+  const isBlack = colorHex.toLowerCase() === '000000'
+
+  const lotNr = spool.lot_nr || '—'
+  const lastUsed = spool.last_used ? spool.last_used.substring(0, 10) : '—'
+  const locationDisplay = location || 'Unassigned'
+  const subtitle = [vendor, material, locationDisplay].filter(Boolean).join(' · ')
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await updateSpool(spool.id, {
+        remaining_weight: Number(remaining),
+        location,
+        ...(firstUsed ? { first_used: firstUsed } : {}),
+      })
+      const slot = LOCATION_TO_SLOT[location]
+      if (slot && hass) {
+        hass.connection.sendMessage({
+          type: 'fire_event',
+          event_type: 'FILAMENT_IQ_SLOT_ASSIGNED',
+          event_data: { slot, spool_id: spool.id },
+        })
+      }
+      onClose()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    await deleteSpool(spool.id)
+    onCloseAll()
+  }
+
+  const handlePrintLabel = () => {
+    if (!hass) return
+    setPrintingLabel(true)
+    try {
+      hass.connection.sendMessage({
+        type: 'fire_event',
+        event_type: 'filament_iq_print_label',
+        event_data: { spool_id: spool.id },
+      })
+    } catch (_) {}
+    setTimeout(() => setPrintingLabel(false), 15000)
+  }
+
+  const handlePrintSwatchLabel = () => {
+    if (!hass) return
+    setPrintingNiimbotLabel(true)
+    try {
+      hass.connection.sendMessage({
+        type: 'fire_event',
+        event_type: 'filament_iq_print_niimbot_label',
+        event_data: { spool_id: spool.id },
+      })
+    } catch (_) {}
+    setTimeout(() => setPrintingNiimbotLabel(false), 15000)
+  }
+
+  const inpStyle = {
+    background: '#2a2a2e',
+    border: '1px solid #3a3a3c',
+    borderRadius: 6,
+    padding: '6px 8px',
+    fontSize: 12,
+    color: '#e5e5e7',
+    width: '100%',
+    boxSizing: 'border-box',
+  }
+
+  return h('div', {
+    style: {
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+      background: 'rgba(0,0,0,0.72)',
+      display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+      zIndex: 10000,
+    },
+    onClick: e => { if (e.target === e.currentTarget) onClose() },
+  },
+    h('div', {
+      style: {
+        background: '#1c1c1f',
+        borderRadius: '16px 16px 0 0',
+        maxHeight: '90vh',
+        overflowY: 'auto',
+        position: 'relative',
+      },
+      onClick: e => e.stopPropagation(),
+    },
+
+      // Drag handle
+      h('div', { style: { width: 36, height: 4, background: '#3a3a3e', borderRadius: 2, margin: '10px auto 4px' } }),
+
+      // Header: "Spool #N" + × close
+      h('div', {
+        style: { padding: '8px 16px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+      },
+        h('span', { style: { fontSize: 15, fontWeight: 600, color: '#f5f5f5' } }, `Spool #${spool.id}`),
+        h('button', {
+          style: {
+            width: 28, height: 28, borderRadius: '50%',
+            background: '#2a2a2e', border: 'none',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer', padding: 0, color: '#8e8e93', fontSize: 18, lineHeight: 1,
+          },
+          onClick: onClose,
+        }, '×')
+      ),
+
+      // Identity block: swatch + name + subtitle
+      h('div', {
+        style: {
+          padding: '10px 16px 14px',
+          display: 'flex', alignItems: 'center', gap: 12,
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          borderTop: '1px solid rgba(255,255,255,0.06)',
+        },
+      },
+        h('div', {
+          style: {
+            width: 40, height: 40, borderRadius: 8, flexShrink: 0,
+            background: swatchColor,
+            border: isBlack ? '1px solid #444' : 'none',
+          },
+        }),
+        h('div', { style: { flex: 1, minWidth: 0 } },
+          h('div', { style: { fontSize: 13, fontWeight: 600, color: '#e5e5e7' } }, name),
+          h('div', { style: { fontSize: 11, color: '#8e8e93', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, subtitle),
+        )
+      ),
+
+      // Meta row: LOT # · SPOOL ID · LAST USED
+      h('div', {
+        style: {
+          padding: '10px 16px',
+          display: 'flex',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+        },
+      },
+        h('div', { style: { flex: 1 } },
+          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#555', marginBottom: 3 } }, 'LOT #'),
+          h('div', { style: { fontSize: 11, fontFamily: 'monospace', color: '#e5e5e7', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+            lotNr.length > 12 ? lotNr.slice(0, 12) + '…' : lotNr),
+        ),
+        h('div', { style: { flex: 1 } },
+          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#555', marginBottom: 3 } }, 'Spool ID'),
+          h('div', { style: { fontSize: 11, fontFamily: 'monospace', color: '#e5e5e7' } }, `#${spool.id}`),
+        ),
+        h('div', { style: { flex: 1 } },
+          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#555', marginBottom: 3 } }, 'Last Used'),
+          h('div', { style: { fontSize: 11, fontFamily: 'monospace', color: '#e5e5e7' } }, lastUsed),
+        ),
+      ),
+
+      // Fields row: Remaining · Location · First used
+      h('div', {
+        style: {
+          padding: '10px 16px',
+          display: 'flex', gap: 8,
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+        },
+      },
+        h('div', { style: { flex: 1 } },
+          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#555', marginBottom: 4 } }, 'Remaining (g)'),
+          h('input', {
+            style: inpStyle,
+            type: 'number',
+            value: remaining,
+            onInput: e => setRemaining(e.target.value),
+          })
+        ),
+        h('div', { style: { flex: 1 } },
+          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#555', marginBottom: 4 } }, 'Location'),
+          h(LocationSelect, { value: location, onChange: setLocation }),
+        ),
+        h('div', { style: { flex: 1 } },
+          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#555', marginBottom: 4 } }, 'First used'),
+          h('input', {
+            style: inpStyle,
+            type: 'date',
+            value: firstUsed,
+            onInput: e => setFirstUsed(e.target.value),
+          })
+        ),
+      ),
+
+      // Action row 1: Delete | Spool Label | Swatch
+      h('div', { style: { padding: '10px 16px 4px', display: 'flex', gap: 8 } },
+        h('button', {
+          style: {
+            flex: 1, background: '#3a1515', border: 'none', borderRadius: 8,
+            padding: '9px 4px', fontSize: 12, fontWeight: 600, color: '#e05555',
+            cursor: 'pointer',
+          },
+          onClick: () => setConfirming(true),
+          disabled: saving,
+        }, 'Delete spool'),
+        h('button', {
+          style: {
+            flex: 1, background: '#1a2035', border: 'none', borderRadius: 8,
+            padding: '9px 4px', fontSize: 12, fontWeight: 600, color: '#5B8AF0',
+            cursor: 'pointer',
+          },
+          onClick: handlePrintLabel,
+          disabled: saving || printingLabel,
+        }, printingLabel ? '⏳ Printing…' : '🖨 Spool Label'),
+        h('button', {
+          style: {
+            flex: 1, background: '#1a2035', border: 'none', borderRadius: 8,
+            padding: '9px 4px', fontSize: 12, fontWeight: 600, color: '#5B8AF0',
+            cursor: 'pointer',
+          },
+          onClick: handlePrintSwatchLabel,
+          disabled: saving || printingNiimbotLabel,
+        }, printingNiimbotLabel ? 'Queuing…' : 'Swatch'),
+      ),
+
+      // Action row 2: Cancel | Save changes
+      h('div', { style: { padding: '8px 16px 20px', display: 'flex', gap: 8 } },
+        h('button', {
+          style: {
+            flex: 1, background: '#2a2a2e', border: 'none', borderRadius: 8,
+            padding: '11px 8px', fontSize: 13, fontWeight: 600, color: '#8e8e93',
+            cursor: 'pointer',
+          },
+          onClick: onClose,
+          disabled: saving,
+        }, 'Cancel'),
+        h('button', {
+          style: {
+            flex: 2, background: '#1a2035', border: 'none', borderRadius: 8,
+            padding: '11px 8px', fontSize: 13, fontWeight: 600, color: '#5B8AF0',
+            cursor: 'pointer',
+          },
+          onClick: handleSave,
+          disabled: saving,
+        }, saving ? 'Saving…' : 'Save changes'),
+      ),
+
+      // Confirm delete overlay
+      confirming && h('div', {
+        style: {
+          position: 'absolute', inset: 0,
+          background: 'rgba(0,0,0,0.80)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          borderRadius: '16px 16px 0 0',
+        },
+      },
+        h('div', {
+          style: {
+            background: '#2c2c2e', borderRadius: 12,
+            padding: '22px 20px', margin: '0 28px', width: '100%',
+          },
+        },
+          h('div', { style: { fontSize: 14, fontWeight: 600, color: '#f5f5f5', marginBottom: 6, textAlign: 'center' } },
+            'Delete this spool?'),
+          h('div', { style: { fontSize: 12, color: '#8e8e93', marginBottom: 18, textAlign: 'center' } },
+            'This cannot be undone.'),
+          h('div', { style: { display: 'flex', gap: 8 } },
+            h('button', {
+              style: {
+                flex: 1, background: '#2a2a2e', border: 'none', borderRadius: 8,
+                padding: '11px 8px', fontSize: 13, fontWeight: 600, color: '#8e8e93',
+                cursor: 'pointer',
+              },
+              onClick: () => setConfirming(false),
+            }, 'Cancel'),
+            h('button', {
+              style: {
+                flex: 2, background: '#3a1515', border: 'none', borderRadius: 8,
+                padding: '11px 8px', fontSize: 13, fontWeight: 600, color: '#e05555',
+                cursor: 'pointer',
+              },
+              onClick: handleDelete,
+            }, 'Delete'),
+          )
+        )
+      ),
+    )
+  )
+}
+
+// ── SlotPopup ────────────────────────────────────────────────
+function SlotPopup({ popup, getHass, onClose, spools, updateSpool, deleteSpool, hass }) {
+  const hassInst = getHass()
   const [pendingOption, setPendingOption] = useState(null)
+  const [spoolModal, setSpoolModal] = useState(false)
+
+  const spoolId = parseInt(popup.id, 10)
+  const spool = spools?.find(s => s.id === spoolId)
+  const canEditSpool = popup.status === 'ok' && popup.id && popup.id !== '—' && popup.id !== 'unavailable' && popup.id !== 'unknown' && spool
 
   const selectSpool = option => {
     setPendingOption(option)
@@ -326,12 +657,14 @@ function SlotPopup({ popup, getHass, onClose }) {
     onClose()
   }
 
-  const selectState = hass?.states?.[popup.selectEntity]
+  const selectState = hassInst?.states?.[popup.selectEntity]
   const allOptions = selectState?.attributes?.options || []
   const PLACEHOLDER = allOptions.find(o => o.startsWith('—') || o.startsWith('-')) || '— Select spool —'
   const options = allOptions.filter(o => o !== PLACEHOLDER)
   const currentOption = selectState?.state || popup.selectCurrent
   const displaySelected = pendingOption ?? currentOption
+
+  const pct = Math.min(100, Math.round((parseFloat(popup.g) || 0) / 1000 * 100))
 
   return h('div', {
     style: S.popupOverlay,
@@ -348,20 +681,31 @@ function SlotPopup({ popup, getHass, onClose }) {
           popup.status === 'ok' ? `Currently assigned · spool #${popup.id}` : 'Select a spool below'
         )
       ),
-      popup.status === 'ok' && h('div', { style: S.currentSpool },
+
+      // Spool identity block — tappable if canEditSpool
+      popup.status === 'ok' && h('div', {
+        style: {
+          ...S.currentSpool,
+          cursor: canEditSpool ? 'pointer' : 'default',
+          transition: 'background 0.15s',
+        },
+        onClick: canEditSpool ? () => setSpoolModal(true) : undefined,
+      },
         h('div', { style: { ...S.csDot, background: popup.color } }),
         h('div', { style: { flex: 1, minWidth: 0 } },
           h('div', { style: S.csName }, popup.name),
           h('div', { style: S.csMeta }, `Spool #${popup.id}`),
           h('div', { style: S.csWbar },
-            h('div', { style: { ...S.csWfill, width: `${Math.min(100, Math.round((parseFloat(popup.g) || 0) / 1000 * 100))}%` } })
+            h('div', { style: { ...S.csWfill, width: `${pct}%` } })
           )
         ),
         h('div', { style: { textAlign: 'right', flexShrink: 0 } },
-          h('div', { style: S.csPct }, `${Math.min(100, Math.round((parseFloat(popup.g) || 0) / 1000 * 100))}%`),
+          h('div', { style: S.csPct }, `${pct}%`),
           h('div', { style: S.csG }, `${Math.round(parseFloat(popup.g) || 0)}g left`)
-        )
+        ),
+        canEditSpool && h(Icon, { path: ICONS.chevron, size: 16, color: '#555', style: { marginLeft: 4 } }),
       ),
+
       h('div', { style: S.popupSec }, 'Select spool'),
       h('div', { style: S.pickerList, onTouchMove: e => e.stopPropagation() },
         options.length === 0
@@ -386,15 +730,25 @@ function SlotPopup({ popup, getHass, onClose }) {
         h(Icon, { path: ICONS.link, size: 16, color: '#6aabda' }),
         h('span', { style: S.assignLabel }, 'Assign & bind')
       )
-    )
+    ),
+
+    // SpoolModal renders above the slot popup sheet
+    spoolModal && canEditSpool && h(SpoolModal, {
+      spool,
+      hass,
+      updateSpool,
+      deleteSpool,
+      onClose: () => setSpoolModal(false),
+      onCloseAll: () => { setSpoolModal(false); onClose() },
+    }),
   )
 }
 
 // ── Default export: wires SlotsSegment + SlotPopup ──────────
-export default function SlotsTab({ getHass }) {
+export default function SlotsTab({ getHass, hass, spools, updateSpool, deleteSpool }) {
   const [popup, setPopup] = useState(null)
   return h('div', { style: { position: 'relative' } },
     h(SlotsSegment, { getHass, onPopup: setPopup }),
-    popup && h(SlotPopup, { popup, getHass, onClose: () => setPopup(null) })
+    popup && h(SlotPopup, { popup, getHass, onClose: () => setPopup(null), hass, spools, updateSpool, deleteSpool })
   )
 }
