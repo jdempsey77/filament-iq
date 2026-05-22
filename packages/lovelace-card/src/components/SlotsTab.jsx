@@ -339,6 +339,7 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
   )
   const [saving, setSaving] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [showMore, setShowMore] = useState(false)
   const [printingLabel, setPrintingLabel] = useState(false)
   const [printingNiimbotLabel, setPrintingNiimbotLabel] = useState(false)
 
@@ -480,30 +481,7 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
         )
       ),
 
-      // Meta row: LOT # · SPOOL ID · LAST USED
-      h('div', {
-        style: {
-          padding: '10px 16px',
-          display: 'flex',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-        },
-      },
-        h('div', { style: { flex: 1 } },
-          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#555', marginBottom: 3 } }, 'LOT #'),
-          h('div', { style: { fontSize: 11, fontFamily: 'monospace', color: '#e5e5e7', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
-            lotNr.length > 12 ? lotNr.slice(0, 12) + '…' : lotNr),
-        ),
-        h('div', { style: { flex: 1 } },
-          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#555', marginBottom: 3 } }, 'Spool ID'),
-          h('div', { style: { fontSize: 11, fontFamily: 'monospace', color: '#e5e5e7' } }, `#${spool.id}`),
-        ),
-        h('div', { style: { flex: 1 } },
-          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#555', marginBottom: 3 } }, 'Last Used'),
-          h('div', { style: { fontSize: 11, fontFamily: 'monospace', color: '#e5e5e7' } }, lastUsed),
-        ),
-      ),
-
-      // Fields row: Remaining · Location · First used
+      // Fields row: Remaining · Location
       h('div', {
         style: {
           padding: '10px 16px',
@@ -524,14 +502,53 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
           h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#555', marginBottom: 4 } }, 'Location'),
           h(LocationSelect, { value: location, onChange: setLocation }),
         ),
-        h('div', { style: { flex: 1 } },
-          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#555', marginBottom: 4 } }, 'First used'),
-          h('input', {
-            style: inpStyle,
-            type: 'date',
-            value: firstUsed,
-            onInput: e => setFirstUsed(e.target.value),
-          })
+      ),
+
+      // More info toggle
+      h('div', {
+        style: {
+          padding: '8px 16px 6px',
+          display: 'flex', alignItems: 'center', gap: 6,
+          cursor: 'pointer', color: '#8e8e93', fontSize: 12,
+        },
+        onClick: () => setShowMore(v => !v),
+      },
+        h('svg', { viewBox: '0 0 24 24', style: { width: 14, height: 14, fill: '#8e8e93', flexShrink: 0 } },
+          h('path', { d: 'M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z' })
+        ),
+        h('span', null, 'More info'),
+        h('svg', {
+          viewBox: '0 0 24 24',
+          style: { width: 14, height: 14, fill: '#8e8e93', flexShrink: 0, transform: showMore ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' },
+        },
+          h('path', { d: 'M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z' })
+        ),
+      ),
+      showMore && h('div', {
+        style: {
+          margin: '0 16px 8px',
+          background: '#2c2c2e',
+          borderRadius: 8,
+          padding: '10px 12px',
+        },
+      },
+        h('div', { style: { marginBottom: 8 } },
+          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#555', marginBottom: 3 } }, 'LOT #'),
+          h('div', { style: { fontSize: 11, fontFamily: 'monospace', color: '#e5e5e7', wordBreak: 'break-all', whiteSpace: 'normal' } }, lotNr),
+        ),
+        h('div', { style: { marginBottom: 8 } },
+          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#555', marginBottom: 3 } }, 'Spool ID'),
+          h('div', { style: { fontSize: 11, fontFamily: 'monospace', color: '#e5e5e7' } }, `#${spool.id}`),
+        ),
+        h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 } },
+          h('div', null,
+            h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#555', marginBottom: 4 } }, 'First used'),
+            h('input', { style: inpStyle, type: 'date', value: firstUsed, onInput: e => setFirstUsed(e.target.value) }),
+          ),
+          h('div', null,
+            h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#555', marginBottom: 3 } }, 'Last used'),
+            h('div', { style: { fontSize: 11, fontFamily: 'monospace', color: '#e5e5e7' } }, lastUsed),
+          ),
         ),
       ),
 
@@ -563,7 +580,7 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
           },
           onClick: handlePrintSwatchLabel,
           disabled: saving || printingNiimbotLabel,
-        }, printingNiimbotLabel ? 'Queuing…' : 'Swatch'),
+        }, printingNiimbotLabel ? 'Queuing…' : '🖨 Swatch'),
       ),
 
       // Action row 2: Cancel | Save changes
