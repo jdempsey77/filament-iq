@@ -1,5 +1,5 @@
 import { h } from 'preact'
-import { useState } from 'preact/hooks'
+import { useState, useEffect } from 'preact/hooks'
 import { LocationSelect } from './LocationSelect'
 
 // ── MDI SVG paths ────────────────────────────────────────────
@@ -142,11 +142,62 @@ const weightPct = d => {
 }
 
 // ── SlotRow — horizontal layout used by all sections ─────────
-function SlotRow({ n, data, onPopup, borderBottom = true }) {
+function SlotRow({ n, data, onPopup, getHass, spools, borderBottom = true }) {
   const isEmpty = data.status === 'empty'
   const isActive = data.isActive
   const pct = weightPct(data)
   const barColor = pct < 20 ? '#ff453a' : data.color
+
+  const [profileStatus, setProfileStatus] = useState('idle')
+
+  useEffect(() => {
+    if (isEmpty || data.status !== 'ok') return
+    const spoolId = parseInt(data.id, 10)
+    if (isNaN(spoolId) || spoolId <= 0) return
+    const filamentId = spools?.find(s => s.id === spoolId)?.filament?.id
+    if (!filamentId) return
+    const hass = getHass ? getHass() : null
+    if (!hass) return
+
+    const requestId = Math.random().toString(36).slice(2)
+    let unsub = null
+    let timer = null
+    let done = false
+
+    const cleanup = () => {
+      if (timer) { clearTimeout(timer); timer = null }
+      if (unsub) { unsub(); unsub = null }
+    }
+
+    const run = async () => {
+      try {
+        unsub = await hass.connection.subscribeEvents((event) => {
+          const d = event.data || {}
+          if (d.request_id !== requestId || done) return
+          done = true
+          cleanup()
+          setProfileStatus(d.status || 'unverified')
+        }, 'filament_iq_profile_lookup_response')
+
+        hass.connection.sendMessage({
+          type: 'fire_event',
+          event_type: 'filament_iq_profile_lookup_request',
+          event_data: { request_id: requestId, filament_id: filamentId },
+        })
+
+        timer = setTimeout(() => {
+          if (done) return
+          done = true
+          cleanup()
+        }, 8000)
+      } catch (e) {
+        cleanup()
+      }
+    }
+
+    run()
+    return cleanup
+  }, [])
 
   return h('div', {
     style: {
@@ -187,8 +238,11 @@ function SlotRow({ n, data, onPopup, borderBottom = true }) {
       h('div', { style: { fontSize: 13, fontWeight: 700, color: isEmpty ? '#636366' : '#e5e5e7', lineHeight: 1.1 } },
         isEmpty ? 'Empty' : primaryLabel(data)),
       isEmpty && data.ranOut && h('div', { style: { fontSize: 10, color: '#ff9f0a', marginTop: 1 } }, '🪫 Ran out during print'),
-      !isEmpty && h('div', { style: { fontSize: 11, color: '#8e8e93', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
-        data.name),
+      !isEmpty && h('div', { style: { display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden' } },
+        h('span', { style: { fontSize: 11, color: '#8e8e93', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, data.name),
+        profileStatus === 'verified' && h('span', { class: 'fiq-slot-profile-pip fiq-slot-pip-verified', title: 'Profile verified' }, '✓ Profile'),
+        profileStatus === 'candidate' && h('span', { class: 'fiq-slot-profile-pip fiq-slot-pip-candidate', title: 'Profile unverified — verify in Filaments tab' }, '? Unverified'),
+      ),
       !isEmpty && h('div', { style: { width: '100%', height: 2, background: '#3a3a3c', borderRadius: 2, overflow: 'hidden', marginTop: 2 } },
         h('div', { style: { width: `${pct}%`, height: '100%', borderRadius: 2, background: barColor } })
       ),
@@ -204,7 +258,7 @@ function SlotRow({ n, data, onPopup, borderBottom = true }) {
 }
 
 // ── SlotsSegment — row layout ─────────────────────────────────
-function SlotsSegment({ getHass, onPopup }) {
+function SlotsSegment({ getHass, onPopup, spools }) {
   const hass = getHass()
   const [reconciling, setReconciling] = useState(false)
   const sv = id => hass?.states?.[id]?.state ?? '—'
@@ -273,7 +327,7 @@ function SlotsSegment({ getHass, onPopup }) {
         )
       ),
       [1, 2, 3, 4].map((n, i) =>
-        h(SlotRow, { key: n, n, data: slotData(n), onPopup, borderBottom: i < 3 })
+        h(SlotRow, { key: n, n, data: slotData(n), onPopup, getHass, spools, borderBottom: i < 3 })
       )
     ),
 
@@ -315,7 +369,7 @@ function SlotsSegment({ getHass, onPopup }) {
               }
             }, `🔥 ${temp}°C · ${dryTimeStr} · 💧 ${hum}%`),
           ),
-          h(SlotRow, { n: unit.slots[0], data: slotData(unit.slots[0]), onPopup, borderBottom: !isLast })
+          h(SlotRow, { n: unit.slots[0], data: slotData(unit.slots[0]), onPopup, getHass, spools, borderBottom: !isLast })
         )
       })
     ),
@@ -325,7 +379,7 @@ function SlotsSegment({ getHass, onPopup }) {
       h('div', { style: { ...sectionHeaderStyle, justifyContent: 'flex-start' } },
         h('div', { style: sectionTitleStyle }, 'External')
       ),
-      h(SlotRow, { n: 8, data: slotData(8), onPopup, borderBottom: false })
+      h(SlotRow, { n: 8, data: slotData(8), onPopup, getHass, spools, borderBottom: false })
     )
   )
 }
@@ -342,6 +396,56 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
   const [showMore, setShowMore] = useState(false)
   const [printingLabel, setPrintingLabel] = useState(false)
   const [printingNiimbotLabel, setPrintingNiimbotLabel] = useState(false)
+  const [profileStatus, setProfileStatus] = useState('idle')
+  const [profileData, setProfileData] = useState(null)
+  const [profileLookedUp, setProfileLookedUp] = useState(false)
+
+  useEffect(() => {
+    if (!showMore || profileLookedUp || !hass || !spool.filament?.id) return
+    setProfileLookedUp(true)
+    const requestId = Math.random().toString(36).slice(2)
+    let unsub = null
+    let timer = null
+    let done = false
+
+    const cleanup = () => {
+      if (timer) { clearTimeout(timer); timer = null }
+      if (unsub) { unsub(); unsub = null }
+    }
+
+    const run = async () => {
+      try {
+        unsub = await hass.connection.subscribeEvents((event) => {
+          const d = event.data || {}
+          if (d.request_id !== requestId || done) return
+          done = true
+          cleanup()
+          setProfileData(d)
+          setProfileStatus(d.status || 'unverified')
+        }, 'filament_iq_profile_lookup_response')
+
+        hass.connection.sendMessage({
+          type: 'fire_event',
+          event_type: 'filament_iq_profile_lookup_request',
+          event_data: { request_id: requestId, filament_id: spool.filament.id },
+        })
+        setProfileStatus('loading')
+
+        timer = setTimeout(() => {
+          if (done) return
+          done = true
+          cleanup()
+          setProfileStatus('error')
+        }, 8000)
+      } catch (e) {
+        cleanup()
+        setProfileStatus('error')
+      }
+    }
+
+    run()
+    return cleanup
+  }, [showMore])
 
   const f = spool.filament || {}
   const vendor = f.vendor?.name || ''
@@ -550,6 +654,32 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
             h('div', { style: { fontSize: 11, fontFamily: 'monospace', color: '#e5e5e7' } }, lastUsed),
           ),
         ),
+        profileStatus !== 'idle' && h('div', { style: { marginTop: 10, paddingTop: 10, borderTop: '0.5px solid #3a3a3c' } },
+          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#636366', marginBottom: 6 } }, '3D Filament Profile'),
+          profileStatus === 'loading' && h('div', { class: 'fiq-profile-loading' }, 'Looking up profile...'),
+          profileStatus === 'verified' && profileData && h('div', null,
+            h('div', { class: 'fiq-profile-match-row' },
+              h('span', { class: 'fiq-profile-badge fiq-profile-verified' }, '✓ Verified'),
+              h('span', { class: 'fiq-profile-name' }, profileData.profile_name),
+            ),
+            h('div', { class: 'fiq-profile-actions', style: { marginTop: 6 } },
+              h('button', { class: 'fiq-profile-btn', onClick: () => window.open(profileData.profile_url, '_blank', 'noopener') }, 'View profile ↗'),
+            ),
+          ),
+          profileStatus === 'candidate' && profileData && h('div', null,
+            h('div', { class: 'fiq-profile-match-row' },
+              h('span', { class: 'fiq-profile-badge fiq-profile-candidate' }, '? Candidate'),
+              h('span', { class: 'fiq-profile-name' }, profileData.profile_name),
+            ),
+            h('div', { class: 'fiq-profile-actions', style: { marginTop: 6 } },
+              h('button', { class: 'fiq-profile-btn', onClick: () => window.open(profileData.profile_url, '_blank', 'noopener') }, 'View candidate ↗'),
+              h('span', { class: 'fiq-profile-loading', style: { marginLeft: 4 } }, 'Verify in Filaments tab'),
+            ),
+          ),
+          (profileStatus === 'no_profile_exists' || profileStatus === 'unverified' || profileStatus === 'error') && h('div', { class: 'fiq-profile-match-row' },
+            h('span', { class: 'fiq-profile-badge fiq-profile-none' }, '— No profile'),
+          ),
+        ),
       ),
 
       // Action row 1: Delete | Spool Label | Swatch
@@ -579,7 +709,8 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
             cursor: 'pointer',
           },
           onClick: handlePrintSwatchLabel,
-          disabled: saving || printingNiimbotLabel,
+          disabled: saving || printingNiimbotLabel || profileStatus !== 'verified',
+          title: profileStatus !== 'verified' ? 'Verify filament profile in Filaments tab to enable swatch printing' : '',
         }, printingNiimbotLabel ? 'Queuing…' : '🖨 Swatch'),
       ),
 
@@ -765,7 +896,7 @@ function SlotPopup({ popup, getHass, onClose, spools, updateSpool, deleteSpool, 
 export default function SlotsTab({ getHass, hass, spools, updateSpool, deleteSpool }) {
   const [popup, setPopup] = useState(null)
   return h('div', { style: { position: 'relative' } },
-    h(SlotsSegment, { getHass, onPopup: setPopup }),
+    h(SlotsSegment, { getHass, onPopup: setPopup, spools }),
     popup && h(SlotPopup, { popup, getHass, onClose: () => setPopup(null), hass, spools, updateSpool, deleteSpool })
   )
 }

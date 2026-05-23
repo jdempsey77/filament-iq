@@ -45,6 +45,10 @@ class FilamentProfileLookup(FilamentIQBase):
             self._on_lookup_request, "filament_iq_profile_lookup_request"
         )
         self.listen_event(self._on_verify, "filament_iq_profile_verify")
+        self.listen_event(
+            self._on_bulk_status_request,
+            "filament_iq_profile_bulk_status_request"
+        )
         self.log(
             f"FilamentProfileLookup initialized spoolman={self.spoolman_url} "
             f"verifications={self.verifications_path}",
@@ -52,6 +56,29 @@ class FilamentProfileLookup(FilamentIQBase):
         )
 
     # ── Event handlers ────────────────────────────────────────────────
+
+    def _on_bulk_status_request(self, event_name, data, kwargs):
+        """Return all known verification statuses from profile_verifications.json."""
+        payload = data or {}
+        request_id = str(payload.get("request_id", ""))
+        try:
+            verifications = self._read_verifications()
+            statuses = {
+                fid: entry.get("status", "unknown")
+                for fid, entry in verifications.get("filaments", {}).items()
+            }
+        except Exception as e:
+            self.log(f"BULK_STATUS_ERROR: {e}", level="ERROR")
+            statuses = {}
+        self.fire_event(
+            "filament_iq_profile_bulk_status_response",
+            request_id=request_id,
+            statuses=statuses,
+        )
+        self.log(
+            f"BULK_STATUS_RESPONSE request_id={request_id} count={len(statuses)}",
+            level="INFO",
+        )
 
     def _on_lookup_request(self, event_name, data, kwargs):
         payload = data or {}
