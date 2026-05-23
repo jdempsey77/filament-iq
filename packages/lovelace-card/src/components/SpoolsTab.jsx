@@ -169,6 +169,56 @@ export function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrin
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
   const [showMore, setShowMore] = useState(false)
+  const [profileStatus, setProfileStatus] = useState('idle')
+  const [profileData, setProfileData] = useState(null)
+  const [profileLookedUp, setProfileLookedUp] = useState(false)
+
+  useEffect(() => {
+    if (!showMore || profileLookedUp || !hass || !spool.filament?.id) return
+    setProfileLookedUp(true)
+    const requestId = Math.random().toString(36).slice(2)
+    let unsub = null
+    let timer = null
+    let done = false
+
+    const cleanup = () => {
+      if (timer) { clearTimeout(timer); timer = null }
+      if (unsub) { unsub(); unsub = null }
+    }
+
+    const run = async () => {
+      try {
+        unsub = await hass.connection.subscribeEvents((event) => {
+          const d = event.data || {}
+          if (d.request_id !== requestId || done) return
+          done = true
+          cleanup()
+          setProfileData(d)
+          setProfileStatus(d.status || 'unverified')
+        }, 'filament_iq_profile_lookup_response')
+
+        hass.connection.sendMessage({
+          type: 'fire_event',
+          event_type: 'filament_iq_profile_lookup_request',
+          event_data: { request_id: requestId, filament_id: spool.filament.id },
+        })
+        setProfileStatus('loading')
+
+        timer = setTimeout(() => {
+          if (done) return
+          done = true
+          cleanup()
+          setProfileStatus('error')
+        }, 8000)
+      } catch (e) {
+        cleanup()
+        setProfileStatus('error')
+      }
+    }
+
+    run()
+    return cleanup
+  }, [showMore])
 
   const handleSave = async () => {
     setSaving(true)
@@ -236,6 +286,50 @@ export function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrin
               <div class="fiq-id-val">{spool.last_used ? spool.last_used.substring(0, 10) : '—'}</div>
             </div>
           </div>
+          {profileStatus !== 'idle' && (
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '0.5px solid #3a3a3c' }}>
+              <div class="fiq-id-key" style={{ marginBottom: 6 }}>3D Filament Profile</div>
+              {profileStatus === 'loading' && (
+                <div class="fiq-profile-loading">Looking up profile...</div>
+              )}
+              {profileStatus === 'verified' && profileData && (
+                <div>
+                  <div class="fiq-profile-match-row">
+                    <span class="fiq-profile-badge fiq-profile-verified">✓ Verified</span>
+                    <span class="fiq-profile-name">{profileData.profile_name}</span>
+                  </div>
+                  <div class="fiq-profile-actions" style={{ marginTop: 6 }}>
+                    <button class="fiq-profile-btn"
+                      onClick={() => window.open(profileData.profile_url, '_blank', 'noopener')}>
+                      View profile ↗
+                    </button>
+                  </div>
+                </div>
+              )}
+              {profileStatus === 'candidate' && profileData && (
+                <div>
+                  <div class="fiq-profile-match-row">
+                    <span class="fiq-profile-badge fiq-profile-candidate">? Candidate</span>
+                    <span class="fiq-profile-name">{profileData.profile_name}</span>
+                  </div>
+                  <div class="fiq-profile-actions" style={{ marginTop: 6 }}>
+                    <button class="fiq-profile-btn"
+                      onClick={() => window.open(profileData.profile_url, '_blank', 'noopener')}>
+                      View candidate ↗
+                    </button>
+                    <span class="fiq-profile-loading" style={{ marginLeft: 4 }}>
+                      Verify in Filaments tab
+                    </span>
+                  </div>
+                </div>
+              )}
+              {(profileStatus === 'no_profile_exists' || profileStatus === 'unverified' || profileStatus === 'error') && (
+                <div class="fiq-profile-match-row">
+                  <span class="fiq-profile-badge fiq-profile-none">— No profile</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
       <div class="fiq-panel-footer">
@@ -251,7 +345,8 @@ export function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrin
           <button
             class="fiq-btn-print"
             onClick={() => onPrintSwatchLabel && onPrintSwatchLabel(spool.id)}
-            disabled={saving || printingNiimbotLabel}
+            disabled={saving || printingNiimbotLabel || profileStatus !== 'verified'}
+            title={profileStatus !== 'verified' ? 'Verify filament profile in Filaments tab to enable swatch printing' : ''}
           >
             {printingNiimbotLabel ? 'Queuing...' : '🖨 Swatch'}
           </button>

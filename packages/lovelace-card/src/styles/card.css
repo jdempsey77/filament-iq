@@ -718,3 +718,24 @@
   color: #636366;
   font-style: italic;
 }
+
+/* ── Slot profile pip badges ────────────────────────── */
+.fiq-slot-profile-pip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 500;
+  margin-left: 5px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.fiq-slot-pip-verified {
+  background: rgba(48,209,88,0.15);
+  color: #30d158;
+}
+.fiq-slot-pip-candidate {
+  background: rgba(255,165,0,0.15);
+  color: #ffa500;
+}

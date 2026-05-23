@@ -21,7 +21,7 @@ function MatBadge({ material }) {
   return <span class={`fiq-mat-badge ${cls}`}>{material || '—'}</span>
 }
 
-function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass }) {
+function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass, initialProfileStatus, onProfileStatusChange }) {
   const [name, setName] = useState(filament.name || '')
   const [material, setMaterial] = useState(filament.material || '')
   const [colorHex, setColorHex] = useState(filament.color_hex || '')
@@ -33,7 +33,7 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  const [profileStatus, setProfileStatus] = useState('idle')
+  const [profileStatus, setProfileStatus] = useState(initialProfileStatus || 'idle')
   const [profileData, setProfileData] = useState(null)
   const [profileAction, setProfileAction] = useState(null)
   const [profileError, setProfileError] = useState(null)
@@ -66,7 +66,9 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
           event_type: 'filament_iq_profile_lookup_request',
           event_data: { request_id: requestId, filament_id: filament.id },
         })
-        setProfileStatus('loading')
+        if (!initialProfileStatus || initialProfileStatus === 'idle') {
+          setProfileStatus('loading')
+        }
 
         timer = setTimeout(() => {
           if (done) return
@@ -139,6 +141,7 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
         } else {
           setProfileStatus('verified')
           setProfileAction(null)
+          onProfileStatusChange?.(filament.id, 'verified')
         }
       }
     )
@@ -153,6 +156,7 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
         setProfileStatus('idle')
         setProfileData(null)
         setProfileAction(null)
+        onProfileStatusChange?.(filament.id, null)
       }
     )
   }
@@ -165,6 +169,7 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
       () => {
         setProfileStatus('no_profile_exists')
         setProfileAction(null)
+        onProfileStatusChange?.(filament.id, 'no_profile_exists')
       }
     )
   }
@@ -230,20 +235,23 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
             <div class="fiq-profile-loading">Profile lookup unavailable</div>
           )}
 
-          {profileStatus === 'verified' && profileData && (
+          {profileStatus === 'verified' && (
             <>
               <div class="fiq-profile-match-row">
                 <span class="fiq-profile-badge fiq-profile-verified">✓ Verified</span>
-                <span class="fiq-profile-name">{profileData.profile_name}</span>
+                {profileData && <span class="fiq-profile-name">{profileData.profile_name}</span>}
               </div>
-              <div class="fiq-profile-actions">
-                <a href={profileData.profile_url} target="_blank" class="fiq-profile-btn">
-                  View profile ↗
-                </a>
-                <button class="fiq-profile-btn fiq-profile-btn-danger" onClick={handleReject}>
-                  Unlink
-                </button>
-              </div>
+              {profileData && (
+                <div class="fiq-profile-actions">
+                  <button class="fiq-profile-btn"
+                    onClick={() => window.open(profileData.profile_url, '_blank', 'noopener')}>
+                    View profile ↗
+                  </button>
+                  <button class="fiq-profile-btn fiq-profile-btn-danger" onClick={handleReject}>
+                    Unlink
+                  </button>
+                </div>
+              )}
             </>
           )}
 
@@ -258,9 +266,10 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
                 Confirming links all spools of this filament type.
               </div>
               <div class="fiq-profile-actions">
-                <a href={profileData.profile_url} target="_blank" class="fiq-profile-btn">
+                <button class="fiq-profile-btn"
+                  onClick={() => window.open(profileData.profile_url, '_blank', 'noopener')}>
                   View candidate ↗
-                </a>
+                </button>
                 <button
                   class="fiq-profile-btn fiq-profile-btn-confirm"
                   onClick={handleConfirm}
@@ -286,9 +295,10 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
                 <span class="fiq-profile-name">No match on 3dfilamentprofiles.com</span>
               </div>
               <div class="fiq-profile-actions">
-                <a href="https://3dfilamentprofiles.com" target="_blank" class="fiq-profile-btn">
+                <button class="fiq-profile-btn"
+                  onClick={() => window.open('https://3dfilamentprofiles.com', '_blank', 'noopener')}>
                   Search manually ↗
-                </a>
+                </button>
                 <button class="fiq-profile-btn" onClick={handleReject}>Reset</button>
               </div>
             </>
@@ -380,6 +390,30 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
   const [editId, setEditId] = useState(null)
   const [adding, setAdding] = useState(false)
   const [showImport, setShowImport] = useState(false)
+  const [profileStatuses, setProfileStatuses] = useState({})
+
+  useEffect(() => {
+    if (!hass) return
+    const reqId = Math.random().toString(36).slice(2)
+    let unsub = null
+    const run = async () => {
+      try {
+        unsub = await hass.connection.subscribeEvents((event) => {
+          const d = event.data || {}
+          if (d.request_id !== reqId) return
+          unsub && unsub()
+          setProfileStatuses(d.statuses || {})
+        }, 'filament_iq_profile_bulk_status_response')
+        hass.connection.sendMessage({
+          type: 'fire_event',
+          event_type: 'filament_iq_profile_bulk_status_request',
+          event_data: { request_id: reqId },
+        })
+      } catch (_) {}
+    }
+    run()
+    return () => { unsub && unsub() }
+  }, [])
 
   const allVendors = useMemo(() => {
     const set = new Set()
@@ -446,6 +480,7 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
       <div class="fiq-table">
         {filtered.map(fil => {
           const expanded = editId === fil.id
+          const pStatus = profileStatuses[String(fil.id)]
           return (
             <div key={fil.id} class={`fiq-row${expanded ? ' expanded' : ''}`}>
               <div class="fiq-row-main cols-6" onClick={() => { setEditId(expanded ? null : fil.id); setAdding(false) }}>
@@ -455,7 +490,18 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
                   <div class="fiq-fsub">{fil.vendor?.name || ''}{fil.vendor?.name && fil.material ? ' · ' : ''}{fil.material || ''}</div>
                 </div>
                 <div class="fiq-cell">{fil.vendor?.name || ''}</div>
-                <div><MatBadge material={fil.material} /></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <MatBadge material={fil.material} />
+                  {pStatus === 'verified' && (
+                    <span class="fiq-profile-badge fiq-profile-verified" title="Profile verified">✓</span>
+                  )}
+                  {pStatus === 'candidate' && (
+                    <span class="fiq-profile-badge fiq-profile-candidate" title="Candidate — verify in edit panel">?</span>
+                  )}
+                  {pStatus === 'no_profile_exists' && (
+                    <span class="fiq-profile-badge fiq-profile-none" title="No profile found">—</span>
+                  )}
+                </div>
                 <div class="fiq-cell weight">{fil.weight ? `${fil.weight}g` : ''}</div>
                 <div class="fiq-row-acts">
                   <button class={`fiq-icon-btn${expanded ? ' icon-active' : ''}`} onClick={e => { e.stopPropagation(); setEditId(expanded ? null : fil.id); setAdding(false) }}>✏</button>
@@ -469,6 +515,15 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
                   onSave={(id, patch) => updateFilament(id, patch).then(() => setEditId(null))}
                   onCancel={() => setEditId(null)}
                   onDelete={(id) => deleteFilament(id).then(() => setEditId(null))}
+                  initialProfileStatus={profileStatuses[String(fil.id)] || 'idle'}
+                  onProfileStatusChange={(id, status) => {
+                    setProfileStatuses(prev => {
+                      const next = { ...prev }
+                      if (status === null) delete next[String(id)]
+                      else next[String(id)] = status
+                      return next
+                    })
+                  }}
                 />
               )}
             </div>
