@@ -1,5 +1,7 @@
 # Filament IQ — Project State
 
+> Last updated: 2026-05-23 (v1.10.0 — profile verification pipeline complete)
+
 Snapshot of released versions, test coverage, key decisions, and open work. Updated after each release.
 
 ---
@@ -8,11 +10,9 @@ Snapshot of released versions, test coverage, key decisions, and open work. Upda
 
 | Component | Version | Commit | Branch | Released |
 |-----------|---------|--------|--------|----------|
-| AppDaemon package | v1.7.6 | b93ed7c | main | 2026-05-10 |
-| Manager card (lovelace) | v1.9.3 | 3abb19a | main | 2026-05-18 |
+| AppDaemon package | v1.10.0 | — | main | 2026-05-23 |
+| Manager card (lovelace) | v1.10.0 | — | main | 2026-05-23 |
 | Monitor (ska) | v1.6.3 | (deployed, not tagged) | main | 2026-05-19 |
-
-> Main is 19 commits ahead of origin — not yet pushed.
 
 ---
 
@@ -20,7 +20,7 @@ Snapshot of released versions, test coverage, key decisions, and open work. Upda
 
 | Suite | Passing | Failing | Notes |
 |-------|---------|---------|-------|
-| filament-iq (all) | 1417 | 7 | 7 pre-existing `consumption_engine` failures (unrelated to v1.7.6) |
+| filament-iq (all) | 1495 | 0 | |
 
 ### Tests added in v1.7.6 session (2026-05-10)
 
@@ -39,12 +39,46 @@ Snapshot of released versions, test coverage, key decisions, and open work. Upda
 
 | Repo | Commit | Status |
 |------|--------|--------|
-| filament-iq | main | **19 commits ahead of origin — not yet pushed** |
+| filament-iq | main | Clean — v1.10.0 pushed |
 | home_assistant | main | Clean working tree |
 
 ---
 
 ## Key Decisions
+
+### 2026-05-23 — Profile verification pipeline (v1.10.0)
+
+Four phases delivered across PR #83–#85.
+
+1. **Profile verification pipeline (v1.10.0)** — Local Niimbot render (Phase 1), AppDaemon backend
+   (Phase 2), FilamentsTab UX (Phase 3), read-only surfaces + row indicators + manual linking (Phase 4).
+   Verification state in `profile_verifications.json` (AppDaemon data dir). PR #83, #84, #85.
+
+2. **Spoolman extra field rejected** — Spoolman validates extra fields against a registered schema;
+   arbitrary keys return "Unknown extra field" error. Verification state stored in AppDaemon data
+   directory instead (`profile_verifications.json`).
+
+3. **REST API events don't reach AppDaemon listen_event** — AppDaemon subscribes via WebSocket;
+   `POST /api/events/` fires into HA bus but not AppDaemon's listener. Card uses
+   `hass.connection.sendMessage({ type: 'fire_event', ... })` which goes through WebSocket.
+
+4. **Scorer color specificity tiebreak** — Added `len(cand_color) * 0.001` to color bonus. Fixes
+   Gray (id=128) beating Light Gray (id=602) on identical 1.15 scores against "PLA Basic Light Gray".
+
+5. **Profile URL pattern** — `https://3dfilamentprofiles.com/filament/details/{id}` where `id` is the
+   integer id field from filaments.json. `short_code` URL pattern does not work (redirects to homepage).
+
+6. **Niimbot pipeline architecture** — Pre-baked PNG pipeline replaced. `NiimbotPrinter` writes
+   `spool_id` (or `spool_id|profile_url` when verified) to `input_text` helper. `ska` render script
+   fetches Spoolman, renders PIL label, composites QR when `profile_url` present.
+
+7. **Tab persistence on Android companion** — `sessionStorage` preserves active tab across card reloads
+   triggered by external link navigation. Profile links use `window.open('_blank','noopener')` to open
+   in-app browser sheet instead of leaving the WebView.
+
+8. **Bulk status fetch** — Single `filament_iq_profile_bulk_status_request` event on FilamentsTab mount
+   returns all known verification statuses in one response. Avoids per-filament lookup events for row
+   indicators.
 
 ### 2026-05-19 — D11HeartbeatLoop added to ska monitor (v1.6.3)
 
@@ -119,6 +153,17 @@ lookup only, while candidate pools continue to use the filtered index.
 
 ---
 
+## Open Backlog Additions (v1.10.0 — 2026-05-23)
+
+### Medium Priority
+
+- [ ] **Spool 65 (Sunlu Dual-Color Black+Red)** — no profile match on 3dfilamentprofiles.com.
+  Manual link via "Link manually" UI if a matching profile exists. (2026-05-23)
+- [ ] **Spool 68 material mismatch** — `lot_nr` has TPU signature but filament record shows
+  Matte PLA Light Grey. Determine correct filament type and update Spoolman record. (2026-05-23)
+
+---
+
 ## Open Backlog Additions (2026-05-18/19)
 
 ### Medium Priority
@@ -155,7 +200,7 @@ lookup only, while candidate pools continue to use the filtered index.
 
 ---
 
-## System Health (as of 2026-05-19)
+## System Health (as of 2026-05-23)
 
 | Check | Status |
 |-------|--------|
@@ -163,7 +208,8 @@ lookup only, while candidate pools continue to use the filtered index.
 | Reconciler state | ok=7, unbound=0 (7 slots) |
 | Monitor (ska) | Running, 5 threads, D11 heartbeat active |
 | D11_H | Powered on, heartbeat keeping alive (240s interval) |
-| Swatch labels | 48/48 spools high confidence, all PNGs present on NAS |
-| filament-iq origin | 19 commits ahead — push pending |
+| Swatch labels | 48/48 spools high confidence; local PIL render pipeline active |
+| Profile verification | FilamentProfileLookup live; profile_verifications.json in data dir |
+| filament-iq origin | Clean — v1.10.0 pushed |
 | home_assistant | Clean working tree |
-| Test suite | 1417 passing, 7 pre-existing consumption_engine failures |
+| Test suite | 1495 passing, 0 failing |

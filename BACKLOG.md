@@ -18,11 +18,14 @@
 ### In Progress
 
 ### Completed
-- [x] Phase 1: Niimbot local render pipeline — labels now render from Spoolman
-      data (vendor, filament name, material, color_hex) instead of pre-baked
-      3dfilamentprofiles.com PNGs. Fixes "Gray" vs "Light Gray" and dual-color
-      skip. Deployed atomically: niimbot_printer.py + ska print_niimbot.sh.
-      (2026-05-23, 1483 tests passing)
+- [x] Profile verification pipeline v1.10.0 (2026-05-23, PR #83–#85, 1495 tests passing):
+      Phase 1: Niimbot local render from Spoolman data
+      Phase 2: FilamentProfileLookup AppDaemon app + profile_verifications.json
+      Phase 3: FilamentsTab verification UX
+      Phase 4: SpoolsTab/SlotsTab read-only surfaces + pip badges
+      Phase 4b: Bulk status fetch + row indicators
+      Phase 4c: Filament ID badges + status filter + manual profile linking
+      Scorer color specificity tiebreak (len * 0.001)
 
 ### High Priority
 - [ ] **Move `data/` directory out of AppDaemon app scan path** — AppDaemon's
@@ -55,10 +58,10 @@
 - [x] Snapshot trust validation (Shape 1) — `_build_start_snapshot` now excludes slots where fuel gauge reads 0.0 but spool is bound (`_read_spool_id > 0`) and physically present. Logs `SNAPSHOT_IMPLAUSIBLE` at WARNING. Rehydration helper-recovery path also validated (`SNAPSHOT_IMPLAUSIBLE_REHYDRATE`). Excluded slots produce explicit `DATA_LOSS: start_g not captured` instead of silent `BELOW_MIN`. Shape 2 (Spoolman discrepancy) deferred — requires print-start Spoolman fetch. 5 new tests. (v1.5.2)
 
 ### Medium Priority
-- [ ] Phase 2: Profile verification backend — FilamentProfileLookup AppDaemon
-      app, profile_verifications.json in data/filament_iq/, AppDaemon event
-      pattern for lookup + confirm/reject. Prerequisite for QR codes on
-      Niimbot labels and verification UX in card.
+- [ ] **Spool 65 (Sunlu Dual-Color Black+Red)** — no profile match on 3dfilamentprofiles.com.
+  Manual link via "Link manually" UI if a matching profile exists. (2026-05-23)
+- [ ] **Spool 68 material mismatch** — `lot_nr` has TPU signature but filament record shows
+  Matte PLA Light Grey. Determine correct filament type and update Spoolman record. (2026-05-23)
 - [x] filament-iq-manager card: nav intent support via `input_text.filament_iq_nav_intent`.
   Slot tap writes `"spool:N"` intent, switches tab; card reads at mount and pre-opens
   the spool edit panel. Intent is consumed once and cleared immediately. See
@@ -264,6 +267,7 @@ search URL from Title. Two new sensors: `sensor.filament_iq_makerworld_url` and
 
 | Version | Date | Summary |
 |---------|------|---------|
+| v1.10.0 | 2026-05-23 | Profile verification pipeline: local Niimbot render, FilamentProfileLookup AppDaemon app, FilamentsTab UX, read-only surfaces + manual linking, bulk status fetch, color specificity tiebreak |
 | v1.7.1 | 2026-03-26 | Cache path fix (/homeassistant/), retry before FTPS, rehydration cache |
 | v1.7.0 | 2026-03-26 | ha-bambulab cache-first 3MF source, FTPS fallback. Eliminates 530 data loss. |
 | v1.6.3 | 2026-03-26 | SNAPSHOT_IMPLAUSIBLE false positive for non-RFID slots (Bug 16) |
@@ -290,6 +294,16 @@ search URL from Title. Two new sensors: `sensor.filament_iq_makerworld_url` and
 
 ### Key Decisions
 
+- **v1.10.0: Spoolman extra field rejected (2026-05-23)** — Spoolman validates extra fields
+  against a registered schema; arbitrary keys return "Unknown extra field" error. Verification
+  state stored in AppDaemon data directory instead (`profile_verifications.json`).
+- **v1.10.0: REST API events don't reach AppDaemon listen_event (2026-05-23)** — AppDaemon
+  subscribes via WebSocket; `POST /api/events/` fires into HA bus but not AppDaemon's listener.
+  Card uses `hass.connection.sendMessage({ type: 'fire_event', ... })` through WebSocket.
+- **v1.10.0: Profile URL pattern (2026-05-23)** — `https://3dfilamentprofiles.com/filament/details/{id}`
+  where `id` is the integer id field from filaments.json. `short_code` URL pattern redirects to homepage.
+- **v1.10.0: Tab persistence on Android companion (2026-05-23)** — `sessionStorage` preserves active
+  tab across card reloads from external link navigation. Profile links use `window.open('_blank','noopener')`.
 - **Card v1.9.4–1.9.6: humidity display (2026-05-21)** — HT unit headers now
   always show `💧 {hum}%` alongside the drying badge when active
   (`🔥 {temp}°C · {time} · 💧 {hum}%`) or standalone when idle. AMS 2 Pro
