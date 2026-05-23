@@ -17,6 +17,13 @@
 
 ### In Progress
 
+### Completed
+- [x] Phase 1: Niimbot local render pipeline — labels now render from Spoolman
+      data (vendor, filament name, material, color_hex) instead of pre-baked
+      3dfilamentprofiles.com PNGs. Fixes "Gray" vs "Light Gray" and dual-color
+      skip. Deployed atomically: niimbot_printer.py + ska print_niimbot.sh.
+      (2026-05-23, 1483 tests passing)
+
 ### High Priority
 - [ ] **Move `data/` directory out of AppDaemon app scan path** — AppDaemon's
   `check_app_updates()` does `os.walk()` + `os.stat()` on every file under the
@@ -48,6 +55,10 @@
 - [x] Snapshot trust validation (Shape 1) — `_build_start_snapshot` now excludes slots where fuel gauge reads 0.0 but spool is bound (`_read_spool_id > 0`) and physically present. Logs `SNAPSHOT_IMPLAUSIBLE` at WARNING. Rehydration helper-recovery path also validated (`SNAPSHOT_IMPLAUSIBLE_REHYDRATE`). Excluded slots produce explicit `DATA_LOSS: start_g not captured` instead of silent `BELOW_MIN`. Shape 2 (Spoolman discrepancy) deferred — requires print-start Spoolman fetch. 5 new tests. (v1.5.2)
 
 ### Medium Priority
+- [ ] Phase 2: Profile verification backend — FilamentProfileLookup AppDaemon
+      app, profile_verifications.json in data/filament_iq/, AppDaemon event
+      pattern for lookup + confirm/reject. Prerequisite for QR codes on
+      Niimbot labels and verification UX in card.
 - [x] filament-iq-manager card: nav intent support via `input_text.filament_iq_nav_intent`.
   Slot tap writes `"spool:N"` intent, switches tab; card reads at mount and pre-opens
   the spool edit panel. Intent is consumed once and cleared immediately. See

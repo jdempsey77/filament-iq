@@ -183,7 +183,7 @@ class FilamentProfilesClient:
         raw_color = candidate.get("color", "") or ""
         cand_color = _norm(raw_color.split("(")[0])
         if cand_color and name_n and cand_color in name_n:
-            score += 0.15
+            score += 0.15 + (len(cand_color) * 0.001)
 
         return score
 

@@ -40,7 +40,7 @@ export function FilamentIQCard({ hass, getHass, navIntent, config }) {
       </div>
       <div class="fiq-body">
         {activeTab === 'spools'    && <SpoolsTab    {...data} hass={hass} getHass={getHass} navIntent={navIntent} />}
-        {activeTab === 'filaments' && <FilamentsTab {...data} client={client} />}
+        {activeTab === 'filaments' && <FilamentsTab {...data} client={client} hass={hass} />}
         {activeTab === 'vendors'   && <VendorsTab   {...data} />}
         {activeTab === 'slots'     && <SlotsTab     getHass={getHass} hass={hass} spools={data.spools} updateSpool={data.updateSpool} deleteSpool={data.deleteSpool} />}
       </div>

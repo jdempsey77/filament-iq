@@ -2,13 +2,14 @@
 niimbot_printer.py — prints swatch labels on NIIMBOT D11_H via ska.
 
 Listens for HA event `filament_iq_print_niimbot_label` with payload { spool_id: int }.
-Fetches spool from Spoolman, looks up filament profile to get the 3dfilamentprofiles
-filament ID, then writes it to input_text.filament_iq_niimbot_print_queue.
-The ska monitor polls that helper and runs print_niimbot.sh.
+Fetches spool from Spoolman, then writes spool_id (or spool_id|profile_url when
+the filament has a verified profile) to input_text.filament_iq_niimbot_print_queue.
+The ska monitor polls that helper and runs print_niimbot.sh, which fetches spool data,
+renders the label locally, and composites a QR code when profile_url is present.
 
 Fires HA event `filament_iq_niimbot_label_result` with { spool_id, success, error }.
 
-Config keys: spoolman_url, filament_profiles_path, dry_run.
+Config keys: spoolman_url, filament_profiles_path, verifications_path, dry_run.
 """
 
 import json
@@ -18,6 +19,10 @@ import urllib.request
 
 from .base import FilamentIQBase
 from .filament_profiles import FilamentProfilesClient, get_profiles_client
+
+DEFAULT_VERIFICATIONS_PATH = (
+    "/addon_configs/a0d7b954_appdaemon/data/filament_iq/profile_verifications.json"
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +40,10 @@ class NiimbotPrinter(FilamentIQBase):
         profiles_path = self.args.get("filament_profiles_path")
         self.profiles_client = get_profiles_client(str(profiles_path)) if profiles_path else None
 
+        self.verifications_path = str(
+            self.args.get("verifications_path", DEFAULT_VERIFICATIONS_PATH)
+        )
+
         self.listen_event(self._on_print_niimbot_event, "filament_iq_print_niimbot_label")
         self.log(
             f"NiimbotPrinter initialized spoolman={self.spoolman_url} dry_run={self.dry_run}",
@@ -47,6 +56,7 @@ class NiimbotPrinter(FilamentIQBase):
         spool_id = int(payload.get("spool_id", 0))
         if spool_id <= 0:
             self.log(f"NIIMBOT_SKIP invalid spool_id={spool_id}", level="WARNING")
+            self._fire_result(spool_id, False, "Invalid spool_id")
             return
 
         try:
@@ -55,52 +65,66 @@ class NiimbotPrinter(FilamentIQBase):
                 self._fire_result(spool_id, False, "Spool not found in Spoolman")
                 return
 
-            filament = spool_data.get("filament") or {}
-            vendor = str((filament.get("vendor") or {}).get("name") or "")
-            material = str(filament.get("material") or "")
-            name = str(filament.get("name") or "")
-
-            profile = None
-            if self.profiles_client and self.profiles_client.available:
-                profile = self.profiles_client.lookup(
-                    vendor=vendor,
-                    material=material,
-                    filament_name=name,
-                )
-                self.log(
-                    f"NIIMBOT_PROFILE spool_id={spool_id} matched={profile.matched} "
-                    f"confidence={profile.confidence} profile_id={profile.profile_id}",
-                    level="INFO",
-                )
-
-            if profile is None or not profile.matched or profile.confidence == "none" or profile.profile_id is None:
-                self.log(
-                    f"NIIMBOT_SKIP spool_id={spool_id} reason=no_profile_id "
-                    f"vendor={vendor!r} material={material!r} name={name!r}",
-                    level="WARNING",
-                )
-                self._fire_result(spool_id, False, "No filament profile found for this spool")
-                return
-
-            filament_id = str(profile.profile_id)
+            queue_value = self._build_queue_value(spool_id, spool_data)
             self.log(
-                f"NIIMBOT_PRINT_QUEUE spool_id={spool_id} filament_id={filament_id}",
+                f"NIIMBOT_PRINT_QUEUE spool_id={spool_id} payload={queue_value}",
                 level="INFO",
             )
 
             if self.dry_run:
                 self.log(
-                    f"DRY_RUN: would set {HELPER_ENTITY}={filament_id} for spool {spool_id}",
+                    f"DRY_RUN: would set {HELPER_ENTITY}={queue_value} for spool {spool_id}",
                     level="INFO",
                 )
             else:
-                self.set_state(HELPER_ENTITY, state=filament_id)
+                self.set_state(HELPER_ENTITY, state=queue_value)
 
             self._fire_result(spool_id, True)
 
         except Exception as e:
             self.log(f"NIIMBOT_ERROR spool_id={spool_id}: {e}", level="ERROR")
             self._fire_result(spool_id, False, str(e))
+
+    def _build_queue_value(self, spool_id: int, spool_data: dict) -> str:
+        """Return 'spool_id|profile_url' if verified, else 'spool_id'."""
+        filament = spool_data.get("filament") or {}
+        filament_id = filament.get("id")
+
+        if filament_id is not None:
+            profile_url, reason = self._lookup_profile_url(filament_id)
+            if profile_url:
+                self.log(
+                    f"NIIMBOT_PROFILE_VERIFIED spool_id={spool_id} profile_url={profile_url}",
+                    level="INFO",
+                )
+                return f"{spool_id}|{profile_url}"
+            self.log(
+                f"NIIMBOT_PROFILE_UNVERIFIED spool_id={spool_id} reason={reason}",
+                level="INFO",
+            )
+        else:
+            self.log(
+                f"NIIMBOT_PROFILE_UNVERIFIED spool_id={spool_id} reason=missing",
+                level="INFO",
+            )
+        return str(spool_id)
+
+    def _lookup_profile_url(self, filament_id) -> tuple:
+        """Return (profile_url, reason). profile_url is None when not verified."""
+        try:
+            with open(self.verifications_path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            entry = data.get("filaments", {}).get(str(filament_id), {})
+            if entry.get("status") == "verified" and entry.get("profile_url"):
+                return entry["profile_url"], "verified"
+            return None, entry.get("status", "missing")
+        except FileNotFoundError:
+            return None, "missing"
+        except Exception as exc:
+            self.log(
+                f"NIIMBOT_VERIFICATIONS_READ_FAILED: {exc}", level="WARNING"
+            )
+            return None, "error"
 
     def _fetch_spool(self, spool_id):
         """GET spool from Spoolman. Returns dict or None."""

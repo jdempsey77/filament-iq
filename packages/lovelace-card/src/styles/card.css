@@ -637,3 +637,84 @@
 
 /* Add spool checkbox */
 .fiq-add-checkbox { padding: 4px 0 8px; }
+
+/* ── Profile verification section ───────────────────── */
+.fiq-profile-section {
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid #3a3a3c;
+}
+.fiq-profile-label {
+  font-size: 10px;
+  color: #636366;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+.fiq-profile-match-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.fiq-profile-badge {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.fiq-profile-verified  { background: rgba(48,209,88,0.15);  color: #30d158; }
+.fiq-profile-candidate { background: rgba(255,165,0,0.15);  color: #ffa500; }
+.fiq-profile-none      { background: rgba(142,142,147,0.15); color: #8e8e93; }
+.fiq-profile-name {
+  font-size: 12px;
+  color: #8e8e93;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fiq-profile-hint {
+  font-size: 11px;
+  color: #ffa500;
+  background: rgba(255,165,0,0.08);
+  border: 0.5px solid rgba(255,165,0,0.2);
+  border-radius: 6px;
+  padding: 6px 9px;
+  margin-bottom: 7px;
+}
+.fiq-profile-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.fiq-profile-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  border: 0.5px solid #3a3a3c;
+  background: #2c2c2e;
+  color: #8e8e93;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: inherit;
+}
+.fiq-profile-btn:disabled { opacity: 0.5; cursor: default; }
+.fiq-profile-btn-confirm {
+  background: rgba(48,209,88,0.1);
+  color: #30d158;
+  border-color: rgba(48,209,88,0.25);
+}
+.fiq-profile-btn-danger {
+  background: rgba(255,69,58,0.1);
+  color: #ff453a;
+  border-color: rgba(255,69,58,0.25);
+}
+.fiq-profile-loading {
+  font-size: 12px;
+  color: #636366;
+  font-style: italic;
+}
