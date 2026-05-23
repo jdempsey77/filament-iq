@@ -55,6 +55,8 @@ except ImportError:
 _DEFAULT_DATA_DIR = "/addon_configs/a0d7b954_appdaemon/data/filament_iq"
 SEEN_JOBS_PATH = os.path.join(_DEFAULT_DATA_DIR, "seen_job_keys.json")
 
+_APP_VERSION = "1.9.8"
+
 MAX_SEEN_JOBS = 50
 ACTIVE_PRINT_FILE = pathlib.Path(_DEFAULT_DATA_DIR) / "active_print.json"
 PRINT_HISTORY_DIR = pathlib.Path(_DEFAULT_DATA_DIR) / "print_history"
@@ -868,6 +870,13 @@ class AmsPrintUsageSync(FilamentIQBase):
         self.log(f"PRINT_STATUS_TRANSITION from={old} to={new}", level="DEBUG")
 
         if new in ("running", "printing") and old not in ("running", "printing", "pause", "paused"):
+            if self._job_key:
+                self.log(
+                    f"PRINT_STATUS_SPURIOUS_SKIP job_key={self._job_key} "
+                    f"old={old!r} new={new!r} — skipping reset, job already active",
+                    level="INFO",
+                )
+                return
             self._trays_used = set()
             self._spool_id_snapshot = {}
             self._tray_active_times = {}
@@ -1180,6 +1189,10 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._start_tray_uuid = {}
         self._job_key = ""
         self._threemf_filename = None
+        self._threemf_data = None
+        self._threemf_source_mtime = 0.0
+        self._threemf_from_disk_restore = False
+        self.log("3MF_STATE_CLEARED — ready for next print", level="DEBUG")
         self._write_threemf_sensor()
         try:
             self.call_service(
@@ -1524,6 +1537,30 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"reason={d.skip_reason}",
                     level="INFO",
                 )
+                if (
+                    d.skip_reason == "NO_3MF_AND_TRAY_NOT_EMPTY"
+                    and not self._is_rfid_slot(d.slot)
+                    and d.spool_id is not None
+                ):
+                    try:
+                        self.call_service(
+                            f"notify/{self.notify_service}",
+                            title="Consumption Not Recorded",
+                            message=(
+                                f"Slot {d.slot} (spool {d.spool_id}) used filament "
+                                "but no slicer data or RFID delta was available to "
+                                "record consumption in Spoolman."
+                            ),
+                        )
+                        self.log(
+                            f"USAGE_NO_EVIDENCE_NOTIFY slot={d.slot} spool_id={d.spool_id}",
+                            level="INFO",
+                        )
+                    except Exception as e:
+                        self.log(
+                            f"USAGE_NO_EVIDENCE_NOTIFY_FAILED slot={d.slot}: {e}",
+                            level="WARNING",
+                        )
 
         # ── EXECUTE ──────────────────────────────────────────────────────
         all_decisions, patched, failed = self._execute_writes(
@@ -2398,6 +2435,13 @@ class AmsPrintUsageSync(FilamentIQBase):
         """Atomic write of active print state to disk."""
         if not self._job_key:
             return
+        if self._print_active and not self._spool_id_snapshot:
+            self.log(
+                "PERSIST_SNAPSHOT_SKIPPED — spool_id_snapshot is empty during "
+                "active print, not committing to disk",
+                level="WARNING",
+            )
+            return
         task_name = str(self.get_state(self._task_name_entity) or "")
         data = {
             "job_key": self._job_key,
@@ -2408,6 +2452,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             "spool_id_snapshot": self._spool_id_snapshot if hasattr(self, "_spool_id_snapshot") else {},
             "threemf_data": self._threemf_data,
             "threemf_file": self._threemf_filename,
+            "threemf_source_mtime": self._threemf_source_mtime or 0.0,
             "threemf_fetched_at": (
                 datetime.datetime.utcnow().isoformat() + "Z"
                 if self._threemf_data else None
@@ -2441,9 +2486,12 @@ class AmsPrintUsageSync(FilamentIQBase):
                 )
                 return None
             raw_snapshot = data.get("spool_id_snapshot", {})
+            mtime = data.get("threemf_source_mtime", 0.0)
+            self._threemf_source_mtime = mtime
             restored = {
                 "threemf_data": data.get("threemf_data"),
                 "threemf_file": data.get("threemf_file"),
+                "threemf_source_mtime": mtime,
                 "trays_used": set(data.get("trays_used", [])),
                 "spool_id_snapshot": {int(k): int(v) for k, v in raw_snapshot.items()},
                 "print_start_time": data.get("print_start_time"),
@@ -2452,8 +2500,13 @@ class AmsPrintUsageSync(FilamentIQBase):
                 f"ACTIVE_PRINT_RESTORED job_key={job_key} "
                 f"has_3mf={restored['threemf_data'] is not None} "
                 f"trays_used={len(restored['trays_used'])} "
-                f"spool_ids={len(restored['spool_id_snapshot'])}",
+                f"spool_ids={len(restored['spool_id_snapshot'])} "
+                f"threemf_source_mtime={mtime:.0f}",
                 level="INFO",
+            )
+            self.log(
+                f"ACTIVE_PRINT_RESTORED threemf_source_mtime={mtime:.0f}",
+                level="DEBUG",
             )
             return restored
         except Exception as e:
