@@ -2,9 +2,9 @@
 niimbot_printer.py — prints swatch labels on NIIMBOT D11_H via ska.
 
 Listens for HA event `filament_iq_print_niimbot_label` with payload { spool_id: int }.
-Fetches spool from Spoolman, looks up filament profile to get the 3dfilamentprofiles
-filament ID, then writes it to input_text.filament_iq_niimbot_print_queue.
-The ska monitor polls that helper and runs print_niimbot.sh.
+Fetches spool from Spoolman, then writes spool_id to
+input_text.filament_iq_niimbot_print_queue. The ska monitor polls that helper
+and runs print_niimbot.sh, which fetches spool data and renders the label locally.
 
 Fires HA event `filament_iq_niimbot_label_result` with { spool_id, success, error }.
 
@@ -47,6 +47,7 @@ class NiimbotPrinter(FilamentIQBase):
         spool_id = int(payload.get("spool_id", 0))
         if spool_id <= 0:
             self.log(f"NIIMBOT_SKIP invalid spool_id={spool_id}", level="WARNING")
+            self._fire_result(spool_id, False, "Invalid spool_id")
             return
 
         try:
@@ -55,46 +56,19 @@ class NiimbotPrinter(FilamentIQBase):
                 self._fire_result(spool_id, False, "Spool not found in Spoolman")
                 return
 
-            filament = spool_data.get("filament") or {}
-            vendor = str((filament.get("vendor") or {}).get("name") or "")
-            material = str(filament.get("material") or "")
-            name = str(filament.get("name") or "")
-
-            profile = None
-            if self.profiles_client and self.profiles_client.available:
-                profile = self.profiles_client.lookup(
-                    vendor=vendor,
-                    material=material,
-                    filament_name=name,
-                )
-                self.log(
-                    f"NIIMBOT_PROFILE spool_id={spool_id} matched={profile.matched} "
-                    f"confidence={profile.confidence} profile_id={profile.profile_id}",
-                    level="INFO",
-                )
-
-            if profile is None or not profile.matched or profile.confidence == "none" or profile.profile_id is None:
-                self.log(
-                    f"NIIMBOT_SKIP spool_id={spool_id} reason=no_profile_id "
-                    f"vendor={vendor!r} material={material!r} name={name!r}",
-                    level="WARNING",
-                )
-                self._fire_result(spool_id, False, "No filament profile found for this spool")
-                return
-
-            filament_id = str(profile.profile_id)
+            queue_value = str(spool_id)
             self.log(
-                f"NIIMBOT_PRINT_QUEUE spool_id={spool_id} filament_id={filament_id}",
+                f"NIIMBOT_PRINT_QUEUE spool_id={spool_id} payload=spool_id",
                 level="INFO",
             )
 
             if self.dry_run:
                 self.log(
-                    f"DRY_RUN: would set {HELPER_ENTITY}={filament_id} for spool {spool_id}",
+                    f"DRY_RUN: would set {HELPER_ENTITY}={queue_value} for spool {spool_id}",
                     level="INFO",
                 )
             else:
-                self.set_state(HELPER_ENTITY, state=filament_id)
+                self.set_state(HELPER_ENTITY, state=queue_value)
 
             self._fire_result(spool_id, True)
 
