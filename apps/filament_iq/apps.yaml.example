@@ -91,6 +91,33 @@ ams_print_usage_sync:
   notify_target: []  # optional: ["notify mobile app"] for push
   ams_units: []      # optional; default AMS Pro + HT
 
+# ── Filament Profile Lookup ───────────────────────────────────────────────
+# Phase 2 verification backend: lookup + verify filament profiles from 3dfilamentprofiles.com.
+# Handles filament_iq_profile_lookup_request and filament_iq_profile_verify HA events.
+# Stores verification results in profile_verifications.json.
+filament_profile_lookup:
+  module: filament_iq.filament_profile_lookup
+  class: FilamentProfileLookup
+  # Required
+  spoolman_url: "http://YOUR_SPOOLMAN_IP:7912"
+  filament_profiles_path: "/path/to/filaments.json"
+  # Optional — defaults to the path below
+  verifications_path: "/addon_configs/a0d7b954_appdaemon/data/filament_iq/profile_verifications.json"
+
+# ── NIIMBOT Label Printer (ska) ───────────────────────────────────────────
+# Prints swatch labels on NIIMBOT D11_H via ska helper entity.
+# When a filament has a verified profile, the helper value is "spool_id|profile_url"
+# so print_niimbot.sh can composite a QR code on the label.
+niimbot_printer:
+  module: filament_iq.niimbot_printer
+  class: NiimbotPrinter
+  # Required
+  spoolman_url: "http://YOUR_SPOOLMAN_IP:7912"
+  # Optional
+  filament_profiles_path: "/path/to/filaments.json"
+  verifications_path: "/addon_configs/a0d7b954_appdaemon/data/filament_iq/profile_verifications.json"
+  dry_run: false
+
 # ── Filament Weight Tracker ───────────────────────────────────────────────
 # Snapshots spool weights before/after prints for validation.
 filament_weight_tracker:

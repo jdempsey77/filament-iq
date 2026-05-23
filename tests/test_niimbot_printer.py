@@ -1,9 +1,12 @@
 """
-test_niimbot_printer.py — Unit tests for NiimbotPrinter (Phase 1).
+test_niimbot_printer.py — Unit tests for NiimbotPrinter (Phase 1 + Phase 2).
 
-Phase 1: spool_id written directly to helper, no profile lookup.
+Phase 1: spool_id written directly to helper.
+Phase 2: spool_id|profile_url written when filament has a verified profile.
 """
 
+import json
+import os
 import sys
 import types
 from unittest import mock
@@ -38,6 +41,18 @@ SAMPLE_SPOOL = {
     },
 }
 
+# Spool 21 with filament_id=7 (used for Phase 2 verified/unverified tests)
+SAMPLE_SPOOL_F7 = {
+    "id": 21,
+    "filament": {
+        "id": 7,
+        "name": "PLA Basic Light Gray",
+        "material": "PLA",
+        "color_hex": "808080",
+        "vendor": {"id": 1, "name": "Bambu Lab"},
+    },
+}
+
 
 class TestableNiimbotPrinter(NiimbotPrinter):
     def __init__(self, args=None):
@@ -47,6 +62,10 @@ class TestableNiimbotPrinter(NiimbotPrinter):
         self.spoolman_url = a["spoolman_url"]
         self.dry_run = bool(a.get("dry_run", False))
         self.profiles_client = None
+        # Default to nonexistent path → FileNotFoundError → Phase 1 behavior
+        self.verifications_path = a.get(
+            "verifications_path", "/nonexistent/profile_verifications.json"
+        )
         self._log_calls = []
         self._set_state_calls = []
         self._events_fired = []
@@ -137,3 +156,54 @@ def test_niimbot_dry_run_does_not_call_set_state():
     assert any("DRY_RUN" in msg for msg, _ in app._log_calls)
     result_events = [e for e in app._events_fired if e["event"] == "filament_iq_niimbot_label_result"]
     assert result_events[0]["success"] is True
+
+
+# ── Phase 2: profile_url path ─────────────────────────────────────────────
+
+def test_niimbot_writes_spool_id_pipe_profile_url_when_verified(tmp_path):
+    """When filament is verified, helper receives 'spool_id|profile_url'."""
+    vpath = str(tmp_path / "pv.json")
+    vdata = {
+        "version": 1,
+        "filaments": {
+            "7": {
+                "status": "verified",
+                "profile_id": 128,
+                "profile_url": "https://3dfilamentprofiles.com/filament/details/128",
+                "profile_name": "Bambu Lab · PLA Basic · Light Gray",
+                "verified_at": "2026-01-01T00:00:00Z",
+                "scorer_version": "1.0",
+            }
+        },
+    }
+    with open(vpath, "w") as fh:
+        json.dump(vdata, fh)
+
+    app = TestableNiimbotPrinter(args={"verifications_path": vpath})
+    app._fetch_spool = mock.Mock(return_value=SAMPLE_SPOOL_F7)
+
+    _fire(app, 21)
+
+    assert len(app._set_state_calls) == 1
+    assert app._set_state_calls[0]["entity"] == HELPER_ENTITY
+    assert app._set_state_calls[0]["state"] == (
+        "21|https://3dfilamentprofiles.com/filament/details/128"
+    )
+    result_events = [e for e in app._events_fired
+                     if e["event"] == "filament_iq_niimbot_label_result"]
+    assert result_events[0]["success"] is True
+
+
+def test_niimbot_writes_spool_id_only_when_unverified(tmp_path):
+    """When no verified entry exists, helper receives plain 'spool_id'."""
+    vpath = str(tmp_path / "pv.json")
+    with open(vpath, "w") as fh:
+        json.dump({"version": 1, "filaments": {}}, fh)
+
+    app = TestableNiimbotPrinter(args={"verifications_path": vpath})
+    app._fetch_spool = mock.Mock(return_value=SAMPLE_SPOOL_F7)
+
+    _fire(app, 21)
+
+    assert len(app._set_state_calls) == 1
+    assert app._set_state_calls[0]["state"] == "21"

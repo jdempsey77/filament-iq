@@ -1,10 +1,19 @@
 #!/bin/bash
-# print_niimbot.sh <spool_id>
+# print_niimbot.sh <helper_value>
+# helper_value is either "spool_id" or "spool_id|profile_url".
 # Fetches spool from Spoolman, renders label with PIL, prints on D11_H.
+# If profile_url is present and qrcode library is available, composites a QR code.
 
 set -euo pipefail
 
-SPOOL_ID="${1:-}"
+HELPER_VALUE="${1:-}"
+# Split on first | to separate spool_id from optional profile_url
+SPOOL_ID="${HELPER_VALUE%%|*}"
+PROFILE_URL="${HELPER_VALUE#*|}"
+if [ "${PROFILE_URL}" = "${HELPER_VALUE}" ]; then
+    PROFILE_URL=""  # no | found — Phase 1 value
+fi
+
 if [ -z "${SPOOL_ID}" ] || [ "${SPOOL_ID}" = "0" ]; then
     echo "Error: spool_id is missing or 0" >&2
     exit 1
@@ -34,13 +43,15 @@ if [ ! -s "${SPOOL_JSON_FILE}" ]; then
     exit 1
 fi
 
-~/niimprint-311-env/bin/python3 - "${SPOOL_JSON_FILE}" <<'PYEOF'
+~/niimprint-311-env/bin/python3 - "${SPOOL_JSON_FILE}" "${PROFILE_URL:-}" <<'PYEOF'
 import json
 import sys
 from PIL import Image, ImageDraw, ImageFont
 
 with open(sys.argv[1]) as f:
     spool = json.load(f)
+
+profile_url = sys.argv[2] if len(sys.argv) > 2 else ""
 
 filament  = spool.get("filament") or {}
 vendor    = str((filament.get("vendor") or {}).get("name") or "Unknown")
@@ -124,8 +135,19 @@ draw.text((TX, y), badge, font=f_badge, fill=(85, 85, 85))
 
 # Rotate -90° CW → portrait 141×306
 out = tmp.rotate(-90, expand=True)
+
+# QR code composite (bottom-right, 40×40px) — graceful degradation if unavailable
+if profile_url:
+    try:
+        import qrcode as _qrcode
+        qr = _qrcode.make(profile_url).resize((40, 40)).convert("RGB")
+        out.paste(qr, (out.width - 40, out.height - 40))
+    except Exception:
+        pass  # qrcode not installed or render failed — print without QR
+
 out.convert("1").save("/tmp/niimbot_label.png")
-print(f"Label rendered: /tmp/niimbot_label.png  spool={spool_id} {vendor} {material} {name!r}")
+print(f"Label rendered: /tmp/niimbot_label.png  spool={spool_id} {vendor} {material} {name!r}"
+      + (f"  qr={profile_url}" if profile_url else ""))
 PYEOF
 
 ~/niimprint-311-env/bin/python3 ~/test_d11h_print.py /tmp/niimbot_label.png
