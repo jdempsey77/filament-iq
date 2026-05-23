@@ -38,6 +38,19 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
   const [profileAction, setProfileAction] = useState(null)
   const [profileError, setProfileError] = useState(null)
 
+  const [manualEntry, setManualEntry] = useState(false)
+  const [manualInput, setManualInput] = useState('')
+  const [manualError, setManualError] = useState(null)
+
+  function parseProfileId(input) {
+    const trimmed = (input || '').trim()
+    const bare = parseInt(trimmed, 10)
+    if (!isNaN(bare) && String(bare) === trimmed) return bare
+    const match = trimmed.match(/\/filament\/details\/(\d+)/)
+    if (match) return parseInt(match[1], 10)
+    return null
+  }
+
   useEffect(() => {
     if (!hass) return
     const requestId = Math.random().toString(36).slice(2)
@@ -174,6 +187,39 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
     )
   }
 
+  const handleManualConfirm = async () => {
+    const profileId = parseProfileId(manualInput)
+    if (!profileId) {
+      setManualError('Enter a valid profile ID or 3dfilamentprofiles.com URL')
+      return
+    }
+    const profileUrl = `https://3dfilamentprofiles.com/filament/details/${profileId}`
+    setProfileAction('confirming')
+    await sendVerify(
+      {
+        filament_id: filament.id,
+        action: 'confirm',
+        profile_id: profileId,
+        profile_url: profileUrl,
+        profile_name: manualInput.trim(),
+      },
+      (result, err) => {
+        if (err || !result?.success) {
+          setManualError('Failed to save — try again')
+          setProfileAction(null)
+        } else {
+          setProfileStatus('verified')
+          setProfileData({ profile_id: profileId, profile_url: profileUrl, profile_name: `Profile #${profileId}` })
+          setManualEntry(false)
+          setManualInput('')
+          setManualError(null)
+          setProfileAction(null)
+          onProfileStatusChange?.(filament.id, 'verified')
+        }
+      }
+    )
+  }
+
   const handleSave = async () => {
     setSaving(true)
     try {
@@ -284,7 +330,38 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
                 >
                   ✕ Wrong
                 </button>
+                <button class="fiq-profile-btn"
+                  onClick={() => { setManualEntry(true); setManualError(null) }}>
+                  Link manually
+                </button>
               </div>
+              {manualEntry && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <input
+                      class="fiq-input"
+                      style={{ flex: 1, fontSize: 12 }}
+                      placeholder="Paste profile URL or ID (e.g. 631)"
+                      value={manualInput}
+                      onInput={e => { setManualInput(e.target.value); setManualError(null) }}
+                    />
+                    <button class="fiq-profile-btn fiq-profile-btn-confirm"
+                      onClick={handleManualConfirm}
+                      disabled={profileAction !== null || !manualInput.trim()}>
+                      Link
+                    </button>
+                    <button class="fiq-profile-btn"
+                      onClick={() => { setManualEntry(false); setManualInput(''); setManualError(null) }}>
+                      Cancel
+                    </button>
+                  </div>
+                  {manualError && (
+                    <div style={{ fontSize: 11, color: '#ff453a', marginTop: 4 }}>
+                      {manualError}
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
 
@@ -300,7 +377,38 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
                   Search manually ↗
                 </button>
                 <button class="fiq-profile-btn" onClick={handleReject}>Reset</button>
+                <button class="fiq-profile-btn"
+                  onClick={() => { setManualEntry(true); setManualError(null) }}>
+                  Link manually
+                </button>
               </div>
+              {manualEntry && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <input
+                      class="fiq-input"
+                      style={{ flex: 1, fontSize: 12 }}
+                      placeholder="Paste profile URL or ID (e.g. 631)"
+                      value={manualInput}
+                      onInput={e => { setManualInput(e.target.value); setManualError(null) }}
+                    />
+                    <button class="fiq-profile-btn fiq-profile-btn-confirm"
+                      onClick={handleManualConfirm}
+                      disabled={profileAction !== null || !manualInput.trim()}>
+                      Link
+                    </button>
+                    <button class="fiq-profile-btn"
+                      onClick={() => { setManualEntry(false); setManualInput(''); setManualError(null) }}>
+                      Cancel
+                    </button>
+                  </div>
+                  {manualError && (
+                    <div style={{ fontSize: 11, color: '#ff453a', marginTop: 4 }}>
+                      {manualError}
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
 
@@ -387,6 +495,7 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
   const [search, setSearch] = useState('')
   const [vendorFilter, setVendorFilter] = useState('')
   const [materialFilter, setMaterialFilter] = useState('')
+  const [profileFilter, setProfileFilter] = useState('')
   const [editId, setEditId] = useState(null)
   const [adding, setAdding] = useState(false)
   const [showImport, setShowImport] = useState(false)
@@ -436,9 +545,18 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
       if (q && !name.includes(q) && !vendor.includes(q) && !mat.includes(q)) return false
       if (vendorFilter && vendor !== vendorFilter.toLowerCase()) return false
       if (materialFilter && mat !== materialFilter.toLowerCase()) return false
+      if (profileFilter) {
+        const pStatus = profileStatuses[String(f.id)]
+        if (profileFilter === 'verified' && pStatus !== 'verified') return false
+        if (profileFilter === 'needs_verification' &&
+            pStatus !== 'candidate' && pStatus !== 'unverified') return false
+        if (profileFilter === 'no_profile_exists' &&
+            pStatus !== 'no_profile_exists') return false
+        if (profileFilter === 'none' && pStatus) return false
+      }
       return true
     })
-  }, [filaments, search, vendorFilter, materialFilter])
+  }, [filaments, search, vendorFilter, materialFilter, profileFilter, profileStatuses])
 
   return (
     <div>
@@ -451,6 +569,13 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
         <select class="fiq-filter" value={materialFilter} onChange={e => setMaterialFilter(e.target.value)}>
           <option value="">All materials</option>
           {allMaterials.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <select class="fiq-filter" value={profileFilter} onChange={e => setProfileFilter(e.target.value)}>
+          <option value="">All profiles</option>
+          <option value="verified">✓ Verified</option>
+          <option value="needs_verification">? Needs verification</option>
+          <option value="no_profile_exists">— No profile</option>
+          <option value="none">Not looked up</option>
         </select>
         <div class="fiq-spacer" />
         <button class="fiq-btn-import" onClick={() => { setShowImport(true); setAdding(false); setEditId(null) }}>Import</button>
@@ -502,7 +627,10 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
                     <span class="fiq-profile-badge fiq-profile-none" title="No profile found">—</span>
                   )}
                 </div>
-                <div class="fiq-cell weight">{fil.weight ? `${fil.weight}g` : ''}</div>
+                <div class="fiq-cell weight">
+                  <div>{fil.weight ? `${fil.weight}g` : ''}</div>
+                  <span class="fiq-id-badge">#{fil.id}</span>
+                </div>
                 <div class="fiq-row-acts">
                   <button class={`fiq-icon-btn${expanded ? ' icon-active' : ''}`} onClick={e => { e.stopPropagation(); setEditId(expanded ? null : fil.id); setAdding(false) }}>✏</button>
                 </div>
