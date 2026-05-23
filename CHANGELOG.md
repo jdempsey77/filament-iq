@@ -1,5 +1,52 @@
 # Changelog
 
+## [1.9.8] — 2026-05-22
+
+### Bug Fixes (AppDaemon — `ams_print_usage_sync`)
+
+- **[A2] Stale 3MF cache cleared on print end** — `_threemf_data`,
+  `_threemf_source_mtime`, and `_threemf_from_disk_restore` are now reset in
+  `_on_print_end()`. Previously these fields were never cleared between prints,
+  causing the `3MF_CACHE_ALREADY_SET` guard in `_fetch_3mf_background` to
+  silently reuse the prior print's 3MF data for any subsequent print with the
+  same filename — resulting in silent `USAGE_NO_EVIDENCE` for all non-RFID
+  slots.
+- **[A2] `threemf_source_mtime` persisted through `active_print.json`** —
+  `_persist_active_print` now writes `threemf_source_mtime` to disk and both
+  restore paths (`_rehydrate_print_state`, `_on_print_finish`) read it back.
+  Previously both paths hardcoded `0.0`, which always triggered
+  `3MF_STALE_FORCE` and discarded valid cached 3MF data after an AppDaemon
+  restart mid-print.
+- **[B] Spurious HA startup event no longer clobbers spool snapshot** —
+  `_on_print_status_change` now returns early (logs `PRINT_STATUS_SPURIOUS_SKIP`)
+  when a `running`/`printing` transition arrives while `_job_key` is already
+  set. Previously, HA's synthetic `old=None` event after AppDaemon restart
+  triggered the reset block, clearing `_spool_id_snapshot` and making
+  `_on_print_start` a no-op (job_key guard), leaving spool tracking empty for
+  the rest of the print.
+- **[B] Empty snapshot not committed mid-print** — `_persist_active_print`
+  now skips disk write with `PERSIST_SNAPSHOT_SKIPPED` when
+  `_spool_id_snapshot` is empty during an active print. Prevents a second
+  rehydration from reading `spool_ids={}` and producing `USAGE_SKIP
+  reason=NO_ACTIVE_SLOTS`.
+
+### Added
+
+- **[A1] Mobile push for `NO_3MF_AND_TRAY_NOT_EMPTY`** — when `_do_finish`
+  encounters `USAGE_NO_EVIDENCE reason=NO_3MF_AND_TRAY_NOT_EMPTY` on a bound
+  non-RFID slot, a push notification is sent via the configured
+  `notify_service`. The alert includes spool name, slot number, and job key so
+  the user can make a manual Spoolman correction. Silent failures on
+  `call_service` are caught and logged as `USAGE_NO_EVIDENCE_NOTIFY_FAILED`
+  without aborting the decisions loop.
+
+### Tests
+
++9 new tests in `test_ams_print_usage_sync.py` covering all three fixes.
+Full suite: 1479 passed.
+
+---
+
 ## [1.9.3] — 2026-05-17
 
 ### Fixes

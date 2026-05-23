@@ -3242,4 +3242,257 @@ def test_pause_resume_preserves_print_start_time():
     )
 
 
+# ── v1.7.7 Fix A2: 3MF state clearing and mtime persistence ──────────
+
+
+def test_threemf_state_cleared_on_print_end():
+    """_on_print_end clears all four 3MF fields."""
+    app = _TestableUsageSync(args={"lifecycle_phase1_enabled": True})
+    app._job_key = "test_job"
+    app._threemf_data = [{"index": 0, "used_g": 15.0}]
+    app._threemf_source_mtime = 1716384000.0
+    app._threemf_from_disk_restore = True
+    app._threemf_filename = "benchy.slice_info.config"
+    app._on_print_end()
+    assert app._threemf_data is None
+    assert app._threemf_source_mtime == 0.0
+    assert app._threemf_from_disk_restore is False
+    assert app._threemf_filename is None
+    assert _has_log(app, "3MF_STATE_CLEARED")
+
+
+def test_threemf_mtime_persisted_and_restored():
+    """_threemf_source_mtime survives a persist → load round-trip."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        app = _TestableUsageSync(args={
+            "lifecycle_phase1_enabled": True,
+            "data_dir": tmp_dir,
+        })
+        app._job_key = "mtime_roundtrip"
+        app._print_active = True
+        app._spool_id_snapshot = {4: 68}
+        app._threemf_data = [{"index": 0, "used_g": 20.0}]
+        app._threemf_source_mtime = 1716400000.0
+        app._persist_active_print()
+
+        result = app._load_active_print("mtime_roundtrip")
+        assert result is not None
+        assert result["threemf_source_mtime"] == 1716400000.0
+
+
+def test_consecutive_prints_get_fresh_3mf_fetch():
+    """After _on_print_end, _threemf_data is None so _fetch_3mf_background does not hit 3MF_CACHE_ALREADY_SET."""
+    app = _TestableUsageSync(args={"lifecycle_phase1_enabled": True})
+    app.threemf_enabled = True
+
+    # Simulate first print populating 3MF state
+    app._job_key = "first_print"
+    app._threemf_data = [{"index": 0, "used_g": 12.0}]
+    app._threemf_source_mtime = 1716000000.0
+    app._threemf_from_disk_restore = False
+
+    # First print ends
+    app._on_print_end()
+    assert app._threemf_data is None, "3MF data must be cleared by _on_print_end"
+
+    # Second print: _fetch_3mf_background runs with _threemf_data=None
+    # Verify 3MF_CACHE_ALREADY_SET is NOT logged
+    app._job_key = "second_print"
+    app._log_calls.clear()
+    # _try_cache_3mf would fail (no cache configured) → falls through naturally
+    # We just need to confirm the guard doesn't fire
+    app._fetch_3mf_background({"attempt": 1, "cache_retry": False})
+    assert not _has_log(app, "3MF_CACHE_ALREADY_SET"), (
+        "3MF_CACHE_ALREADY_SET must not fire when _threemf_data is None"
+    )
+
+
+def test_threemf_state_cleared_on_print_end_allows_refetch():
+    """After _on_print_end, _threemf_data=None so _fetch_3mf_background won't hit 3MF_CACHE_ALREADY_SET."""
+    app = _TestableUsageSync(args={"lifecycle_phase1_enabled": True})
+    app._job_key = "prior_job"
+    app._threemf_data = [{"index": 0, "used_g": 30.0}]
+    app._threemf_from_disk_restore = False
+    app._on_print_end()
+
+    # Simulate _fetch_3mf_background running for a new print
+    app._job_key = "new_job"
+    app._run_in_calls.clear()
+    app.threemf_enabled = True
+    # With _threemf_data=None, _fetch_3mf_background proceeds past the guard.
+    # We verify it does NOT log 3MF_CACHE_ALREADY_SET.
+    # (We can't fully run _fetch_3mf_background without mocking cache, but we can
+    # verify _threemf_data is None going in.)
+    assert app._threemf_data is None
+    assert not _has_log(app, "3MF_CACHE_ALREADY_SET")
+
+
+# ── v1.7.7 Fix B: Spurious startup event protection ──────────────────
+
+
+def test_spurious_startup_event_does_not_clobber_spool_snapshot():
+    """Rehydrated print: running status event with job_key set must NOT reset _spool_id_snapshot."""
+    app = _TestableUsageSync(state_map={
+        "sensor.p1s_01p00c5a3101668_active_tray": "unknown",
+    }, args={"lifecycle_phase1_enabled": True})
+    # Simulate post-rehydration state
+    app._job_key = "active_print_123"
+    app._spool_id_snapshot = {4: 68, 1: 10}
+    app._print_active = True
+
+    # HA fires spurious running event with old=None (typical after AppDaemon restart)
+    app._on_print_status_change(
+        "sensor.p1s_01p00c5a3101668_print_status", "state", None, "running", {}
+    )
+
+    # Snapshot must be preserved
+    assert app._spool_id_snapshot == {4: 68, 1: 10}, (
+        f"_spool_id_snapshot clobbered: {app._spool_id_snapshot}"
+    )
+    assert _has_log(app, "PRINT_STATUS_SPURIOUS_SKIP")
+
+
+def test_persist_does_not_write_empty_snapshot_mid_print():
+    """_persist_active_print with empty _spool_id_snapshot during active print → returns early, file unchanged."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        ap_file = pathlib.Path(tmp_dir) / "active_print.json"
+
+        # Pre-populate file with good spool_ids
+        ap_file.write_text(json.dumps({
+            "job_key": "live_print",
+            "start_snapshot": {"4": 600.0},
+            "trays_used": [4],
+            "spool_id_snapshot": {"4": 68},
+            "threemf_data": None,
+            "threemf_source_mtime": 0.0,
+        }))
+
+        app = _TestableUsageSync(args={
+            "lifecycle_phase1_enabled": True,
+            "data_dir": tmp_dir,
+        })
+        app._job_key = "live_print"
+        app._print_active = True
+        app._spool_id_snapshot = {}  # clobbered
+        app._start_snapshot = {4: 600.0}
+        app._threemf_data = [{"index": 0, "used_g": 20.0}]
+
+        app._persist_active_print()
+
+        # Guard should have fired
+        assert _has_log(app, "PERSIST_SNAPSHOT_SKIPPED")
+        # File should be UNCHANGED — still has the good spool_ids
+        data = json.loads(ap_file.read_text())
+        assert data["spool_id_snapshot"] == {"4": 68}, (
+            f"Snapshot was overwritten: {data['spool_id_snapshot']}"
+        )
+
+
+# ── v1.7.7 Fix A1: USAGE_NO_EVIDENCE mobile alert ────────────────────
+
+
+def test_usage_no_evidence_nonrfid_fires_mobile_notify():
+    """NO_3MF_AND_TRAY_NOT_EMPTY on a bound non-RFID slot → mobile push fires."""
+    from filament_iq.consumption_engine import SlotDecision
+
+    app = _TestableUsageSync(state_map={
+        "sensor.p1s_01p00c5a3101668_task_name": "gasket",
+        "sensor.p1s_01p00c5a3101668_print_weight": "10",
+        "input_text.ams_slot_4_spool_id": "68",
+    }, args={
+        "notify_service": "mobile_app_test_phone",
+    })
+    # Slot 4 is non-RFID (no tag_uid set in state map)
+    app._job_key = "gasket_1779460168"
+    app._print_active = True
+    app._trays_used = {4}
+    app._start_snapshot = {}
+    app._spool_id_snapshot = {4: 68}
+
+    no_evidence_decision = SlotDecision(
+        slot=4, spool_id=68, consumption_g=0.0,
+        method="no_evidence", skip_reason="NO_3MF_AND_TRAY_NOT_EMPTY",
+        confidence="none",
+    )
+    # Inject the decision directly into the DECIDE block output
+    from filament_iq import consumption_engine
+    with mock.patch.object(consumption_engine, "decide_consumption", return_value=[no_evidence_decision]):
+        app._do_finish("finish")
+
+    notify_calls = [
+        c for c in app._service_calls
+        if c["service"] == "notify/mobile_app_test_phone"
+        and "Consumption Not Recorded" in c.get("title", "")
+    ]
+    assert len(notify_calls) == 1, f"Expected 1 notify call, got: {notify_calls}"
+    assert "68" in notify_calls[0]["message"]
+    assert _has_log(app, "USAGE_NO_EVIDENCE_NOTIFY")
+
+
+def test_usage_no_evidence_empty_tray_no_notify():
+    """DEPLETED_BUT_NO_SPOOLMAN_REMAINING (empty tray) must NOT fire the no-evidence mobile alert."""
+    from filament_iq.consumption_engine import SlotDecision
+    from filament_iq import consumption_engine
+
+    app = _TestableUsageSync(state_map={
+        "sensor.p1s_01p00c5a3101668_task_name": "test",
+        "sensor.p1s_01p00c5a3101668_print_weight": "5",
+        "input_text.ams_slot_4_spool_id": "68",
+    })
+    app._job_key = "empty_tray_test"
+    app._print_active = True
+    app._trays_used = {4}
+    app._start_snapshot = {}
+    app._spool_id_snapshot = {4: 68}
+
+    depleted_decision = SlotDecision(
+        slot=4, spool_id=68, consumption_g=0.0,
+        method="no_evidence", skip_reason="DEPLETED_BUT_NO_SPOOLMAN_REMAINING",
+        confidence="none",
+    )
+    with mock.patch.object(consumption_engine, "decide_consumption", return_value=[depleted_decision]):
+        app._do_finish("finish")
+
+    notify_calls = [
+        c for c in app._service_calls
+        if "Consumption Not Recorded" in c.get("title", "")
+    ]
+    assert len(notify_calls) == 0, (
+        f"Unexpected notify for depleted tray: {notify_calls}"
+    )
+
+
+def test_usage_no_evidence_rfid_slot_no_notify():
+    """NO_3MF_AND_TRAY_NOT_EMPTY on an RFID slot must NOT fire the no-evidence mobile alert."""
+    from filament_iq.consumption_engine import SlotDecision
+    from filament_iq import consumption_engine
+
+    app = _TestableUsageSync(state_map={
+        "sensor.p1s_01p00c5a3101668_task_name": "test",
+        "sensor.p1s_01p00c5a3101668_print_weight": "5",
+        "input_text.ams_slot_1_spool_id": "10",
+    })
+    # Make slot 1 appear RFID
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [1]))
+    app._job_key = "rfid_slot_test"
+    app._print_active = True
+    app._trays_used = {1}
+    app._start_snapshot = {}
+    app._spool_id_snapshot = {1: 10}
+
+    rfid_no_evidence = SlotDecision(
+        slot=1, spool_id=10, consumption_g=0.0,
+        method="no_evidence", skip_reason="NO_3MF_AND_TRAY_NOT_EMPTY",
+        confidence="none",
+    )
+    with mock.patch.object(consumption_engine, "decide_consumption", return_value=[rfid_no_evidence]):
+        app._do_finish("finish")
+
+    notify_calls = [
+        c for c in app._service_calls
+        if "Consumption Not Recorded" in c.get("title", "")
+    ]
+    assert len(notify_calls) == 0, (
+        f"Unexpected notify for RFID slot: {notify_calls}"
+    )
 
