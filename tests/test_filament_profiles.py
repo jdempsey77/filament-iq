@@ -213,3 +213,64 @@ def test_generate_label_falls_back():
     assert result.mode == "RGB"
     # Warning was logged
     assert any("Enhanced label failed" in msg for msg, _ in app._log_calls)
+
+
+# ── Color specificity tiebreak tests ─────────────────────────────────
+
+def test_light_gray_scores_higher_than_gray():
+    """Light Gray should score higher than Gray against 'PLA Basic Light Gray'."""
+    gray_candidate = {
+        "brand_name": "Bambu Lab",
+        "material_key": "pla",
+        "material_type_key": "basic",
+        "color": "Gray (10103)",
+        "user_properties": {},
+        "default_properties": {},
+    }
+    light_gray_candidate = {
+        "brand_name": "Bambu Lab",
+        "material_key": "pla",
+        "material_type_key": "basic",
+        "color": "Light Gray (10104)",
+        "user_properties": {},
+        "default_properties": {},
+    }
+
+    score_gray = FilamentProfilesClient._score(
+        "bambu lab", "pla", "pla basic light gray", gray_candidate
+    )
+    score_light_gray = FilamentProfilesClient._score(
+        "bambu lab", "pla", "pla basic light gray", light_gray_candidate
+    )
+
+    assert score_light_gray > score_gray
+
+
+def test_color_specificity_does_not_disrupt_non_tie():
+    """Color specificity fix doesn't affect cases where the correct match wins by a large margin."""
+    winner = {
+        "brand_name": "SUNLU",
+        "material_key": "pla",
+        "material_type_key": "matte",
+        "color": "Black (10001)",
+        "user_properties": {},
+        "default_properties": {},
+    }
+    loser = {
+        "brand_name": "SUNLU",
+        "material_key": "petg",
+        "material_type_key": "basic",
+        "color": "Black (10001)",
+        "user_properties": {},
+        "default_properties": {},
+    }
+
+    score_winner = FilamentProfilesClient._score(
+        "sunlu", "pla", "pla matte black", winner
+    )
+    score_loser = FilamentProfilesClient._score(
+        "sunlu", "pla", "pla matte black", loser
+    )
+
+    assert score_winner > score_loser
+    assert score_winner - score_loser > 0.10
