@@ -116,15 +116,19 @@ function SlotBindRow({ spools, onBind, onCancel }) {
   )
 }
 
-function ColorDot({ hex }) {
+function ColorDot({ hex, multiColorHexes }) {
+  const colors = multiColorHexes ? multiColorHexes.split(',').map(h => `#${h.trim().replace('#','')}`) : null
   const color = hex ? `#${hex}` : '#555'
   const isBlack = !hex || hex.toLowerCase() === '000000'
+  const bg = colors && colors.length >= 2
+    ? `linear-gradient(135deg, ${colors[0]} 50%, ${colors[1]} 50%)`
+    : color
   return (
     <div
       class="fiq-color-dot"
       style={{
-        background: color,
-        border: isBlack ? '1px solid #444' : 'none',
+        background: bg,
+        border: isBlack && !colors ? '1px solid #444' : 'none',
       }}
     />
   )
@@ -174,6 +178,16 @@ export function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrin
   const [profileLookedUp, setProfileLookedUp] = useState(false)
 
   useEffect(() => {
+    const rawUrl = spool.filament?.extra?.profile_url
+    if (!rawUrl) return
+    const url = rawUrl.replace(/^"|"$/g, '').trim()
+    if (url && url !== 'null') {
+      setProfileStatus('verified')
+      setProfileData({ profile_url: url, profile_name: spool.filament?.extra?.profile_name?.replace(/^"|"$/g, '').trim() || '' })
+    }
+  }, [spool.filament?.extra?.profile_url])
+
+  useEffect(() => {
     if (!showMore || profileLookedUp || !hass || !spool.filament?.id) return
     setProfileLookedUp(true)
     const requestId = Math.random().toString(36).slice(2)
@@ -209,7 +223,7 @@ export function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrin
           done = true
           cleanup()
           setProfileStatus('error')
-        }, 8000)
+        }, 20000)
       } catch (e) {
         cleanup()
         setProfileStatus('error')
@@ -833,7 +847,7 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
           return (
             <div key={spool.id} class={`fiq-row${expanded ? ' expanded' : ''}`}>
               <div class="fiq-row-main" onClick={() => { setEditId(expanded ? null : spool.id); setAdding(false); setBinding(false) }}>
-                <ColorDot hex={color} />
+                <ColorDot hex={color} multiColorHexes={f.multi_color_hexes} />
                 <div>
                   <div class="fiq-fname">{f.name || '—'}</div>
                   <div class="fiq-pbar">

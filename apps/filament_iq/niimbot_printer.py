@@ -112,17 +112,17 @@ class NiimbotPrinter(FilamentIQBase):
     def _lookup_profile_url(self, filament_id) -> tuple:
         """Return (profile_url, reason). profile_url is None when not verified."""
         try:
-            with open(self.verifications_path, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            entry = data.get("filaments", {}).get(str(filament_id), {})
-            if entry.get("status") == "verified" and entry.get("profile_url"):
-                return entry["profile_url"], "verified"
-            return None, entry.get("status", "missing")
-        except FileNotFoundError:
-            return None, "missing"
+            url = f"{self.spoolman_url}/api/v1/filament/{filament_id}"
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                filament = json.loads(resp.read().decode("utf-8"))
+            raw_url = ((filament.get("extra") or {}).get("profile_url") or "").strip('"')
+            if raw_url:
+                return raw_url, "verified"
+            return None, "unverified"
         except Exception as exc:
             self.log(
-                f"NIIMBOT_VERIFICATIONS_READ_FAILED: {exc}", level="WARNING"
+                f"NIIMBOT_PROFILE_LOOKUP_FAILED filament_id={filament_id}: {exc}", level="WARNING"
             )
             return None, "error"
 

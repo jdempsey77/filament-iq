@@ -1,5 +1,6 @@
 """
-test_filament_profile_lookup.py — Tests for FilamentProfileLookup (Phase 2).
+test_filament_profile_lookup.py — Tests for FilamentProfileLookup.
+Spoolman is the source of truth for verification status.
 """
 
 import json
@@ -43,10 +44,6 @@ class TestableFilamentProfileLookup(FilamentProfileLookup):
         a.update(args or {})
         super().__init__(None, "test_lookup", None, a, None, None, None)
         self.spoolman_url = a["spoolman_url"]
-        self.verifications_path = a.get(
-            "verifications_path",
-            "/nonexistent/profile_verifications.json",
-        )
         self.profiles_client = None
         self._log_calls = []
         self._events_fired = []
@@ -83,34 +80,121 @@ def _verify(app, filament_id, action, **extra):
     )
 
 
-def _verified_entry(profile_id=128, profile_url=None, profile_name="Bambu Lab · PLA · Light Gray"):
-    if profile_url is None:
-        profile_url = f"https://3dfilamentprofiles.com/filament/details/{profile_id}"
+def _spoolman_filament(filament_id, profile_url=None, profile_name=None):
+    """Build a fake Spoolman filament dict. profile_url is stored JSON-encoded."""
+    extra = {}
+    if profile_url is not None:
+        extra["profile_url"] = json.dumps(profile_url, ensure_ascii=False)
+    if profile_name is not None:
+        extra["profile_name"] = json.dumps(profile_name, ensure_ascii=False)
     return {
-        "status": "verified",
-        "profile_id": profile_id,
-        "profile_url": profile_url,
-        "profile_name": profile_name,
-        "verified_at": "2026-01-01T00:00:00Z",
-        "scorer_version": "1.0",
+        "id": filament_id,
+        "name": "PLA Basic Light Gray",
+        "material": "PLA",
+        "vendor": {"id": 1, "name": "Bambu Lab"},
+        "extra": extra,
     }
 
 
-def _write_verifications(path, filaments_dict):
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump({"version": 1, "filaments": filaments_dict}, fh)
+def _mock_get(filaments):
+    """Return a mock requests.get response yielding a filament list."""
+    resp = mock.MagicMock()
+    resp.json.return_value = filaments
+    resp.raise_for_status = mock.MagicMock()
+    return resp
+
+
+# ── Bulk status tests ─────────────────────────────────────────────────────
+
+def test_bulk_status_derives_verified_from_spoolman():
+    """Filaments with non-empty profile_url in extra → verified; others → unverified."""
+    app = TestableFilamentProfileLookup()
+
+    filaments = [
+        _spoolman_filament(1, profile_url="https://3dfilamentprofiles.com/filament/details/128"),
+        _spoolman_filament(2),                   # no profile_url → unverified
+        _spoolman_filament(3, profile_url=""),    # empty → unverified
+        {"id": 4, "extra": None},                # null extra → unverified
+    ]
+
+    with mock.patch(
+        "filament_iq.filament_profile_lookup.requests.get",
+        return_value=_mock_get(filaments),
+    ):
+        app._on_bulk_status_request(
+            "filament_iq_profile_bulk_status_request",
+            {"request_id": "r1"},
+            {},
+        )
+
+    events = [e for e in app._events_fired
+              if e["event"] == "filament_iq_profile_bulk_status_response"]
+    assert len(events) == 1
+    statuses = events[0]["statuses"]
+    assert statuses["1"] == "verified"
+    assert statuses["2"] == "unverified"
+    assert statuses["3"] == "unverified"
+    assert statuses["4"] == "unverified"
+    assert events[0]["request_id"] == "r1"
+
+
+def test_bulk_status_strips_json_encoded_quotes():
+    """extra.profile_url stored as JSON string ('"url"') is correctly stripped."""
+    app = TestableFilamentProfileLookup()
+
+    # Spoolman stores values JSON-encoded; profile_url looks like '"https://..."'
+    filaments = [{"id": 5, "extra": {"profile_url": '"https://example.com/128"'}}]
+
+    with mock.patch(
+        "filament_iq.filament_profile_lookup.requests.get",
+        return_value=_mock_get(filaments),
+    ):
+        app._on_bulk_status_request(
+            "filament_iq_profile_bulk_status_request", {}, {}
+        )
+
+    events = [e for e in app._events_fired
+              if e["event"] == "filament_iq_profile_bulk_status_response"]
+    assert events[0]["statuses"]["5"] == "verified"
+
+
+def test_bulk_status_spoolman_failure_skips_event_no_prior():
+    """Spoolman network error with no prior statuses → WARNING logged, no event fired."""
+    app = TestableFilamentProfileLookup()
+    app._last_bulk_statuses = {}
+
+    with mock.patch(
+        "filament_iq.filament_profile_lookup.requests.get",
+        side_effect=Exception("connection refused"),
+    ):
+        app._on_bulk_status_request(
+            "filament_iq_profile_bulk_status_request",
+            {"request_id": "r2"},
+            {},
+        )
+
+    events = [e for e in app._events_fired
+              if e["event"] == "filament_iq_profile_bulk_status_response"]
+    assert len(events) == 0  # no prior statuses → skip firing
+
+    warnings = [msg for msg, lvl in app._log_calls if lvl == "WARNING"]
+    assert any("BULK_STATUS_ERROR" in m for m in warnings)
 
 
 # ── Lookup tests ──────────────────────────────────────────────────────────
 
-def test_lookup_returns_verified_from_file(tmp_path):
-    """Verified entry in file → response immediately, scorer NOT called."""
-    vpath = str(tmp_path / "pv.json")
-    _write_verifications(vpath, {"7": _verified_entry(profile_id=128)})
-
-    app = TestableFilamentProfileLookup(args={"verifications_path": vpath})
+def test_lookup_returns_verified_from_spoolman():
+    """Filament with profile_url in Spoolman extra → verified response, scorer NOT called."""
+    app = TestableFilamentProfileLookup()
     mock_client = mock.MagicMock()
     app.profiles_client = mock_client
+
+    filament = _spoolman_filament(
+        7,
+        profile_url="https://3dfilamentprofiles.com/filament/details/128",
+        profile_name="Bambu Lab · PLA · Light Gray",
+    )
+    app._fetch_filament = mock.Mock(return_value=filament)
 
     _lookup(app, "r1", 7)
 
@@ -120,47 +204,17 @@ def test_lookup_returns_verified_from_file(tmp_path):
     r = responses[0]
     assert r["matched"] is True
     assert r["status"] == "verified"
-    assert r["profile_id"] == 128
+    assert r["profile_url"] == "https://3dfilamentprofiles.com/filament/details/128"
+    assert r["profile_name"] == "Bambu Lab · PLA · Light Gray"
     assert r["request_id"] == "r1"
     assert r["filament_id"] == 7
 
     mock_client.lookup.assert_not_called()
 
 
-def test_lookup_returns_no_profile_exists(tmp_path):
-    """no_profile_exists entry → matched=False, scorer NOT called."""
-    vpath = str(tmp_path / "pv.json")
-    _write_verifications(vpath, {"7": {
-        "status": "no_profile_exists",
-        "profile_id": None,
-        "profile_url": None,
-        "profile_name": None,
-        "verified_at": "2026-01-01T00:00:00Z",
-        "scorer_version": "1.0",
-    }})
-
-    app = TestableFilamentProfileLookup(args={"verifications_path": vpath})
-    mock_client = mock.MagicMock()
-    app.profiles_client = mock_client
-
-    _lookup(app, "r2", 7)
-
-    responses = [e for e in app._events_fired
-                 if e["event"] == "filament_iq_profile_lookup_response"]
-    assert len(responses) == 1
-    r = responses[0]
-    assert r["matched"] is False
-    assert r["status"] == "no_profile_exists"
-
-    mock_client.lookup.assert_not_called()
-
-
-def test_lookup_runs_scorer_when_unverified(tmp_path):
-    """No entry for filament → scorer runs, response has status='candidate'."""
-    vpath = str(tmp_path / "pv.json")
-    _write_verifications(vpath, {})  # empty — no entry for filament 7
-
-    app = TestableFilamentProfileLookup(args={"verifications_path": vpath})
+def test_lookup_runs_scorer_when_spoolman_has_no_url():
+    """Filament with no profile_url in Spoolman extra → scorer runs, candidate response."""
+    app = TestableFilamentProfileLookup()
 
     mock_profile = FilamentProfile(
         matched=True, confidence="high",
@@ -174,15 +228,10 @@ def test_lookup_runs_scorer_when_unverified(tmp_path):
     mock_client.lookup.return_value = mock_profile
     app.profiles_client = mock_client
 
-    mock_filament = {
-        "id": 7,
-        "name": "PLA Basic Light Gray",
-        "material": "PLA",
-        "vendor": {"id": 1, "name": "Bambu Lab"},
-    }
-    app._fetch_filament = mock.Mock(return_value=mock_filament)
+    filament = _spoolman_filament(7)  # no profile_url
+    app._fetch_filament = mock.Mock(return_value=filament)
 
-    _lookup(app, "r3", 7)
+    _lookup(app, "r2", 7)
 
     mock_client.lookup.assert_called_once()
 
@@ -195,66 +244,75 @@ def test_lookup_runs_scorer_when_unverified(tmp_path):
     assert r["profile_id"] == 128
 
 
-def test_lookup_missing_file_runs_scorer(tmp_path):
-    """Missing verifications file → no exception, scorer called, response fired."""
-    app = TestableFilamentProfileLookup(args={
-        "verifications_path": str(tmp_path / "nonexistent.json"),
-    })
+def test_lookup_fetch_failure_returns_unverified():
+    """Spoolman fetch failure → unverified response, no scorer call."""
+    app = TestableFilamentProfileLookup()
+    mock_client = mock.MagicMock()
+    app.profiles_client = mock_client
+    app._fetch_filament = mock.Mock(return_value=None)
+
+    _lookup(app, "r3", 7)
+
+    responses = [e for e in app._events_fired
+                 if e["event"] == "filament_iq_profile_lookup_response"]
+    assert len(responses) == 1
+    assert responses[0]["matched"] is False
+    assert responses[0]["status"] == "unverified"
+    mock_client.lookup.assert_not_called()
+
+
+def test_lookup_scorer_no_match_returns_unverified():
+    """Scorer returns no match → unverified response."""
+    app = TestableFilamentProfileLookup()
 
     mock_profile = FilamentProfile(
-        matched=True, confidence="medium",
-        temp_min=210, temp_max=230,
-        bed_temp_min=55, bed_temp_max=55,
+        matched=False, confidence="none",
+        temp_min=None, temp_max=None,
+        bed_temp_min=None, bed_temp_max=None,
         flow_ratio=None, max_volumetric_speed=None,
-        source="community",
-        profile_id=42,
+        source=None,
+        profile_id=None,
     )
     mock_client = mock.MagicMock()
     mock_client.lookup.return_value = mock_profile
     app.profiles_client = mock_client
 
-    app._fetch_filament = mock.Mock(return_value={
-        "id": 7,
-        "name": "PETG Black",
-        "material": "PETG",
-        "vendor": {"id": 2, "name": "SUNLU"},
-    })
+    app._fetch_filament = mock.Mock(return_value=_spoolman_filament(7))
 
     _lookup(app, "r4", 7)
 
-    mock_client.lookup.assert_called_once()
     responses = [e for e in app._events_fired
                  if e["event"] == "filament_iq_profile_lookup_response"]
-    assert len(responses) == 1
-    assert responses[0]["matched"] is True
+    assert responses[0]["matched"] is False
+    assert responses[0]["status"] == "unverified"
 
 
 # ── Verify tests ──────────────────────────────────────────────────────────
 
-def test_verify_confirm_writes_file(tmp_path):
-    """confirm action writes status=verified to file, fires result with success=True."""
-    vpath = str(tmp_path / "pv.json")
-    _write_verifications(vpath, {})
+def test_verify_confirm_patches_spoolman_and_fires_success():
+    """confirm → patches profile_url + profile_name to Spoolman, fires success."""
+    app = TestableFilamentProfileLookup()
 
-    app = TestableFilamentProfileLookup(args={"verifications_path": vpath})
+    fake_get = mock.MagicMock()
+    fake_get.json.return_value = {"id": 7, "extra": {}}
+    fake_get.raise_for_status = mock.MagicMock()
+    fake_patch = mock.MagicMock()
+    fake_patch.raise_for_status = mock.MagicMock()
 
-    _verify(
-        app, 7, "confirm",
-        profile_id=128,
-        profile_url="https://3dfilamentprofiles.com/filament/details/128",
-        profile_name="Bambu Lab · PLA Basic · Light Gray",
-    )
+    with mock.patch("filament_iq.filament_profile_lookup.requests.get",
+                    return_value=fake_get), \
+         mock.patch("filament_iq.filament_profile_lookup.requests.patch",
+                    return_value=fake_patch) as mock_patch:
+        _verify(
+            app, 7, "confirm",
+            profile_id=128,
+            profile_url="https://3dfilamentprofiles.com/filament/details/128",
+            profile_name="Bambu Lab · PLA Basic · Light Gray",
+        )
 
-    with open(vpath) as fh:
-        data = json.load(fh)
-
-    assert "7" in data["filaments"]
-    entry = data["filaments"]["7"]
-    assert entry["status"] == "verified"
-    assert entry["profile_id"] == 128
-    assert entry["profile_url"] == "https://3dfilamentprofiles.com/filament/details/128"
-    assert entry["profile_name"] == "Bambu Lab · PLA Basic · Light Gray"
-    assert "verified_at" in entry
+    patched_extra = mock_patch.call_args[1]["json"]["extra"]
+    assert patched_extra["profile_url"] == '"https://3dfilamentprofiles.com/filament/details/128"'
+    assert patched_extra["profile_name"] == '"Bambu Lab · PLA Basic · Light Gray"'
 
     results = [e for e in app._events_fired
                if e["event"] == "filament_iq_profile_verify_result"]
@@ -263,54 +321,128 @@ def test_verify_confirm_writes_file(tmp_path):
     assert results[0]["filament_id"] == 7
 
 
-def test_verify_no_match_writes_file(tmp_path):
-    """no_match action writes status=no_profile_exists with null profile fields."""
-    vpath = str(tmp_path / "pv.json")
-    _write_verifications(vpath, {})
+def test_verify_reject_clears_spoolman_and_fires_success():
+    """reject → patches profile_url=null + profile_name=null, fires success."""
+    app = TestableFilamentProfileLookup()
 
-    app = TestableFilamentProfileLookup(args={"verifications_path": vpath})
+    fake_get = mock.MagicMock()
+    fake_get.json.return_value = {
+        "id": 7,
+        "extra": {"profile_url": '"https://example.com"', "other": "x"},
+    }
+    fake_get.raise_for_status = mock.MagicMock()
+    fake_patch = mock.MagicMock()
+    fake_patch.raise_for_status = mock.MagicMock()
 
-    _verify(app, 7, "no_match")
+    with mock.patch("filament_iq.filament_profile_lookup.requests.get",
+                    return_value=fake_get), \
+         mock.patch("filament_iq.filament_profile_lookup.requests.patch",
+                    return_value=fake_patch) as mock_patch:
+        _verify(app, 7, "reject")
 
-    with open(vpath) as fh:
-        data = json.load(fh)
-
-    assert "7" in data["filaments"]
-    entry = data["filaments"]["7"]
-    assert entry["status"] == "no_profile_exists"
-    assert entry["profile_id"] is None
-    assert entry["profile_url"] is None
+    patched_extra = mock_patch.call_args[1]["json"]["extra"]
+    assert "profile_url" not in patched_extra  # None → key removed
+    assert "profile_name" not in patched_extra  # None → key removed
+    assert patched_extra["other"] == "x"  # unrelated key preserved
 
     results = [e for e in app._events_fired
                if e["event"] == "filament_iq_profile_verify_result"]
     assert results[0]["success"] is True
 
 
-def test_verify_reject_removes_entry(tmp_path):
-    """reject action removes the filament entry from the file."""
-    vpath = str(tmp_path / "pv.json")
-    _write_verifications(vpath, {"7": _verified_entry()})
+def test_verify_no_match_clears_spoolman_and_fires_success():
+    """no_match → removes profile_url and profile_name from extra, fires success."""
+    app = TestableFilamentProfileLookup()
 
-    app = TestableFilamentProfileLookup(args={"verifications_path": vpath})
+    fake_get = mock.MagicMock()
+    fake_get.json.return_value = {"id": 7, "extra": {}}
+    fake_get.raise_for_status = mock.MagicMock()
+    fake_patch = mock.MagicMock()
+    fake_patch.raise_for_status = mock.MagicMock()
 
-    _verify(app, 7, "reject")
+    with mock.patch("filament_iq.filament_profile_lookup.requests.get",
+                    return_value=fake_get), \
+         mock.patch("filament_iq.filament_profile_lookup.requests.patch",
+                    return_value=fake_patch) as mock_patch:
+        _verify(app, 7, "no_match")
 
-    with open(vpath) as fh:
-        data = json.load(fh)
+    patched_extra = mock_patch.call_args[1]["json"]["extra"]
+    assert "profile_url" not in patched_extra  # None → key removed
+    assert "profile_name" not in patched_extra  # None → key removed
 
-    assert "7" not in data["filaments"]
+    results = [e for e in app._events_fired
+               if e["event"] == "filament_iq_profile_verify_result"]
+    assert results[0]["success"] is True
+
+
+def test_patch_spoolman_extra_preserves_existing_keys():
+    """confirm preserves unrelated existing extra keys when patching."""
+    app = TestableFilamentProfileLookup()
+
+    fake_get = mock.MagicMock()
+    fake_get.json.return_value = {"id": 7, "extra": {"other_key": "preserved"}}
+    fake_get.raise_for_status = mock.MagicMock()
+    fake_patch = mock.MagicMock()
+    fake_patch.raise_for_status = mock.MagicMock()
+
+    with mock.patch("filament_iq.filament_profile_lookup.requests.get",
+                    return_value=fake_get), \
+         mock.patch("filament_iq.filament_profile_lookup.requests.patch",
+                    return_value=fake_patch) as mock_patch:
+        _verify(
+            app, 7, "confirm",
+            profile_id=128,
+            profile_url="https://3dfilamentprofiles.com/filament/details/128",
+            profile_name="Bambu Lab · PLA Basic · Light Gray",
+        )
+
+    patched_extra = mock_patch.call_args[1]["json"]["extra"]
+    assert patched_extra["other_key"] == "preserved"
+    assert patched_extra["profile_url"] == '"https://3dfilamentprofiles.com/filament/details/128"'
+    assert patched_extra["profile_name"] == '"Bambu Lab · PLA Basic · Light Gray"'
+
+    results = [e for e in app._events_fired
+               if e["event"] == "filament_iq_profile_verify_result"]
+    assert results[0]["success"] is True
+
+
+def test_patch_spoolman_extra_failure_fires_verify_failure():
+    """A network error in _patch_spoolman_extra propagates and fires verify failure."""
+    app = TestableFilamentProfileLookup()
+
+    with mock.patch("filament_iq.filament_profile_lookup.requests.get",
+                    side_effect=Exception("network down")):
+        _verify(
+            app, 7, "confirm",
+            profile_id=128,
+            profile_url="https://3dfilamentprofiles.com/filament/details/128",
+            profile_name="Bambu Lab · PLA Basic · Light Gray",
+        )
+
+    error_logs = [msg for msg, lvl in app._log_calls if lvl == "ERROR"]
+    assert any("PROFILE_VERIFY_FAILED" in m for m in error_logs)
+
+    results = [e for e in app._events_fired
+               if e["event"] == "filament_iq_profile_verify_result"]
+    assert results[0]["success"] is False
+
+
+def test_verify_invalid_payload_fires_failure():
+    """Invalid filament_id or unknown action → PROFILE_VERIFY_SKIP, success=False."""
+    app = TestableFilamentProfileLookup()
+
+    _verify(app, 0, "confirm")  # filament_id=0 is invalid
 
     results = [e for e in app._events_fired
                if e["event"] == "filament_iq_profile_verify_result"]
     assert len(results) == 1
-    assert results[0]["success"] is True
+    assert results[0]["success"] is False
 
+    app._events_fired.clear()
+    app._log_calls.clear()
 
-def test_atomic_write_uses_tmp_then_replace(tmp_path):
-    """_write_verifications must call os.replace(tmp, final) atomically."""
-    vpath = str(tmp_path / "pv.json")
-    app = TestableFilamentProfileLookup(args={"verifications_path": vpath})
+    _verify(app, 7, "unknown_action")
 
-    with mock.patch("filament_iq.filament_profile_lookup.os.replace") as mock_replace:
-        app._write_verifications({"version": 1, "filaments": {}})
-        mock_replace.assert_called_once_with(vpath + ".tmp", vpath)
+    results = [e for e in app._events_fired
+               if e["event"] == "filament_iq_profile_verify_result"]
+    assert results[0]["success"] is False

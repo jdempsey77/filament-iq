@@ -145,6 +145,12 @@ const weightPct = d => {
 function SlotRow({ n, data, onPopup, getHass, spools, borderBottom = true }) {
   const isEmpty = data.status === 'empty'
   const isActive = data.isActive
+  const spoolId = parseInt(data.id, 10)
+  const matchedSpool = (!isNaN(spoolId) && spoolId > 0) ? spools?.find(s => s.id === spoolId) : null
+  const multiColorHexes = matchedSpool?.filament?.multi_color_hexes || null
+  const slotSwatchBg = multiColorHexes && multiColorHexes.split(',').length >= 2
+    ? (() => { const cols = multiColorHexes.split(',').map(h => `#${h.trim().replace('#','')}`); return `linear-gradient(135deg, ${cols[0]} 50%, ${cols[1]} 50%)` })()
+    : (isEmpty ? 'transparent' : data.color)
   const pct = weightPct(data)
   const barColor = pct < 20 ? '#ff453a' : data.color
 
@@ -219,7 +225,7 @@ function SlotRow({ n, data, onPopup, getHass, spools, borderBottom = true }) {
         height: 52,
         borderRadius: 6,
         flexShrink: 0,
-        background: isEmpty ? 'transparent' : data.color,
+        background: slotSwatchBg,
         border: isEmpty ? '2px dashed #3a3a3c' : 'none',
         display: 'flex',
         alignItems: 'center',
@@ -237,7 +243,7 @@ function SlotRow({ n, data, onPopup, getHass, spools, borderBottom = true }) {
       ),
       h('div', { style: { fontSize: 13, fontWeight: 700, color: isEmpty ? '#636366' : '#e5e5e7', lineHeight: 1.1 } },
         isEmpty ? 'Empty' : primaryLabel(data)),
-      isEmpty && data.ranOut && h('div', { style: { fontSize: 10, color: '#ff9f0a', marginTop: 1 } }, '🪫 Ran out during print'),
+      data.ranOut && h('div', { style: { fontSize: 10, color: '#ff9f0a', marginTop: 1 } }, '🪫 Ran out during print'),
       !isEmpty && h('div', { style: { display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden' } },
         h('span', { style: { fontSize: 11, color: '#8e8e93', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, data.name),
         profileStatus === 'verified' && h('span', { class: 'fiq-slot-profile-pip fiq-slot-pip-verified', title: 'Profile verified' }, '✓ Profile'),
@@ -454,6 +460,10 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
   const colorHex = (f.color_hex || '555555').replace('#', '')
   const swatchColor = `#${colorHex}`
   const isBlack = colorHex.toLowerCase() === '000000'
+  const multiHexes = f.multi_color_hexes ? f.multi_color_hexes.split(',').map(h => `#${h.trim().replace('#','')}`) : null
+  const swatchBg = multiHexes && multiHexes.length >= 2
+    ? `linear-gradient(135deg, ${multiHexes[0]} 50%, ${multiHexes[1]} 50%)`
+    : swatchColor
 
   const lotNr = spool.lot_nr || '—'
   const lastUsed = spool.last_used ? spool.last_used.substring(0, 10) : '—'
@@ -575,8 +585,8 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
         h('div', {
           style: {
             width: 40, height: 40, borderRadius: 8, flexShrink: 0,
-            background: swatchColor,
-            border: isBlack ? '1px solid #444' : 'none',
+            background: swatchBg,
+            border: isBlack && !multiHexes ? '1px solid #444' : 'none',
           },
         }),
         h('div', { style: { flex: 1, minWidth: 0 } },
@@ -813,6 +823,10 @@ function SlotPopup({ popup, getHass, onClose, spools, updateSpool, deleteSpool, 
   const displaySelected = pendingOption ?? currentOption
 
   const pct = Math.min(100, Math.round((parseFloat(popup.g) || 0) / 1000 * 100))
+  const popupMultiHexes = spool?.filament?.multi_color_hexes || null
+  const popupSwatchBg = popupMultiHexes && popupMultiHexes.split(',').length >= 2
+    ? (() => { const cols = popupMultiHexes.split(',').map(h => `#${h.trim().replace('#','')}`); return `linear-gradient(135deg, ${cols[0]} 50%, ${cols[1]} 50%)` })()
+    : popup.color
 
   return h('div', {
     style: S.popupOverlay,
@@ -839,7 +853,7 @@ function SlotPopup({ popup, getHass, onClose, spools, updateSpool, deleteSpool, 
         },
         onClick: canEditSpool ? () => setSpoolModal(true) : undefined,
       },
-        h('div', { style: { ...S.csDot, background: popup.color } }),
+        h('div', { style: { ...S.csDot, background: popupSwatchBg } }),
         h('div', { style: { flex: 1, minWidth: 0 } },
           h('div', { style: S.csName }, popup.name),
           h('div', { style: S.csMeta }, `Spool #${popup.id}`),
