@@ -243,7 +243,7 @@ function SlotRow({ n, data, onPopup, getHass, spools, borderBottom = true }) {
       ),
       h('div', { style: { fontSize: 13, fontWeight: 700, color: isEmpty ? '#636366' : '#e5e5e7', lineHeight: 1.1 } },
         isEmpty ? 'Empty' : primaryLabel(data)),
-      isEmpty && data.ranOut && h('div', { style: { fontSize: 10, color: '#ff9f0a', marginTop: 1 } }, '🪫 Ran out during print'),
+      data.ranOut && h('div', { style: { fontSize: 10, color: '#ff9f0a', marginTop: 1 } }, '🪫 Ran out during print'),
       !isEmpty && h('div', { style: { display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden' } },
         h('span', { style: { fontSize: 11, color: '#8e8e93', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, data.name),
         profileStatus === 'verified' && h('span', { class: 'fiq-slot-profile-pip fiq-slot-pip-verified', title: 'Profile verified' }, '✓ Profile'),
