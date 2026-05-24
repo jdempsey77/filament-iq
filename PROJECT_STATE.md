@@ -11,7 +11,7 @@ Snapshot of released versions, test coverage, key decisions, and open work. Upda
 | Component | Version | Commit | Branch | Released |
 |-----------|---------|--------|--------|----------|
 | AppDaemon package | v1.10.0 | — | main | 2026-05-23 |
-| Manager card (lovelace) | v1.10.0 | — | main | 2026-05-23 |
+| Manager card (lovelace) | v1.9.8 | — | main | 2026-05-24 |
 | Monitor (ska) | v1.6.3 | (deployed, not tagged) | main | 2026-05-19 |
 
 ---

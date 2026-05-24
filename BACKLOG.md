@@ -18,6 +18,9 @@
 ### In Progress
 
 ### Completed
+- [x] fix: ranOut badge (🪫) never rendered during active print — isEmpty guard
+  was wrong; badge moved to !isEmpty branch. RunoutTracker lifecycle unchanged.
+  (v1.9.8, 2026-05-24)
 - [x] Profile verification pipeline v1.10.0 (2026-05-23, PR #83–#85, 1495 tests passing):
       Phase 1: Niimbot local render from Spoolman data
       Phase 2: FilamentProfileLookup AppDaemon app + profile_verifications.json
