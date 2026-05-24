@@ -1,8 +1,9 @@
 """
 filament_profile_lookup.py — Backend verification layer for filament profile matching.
 
-Handles lookup requests and verification writes via HA events.
-Stores results in profile_verifications.json.
+Handles lookup requests and verification via HA events.
+Spoolman is the source of truth for verification status: a filament is verified
+if and only if its Spoolman extra.profile_url is a non-empty string.
 
 Events handled:
   filament_iq_profile_lookup_request  { request_id, filament_id }
@@ -12,21 +13,16 @@ Events fired:
   filament_iq_profile_lookup_response
   filament_iq_profile_verify_result
 
-Config keys: spoolman_url (required), filament_profiles_path (required),
-             verifications_path (optional).
+Config keys: spoolman_url (required), filament_profiles_path (required).
 """
 
 import json
-import os
 import urllib.request
-from datetime import datetime
+
+import requests
 
 from .base import FilamentIQBase
 from .filament_profiles import get_profiles_client
-
-DEFAULT_VERIFICATIONS_PATH = (
-    "/addon_configs/a0d7b954_appdaemon/data/filament_iq/profile_verifications.json"
-)
 
 
 class FilamentProfileLookup(FilamentIQBase):
@@ -37,9 +33,6 @@ class FilamentProfileLookup(FilamentIQBase):
         self.spoolman_url = str(self.args.get("spoolman_url", "")).rstrip("/")
         profiles_path = self.args.get("filament_profiles_path")
         self.profiles_client = get_profiles_client(str(profiles_path))
-        self.verifications_path = str(
-            self.args.get("verifications_path", DEFAULT_VERIFICATIONS_PATH)
-        )
 
         self.listen_event(
             self._on_lookup_request, "filament_iq_profile_lookup_request"
@@ -50,25 +43,31 @@ class FilamentProfileLookup(FilamentIQBase):
             "filament_iq_profile_bulk_status_request"
         )
         self.log(
-            f"FilamentProfileLookup initialized spoolman={self.spoolman_url} "
-            f"verifications={self.verifications_path}",
+            f"FilamentProfileLookup initialized spoolman={self.spoolman_url}",
             level="INFO",
         )
 
     # ── Event handlers ────────────────────────────────────────────────
 
     def _on_bulk_status_request(self, event_name, data, kwargs):
-        """Return all known verification statuses from profile_verifications.json."""
+        """Return verification statuses derived from Spoolman extra.profile_url."""
         payload = data or {}
         request_id = str(payload.get("request_id", ""))
+        statuses = {}
         try:
-            verifications = self._read_verifications()
-            statuses = {
-                fid: entry.get("status", "unknown")
-                for fid, entry in verifications.get("filaments", {}).items()
-            }
-        except Exception as e:
-            self.log(f"BULK_STATUS_ERROR: {e}", level="ERROR")
+            resp = requests.get(
+                f"{self.spoolman_url}/api/v1/filament",
+                timeout=10,
+            )
+            resp.raise_for_status()
+            for filament in resp.json():
+                fid = str(filament.get("id", ""))
+                if not fid:
+                    continue
+                raw_url = ((filament.get("extra") or {}).get("profile_url") or "").strip('"')
+                statuses[fid] = "verified" if raw_url else "unverified"
+        except Exception as exc:
+            self.log(f"BULK_STATUS_ERROR: {exc}", level="WARNING")
             statuses = {}
         self.fire_event(
             "filament_iq_profile_bulk_status_response",
@@ -95,37 +94,6 @@ class FilamentProfileLookup(FilamentIQBase):
             )
             return
 
-        verifications = self._read_verifications()
-        entry = verifications.get("filaments", {}).get(str(filament_id))
-
-        if entry:
-            status = entry.get("status")
-            if status == "verified":
-                self._fire_lookup_response(
-                    request_id=request_id,
-                    filament_id=filament_id,
-                    matched=True,
-                    confidence="high",
-                    status="verified",
-                    profile_id=entry.get("profile_id"),
-                    profile_url=entry.get("profile_url"),
-                    profile_name=entry.get("profile_name"),
-                )
-                return
-            if status == "no_profile_exists":
-                self._fire_lookup_response(
-                    request_id=request_id,
-                    filament_id=filament_id,
-                    matched=False,
-                    confidence="none",
-                    status="no_profile_exists",
-                    profile_id=None,
-                    profile_url=None,
-                    profile_name=None,
-                )
-                return
-
-        # Run scorer
         filament = self._fetch_filament(filament_id)
         if filament is None:
             self.log(
@@ -141,6 +109,22 @@ class FilamentProfileLookup(FilamentIQBase):
                 profile_id=None,
                 profile_url=None,
                 profile_name=None,
+            )
+            return
+
+        # Return cached verification from Spoolman extra if present
+        raw_url = ((filament.get("extra") or {}).get("profile_url") or "").strip('"')
+        if raw_url:
+            raw_name = ((filament.get("extra") or {}).get("profile_name") or "").strip('"')
+            self._fire_lookup_response(
+                request_id=request_id,
+                filament_id=filament_id,
+                matched=True,
+                confidence="high",
+                status="verified",
+                profile_id=None,
+                profile_url=raw_url,
+                profile_name=raw_name,
             )
             return
 
@@ -194,66 +178,44 @@ class FilamentProfileLookup(FilamentIQBase):
             return
 
         try:
-            verifications = self._read_verifications()
-            filaments = verifications.setdefault("filaments", {})
-            now = datetime.utcnow().isoformat() + "Z"
-
             if action == "confirm":
-                filaments[str(filament_id)] = {
-                    "status": "verified",
-                    "profile_id": payload.get("profile_id"),
+                self._patch_spoolman_extra(filament_id, {
                     "profile_url": str(payload.get("profile_url") or ""),
                     "profile_name": str(payload.get("profile_name") or ""),
-                    "verified_at": now,
-                    "scorer_version": "1.0",
-                }
-            elif action == "reject":
-                filaments.pop(str(filament_id), None)
-            elif action == "no_match":
-                filaments[str(filament_id)] = {
-                    "status": "no_profile_exists",
-                    "profile_id": None,
+                })
+            elif action in ("reject", "no_match"):
+                self._patch_spoolman_extra(filament_id, {
                     "profile_url": None,
                     "profile_name": None,
-                    "verified_at": now,
-                    "scorer_version": "1.0",
-                }
-
-            verifications["filaments"] = filaments
-            self._write_verifications(verifications)
+                })
             self._fire_verify_result(filament_id, action, True)
 
         except Exception as exc:
             self.log(f"PROFILE_VERIFY_FAILED: {exc}", level="ERROR")
             self._fire_verify_result(filament_id, action, False, str(exc))
 
-    # ── File I/O ──────────────────────────────────────────────────────
+    # ── Spoolman extra patch ──────────────────────────────────────────
 
-    def _read_verifications(self) -> dict:
-        """Read profile_verifications.json. Returns bare dict on any error."""
+    def _patch_spoolman_extra(self, filament_id: int, extra_patch: dict) -> None:
+        """Merge extra_patch into Spoolman filament extra. Never raises."""
+        url = f"{self.spoolman_url}/api/v1/filament/{filament_id}"
         try:
-            with open(self.verifications_path, "r", encoding="utf-8") as fh:
-                return json.load(fh)
-        except FileNotFoundError:
-            return {"version": 1, "filaments": {}}
+            resp = requests.get(url, timeout=10)
+            resp.raise_for_status()
+            existing_extra = resp.json().get("extra") or {}
+            encoded_patch = {k: json.dumps(v, ensure_ascii=False) for k, v in extra_patch.items()}
+            merged = {**existing_extra, **encoded_patch}
+            patch_resp = requests.patch(url, json={"extra": merged}, timeout=10)
+            patch_resp.raise_for_status()
+            self.log(
+                f"SPOOLMAN_EXTRA_PATCHED filament_id={filament_id} keys={list(extra_patch.keys())}",
+                level="INFO",
+            )
         except Exception as exc:
             self.log(
-                f"PROFILE_VERIFICATIONS_READ_FAILED: {exc}", level="WARNING"
+                f"SPOOLMAN_EXTRA_PATCH_FAILED filament_id={filament_id} error={exc}",
+                level="WARNING",
             )
-            return {"version": 1, "filaments": {}}
-
-    def _write_verifications(self, data: dict) -> None:
-        """Write profile_verifications.json atomically via .tmp + os.replace."""
-        tmp_path = self.verifications_path + ".tmp"
-        try:
-            dir_path = os.path.dirname(self.verifications_path)
-            if dir_path:
-                os.makedirs(dir_path, exist_ok=True)
-            with open(tmp_path, "w", encoding="utf-8") as fh:
-                json.dump(data, fh, indent=2)
-            os.replace(tmp_path, self.verifications_path)
-        except Exception as exc:
-            self.log(f"PROFILE_VERIFICATIONS_WRITE_FAILED: {exc}", level="ERROR")
 
     # ── Spoolman fetch ────────────────────────────────────────────────
 

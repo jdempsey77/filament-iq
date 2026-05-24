@@ -548,11 +548,7 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
       if (profileFilter) {
         const pStatus = profileStatuses[String(f.id)]
         if (profileFilter === 'verified' && pStatus !== 'verified') return false
-        if (profileFilter === 'needs_verification' &&
-            pStatus !== 'candidate' && pStatus !== 'unverified') return false
-        if (profileFilter === 'no_profile_exists' &&
-            pStatus !== 'no_profile_exists') return false
-        if (profileFilter === 'none' && pStatus) return false
+        if (profileFilter === 'needs_verification' && pStatus) return false
       }
       return true
     })
@@ -574,8 +570,6 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
           <option value="">All profiles</option>
           <option value="verified">✓ Verified</option>
           <option value="needs_verification">? Needs verification</option>
-          <option value="no_profile_exists">— No profile</option>
-          <option value="none">Not looked up</option>
         </select>
         <div class="fiq-spacer" />
         <button class="fiq-btn-import" onClick={() => { setShowImport(true); setAdding(false); setEditId(null) }}>Import</button>

@@ -209,7 +209,7 @@ export function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrin
           done = true
           cleanup()
           setProfileStatus('error')
-        }, 8000)
+        }, 20000)
       } catch (e) {
         cleanup()
         setProfileStatus('error')
