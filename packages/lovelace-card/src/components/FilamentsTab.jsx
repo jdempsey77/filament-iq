@@ -2,11 +2,15 @@ import { useState, useMemo, useEffect } from 'preact/hooks'
 import { ConfirmDialog } from './ConfirmDialog'
 import { SpoolmanDBImport } from './SpoolmanDBImport'
 
-function ColorDot({ hex }) {
+function ColorDot({ hex, multiColorHexes }) {
+  const colors = multiColorHexes ? multiColorHexes.split(',').map(h => `#${h.trim().replace('#','')}`) : null
   const color = hex ? `#${hex}` : '#555'
   const isBlack = !hex || hex.toLowerCase() === '000000'
+  const bg = colors && colors.length >= 2
+    ? `linear-gradient(135deg, ${colors[0]} 50%, ${colors[1]} 50%)`
+    : color
   return (
-    <div class="fiq-color-dot" style={{ background: color, border: isBlack ? '1px solid #444' : 'none' }} />
+    <div class="fiq-color-dot" style={{ background: bg, border: isBlack && !colors ? '1px solid #444' : 'none' }} />
   )
 }
 
@@ -24,7 +28,7 @@ function MatBadge({ material }) {
 function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass, initialProfileStatus, onProfileStatusChange }) {
   const [name, setName] = useState(filament.name || '')
   const [material, setMaterial] = useState(filament.material || '')
-  const [colorHex, setColorHex] = useState(filament.color_hex || '')
+  const multiColorHexes = filament.multi_color_hexes || null
   const [vendorId, setVendorId] = useState(String(filament.vendor?.id || ''))
   const [weight, setWeight] = useState(filament.weight ?? '')
   const [diameter, setDiameter] = useState(filament.diameter ?? '')
@@ -223,7 +227,7 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
   const handleSave = async () => {
     setSaving(true)
     try {
-      const patch = { name, material, color_hex: colorHex, external_id: externalId }
+      const patch = { name, material, external_id: externalId }
       if (vendorId) patch.vendor_id = Number(vendorId)
       if (weight !== '') patch.weight = Number(weight)
       if (diameter !== '') patch.diameter = Number(diameter)
@@ -246,11 +250,16 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
           <input class="fiq-input" value={material} onInput={e => setMaterial(e.target.value)} />
         </div>
         <div>
-          <div class="fiq-field-label">Color hex</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span class="fiq-color-preview" style={{ background: `#${colorHex || '888'}` }} />
-            <input class="fiq-input" value={colorHex} onInput={e => setColorHex(e.target.value)} />
-          </div>
+          <div class="fiq-field-label">Colors</div>
+          {(multiColorHexes ? multiColorHexes.split(',') : [filament.color_hex]).map((raw, i) => {
+            const hex = (raw || '888').trim().replace('#', '')
+            return (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: i > 0 ? 4 : 0 }}>
+                <span class="fiq-color-preview" style={{ background: `#${hex}` }} />
+                <span style={{ fontSize: 12, color: '#e5e5e7' }}>{hex}</span>
+              </div>
+            )
+          })}
         </div>
         <div>
           <div class="fiq-field-label">Vendor</div>
@@ -548,7 +557,7 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
       if (profileFilter) {
         const pStatus = profileStatuses[String(f.id)]
         if (profileFilter === 'verified' && pStatus !== 'verified') return false
-        if (profileFilter === 'needs_verification' && pStatus) return false
+        if (profileFilter === 'needs_verification' && pStatus === 'verified') return false
       }
       return true
     })
@@ -603,7 +612,7 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
           return (
             <div key={fil.id} class={`fiq-row${expanded ? ' expanded' : ''}`}>
               <div class="fiq-row-main cols-6" onClick={() => { setEditId(expanded ? null : fil.id); setAdding(false) }}>
-                <ColorDot hex={fil.color_hex} />
+                <ColorDot hex={fil.color_hex} multiColorHexes={fil.multi_color_hexes} />
                 <div>
                   <div class="fiq-fname">{fil.name || '—'}</div>
                   <div class="fiq-fsub">{fil.vendor?.name || ''}{fil.vendor?.name && fil.material ? ' · ' : ''}{fil.material || ''}</div>
@@ -616,9 +625,6 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
                   )}
                   {pStatus === 'candidate' && (
                     <span class="fiq-profile-badge fiq-profile-candidate" title="Candidate — verify in edit panel">?</span>
-                  )}
-                  {pStatus === 'no_profile_exists' && (
-                    <span class="fiq-profile-badge fiq-profile-none" title="No profile found">—</span>
                   )}
                 </div>
                 <div class="fiq-cell weight">

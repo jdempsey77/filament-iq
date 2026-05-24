@@ -42,6 +42,7 @@ class FilamentProfileLookup(FilamentIQBase):
             self._on_bulk_status_request,
             "filament_iq_profile_bulk_status_request"
         )
+        self._last_bulk_statuses = {}
         self.log(
             f"FilamentProfileLookup initialized spoolman={self.spoolman_url}",
             level="INFO",
@@ -54,6 +55,7 @@ class FilamentProfileLookup(FilamentIQBase):
         payload = data or {}
         request_id = str(payload.get("request_id", ""))
         statuses = {}
+        fetch_ok = False
         try:
             resp = requests.get(
                 f"{self.spoolman_url}/api/v1/filament",
@@ -66,9 +68,18 @@ class FilamentProfileLookup(FilamentIQBase):
                     continue
                 raw_url = ((filament.get("extra") or {}).get("profile_url") or "").strip('"')
                 statuses[fid] = "verified" if raw_url else "unverified"
+            fetch_ok = True
         except Exception as exc:
             self.log(f"BULK_STATUS_ERROR: {exc}", level="WARNING")
-            statuses = {}
+
+        if fetch_ok:
+            self._last_bulk_statuses = statuses
+        elif self._last_bulk_statuses:
+            statuses = self._last_bulk_statuses
+        else:
+            self.log("BULK_STATUS_SKIP no previous statuses to return", level="WARNING")
+            return
+
         self.fire_event(
             "filament_iq_profile_bulk_status_response",
             request_id=request_id,
@@ -197,25 +208,20 @@ class FilamentProfileLookup(FilamentIQBase):
     # ── Spoolman extra patch ──────────────────────────────────────────
 
     def _patch_spoolman_extra(self, filament_id: int, extra_patch: dict) -> None:
-        """Merge extra_patch into Spoolman filament extra. Never raises."""
+        """Merge extra_patch into Spoolman filament extra. Raises on failure."""
         url = f"{self.spoolman_url}/api/v1/filament/{filament_id}"
-        try:
-            resp = requests.get(url, timeout=10)
-            resp.raise_for_status()
-            existing_extra = resp.json().get("extra") or {}
-            encoded_patch = {k: json.dumps(v, ensure_ascii=False) for k, v in extra_patch.items()}
-            merged = {**existing_extra, **encoded_patch}
-            patch_resp = requests.patch(url, json={"extra": merged}, timeout=10)
-            patch_resp.raise_for_status()
-            self.log(
-                f"SPOOLMAN_EXTRA_PATCHED filament_id={filament_id} keys={list(extra_patch.keys())}",
-                level="INFO",
-            )
-        except Exception as exc:
-            self.log(
-                f"SPOOLMAN_EXTRA_PATCH_FAILED filament_id={filament_id} error={exc}",
-                level="WARNING",
-            )
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        existing_extra = resp.json().get("extra") or {}
+        encoded_patch = {k: (None if v is None else json.dumps(v, ensure_ascii=False)) for k, v in extra_patch.items()}
+        merged = {**existing_extra, **encoded_patch}
+        merged = {k: v for k, v in merged.items() if v is not None}
+        patch_resp = requests.patch(url, json={"extra": merged}, timeout=10)
+        patch_resp.raise_for_status()
+        self.log(
+            f"SPOOLMAN_EXTRA_PATCHED filament_id={filament_id} keys={list(extra_patch.keys())}",
+            level="INFO",
+        )
 
     # ── Spoolman fetch ────────────────────────────────────────────────
 

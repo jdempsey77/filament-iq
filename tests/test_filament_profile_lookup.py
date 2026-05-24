@@ -158,9 +158,10 @@ def test_bulk_status_strips_json_encoded_quotes():
     assert events[0]["statuses"]["5"] == "verified"
 
 
-def test_bulk_status_spoolman_failure_returns_empty():
-    """Spoolman network error → WARNING logged, empty statuses dict returned."""
+def test_bulk_status_spoolman_failure_skips_event_no_prior():
+    """Spoolman network error with no prior statuses → WARNING logged, no event fired."""
     app = TestableFilamentProfileLookup()
+    app._last_bulk_statuses = {}
 
     with mock.patch(
         "filament_iq.filament_profile_lookup.requests.get",
@@ -174,8 +175,7 @@ def test_bulk_status_spoolman_failure_returns_empty():
 
     events = [e for e in app._events_fired
               if e["event"] == "filament_iq_profile_bulk_status_response"]
-    assert len(events) == 1
-    assert events[0]["statuses"] == {}
+    assert len(events) == 0  # no prior statuses → skip firing
 
     warnings = [msg for msg, lvl in app._log_calls if lvl == "WARNING"]
     assert any("BULK_STATUS_ERROR" in m for m in warnings)
@@ -341,8 +341,8 @@ def test_verify_reject_clears_spoolman_and_fires_success():
         _verify(app, 7, "reject")
 
     patched_extra = mock_patch.call_args[1]["json"]["extra"]
-    assert patched_extra["profile_url"] == "null"
-    assert patched_extra["profile_name"] == "null"
+    assert "profile_url" not in patched_extra  # None → key removed
+    assert "profile_name" not in patched_extra  # None → key removed
     assert patched_extra["other"] == "x"  # unrelated key preserved
 
     results = [e for e in app._events_fired
@@ -351,7 +351,7 @@ def test_verify_reject_clears_spoolman_and_fires_success():
 
 
 def test_verify_no_match_clears_spoolman_and_fires_success():
-    """no_match → patches profile_url=null + profile_name=null, fires success."""
+    """no_match → removes profile_url and profile_name from extra, fires success."""
     app = TestableFilamentProfileLookup()
 
     fake_get = mock.MagicMock()
@@ -367,8 +367,8 @@ def test_verify_no_match_clears_spoolman_and_fires_success():
         _verify(app, 7, "no_match")
 
     patched_extra = mock_patch.call_args[1]["json"]["extra"]
-    assert patched_extra["profile_url"] == "null"
-    assert patched_extra["profile_name"] == "null"
+    assert "profile_url" not in patched_extra  # None → key removed
+    assert "profile_name" not in patched_extra  # None → key removed
 
     results = [e for e in app._events_fired
                if e["event"] == "filament_iq_profile_verify_result"]
@@ -406,8 +406,8 @@ def test_patch_spoolman_extra_preserves_existing_keys():
     assert results[0]["success"] is True
 
 
-def test_patch_spoolman_extra_failure_is_swallowed():
-    """A network error in _patch_spoolman_extra must not prevent verification success."""
+def test_patch_spoolman_extra_failure_fires_verify_failure():
+    """A network error in _patch_spoolman_extra propagates and fires verify failure."""
     app = TestableFilamentProfileLookup()
 
     with mock.patch("filament_iq.filament_profile_lookup.requests.get",
@@ -419,12 +419,12 @@ def test_patch_spoolman_extra_failure_is_swallowed():
             profile_name="Bambu Lab · PLA Basic · Light Gray",
         )
 
-    warning_logs = [msg for msg, lvl in app._log_calls if lvl == "WARNING"]
-    assert any("SPOOLMAN_EXTRA_PATCH_FAILED" in m for m in warning_logs)
+    error_logs = [msg for msg, lvl in app._log_calls if lvl == "ERROR"]
+    assert any("PROFILE_VERIFY_FAILED" in m for m in error_logs)
 
     results = [e for e in app._events_fired
                if e["event"] == "filament_iq_profile_verify_result"]
-    assert results[0]["success"] is True
+    assert results[0]["success"] is False
 
 
 def test_verify_invalid_payload_fires_failure():

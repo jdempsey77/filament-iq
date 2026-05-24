@@ -43,7 +43,34 @@ if [ ! -s "${SPOOL_JSON_FILE}" ]; then
     exit 1
 fi
 
-~/niimprint-311-env/bin/python3 - "${SPOOL_JSON_FILE}" "${PROFILE_URL:-}" <<'PYEOF'
+# --- Use pre-designed slim label from NAS if available ---
+PROFILE_ID=""
+if [ -n "${PROFILE_URL}" ]; then
+    PROFILE_ID="${PROFILE_URL##*/}"
+fi
+
+SLIM_LABEL_DIR="/mnt/store/filament_iq/slim_labels"
+SLIM_LABEL="${SLIM_LABEL_DIR}/${PROFILE_ID}.png"
+
+if [ -n "${PROFILE_ID}" ] && [ -f "${SLIM_LABEL}" ]; then
+    echo "Using slim label: ${SLIM_LABEL}"
+    ~/niimprint-311-env/bin/python3 - "${SLIM_LABEL}" <<'PYEOF'
+import sys
+from PIL import Image
+
+img_path = sys.argv[1]
+
+img = Image.open(img_path).convert("RGB")  # flatten RGBA → white bg
+
+# Rotate 90° CCW so landscape 800×240 becomes portrait 240×800
+img = img.rotate(90, expand=True)
+
+img.convert("1").save("/tmp/niimbot_label.png")
+print(f"Slim label ready: /tmp/niimbot_label.png")
+PYEOF
+else
+    echo "No slim label found for profile_id='${PROFILE_ID}', falling back to generated label"
+    ~/niimprint-311-env/bin/python3 - "${SPOOL_JSON_FILE}" "${PROFILE_URL:-}" <<'PYEOF'
 import json
 import sys
 from PIL import Image, ImageDraw, ImageFont
@@ -149,5 +176,6 @@ out.convert("1").save("/tmp/niimbot_label.png")
 print(f"Label rendered: /tmp/niimbot_label.png  spool={spool_id} {vendor} {material} {name!r}"
       + (f"  qr={profile_url}" if profile_url else ""))
 PYEOF
+fi
 
 ~/niimprint-311-env/bin/python3 ~/test_d11h_print.py /tmp/niimbot_label.png
