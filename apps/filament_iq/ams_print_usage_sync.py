@@ -55,7 +55,7 @@ except ImportError:
 _DEFAULT_DATA_DIR = "/addon_configs/a0d7b954_appdaemon/data/filament_iq"
 SEEN_JOBS_PATH = os.path.join(_DEFAULT_DATA_DIR, "seen_job_keys.json")
 
-_APP_VERSION = "1.9.8"
+_APP_VERSION = "1.10.2"
 
 MAX_SEEN_JOBS = 50
 ACTIVE_PRINT_FILE = pathlib.Path(_DEFAULT_DATA_DIR) / "active_print.json"
@@ -725,6 +725,30 @@ class AmsPrintUsageSync(FilamentIQBase):
                 failed += 1
 
         return decisions, patched, failed
+
+    def _apply_runout_zero_overrides(self, decisions: list) -> None:
+        """After _execute_writes, zero out Spoolman remaining for slots whose spool ran out.
+
+        Fires only when input_boolean.ams_slot_N_ran_out is on AND post-write
+        remaining is still above 0 (consumption estimate undershot reality).
+        No-op if remaining is already 0 or if the boolean is off.
+        """
+        for decision in decisions:
+            if decision.method == "no_evidence":
+                continue
+            ran_out_entity = f"input_boolean.ams_slot_{decision.slot}_ran_out"
+            if self.get_state(ran_out_entity) != "on":
+                continue
+            post_remaining = decision.post_write_remaining
+            if post_remaining is None or post_remaining <= 0:
+                continue
+            self.log(
+                f"RUNOUT_ZERO_OVERRIDE slot={decision.slot} "
+                f"spool_id={decision.spool_id} "
+                f"pre_patch_remaining={post_remaining:.1f}",
+                level="INFO",
+            )
+            self._spoolman_patch(decision.spool_id, {"remaining_weight": 0})
 
     # ── print history ──────────────────────────────────────────────────
 
@@ -1566,6 +1590,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         all_decisions, patched, failed = self._execute_writes(
             all_decisions, self._job_key
         )
+        self._apply_runout_zero_overrides(all_decisions)
 
         # ── FINALIZE ─────────────────────────────────────────────────────
         if self._job_key and failed == 0:
@@ -2685,6 +2710,10 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     def _reconcile_rfid_weight_slot(self, slot):
         """Reconcile a single slot's RFID weight against Spoolman."""
+        ran_out_entity = f"input_boolean.ams_slot_{slot}_ran_out"
+        if self.get_state(ran_out_entity) == "on":
+            self.log(f"RECONCILE_RUNOUT_SKIP slot={slot}", level="DEBUG")
+            return
         if not self._is_rfid_slot(slot):
             return
         spool_id = self._read_spool_id(slot)

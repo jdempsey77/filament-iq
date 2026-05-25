@@ -1,6 +1,6 @@
 # Filament IQ — Project State
 
-> Last updated: 2026-05-25 (v1.10.1 — location-first pre-filter for non-RFID candidate resolution)
+> Last updated: 2026-05-25 (v1.10.2 — RunoutTracker zero-write: post-write remaining zeroed for ran_out slots; reconciler suppressed for ran_out slots)
 
 Snapshot of released versions, test coverage, key decisions, and open work. Updated after each release.
 
@@ -10,7 +10,7 @@ Snapshot of released versions, test coverage, key decisions, and open work. Upda
 
 | Component | Version | Commit | Branch | Released |
 |-----------|---------|--------|--------|----------|
-| AppDaemon package | v1.10.1 | — | main | 2026-05-25 |
+| AppDaemon package | v1.10.2 | — | main | 2026-05-25 |
 | Manager card (lovelace) | v1.9.8 | — | main | 2026-05-24 |
 | Monitor (ska) | v1.6.3 | (deployed, not tagged) | main | 2026-05-19 |
 
@@ -20,9 +20,19 @@ Snapshot of released versions, test coverage, key decisions, and open work. Upda
 
 | Suite | Passing | Failing | Notes |
 |-------|---------|---------|-------|
-| filament-iq (all) | 1506 | 0 | |
+| filament-iq (all) | 1511 | 0 | |
 
-### Tests added in v1.10.1 session (2026-05-25)
+### Tests added in v1.10.2 session (2026-05-25) — RunoutTracker zero-write
+
+| Test | File | Guards |
+|------|------|--------|
+| `test_runout_zero_override_fires_when_remaining_nonzero` | test_ams_print_usage_sync.py | ran_out=on + post-write remaining=56g → PATCH remaining_weight=0 + RUNOUT_ZERO_OVERRIDE |
+| `test_runout_zero_override_noop_when_already_zero` | test_ams_print_usage_sync.py | ran_out=on + remaining=0 → no PATCH (already zeroed) |
+| `test_runout_zero_override_noop_when_boolean_off` | test_ams_print_usage_sync.py | ran_out=off + remaining=56g → no PATCH (normal print) |
+| `test_reconcile_skips_slot_when_ran_out_boolean_on` | test_ams_print_usage_sync.py | ran_out=on → reconciler skips slot, RECONCILE_RUNOUT_SKIP logged |
+| `test_reconcile_proceeds_when_ran_out_boolean_off` | test_ams_print_usage_sync.py | ran_out=off → normal reconcile proceeds, PATCH fires |
+
+### Tests added in v1.10.1 session (2026-05-25) — location-first pre-filter
 
 | Test | File | Guards |
 |------|------|--------|
@@ -50,12 +60,22 @@ Snapshot of released versions, test coverage, key decisions, and open work. Upda
 
 | Repo | Commit | Status |
 |------|--------|--------|
-| filament-iq | main | v1.10.1 committed and tagged |
+| filament-iq | main | v1.10.2 committed and tagged |
 | home_assistant | main | Clean working tree |
 
 ---
 
 ## Key Decisions
+
+### 2026-05-25 — RunoutTracker zero-write: post-write remaining zeroed for ran_out slots (v1.10.2)
+
+**Decision**: Zero-write belongs in `AMSPrintUsageSync`, NOT `RunoutTracker`. When `input_boolean.ams_slot_N_ran_out` is on at print finish, the consumption estimate may undershot (Spoolman shows non-zero remaining after the /use write). Fix has two parts:
+
+1. **`_apply_runout_zero_overrides`** — called immediately after `_execute_writes` in `_do_finish`. If ran_out boolean is on AND post-write remaining > 0, issues `PATCH remaining_weight=0` directly to Spoolman and logs `RUNOUT_ZERO_OVERRIDE`. No-op if remaining already 0 or boolean off. Preserves the /use audit trail (USAGE_PATCHED log stays) and does not corrupt `_detect_runout_split` which reads `spoolman_remaining` before `_execute_writes`.
+
+2. **Reconciler suppression** — `_reconcile_rfid_weight_slot` now checks the ran_out boolean at entry and returns immediately with `RECONCILE_RUNOUT_SKIP` (DEBUG). Prevents the 60-second-deferred RFID reconciler from overwriting the zero back to the fuel-gauge-derived estimate. Boolean stays on until a new spool is bound to the slot, at which point reconcile naturally resumes.
+
+5 new tests. All 1511 passing.
 
 ### 2026-05-25 — Location-first pre-filter for non-RFID spool resolution (v1.10.1)
 

@@ -1147,6 +1147,76 @@ def test_rfid_weight_reconcile_skips_invalid_remain_none():
     assert _has_log(app, "RFID_WEIGHT_INVALID_REMAIN slot=4")
 
 
+# ── Runout zero override tests ────────────────────────────────────────
+
+def test_runout_zero_override_fires_when_remaining_nonzero():
+    """ran_out=on, post-write remaining=56g → PATCH remaining_weight=0 fires, RUNOUT_ZERO_OVERRIDE logged."""
+    from filament_iq.consumption_engine import SlotDecision
+    app = _TestableUsageSync(state_map={
+        "input_text.ams_slot_4_spool_id": "10",
+        "input_boolean.ams_slot_4_ran_out": "on",
+    })
+    decision = SlotDecision(slot=4, spool_id=10, consumption_g=44.0,
+                            method="rfid_delta", skip_reason=None,
+                            confidence="high", post_write_remaining=56.0)
+    app._apply_runout_zero_overrides([decision])
+    assert len(app._patch_calls) == 1
+    assert app._patch_calls[0]["spool_id"] == 10
+    assert app._patch_calls[0]["data"] == {"remaining_weight": 0}
+    assert _has_log(app, "RUNOUT_ZERO_OVERRIDE slot=4 spool_id=10")
+
+
+def test_runout_zero_override_noop_when_already_zero():
+    """ran_out=on, post-write remaining=0 → no PATCH call."""
+    from filament_iq.consumption_engine import SlotDecision
+    app = _TestableUsageSync(state_map={
+        "input_text.ams_slot_4_spool_id": "10",
+        "input_boolean.ams_slot_4_ran_out": "on",
+    })
+    decision = SlotDecision(slot=4, spool_id=10, consumption_g=100.0,
+                            method="rfid_delta", skip_reason=None,
+                            confidence="high", post_write_remaining=0.0)
+    app._apply_runout_zero_overrides([decision])
+    assert len(app._patch_calls) == 0
+    assert not _has_log(app, "RUNOUT_ZERO_OVERRIDE")
+
+
+def test_runout_zero_override_noop_when_boolean_off():
+    """ran_out=off, post-write remaining=56g → no PATCH call (normal print, no override)."""
+    from filament_iq.consumption_engine import SlotDecision
+    app = _TestableUsageSync(state_map={
+        "input_text.ams_slot_4_spool_id": "10",
+        "input_boolean.ams_slot_4_ran_out": "off",
+    })
+    decision = SlotDecision(slot=4, spool_id=10, consumption_g=44.0,
+                            method="rfid_delta", skip_reason=None,
+                            confidence="high", post_write_remaining=56.0)
+    app._apply_runout_zero_overrides([decision])
+    assert len(app._patch_calls) == 0
+    assert not _has_log(app, "RUNOUT_ZERO_OVERRIDE")
+
+
+# ── Reconcile runout skip tests ───────────────────────────────────────
+
+def test_reconcile_skips_slot_when_ran_out_boolean_on():
+    """ran_out=on → no Spoolman read, no PATCH, RECONCILE_RUNOUT_SKIP logged."""
+    app = _reconcile_app(remain=39, tray_weight=1000, spoolman_remaining=500.0)
+    app._state_map["input_boolean.ams_slot_4_ran_out"] = "on"
+    app._reconcile_rfid_weights()
+    assert len(app._patch_calls) == 0
+    assert _has_log(app, "RECONCILE_RUNOUT_SKIP slot=4")
+
+
+def test_reconcile_proceeds_when_ran_out_boolean_off():
+    """ran_out=off → normal reconcile path proceeds (PATCH fires with RFID value)."""
+    app = _reconcile_app(remain=39, tray_weight=1000, spoolman_remaining=500.0)
+    app._state_map["input_boolean.ams_slot_4_ran_out"] = "off"
+    app._reconcile_rfid_weights()
+    assert len(app._patch_calls) == 1
+    assert app._patch_calls[0]["data"] == {"remaining_weight": 390.0}
+    assert _has_log(app, "RFID_WEIGHT_RECONCILED slot=4 spool_id=10")
+
+
 def test_on_print_start_captures_snapshot():
     """_on_print_start writes job_key and start_snapshot."""
     app = _TestableUsageSync(
