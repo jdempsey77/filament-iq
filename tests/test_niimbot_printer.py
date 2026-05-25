@@ -160,29 +160,26 @@ def test_niimbot_dry_run_does_not_call_set_state():
 
 # ── Phase 2: profile_url path ─────────────────────────────────────────────
 
-def test_niimbot_writes_spool_id_pipe_profile_url_when_verified(tmp_path):
-    """When filament is verified, helper receives 'spool_id|profile_url'."""
-    vpath = str(tmp_path / "pv.json")
-    vdata = {
-        "version": 1,
-        "filaments": {
-            "7": {
-                "status": "verified",
-                "profile_id": 128,
-                "profile_url": "https://3dfilamentprofiles.com/filament/details/128",
-                "profile_name": "Bambu Lab · PLA Basic · Light Gray",
-                "verified_at": "2026-01-01T00:00:00Z",
-                "scorer_version": "1.0",
-            }
-        },
-    }
-    with open(vpath, "w") as fh:
-        json.dump(vdata, fh)
-
-    app = TestableNiimbotPrinter(args={"verifications_path": vpath})
+def test_niimbot_writes_spool_id_pipe_profile_url_when_verified():
+    """When filament is verified in Spoolman extra, helper receives 'spool_id|profile_url'."""
+    app = TestableNiimbotPrinter()
     app._fetch_spool = mock.Mock(return_value=SAMPLE_SPOOL_F7)
 
-    _fire(app, 21)
+    filament_json = json.dumps({
+        "id": 7,
+        "extra": {
+            "profile_url": '"https://3dfilamentprofiles.com/filament/details/128"',
+        }
+    }).encode("utf-8")
+
+    mock_resp = mock.MagicMock()
+    mock_resp.read.return_value = filament_json
+    mock_resp.__enter__ = mock.Mock(return_value=mock_resp)
+    mock_resp.__exit__ = mock.Mock(return_value=False)
+
+    with mock.patch("filament_iq.niimbot_printer.urllib.request.urlopen",
+                    return_value=mock_resp):
+        _fire(app, 21)
 
     assert len(app._set_state_calls) == 1
     assert app._set_state_calls[0]["entity"] == HELPER_ENTITY

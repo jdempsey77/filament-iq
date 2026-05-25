@@ -1,95 +1,6 @@
 import { h, Component } from 'preact'
 import { useState } from 'preact/hooks'
 
-class CamerasSegment extends Component {
-  constructor(props) {
-    super(props)
-    this.tapoRef = null
-    this.bambuRef = null
-    this._tapoCard = null
-    this._bambuCard = null
-  }
-
-  async _createCard(config) {
-    const helpers = await window.loadCardHelpers()
-    const card = await helpers.createCardElement(config)
-    card.hass = this.props.getHass()
-    return card
-  }
-
-  async componentDidMount() {
-    if (this.tapoRef) {
-      this._tapoCard = await this._createCard({
-        type: 'custom:webrtc-camera',
-        entity: 'camera.tapo_c111_live_view',
-        ui: false,
-        card_mod: {
-          style: `ha-card {
-            border: 1px solid #3a3a3c !important;
-            border-radius: 12px !important;
-            box-shadow: 0 6px 16px rgba(0,0,0,0.7) !important;
-            background: #1c1c1e !important;
-          }
-          #video-container .header { display: none !important; }`
-        }
-      })
-      if (this._tapoCard) this.tapoRef.appendChild(this._tapoCard)
-    }
-
-    const hass = this.props.getHass()
-    const printerOn = hass?.states?.['switch.officeoutlet01_3dprinter']?.state === 'on'
-    if (this.bambuRef && printerOn) {
-      this._bambuCard = await this._createCard({
-        type: 'conditional',
-        conditions: [{ entity: 'switch.officeoutlet01_3dprinter', state: 'on' }],
-        card: {
-          type: 'picture-entity',
-          entity: 'camera.p1s_01p00c5a3101668_camera',
-          show_state: false,
-          show_name: false,
-          camera_view: 'live',
-          fit_mode: 'cover',
-          card_mod: {
-            style: `ha-card {
-              border: 1px solid #3a3a3c !important;
-              border-radius: 12px !important;
-              box-shadow: 0 6px 16px rgba(0,0,0,0.7) !important;
-              background: #2c2c2e !important;
-            }`
-          }
-        }
-      })
-      if (this._bambuCard) this.bambuRef.appendChild(this._bambuCard)
-    }
-  }
-
-  componentDidUpdate() {
-    const hass = this.props.getHass()
-    if (this._tapoCard) this._tapoCard.hass = hass
-    if (this._bambuCard) this._bambuCard.hass = hass
-  }
-
-  componentWillUnmount() {
-    if (this._tapoCard) this._tapoCard.remove()
-    if (this._bambuCard) this._bambuCard.remove()
-    this._tapoCard = null
-    this._bambuCard = null
-  }
-
-  render() {
-    const labelStyle = { fontSize: 10, color: '#444', marginTop: 4, textAlign: 'center' }
-    return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 400, margin: '0 auto' } },
-      h('div', null,
-        h('div', { ref: el => this.tapoRef = el }),
-        h('div', { style: labelStyle }, 'Tapo · office')
-      ),
-      h('div', null,
-        h('div', { ref: el => this.bambuRef = el }),
-        h('div', { style: labelStyle }, 'Bambu · chamber')
-      )
-    )
-  }
-}
 
 // ── MDI SVG paths — inline, no external dependency ──────────
 const ICONS = {
@@ -686,6 +597,213 @@ class FiqSegment extends Component {
   }
 }
 
+// ── Compact print status (Cameras tab) ───────────────────────
+function CompactPrintStatus({ getHass }) {
+  const hass = getHass()
+  const sv = id => hass?.states?.[id]?.state ?? '—'
+  const sa = (id, attr) => hass?.states?.[id]?.attributes?.[attr]
+
+  const status     = sv('sensor.p1s_01p00c5a3101668_print_status')
+  const progress   = parseFloat(sv('sensor.p1s_01p00c5a3101668_print_progress')) || 0
+  const remaining  = parseFloat(sv('sensor.p1s_01p00c5a3101668_remaining_time')) || 0
+  const curLayer   = sv('sensor.p1s_01p00c5a3101668_current_layer')
+  const totalLayer = sv('sensor.p1s_01p00c5a3101668_total_layer_count')
+  const taskName   = sv('sensor.p1s_01p00c5a3101668_task_name')
+  const nozzle     = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_nozzle_temperature')) || 0)
+  const bed        = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_bed_temperature')) || 0)
+
+  const isPrinting = status === 'running'
+  const isPaused   = status === 'pause'
+  const isActive   = isPrinting || isPaused
+
+  const statusColor = isPrinting ? '#6aabda' : isPaused ? '#ff9800' : '#555'
+  const statusLabel = isPrinting ? 'PRINTING' : isPaused ? 'PAUSED' : 'IDLE'
+
+  const remH   = Math.floor(remaining)
+  const remM   = Math.round((remaining - remH) * 60)
+  const remStr = remH > 0 ? `${remH}h ${remM}m left` : `${remM}m left`
+
+  const startTimeState = hass?.states?.['sensor.p1s_01p00c5a3101668_start_time']?.state || ''
+  const elapsedMin     = startTimeState ? Math.round((Date.now() - new Date(startTimeState).getTime()) / 60000) : 0
+  const elH            = Math.floor(elapsedMin / 60)
+  const elM            = elapsedMin % 60
+  const elStr          = elH > 0 ? `${elH}h ${elM}m` : `${elM}m`
+
+  const activeTrayAmsIdx = sa('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index')
+  const activeTrayIdx    = sa('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index')
+  const activeSlot       = parseInt(Object.entries(SLOT_AMS).find(
+    ([, v]) => v.ams === activeTrayAmsIdx && v.tray === activeTrayIdx
+  )?.[0] ?? 2)
+
+  const slotColorHex = sv(`sensor.ams_slot_${activeSlot}_color_hex`)
+  const activeColor  = slotColorHex && !['unknown', 'unavailable', '—'].includes(slotColorHex)
+    ? `#${slotColorHex}` : '#888'
+  const material     = sv(`sensor.ams_slot_${activeSlot}_material`)
+  const remainG      = parseFloat(sv(`sensor.ams_slot_${activeSlot}_remaining_g`)) || 0
+  const remainPct    = Math.round(remainG / 1000 * 100)
+  const vendor       = sv(`sensor.ams_slot_${activeSlot}_vendor`)
+  const spoolId      = sv(`input_text.ams_slot_${activeSlot}_spool_id`)
+  const activeName   = sv(`sensor.ams_slot_${activeSlot}_name`)
+
+  return h('div', null,
+    isActive && h('div', { style: S.camStatusBlock },
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 } },
+        h('div', { style: S.statusBadge(statusColor) },
+          h('div', { style: { ...S.statusDot, background: statusColor } }),
+          h('span', { style: { ...S.statusText, color: statusColor } }, statusLabel)
+        ),
+        h('div', { style: { fontSize: 12, fontWeight: 500, color: '#f5f5f5', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, taskName || '—'),
+        h('div', { style: { fontSize: 13, fontWeight: 500, color: statusColor, flexShrink: 0 } }, `${Math.round(progress)}%`)
+      ),
+      h('div', { style: { height: 3, background: '#2c2c2e', borderRadius: 2, marginBottom: 7 } },
+        h('div', { style: { height: 3, background: statusColor, borderRadius: 2, width: `${Math.min(progress, 100)}%` } })
+      ),
+      h('div', { style: S.chips },
+        h('div', { style: S.chip },
+          h(Icon, { path: ICONS.clock, size: 9, color: '#6aabda' }),
+          remStr
+        ),
+        h('div', { style: S.chip },
+          h(Icon, { path: ICONS.layers, size: 9, color: '#6aabda' }),
+          `${curLayer} / ${totalLayer}`
+        ),
+        h('div', { style: S.chip },
+          h(Icon, { path: ICONS.nozzle, size: 9, color: '#6aabda' }),
+          `${nozzle}° / ${bed}°`
+        ),
+        h('div', { style: S.chip },
+          h(Icon, { path: ICONS.clock, size: 9, color: '#6aabda' }),
+          elStr
+        )
+      )
+    ),
+    h('div', { style: S.camSpoolRow },
+      h('div', { style: { width: 18, height: 18, borderRadius: 4, border: '2px solid rgba(255,255,255,0.15)', background: activeColor, flexShrink: 0 } }),
+      h('div', { style: { flex: 1, minWidth: 0 } },
+        h('div', { style: { fontSize: 11, fontWeight: 500, color: '#e8e8ea' } }, `${vendor} · ${activeName}`),
+        h('div', { style: { fontSize: 9, color: '#555', marginTop: 1 } },
+          [material, `Slot ${activeSlot}`, spoolId && spoolId !== '—' ? `#${spoolId}` : ''].filter(Boolean).join(' · ')
+        )
+      ),
+      h('div', { style: { width: 52, height: 3, background: '#2c2c2e', borderRadius: 2, overflow: 'hidden', flexShrink: 0 } },
+        h('div', { style: { height: 3, background: activeColor, borderRadius: 2, width: `${remainPct}%` } })
+      ),
+      h('div', { style: { fontSize: 11, fontWeight: 500, color: '#aaa', flexShrink: 0 } }, `${remainPct}%`)
+    )
+  )
+}
+
+// ── Cameras segment ──────────────────────────────────────────
+class CamerasSegment extends Component {
+  constructor(props) {
+    super(props)
+    this.tapoRef = null
+    this.bambuRef = null
+    this.nozzleRef = null
+    this._tapoCard = null
+    this._bambuCard = null
+    this._nozzleCard = null
+  }
+
+  async _createCard(config) {
+    const helpers = await window.loadCardHelpers()
+    const card = await helpers.createCardElement(config)
+    card.hass = this.props.getHass()
+    return card
+  }
+
+  async componentDidMount() {
+    if (this.tapoRef) {
+      this._tapoCard = await this._createCard({
+        type: 'custom:webrtc-camera',
+        entity: 'camera.tapo_c111_live_view',
+        ui: false,
+        card_mod: {
+          style: `ha-card {
+            border: 1px solid #3a3a3c !important;
+            border-radius: 12px !important;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.7) !important;
+            background: #1c1c1e !important;
+          }
+          #video-container .header { display: none !important; }`
+        }
+      })
+      if (this._tapoCard) this.tapoRef.appendChild(this._tapoCard)
+    }
+
+    const hass = this.props.getHass()
+    const printerOn = hass?.states?.['switch.officeoutlet01_3dprinter']?.state === 'on'
+    if (this.bambuRef && printerOn) {
+      this._bambuCard = await this._createCard({
+        type: 'conditional',
+        conditions: [{ entity: 'switch.officeoutlet01_3dprinter', state: 'on' }],
+        card: {
+          type: 'picture-entity',
+          entity: 'camera.p1s_01p00c5a3101668_camera',
+          show_state: false,
+          show_name: false,
+          camera_view: 'live',
+          fit_mode: 'cover',
+          card_mod: {
+            style: `ha-card {
+              border: 1px solid #3a3a3c !important;
+              border-radius: 12px !important;
+              box-shadow: 0 6px 16px rgba(0,0,0,0.7) !important;
+              background: #2c2c2e !important;
+            }`
+          }
+        }
+      })
+      if (this._bambuCard) this.bambuRef.appendChild(this._bambuCard)
+    }
+
+    if (this.nozzleRef) {
+      this._nozzleCard = await this._createCard({
+        type: 'custom:webrtc-camera',
+        entity: 'camera.tapo_c110_live_view',
+        ui: false,
+        card_mod: {
+          style: `ha-card {
+            border: 1px solid #3a3a3c !important;
+            border-radius: 12px !important;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.7) !important;
+            background: #1c1c1e !important;
+          }
+          #video-container .header { display: none !important; }`
+        }
+      })
+      if (this._nozzleCard) this.nozzleRef.appendChild(this._nozzleCard)
+    }
+  }
+
+  componentDidUpdate() {
+    const hass = this.props.getHass()
+    if (this._tapoCard) this._tapoCard.hass = hass
+    if (this._bambuCard) this._bambuCard.hass = hass
+    if (this._nozzleCard) this._nozzleCard.hass = hass
+  }
+
+  componentWillUnmount() {
+    if (this._tapoCard) this._tapoCard.remove()
+    if (this._bambuCard) this._bambuCard.remove()
+    if (this._nozzleCard) this._nozzleCard.remove()
+    this._tapoCard = null
+    this._bambuCard = null
+    this._nozzleCard = null
+  }
+
+  render() {
+    return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 0, maxWidth: 400, margin: '0 auto' } },
+      h('div', { style: { marginBottom: 7, height: 152 }, ref: el => this.tapoRef = el }),
+      h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginBottom: 7 } },
+        h('div', { style: { height: 90 }, ref: el => this.bambuRef = el }),
+        h('div', { style: { height: 90 }, ref: el => this.nozzleRef = el })
+      ),
+      h(CompactPrintStatus, { getHass: this.props.getHass })
+    )
+  }
+}
+
 // ── Root component ───────────────────────────────────────────
 export function PrinterDashboardCard({ config, getHass }) {
   const [seg, setSeg] = useState('printer')
@@ -789,4 +907,6 @@ const S = {
   pickerRow:    { padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer' },
   pickerRowSelected: { background: 'rgba(106,171,218,0.08)' },
   pickerLabel:  { fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 },
+  camStatusBlock: { background: '#1c1c1e', border: '1px solid #2c2c2e', borderRadius: 12, padding: '9px 11px', marginBottom: 7 },
+  camSpoolRow:    { background: '#1c1c1e', border: '1px solid #2c2c2e', borderRadius: 12, padding: '8px 11px', display: 'flex', alignItems: 'center', gap: 9 },
 }
