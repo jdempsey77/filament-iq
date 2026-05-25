@@ -1,6 +1,6 @@
 # Filament IQ — Project State
 
-> Last updated: 2026-05-23 (v1.10.0 — profile verification pipeline complete)
+> Last updated: 2026-05-25 (v1.10.1 — location-first pre-filter for non-RFID candidate resolution)
 
 Snapshot of released versions, test coverage, key decisions, and open work. Updated after each release.
 
@@ -10,7 +10,7 @@ Snapshot of released versions, test coverage, key decisions, and open work. Upda
 
 | Component | Version | Commit | Branch | Released |
 |-----------|---------|--------|--------|----------|
-| AppDaemon package | v1.10.0 | — | main | 2026-05-23 |
+| AppDaemon package | v1.10.1 | — | main | 2026-05-25 |
 | Manager card (lovelace) | v1.9.8 | — | main | 2026-05-24 |
 | Monitor (ska) | v1.6.3 | (deployed, not tagged) | main | 2026-05-19 |
 
@@ -20,7 +20,18 @@ Snapshot of released versions, test coverage, key decisions, and open work. Upda
 
 | Suite | Passing | Failing | Notes |
 |-------|---------|---------|-------|
-| filament-iq (all) | 1495 | 0 | |
+| filament-iq (all) | 1506 | 0 | |
+
+### Tests added in v1.10.1 session (2026-05-25)
+
+| Test | File | Guards |
+|------|------|--------|
+| `test_nonrfid_location_pre_filter_single_match_two_slots` | test_ams_rfid_reconcile.py | v1.10.1: pre-filter resolves two ambiguous non-RFID slots via Spoolman location |
+| `test_nonrfid_location_pre_filter_zero_match_falls_through` | test_ams_rfid_reconcile.py | v1.10.1: 0 location matches falls through silently (bootstrap case) |
+| `test_nonrfid_location_pre_filter_conflict_warning` | test_ams_rfid_reconcile.py | v1.10.1: 2+ location matches logs NONRFID_LOCATION_CONFLICT, falls through to tiebreak |
+| `test_nonrfid_location_pre_filter_unenrolled_spool` | test_ams_rfid_reconcile.py | v1.10.1: unenrolled (no lot_nr) spool resolved via location match |
+| `test_nonrfid_lot_nr_dual_slot_warning` | test_ams_rfid_reconcile.py | v1.10.1: NONRFID_LOT_NR_DUAL_SLOT warning when two AMS spools share lot_nr |
+| `test_nonrfid_lot_nr_dual_slot_no_warning_for_shelf` | test_ams_rfid_reconcile.py | v1.10.1: no NONRFID_LOT_NR_DUAL_SLOT when duplicate spool is on Shelf |
 
 ### Tests added in v1.7.6 session (2026-05-10)
 
@@ -39,12 +50,42 @@ Snapshot of released versions, test coverage, key decisions, and open work. Upda
 
 | Repo | Commit | Status |
 |------|--------|--------|
-| filament-iq | main | Clean — v1.10.0 pushed |
+| filament-iq | main | v1.10.1 committed and tagged |
 | home_assistant | main | Clean working tree |
 
 ---
 
 ## Key Decisions
+
+### 2026-05-25 — Location-first pre-filter for non-RFID spool resolution (v1.10.1)
+
+1. **Location-first pre-filter landed (v1.10.1)** — Non-RFID reconciler
+   now partitions the full `all_nonrfid_ids` candidate pool by whether
+   each spool's Spoolman `location` field matches the physical slot's
+   canonical location BEFORE the weight tiebreak runs. Single match →
+   resolve immediately with `NONRFID_LOCATION_MATCH`; 2+ matches →
+   `NONRFID_LOCATION_CONFLICT` WARNING + fall through; 0 matches →
+   silent fall through to weight tiebreak (bootstrap case). Fixes two
+   failure classes simultaneously: (a) same-filament dual-load (spool 94
+   at AMS1_Slot4 vs spool 95 at AMS1_Slot1, both pla|gfl04|bcbcbc),
+   (b) cross-brand same-color pool inflation (unenrolled spool 87 Shelf
+   vs spool 95 AMS1_Slot1). Also added `NONRFID_LOT_NR_DUAL_SLOT`
+   WARNING in `_enroll_lot_nr` when another AMS-slot spool already holds
+   the same lot_nr (enrollment proceeds). 6 new tests. PE review passed
+   after one test fix (location="shelf" lowercase required for correct
+   index-build and tiebreak available-filter behavior).
+
+2. **Filament ID in lot_nr rejected** — Adding |fid{spoolman_filament_id}
+   to the lot_nr string is architecturally blocked: `_build_lot_sig_for_lookup`
+   only has Bambu tray attributes at query time — Spoolman filament.id is
+   not available without a circular lookup. A 4-segment enrolled lot_nr
+   would produce zero matches against a 3-segment lookup key. Deferred
+   to backlog pending a full lookup mechanism redesign.
+
+3. **Data fixes applied** — Spool 77 lot_nr corrected from pla|gfl04|bcbcbc
+   to pla|gfl40|bcbcbc (wrong filament ID enrolled). Spool 95 Spoolman
+   location corrected to AMS1_Slot1 (was incorrectly set to Shelf while
+   physically loaded). Spool 94 confirmed at AMS1_Slot4.
 
 ### 2026-05-23 — Profile verification pipeline (v1.10.0)
 
