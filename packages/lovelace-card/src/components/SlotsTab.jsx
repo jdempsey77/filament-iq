@@ -402,6 +402,7 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
   const [showMore, setShowMore] = useState(false)
   const [printingLabel, setPrintingLabel] = useState(false)
   const [printingNiimbotLabel, setPrintingNiimbotLabel] = useState(false)
+  const [toast, setToast] = useState(null)
   const [profileStatus, setProfileStatus] = useState('idle')
   const [profileData, setProfileData] = useState(null)
   const [profileLookedUp, setProfileLookedUp] = useState(false)
@@ -442,7 +443,7 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
           done = true
           cleanup()
           setProfileStatus('error')
-        }, 8000)
+        }, 20000)
       } catch (e) {
         cleanup()
         setProfileStatus('error')
@@ -452,6 +453,38 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
     run()
     return cleanup
   }, [showMore])
+
+  useEffect(() => {
+    if (!printingNiimbotLabel || !hass) return
+    let unsub = null
+    const subscribe = async () => {
+      try {
+        unsub = await hass.connection.subscribeEvents((event) => {
+          const d = event.data || {}
+          if (d.spool_id !== spool.id) return
+          setPrintingNiimbotLabel(false)
+          if (d.success) {
+            setToast({ msg: 'Swatch label queued for printing', type: 'ok' })
+          } else {
+            setToast({ msg: `Swatch print failed: ${d.error || 'unknown error'}`, type: 'err' })
+          }
+          setTimeout(() => setToast(null), 5000)
+        }, 'filament_iq_niimbot_label_result')
+      } catch (e) {}
+    }
+    subscribe()
+    return () => { if (unsub) unsub() }
+  }, [hass, printingNiimbotLabel])
+
+  useEffect(() => {
+    if (!printingNiimbotLabel) return
+    const timer = setTimeout(() => {
+      setPrintingNiimbotLabel(false)
+      setToast({ msg: 'Swatch print timed out', type: 'err' })
+      setTimeout(() => setToast(null), 5000)
+    }, 15000)
+    return () => clearTimeout(timer)
+  }, [printingNiimbotLabel])
 
   const f = spool.filament || {}
   const vendor = f.vendor?.name || ''
@@ -519,8 +552,11 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
         event_type: 'filament_iq_print_niimbot_label',
         event_data: { spool_id: spool.id },
       })
-    } catch (_) {}
-    setTimeout(() => setPrintingNiimbotLabel(false), 15000)
+    } catch (e) {
+      setPrintingNiimbotLabel(false)
+      setToast({ msg: `Swatch print failed: ${e.message || e}`, type: 'err' })
+      setTimeout(() => setToast(null), 5000)
+    }
   }
 
   const inpStyle = {
@@ -543,6 +579,7 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
     },
     onClick: e => { if (e.target === e.currentTarget) onClose() },
   },
+    toast && h('div', { class: `fiq-toast ${toast.type === 'err' ? 'fiq-toast-err' : 'fiq-toast-ok'}` }, toast.msg),
     h('div', {
       style: {
         background: '#1c1c1f',
