@@ -149,6 +149,20 @@
 - [x] Runout split consumption model inaccurate — remaining-based model used stale Spoolman remaining_weight for depleted spool share. Fixed: time-weighted split (active_times proportion) used when depleted slot has post-restart timing; remaining-based fallback when active_times unavailable (spool depleted before restart). (v1.0.8, commit 991c5eb)
 
 ### Low Priority
+- [ ] Filament ID in lot_nr (v.future): Adding |fid{spoolman_filament_id}
+  to the lot_nr string requires co-designing the lookup mechanism —
+  _build_lot_sig_for_lookup only has Bambu tray attributes at query time,
+  not Spoolman filament.id. Requires updating _enroll_lot_nr,
+  _build_lot_sig, _lot_nr_is_refinement, the lookup at lotnr_to_spools,
+  and a one-time migration PATCH for ~18 non-RFID spools. Deferred until
+  location-first pre-filter proves insufficient.
+- [ ] RunoutTracker mid-print slot-switch: When spool N runs out mid-print
+  and printer auto-switches to the staged backup spool in another slot,
+  verify RunoutTracker correctly splits consumption between the two spools.
+  Untested scenario — monitor in production after next runout event.
+- [ ] docs/known-events.md — canonical event keyword taxonomy with severity
+  guidance for operators running the watcher service or building their own
+  observability tooling
 - [x] Label printer format mismatch — label_printer.py generates 236x236 Fixed: restored rectangular DK-1201 29x90mm format, 991x306 landscape canvas, rotate=-90 to portrait. Verified dry_run label=29x90 success=True. (2026-05-06)
   circular d24 labels but DK-1201 29x90mm rectangular stock is loaded.
   Verify whether labels print correctly on rectangular stock, or rewrite

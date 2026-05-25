@@ -2440,6 +2440,192 @@ class TestAmsRfidReconcile(unittest.TestCase):
         non_bambu_patches = [p for p in sm.patches if "/spool/20" in p.get("path", "")]
         self.assertGreaterEqual(len(non_bambu_patches), 1, "non-Bambu spool 20 should be PATCHed")
 
+    def test_nonrfid_location_pre_filter_single_match_two_slots(self):
+        """Location-first pre-filter resolves each of two non-RFID slots to its correct
+        spool when each spool's Spoolman location matches its respective physical slot.
+        v1.10.1: NONRFID_LOCATION_MATCH must fire once per resolved slot."""
+        lot_sig = "pla|gfl04|bcbcbc"
+        spool_94 = _spool(94, remaining_weight=180, rfid_tag_uid=None,
+                          location="AMS1_Slot4", color_hex="bcbcbc",
+                          material="PLA", name="Overture PLA", vendor_name="Overture",
+                          filament_id=4, lot_nr=lot_sig)
+        spool_95 = _spool(95, remaining_weight=240, rfid_tag_uid=None,
+                          location="AMS1_Slot1", color_hex="bcbcbc",
+                          material="PLA", name="Overture PLA", vendor_name="Overture",
+                          filament_id=4, lot_nr=lot_sig)
+        sm = FakeSpoolman([spool_94, spool_95], [])
+        tray = _tray_state("", tray_type="PLA", color="bcbcbc",
+                           name="Overture PLA", filament_id="gfl04")
+        state_map = {"input_boolean.filament_iq_nonrfid_enabled": "on"}
+        for s in range(1, 7):
+            tray_ent = _tray_entity(s)
+            if s in (1, 4):
+                state_map[tray_ent] = tray
+                state_map[tray_ent + "::all"] = {"attributes": tray["attributes"], "state": "valid"}
+            else:
+                empty_s = {"attributes": {"tag_uid": "", "empty": True}, "state": "empty"}
+                state_map[tray_ent] = empty_s
+                state_map[tray_ent + "::all"] = empty_s
+            state_map["input_text.ams_slot_%d_spool_id" % s] = "0"
+            state_map["input_text.ams_slot_%d_expected_spool_id" % s] = "0"
+            state_map["input_text.ams_slot_%d_status" % s] = ""
+            state_map["input_text.ams_slot_%d_tray_signature" % s] = ""
+            state_map["input_text.ams_slot_%d_unbound_reason" % s] = ""
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+        summary = r._last_summary
+        self.assertIsNotNone(summary)
+        transcripts = summary.get("validation_transcripts", [])
+        slot1_t = next((t for t in transcripts if t.get("slot") == 1), None)
+        self.assertIsNotNone(slot1_t, "slot 1 must have a transcript")
+        self.assertEqual(slot1_t.get("final_spool_id"), 95,
+                         "slot 1 must resolve to spool 95 (located at AMS1_Slot1)")
+        slot4_t = next((t for t in transcripts if t.get("slot") == 4), None)
+        self.assertIsNotNone(slot4_t, "slot 4 must have a transcript")
+        self.assertEqual(slot4_t.get("final_spool_id"), 94,
+                         "slot 4 must resolve to spool 94 (located at AMS1_Slot4)")
+        location_match_logs = [m for m, _ in r._log_calls if "NONRFID_LOCATION_MATCH" in m]
+        self.assertEqual(len(location_match_logs), 2,
+                         "pre-filter must log NONRFID_LOCATION_MATCH for both resolved slots")
+
+    def test_nonrfid_location_pre_filter_zero_match_falls_through(self):
+        """Location-first pre-filter: when 0 candidates match the slot location, fall
+        through silently to weight tiebreak. Weight tiebreak picks lowest-remaining spool.
+        v1.10.1"""
+        lot_sig = "pla|gfl04|bcbcbc"
+        # location="shelf" (lowercase) gets spools into lotnr_to_spools AND passes the
+        # weight tiebreak's available-filter (cloc in ("shelf", "new", "")).
+        # "shelf" != "AMS1_Slot1" (canonical slot loc), so the pre-filter finds 0 matches.
+        # Different weights so the tiebreak picks an unambiguous winner (spool_94, lower remaining).
+        spool_94 = _spool(94, remaining_weight=200, rfid_tag_uid=None,
+                          location="shelf", color_hex="bcbcbc",
+                          material="PLA", name="Overture PLA", vendor_name="Overture",
+                          filament_id=4, lot_nr=lot_sig)
+        spool_95 = _spool(95, remaining_weight=800, rfid_tag_uid=None,
+                          location="shelf", color_hex="bcbcbc",
+                          material="PLA", name="Overture PLA", vendor_name="Overture",
+                          filament_id=4, lot_nr=lot_sig)
+        sm = FakeSpoolman([spool_94, spool_95], [])
+        tray = _tray_state("", tray_type="PLA", color="bcbcbc",
+                           name="Overture PLA", filament_id="gfl04")
+        state_map = {"input_boolean.filament_iq_nonrfid_enabled": "on"}
+        for s in range(1, 7):
+            tray_ent = _tray_entity(s)
+            if s == 1:
+                state_map[tray_ent] = tray
+                state_map[tray_ent + "::all"] = {"attributes": tray["attributes"], "state": "valid"}
+            else:
+                empty_s = {"attributes": {"tag_uid": "", "empty": True}, "state": "empty"}
+                state_map[tray_ent] = empty_s
+                state_map[tray_ent + "::all"] = empty_s
+            state_map["input_text.ams_slot_%d_spool_id" % s] = "0"
+            state_map["input_text.ams_slot_%d_expected_spool_id" % s] = "0"
+            state_map["input_text.ams_slot_%d_status" % s] = ""
+            state_map["input_text.ams_slot_%d_tray_signature" % s] = ""
+            state_map["input_text.ams_slot_%d_unbound_reason" % s] = ""
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+        location_match_logs = [m for m, _ in r._log_calls if "NONRFID_LOCATION_MATCH" in m]
+        self.assertEqual(len(location_match_logs), 0,
+                         "no NONRFID_LOCATION_MATCH must fire: no spool matched the slot location")
+        ambiguous_logs = [m for m, _ in r._log_calls if "NONRFID_LOT_NR_AMBIGUOUS" in m]
+        self.assertEqual(len(ambiguous_logs), 0,
+                         "no NONRFID_LOT_NR_AMBIGUOUS must fire: weight tiebreak resolves unambiguously")
+        summary = r._last_summary
+        self.assertIsNotNone(summary)
+        slot1_t = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == 1), None)
+        self.assertIsNotNone(slot1_t)
+        self.assertEqual(slot1_t.get("final_spool_id"), 94,
+                         "weight tiebreak must resolve to spool_94 (lowest remaining_weight=200)")
+
+    def test_nonrfid_location_pre_filter_conflict_warning(self):
+        """Location-first pre-filter: when 2+ candidates share the slot location, log
+        NONRFID_LOCATION_CONFLICT (WARNING) and fall through to tiebreak. v1.10.1"""
+        lot_sig = "pla|gfl04|bcbcbc"
+        spool_94 = _spool(94, remaining_weight=200, rfid_tag_uid=None,
+                          location="AMS1_Slot1", color_hex="bcbcbc",
+                          material="PLA", name="Overture PLA", vendor_name="Overture",
+                          filament_id=4, lot_nr=lot_sig)
+        spool_95 = _spool(95, remaining_weight=400, rfid_tag_uid=None,
+                          location="AMS1_Slot1", color_hex="bcbcbc",
+                          material="PLA", name="Overture PLA", vendor_name="Overture",
+                          filament_id=4, lot_nr=lot_sig)
+        sm = FakeSpoolman([spool_94, spool_95], [])
+        tray = _tray_state("", tray_type="PLA", color="bcbcbc",
+                           name="Overture PLA", filament_id="gfl04")
+        state_map = {"input_boolean.filament_iq_nonrfid_enabled": "on"}
+        for s in range(1, 7):
+            tray_ent = _tray_entity(s)
+            if s == 1:
+                state_map[tray_ent] = tray
+                state_map[tray_ent + "::all"] = {"attributes": tray["attributes"], "state": "valid"}
+            else:
+                empty_s = {"attributes": {"tag_uid": "", "empty": True}, "state": "empty"}
+                state_map[tray_ent] = empty_s
+                state_map[tray_ent + "::all"] = empty_s
+            state_map["input_text.ams_slot_%d_spool_id" % s] = "0"
+            state_map["input_text.ams_slot_%d_expected_spool_id" % s] = "0"
+            state_map["input_text.ams_slot_%d_status" % s] = ""
+            state_map["input_text.ams_slot_%d_tray_signature" % s] = ""
+            state_map["input_text.ams_slot_%d_unbound_reason" % s] = ""
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+        conflict_logs = [m for m, _ in r._log_calls if "NONRFID_LOCATION_CONFLICT" in m]
+        self.assertEqual(len(conflict_logs), 1,
+                         "must log NONRFID_LOCATION_CONFLICT when 2+ candidates share slot location")
+        no_match_logs = [m for m, _ in r._log_calls if "NONRFID_LOCATION_MATCH" in m]
+        self.assertEqual(len(no_match_logs), 0,
+                         "NONRFID_LOCATION_MATCH must not fire on conflict")
+        summary = r._last_summary
+        self.assertIsNotNone(summary)
+        slot1_t = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == 1), None)
+        self.assertIsNotNone(slot1_t)
+        self.assertEqual(slot1_t.get("final_spool_id"), 94,
+                         "tiebreak must select spool 94 (200g lowest weight) after conflict fallthrough")
+
+    def test_nonrfid_location_pre_filter_unenrolled_spool(self):
+        """Location-first pre-filter resolves an unenrolled spool (no lot_nr) when its
+        Spoolman location matches the physical slot. source must be nonrfid_unenrolled_match.
+        v1.10.1"""
+        spool_96 = _spool(96, remaining_weight=300, rfid_tag_uid=None,
+                          location="AMS1_Slot1", color_hex="bcbcbc",
+                          material="PLA", name="Overture PLA", vendor_name="Overture",
+                          filament_id=4)
+        spool_97 = _spool(97, remaining_weight=500, rfid_tag_uid=None,
+                          location="Shelf", color_hex="bcbcbc",
+                          material="PLA", name="Overture PLA", vendor_name="Overture",
+                          filament_id=4)
+        sm = FakeSpoolman([spool_96, spool_97], [])
+        tray = _tray_state("", tray_type="PLA", color="bcbcbc",
+                           name="Overture PLA", filament_id="gfl04")
+        state_map = {"input_boolean.filament_iq_nonrfid_enabled": "on"}
+        for s in range(1, 7):
+            tray_ent = _tray_entity(s)
+            if s == 1:
+                state_map[tray_ent] = tray
+                state_map[tray_ent + "::all"] = {"attributes": tray["attributes"], "state": "valid"}
+            else:
+                empty_s = {"attributes": {"tag_uid": "", "empty": True}, "state": "empty"}
+                state_map[tray_ent] = empty_s
+                state_map[tray_ent + "::all"] = empty_s
+            state_map["input_text.ams_slot_%d_spool_id" % s] = "0"
+            state_map["input_text.ams_slot_%d_expected_spool_id" % s] = "0"
+            state_map["input_text.ams_slot_%d_status" % s] = ""
+            state_map["input_text.ams_slot_%d_tray_signature" % s] = ""
+            state_map["input_text.ams_slot_%d_unbound_reason" % s] = ""
+        r = TestableReconcile(sm, state_map, args=self.args)
+        r._run_reconcile("test")
+        location_match_logs = [m for m, _ in r._log_calls if "NONRFID_LOCATION_MATCH" in m]
+        self.assertEqual(len(location_match_logs), 1,
+                         "pre-filter must fire NONRFID_LOCATION_MATCH for unenrolled spool at slot location")
+        summary = r._last_summary
+        self.assertIsNotNone(summary)
+        slot1_t = next((t for t in summary.get("validation_transcripts", []) if t.get("slot") == 1), None)
+        self.assertIsNotNone(slot1_t)
+        self.assertEqual(slot1_t.get("final_spool_id"), 96,
+                         "pre-filter must bind spool 96 (at AMS1_Slot1) not shelf spool 97")
+
+
     def test_rfid_visible_does_not_exclude_bambu(self):
         """RFID_VISIBLE mode must NOT apply the Bambu vendor filter — Bambu spools
         with matching RFID tag must still resolve normally via UID lookup."""
@@ -7101,6 +7287,43 @@ def test_enroll_lot_nr_allows_unique():
     assert len(lot_nr_patches) == 1, (
         "Must PATCH lot_nr exactly once when unique"
     )
+
+
+def test_nonrfid_lot_nr_dual_slot_warning():
+    """_enroll_lot_nr logs NONRFID_LOT_NR_DUAL_SLOT when another spool in an AMS slot
+    already holds the same lot_nr. v1.10.1: diagnostic-only, does not block enrollment."""
+    lot_sig = "pla|gfl04|bcbcbc"
+    spool_10 = _spool(10, lot_nr=lot_sig, location="AMS1_Slot1", vendor_name="Overture")
+    spool_20 = _spool(20, location="AMS1_Slot4", vendor_name="Overture")
+    sm = FakeSpoolman([spool_10, spool_20], [])
+    r = TestableReconcile(sm, {}, args=_DEFAULT_ARGS)
+    spool_index = {10: spool_10, 20: spool_20}
+    r._enroll_lot_nr(20, lot_sig, spool_index)
+    dual_logs = [m for m, _ in r._log_calls if "NONRFID_LOT_NR_DUAL_SLOT" in m]
+    assert len(dual_logs) == 1, (
+        "must log NONRFID_LOT_NR_DUAL_SLOT when another AMS spool has same lot_nr"
+    )
+    enrolled = [p for p in sm.patches if (p.get("payload") or {}).get("lot_nr") == lot_sig]
+    assert len(enrolled) == 1, "enrollment must still proceed (warning is diagnostic-only)"
+
+
+def test_nonrfid_lot_nr_dual_slot_no_warning_for_shelf():
+    """_enroll_lot_nr must NOT log NONRFID_LOT_NR_DUAL_SLOT when the other spool
+    with the same lot_nr is on Shelf (not in an AMS slot). v1.10.1"""
+    lot_sig = "pla|gfl04|bcbcbc"
+    spool_10 = _spool(10, lot_nr=lot_sig, location="Shelf", vendor_name="Overture")
+    spool_20 = _spool(20, location="AMS1_Slot1", vendor_name="Overture")
+    sm = FakeSpoolman([spool_10, spool_20], [])
+    r = TestableReconcile(sm, {}, args=_DEFAULT_ARGS)
+    spool_index = {10: spool_10, 20: spool_20}
+    r._enroll_lot_nr(20, lot_sig, spool_index)
+    dual_logs = [m for m, _ in r._log_calls if "NONRFID_LOT_NR_DUAL_SLOT" in m]
+    assert len(dual_logs) == 0, (
+        "must NOT log NONRFID_LOT_NR_DUAL_SLOT when other spool is on Shelf, not in AMS"
+    )
+    enrolled = [p for p in sm.patches if (p.get("payload") or {}).get("lot_nr") == lot_sig]
+    assert len(enrolled) == 1, "enrollment must proceed normally"
+
 
 
 def test_b2_allows_nonrfid_sig_duplicate():

@@ -1430,6 +1430,60 @@ class AmsRfidReconcile(FilamentIQBase):
                     all_nonrfid_ids = list(set(lotnr_nonrfid_ids) | set(unenrolled_ids))
                     # Exclude RFID-enrolled spools (lot_nr = 32-char UUID); they must not match non-RFID trays
                     all_nonrfid_ids = [cid for cid in all_nonrfid_ids if not _is_lot_nr_uuid((spool_index.get(cid) or {}).get("lot_nr"))]
+                    # Location-first pre-filter: resolve immediately when exactly one candidate's
+                    # Spoolman location matches this physical slot. Runs before the active-in-other-slot
+                    # exclusion and weight-based tiebreak.
+                    current_slot_loc = self._normalize_location(self._canonical_location_by_slot.get(slot, ""))
+                    slot_matched = []
+                    for _cid in all_nonrfid_ids:
+                        _cs = spool_index.get(_cid)
+                        if not _cs:
+                            continue
+                        _cloc = self._normalize_location(str(_cs.get("location", "")).strip())
+                        if _cloc == current_slot_loc:
+                            slot_matched.append(_cs)
+                    if len(slot_matched) == 1:
+                        resolved = self._safe_int(slot_matched[0].get("id"), 0)
+                        rem = self._safe_float(slot_matched[0].get("remaining_weight"), 0)
+                        self.log(
+                            f"NONRFID_LOCATION_MATCH slot={slot} spool_id={resolved} "
+                            f"location={current_slot_loc} remaining={rem}g",
+                            level="INFO",
+                        )
+                        from_unenrolled = resolved in set(unenrolled_ids)
+                        source = "nonrfid_unenrolled_match" if from_unenrolled else "nonrfid_lot_nr_match"
+                        self._force_location_and_helpers(
+                            slot, resolved, "", source=source,
+                            tray_meta=tray_meta, tray_state=tray.get("state", ""), tray_identity=nonrfid_sig,
+                            previous_helper_spool_id=previous_helper_spool_id,
+                            spool_index=spool_index, t=t, tray_empty=tray_empty, tray_state_str=tray_state_str,
+                        )
+                        reason = "nonrfid_unenrolled_match" if from_unenrolled else "nonrfid_lot_nr_match"
+                        self._enroll_lot_nr(resolved, lot_sig, spool_index, reason=reason)
+                        status = STATUS_OK_NONRFID
+                        ok += 1
+                        t["decision"], t["reason"], t["action"] = "NON_RFID", "lot_nr_match", "nonrfid_auto_match"
+                        t["final_spool_id"], t["selected_spool_id"] = resolved, resolved
+                        t["final_slot_status"] = status
+                        t["final_location"] = self._canonical_location_by_slot.get(slot, "")
+                        self._set_helper(f"input_text.ams_slot_{slot}_status", status)
+                        self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+                        self._write_presentation_state(slot, "", status)
+                        self._log_slot_status_change(slot, status, "", resolved, tray_meta)
+                        self._record_decision(slot, "nonrfid_lot_nr_match", {"resolved_spool_id": resolved, "lot_sig": lot_sig})
+                        self._active_run["validation_transcripts"].append(t)
+                        if validation_mode:
+                            self._log_validation_transcript(t)
+                        continue
+                    elif len(slot_matched) > 1:
+                        _ids = [_s.get("id") for _s in slot_matched]
+                        self.log(
+                            f"NONRFID_LOCATION_CONFLICT slot={slot} location={current_slot_loc} "
+                            f"candidates={_ids} — falling through to weight tiebreak",
+                            level="WARNING",
+                        )
+                        # fall through — existing tiebreak handles it
+                    # elif len(slot_matched) == 0: bootstrap case, fall through silently
                     # Exclude spools actively bound to another slot (avoid slot-to-slot move stealing)
                     all_nonrfid_ids = [cid for cid in all_nonrfid_ids if not self._is_spool_active_in_other_slot(cid, slot)]
                     if len(all_nonrfid_ids) == 1:
@@ -1489,7 +1543,6 @@ class AmsRfidReconcile(FilamentIQBase):
                         continue
                     elif len(all_nonrfid_ids) > 1:
                         # Tiebreak: filter to spools available for this slot, pick lowest remaining_weight
-                        current_slot_loc = self._normalize_location(self._canonical_location_by_slot.get(slot, ""))
                         available = []
                         for cid in all_nonrfid_ids:
                             cs = spool_index.get(cid)
@@ -2733,6 +2786,21 @@ class AmsRfidReconcile(FilamentIQBase):
                     level="WARNING",
                 )
                 return
+        if isinstance(spool_index, dict):
+            _dual_ams = [
+                sid for sid, sp in spool_index.items()
+                if sp.get("lot_nr") == lot_nr_value
+                and sid != spool_id
+                and self._normalize_location(str(sp.get("location", "")).strip()).lower()
+                not in ("shelf", "new", "", LOCATION_EMPTY.lower())
+            ]
+            if _dual_ams:
+                self.log(
+                    f"NONRFID_LOT_NR_DUAL_SLOT spool_id={spool_id} lot_nr={lot_nr_value} "
+                    f"also_enrolled={_dual_ams} — two same-type spools in AMS "
+                    f"simultaneously, location-aware matching will resolve",
+                    level="WARNING",
+                )
         self._patch_spool_fields(spool_id, {"lot_nr": lot_nr_value})
         if isinstance(spool_index, dict) and spool_id in spool_index:
             spool_index[spool_id]["lot_nr"] = lot_nr_value
