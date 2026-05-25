@@ -55,7 +55,7 @@ except ImportError:
 _DEFAULT_DATA_DIR = "/addon_configs/a0d7b954_appdaemon/data/filament_iq"
 SEEN_JOBS_PATH = os.path.join(_DEFAULT_DATA_DIR, "seen_job_keys.json")
 
-_APP_VERSION = "1.10.1"
+_APP_VERSION = "1.10.2"
 
 MAX_SEEN_JOBS = 50
 ACTIVE_PRINT_FILE = pathlib.Path(_DEFAULT_DATA_DIR) / "active_print.json"

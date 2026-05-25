@@ -1,6 +1,6 @@
 # Filament IQ — Project State
 
-> Last updated: 2026-05-25 (v1.10.1 — RunoutTracker zero-write: post-write remaining zeroed for ran_out slots; reconciler suppressed for ran_out slots)
+> Last updated: 2026-05-25 (v1.10.2 — RunoutTracker zero-write: post-write remaining zeroed for ran_out slots; reconciler suppressed for ran_out slots)
 
 Snapshot of released versions, test coverage, key decisions, and open work. Updated after each release.
 
@@ -10,7 +10,7 @@ Snapshot of released versions, test coverage, key decisions, and open work. Upda
 
 | Component | Version | Commit | Branch | Released |
 |-----------|---------|--------|--------|----------|
-| AppDaemon package | v1.10.1 | — | main | 2026-05-25 |
+| AppDaemon package | v1.10.2 | — | main | 2026-05-25 |
 | Manager card (lovelace) | v1.9.8 | — | main | 2026-05-24 |
 | Monitor (ska) | v1.6.3 | (deployed, not tagged) | main | 2026-05-19 |
 
@@ -22,7 +22,7 @@ Snapshot of released versions, test coverage, key decisions, and open work. Upda
 |-------|---------|---------|-------|
 | filament-iq (all) | 1511 | 0 | |
 
-### Tests added in v1.10.1 session (2026-05-25) — RunoutTracker zero-write
+### Tests added in v1.10.2 session (2026-05-25) — RunoutTracker zero-write
 
 | Test | File | Guards |
 |------|------|--------|
@@ -60,14 +60,14 @@ Snapshot of released versions, test coverage, key decisions, and open work. Upda
 
 | Repo | Commit | Status |
 |------|--------|--------|
-| filament-iq | main | v1.10.1 committed and tagged |
+| filament-iq | main | v1.10.2 committed and tagged |
 | home_assistant | main | Clean working tree |
 
 ---
 
 ## Key Decisions
 
-### 2026-05-25 — RunoutTracker zero-write: post-write remaining zeroed for ran_out slots (v1.10.1)
+### 2026-05-25 — RunoutTracker zero-write: post-write remaining zeroed for ran_out slots (v1.10.2)
 
 **Decision**: Zero-write belongs in `AMSPrintUsageSync`, NOT `RunoutTracker`. When `input_boolean.ams_slot_N_ran_out` is on at print finish, the consumption estimate may undershot (Spoolman shows non-zero remaining after the /use write). Fix has two parts:
 
