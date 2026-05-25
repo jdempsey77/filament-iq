@@ -65,7 +65,7 @@ img = Image.open(img_path).convert("RGB")  # flatten RGBA → white bg
 # Rotate 90° CCW so landscape 800×240 becomes portrait 240×800
 img = img.resize((141, 83), Image.LANCZOS).rotate(-90, expand=True)
 
-img.convert("1").save("/tmp/niimbot_label.png")
+img.convert("1", dither=Image.Dither.NONE).save("/tmp/niimbot_label.png")
 print(f"Slim label ready: /tmp/niimbot_label.png")
 PYEOF
 else
