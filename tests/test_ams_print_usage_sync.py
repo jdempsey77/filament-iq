@@ -3566,3 +3566,44 @@ def test_usage_no_evidence_rfid_slot_no_notify():
         f"Unexpected notify for RFID slot: {notify_calls}"
     )
 
+
+# ── v1.7.6: slot 8 (external spool) snapshot coverage ────────────────
+
+_AMS_UNITS_8_SLOTS = [
+    {"type": "ams_2_pro", "ams_index": 0, "slots": [1, 2, 3, 4]},
+    {"type": "ams_ht", "ams_index": 128, "slots": [5]},
+    {"type": "ams_ht", "ams_index": 129, "slots": [6]},
+    {"type": "ams_ht", "ams_index": 130, "slots": [7]},
+    {"type": "external", "slots": [8]},
+]
+
+
+def test_spool_id_snapshot_includes_slot_8():
+    """Fix 2: _spool_id_snapshot captures slot 8 (external spool port) at print start."""
+    app = _TestableUsageSync(
+        state_map={
+            "sensor.p1s_01p00c5a3101668_task_name": "test_print",
+            "input_text.ams_slot_8_spool_id": "93",
+        },
+        args={"lifecycle_phase1_enabled": True, "ams_units": _AMS_UNITS_8_SLOTS},
+    )
+    app._on_print_start()
+    assert app._spool_id_snapshot.get(8) == 93, (
+        f"slot 8 (external) must appear in spool_id_snapshot; got {app._spool_id_snapshot}"
+    )
+
+
+def test_spool_id_snapshot_includes_slot_7():
+    """Fix 2: _spool_id_snapshot captures slot 7 (AMS HT) at print start."""
+    app = _TestableUsageSync(
+        state_map={
+            "sensor.p1s_01p00c5a3101668_task_name": "test_print",
+            "input_text.ams_slot_7_spool_id": "77",
+        },
+        args={"lifecycle_phase1_enabled": True, "ams_units": _AMS_UNITS_8_SLOTS},
+    )
+    app._on_print_start()
+    assert app._spool_id_snapshot.get(7) == 77, (
+        f"slot 7 must appear in spool_id_snapshot; got {app._spool_id_snapshot}"
+    )
+

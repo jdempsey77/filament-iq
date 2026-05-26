@@ -1142,7 +1142,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._write_start_json_helper()
 
         self._spool_id_snapshot = {}
-        for slot in range(1, 7):
+        for slot in sorted(self._tray_entity_by_slot.keys()):
             val = self.get_state(f"input_text.ams_slot_{slot}_spool_id")
             if val and str(val).isdigit() and int(val) > 0:
                 self._spool_id_snapshot[slot] = int(val)

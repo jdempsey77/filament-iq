@@ -1013,7 +1013,7 @@ class AmsRfidReconcile(FilamentIQBase):
             resolved_spool_id = 0
 
             tray_state_str = str(tray.get("state", "")).strip().lower() if isinstance(tray, dict) else ""
-            tray_empty = tray_state_str == "empty"
+            tray_empty = tray_state_str == "empty" or bool(attrs.get("empty", False))
 
             t = {
                 "slot": slot,
@@ -1110,6 +1110,36 @@ class AmsRfidReconcile(FilamentIQBase):
                 t["final_spool_id"] = helper_spool_id
                 t["final_slot_status"] = status
                 t["final_location"] = self._canonical_location_by_slot.get(slot, "")
+                # Backfill Spoolman location if unset — cannot call _force_location_and_helpers
+                # here because it clears input_text.ams_slot_{slot}_unbound_reason, which would
+                # destroy the FORCE_ACCEPTED state on every reconcile cycle.
+                if not status_only:
+                    canonical_loc = t["final_location"]
+                    if canonical_loc:
+                        spool_data = spool_index.get(helper_spool_id) or {}
+                        if not spool_data:
+                            try:
+                                spool_data = self._spoolman_get(f"/api/v1/spool/{helper_spool_id}") or {}
+                            except Exception as exc:
+                                self.log(
+                                    f"FORCE_ACCEPTED_LOCATION_BACKFILL_ERROR slot={slot} spool_id={helper_spool_id} err={exc}",
+                                    level="WARNING",
+                                )
+                                spool_data = {}
+                        if isinstance(spool_data, dict) and not (spool_data.get("location") or "").strip():
+                            try:
+                                self._spoolman_patch(
+                                    f"/api/v1/spool/{helper_spool_id}", {"location": canonical_loc}
+                                )
+                                self.log(
+                                    f"FORCE_ACCEPTED_LOCATION_BACKFILL slot={slot} spool_id={helper_spool_id} location={canonical_loc}",
+                                    level="INFO",
+                                )
+                            except Exception as exc:
+                                self.log(
+                                    f"FORCE_ACCEPTED_LOCATION_BACKFILL_ERROR slot={slot} spool_id={helper_spool_id} err={exc}",
+                                    level="WARNING",
+                                )
                 self._active_run["validation_transcripts"].append(t)
                 if validation_mode:
                     self._log_validation_transcript(t)
@@ -3007,13 +3037,17 @@ class AmsRfidReconcile(FilamentIQBase):
         for spool in candidates:
             spool_id = self._safe_int(spool.get("id"), 0)
             excluded = False
-            for other_slot in range(1, 7):
+            for other_slot in sorted(self._tray_entity_by_slot.keys()):
                 if other_slot == slot:
                     continue
-                ot_entity = self._tray_entity_by_slot[other_slot]
+                ot_entity = self._tray_entity_by_slot.get(other_slot)
+                if not ot_entity:
+                    continue
                 ot_tray = self.get_state(ot_entity, attribute="all") or {}
                 ot_state = str(ot_tray.get("state", "") if isinstance(ot_tray, dict) else ot_tray or "").strip().lower()
-                if ot_state != "empty":
+                ot_attrs = ot_tray.get("attributes", {}) if isinstance(ot_tray, dict) else {}
+                ot_empty = ot_state == "empty" or bool(ot_attrs.get("empty", False))
+                if not ot_empty:
                     other_spool_id = self._safe_int(
                         self._get_helper_state(f"input_text.ams_slot_{other_slot}_spool_id"), 0
                     )
