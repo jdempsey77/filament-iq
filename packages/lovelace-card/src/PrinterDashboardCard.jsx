@@ -341,6 +341,9 @@ const SLOT_AMS = {
 const primaryLabel = d => {
   if (d.status === 'empty') return 'Empty'
   const r = d.reason
+  // Printer hardware swap: binding preserved, RFID re-confirming. Neutral swap
+  // badge (never the raw reason string); preserved spool name shows below.
+  if (r === 'PRINTER_SERIAL_CHANGED') return '⚠ Confirming after printer swap'
   if (r.includes('RFID_NOT_REFRESHED')) return 'Reload Spool'
   if (d.status === 'needs_bind') {
     if (r.includes('NONRFID_NO_MATCH'))                return 'No Match Found'
@@ -384,6 +387,8 @@ function SlotsSegment({ getHass, onPopup }) {
   const secondaryLabel = d => {
     if (d.status === 'empty') return 'No spool loaded'
     const r = d.reason
+    // Swap quarantine: keep showing the preserved spool name/weight while RFID confirms.
+    if (r === 'PRINTER_SERIAL_CHANGED') return `${d.name} · #${d.id} · re-confirming`
     if (r.includes('RFID_NOT_REFRESHED')) return `${d.name} · RFID not refreshed`
     if (d.status === 'needs_bind')        return 'Tap to select spool'
     const g = parseFloat(d.g) || 0
@@ -393,6 +398,7 @@ function SlotsSegment({ getHass, onPopup }) {
   const slotStateStyle = d => {
     if (d.isActive && d.status === 'ok')      return { background: 'rgba(255,255,255,0.06)' }
     if (d.status === 'empty')                 return { opacity: 0.35 }
+    if (d.reason === 'PRINTER_SERIAL_CHANGED') return { background: 'rgba(255,159,10,0.06)' }
     if (d.reason?.includes('RFID_NOT_REFRESHED')) return { background: 'rgba(255,152,0,0.05)' }
     if (d.status === 'needs_bind')            return { background: 'rgba(239,83,80,0.05)' }
     return {}
@@ -406,7 +412,9 @@ function SlotsSegment({ getHass, onPopup }) {
   const SlotRow = ({ n, last = false }) => {
     const d = slotData(n)
     const pct = weightPct(d)
-    const isNeedsAction = d.status === 'needs_bind' || d.reason?.includes('RFID_NOT_REFRESHED')
+    // Swap quarantine is a transient, expected state — not a red "needs action" alert.
+    const isSwap = d.reason === 'PRINTER_SERIAL_CHANGED'
+    const isNeedsAction = !isSwap && (d.status === 'needs_bind' || d.reason?.includes('RFID_NOT_REFRESHED'))
     return h('div', {
       style: { ...S.slotRow, ...(last ? { borderBottom: 'none' } : {}), ...slotStateStyle(d) },
       onClick: () => d.status !== 'empty' && onPopup(slotData(n)),
@@ -417,7 +425,7 @@ function SlotsSegment({ getHass, onPopup }) {
           )
         : h('div', { style: { ...S.slotDot, background: d.color } }),
       h('div', { style: { flex: 1, minWidth: 0 } },
-        h('div', { style: { ...S.slotPrimary, ...(isNeedsAction ? { color: '#ef5350' } : d.isActive && d.status === 'ok' ? { color: d.color } : {}) } },
+        h('div', { style: { ...S.slotPrimary, ...(isSwap ? { color: '#ff9f0a' } : isNeedsAction ? { color: '#ef5350' } : d.isActive && d.status === 'ok' ? { color: d.color } : {}) } },
           primaryLabel(d)
         ),
         h('div', { style: { ...S.slotSecondary, ...(isNeedsAction ? { color: '#a04040' } : {}) } },

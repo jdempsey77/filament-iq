@@ -226,6 +226,8 @@ class TestableReconcile(AmsRfidReconcile):
         self._last_mapping_json_entity = f"input_text.{prefix}_last_mapping_json"
         self._reconcile_button_entity = f"input_button.{prefix}_rfid_reconcile_now"
         self._startup_suppress_entity = "input_boolean.filament_iq_startup_suppress_swap"
+        self._last_printer_serial_entity = "input_text.filament_iq_last_printer_serial"
+        self._serial_detection_enabled = False
         self._helper_writes = []
         self._active_run = None
         self._last_summary = None
@@ -363,6 +365,8 @@ class StartupWaiterHarness(AmsRfidReconcile):
         self.startup_wait_retry_max_seconds = int(a.get("startup_wait_retry_max_seconds", 30))
         self.startup_probe_helper_entity = str(a.get("startup_probe_helper_entity", "input_text.ams_slot_1_spool_id"))
         self._domain_exception_class_logged = False
+        self._serial_detection_enabled = False
+        self._last_printer_serial_entity = "input_text.filament_iq_last_printer_serial"
 
     def log(self, msg, level="INFO"):
         self._log_calls.append((msg, level))
@@ -7418,6 +7422,154 @@ def test_b1_depleted_chip_sets_unbound_reason():
     assert len(push_notify_calls) >= 1, (
         f"Expected at least one notify/ push call in depleted-chip path; got: {all_service_calls}"
     )
+
+
+# ── v1.7.6: slot 8 (external spool) coverage ─────────────────────────
+
+_AMS_UNITS_8_SLOTS = [
+    {"type": "ams_2_pro", "ams_index": 0, "slots": [1, 2, 3, 4]},
+    {"type": "ams_ht", "ams_index": 128, "slots": [5]},
+    {"type": "ams_ht", "ams_index": 129, "slots": [6]},
+    {"type": "ams_ht", "ams_index": 130, "slots": [7]},
+    {"type": "external", "slots": [8]},
+]
+_DEFAULT_ARGS_8 = {**_DEFAULT_ARGS, "ams_units": _AMS_UNITS_8_SLOTS}
+_EXT_ENTITY = f"sensor.{_TEST_PREFIX}_externalspool_external_spool"
+
+
+def test_force_accepted_backfills_location_when_empty():
+    """Fix 3: FORCE_ACCEPTED slot with spool location='' gets Spoolman location patched (status_only=False).
+    Same setup with status_only=True must NOT patch."""
+    spool_93 = _spool(93, location="", rfid_tag_uid=None, remaining_weight=200)
+    sm = FakeSpoolman([spool_93], [])
+
+    state_map = {
+        _EXT_ENTITY: {"state": "Generic TPU", "attributes": {}},
+        "input_text.ams_slot_8_spool_id": "93",
+        "input_text.ams_slot_8_unbound_reason": "FORCE_ACCEPTED",
+    }
+
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS_8)
+    r._run_reconcile("test")
+
+    loc_patches = [
+        p for p in sm.patches
+        if p.get("spool_id") == 93 and "location" in p.get("payload", {})
+    ]
+    assert len(loc_patches) == 1, (
+        f"Expected exactly 1 location backfill patch; got {loc_patches}"
+    )
+    assert loc_patches[0]["payload"]["location"] == "External", (
+        f"Expected location=External; got {loc_patches[0]['payload']}"
+    )
+    assert any(
+        "FORCE_ACCEPTED_LOCATION_BACKFILL" in msg and "slot=8" in msg
+        for msg, _ in r._log_calls
+    ), f"Expected FORCE_ACCEPTED_LOCATION_BACKFILL slot=8 log; got {r._log_calls}"
+
+    # status_only=True must NOT trigger backfill
+    sm2 = FakeSpoolman([_spool(93, location="", rfid_tag_uid=None, remaining_weight=200)], [])
+    r2 = TestableReconcile(sm2, state_map, args=_DEFAULT_ARGS_8)
+    r2._run_reconcile("test", status_only=True)
+    loc_patches_2 = [
+        p for p in sm2.patches
+        if p.get("spool_id") == 93 and "location" in p.get("payload", {})
+    ]
+    assert len(loc_patches_2) == 0, (
+        f"status_only=True must not trigger backfill; got {loc_patches_2}"
+    )
+
+
+def test_force_accepted_skips_backfill_when_location_set():
+    """Fix 3: FORCE_ACCEPTED slot with spool that already has a location must NOT patch Spoolman."""
+    spool_93 = _spool(93, location="External", rfid_tag_uid=None, remaining_weight=200)
+    sm = FakeSpoolman([spool_93], [])
+
+    state_map = {
+        _EXT_ENTITY: {"state": "Generic TPU", "attributes": {}},
+        "input_text.ams_slot_8_spool_id": "93",
+        "input_text.ams_slot_8_unbound_reason": "FORCE_ACCEPTED",
+    }
+
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS_8)
+    r._run_reconcile("test")
+
+    loc_patches = [
+        p for p in sm.patches
+        if p.get("spool_id") == 93 and "location" in p.get("payload", {})
+    ]
+    assert len(loc_patches) == 0, (
+        f"Expected no location patch when location already set; got {loc_patches}"
+    )
+
+
+def test_cross_slot_dedup_checks_slot_8():
+    """Fix 4: Tier-2 dedup iterates slot 8; spool active in external port is excluded."""
+    from filament_iq.base import build_slot_mappings
+    tray_by_slot, _, _, canon_by_slot = build_slot_mappings(_TEST_PREFIX, _AMS_UNITS_8_SLOTS)
+
+    tag = "AABBCCDD00112233"
+    # Spool 99: last seen at slot 2's location, carries the matching tag
+    source_loc = canon_by_slot[2]
+    spool_99 = _spool(99, rfid_tag_uid=tag, location=source_loc, remaining_weight=500)
+    spool_index = {99: spool_99}
+
+    slot2_ent = tray_by_slot[2]
+    ext_ent = tray_by_slot[8]
+
+    state_map = {
+        # Slot being resolved: carries the matching tag
+        tray_by_slot[1]: {"state": "valid", "attributes": {"tag_uid": tag, "type": "PLA",
+                           "color": "ff0000", "name": "test", "filament_id": "x",
+                           "tray_weight": 1000, "remain": 50}},
+        # Slot 2 (source): tray is empty
+        slot2_ent: {"state": "empty", "attributes": {"tag_uid": "", "empty": True}},
+        f"{slot2_ent}::all": {"state": "empty", "attributes": {"tag_uid": "", "empty": True}},
+        # Slot 8 (external): occupied and has spool 99 active
+        ext_ent: {"state": "Generic TPU", "attributes": {"tag_uid": "", "empty": False}},
+        "input_text.ams_slot_8_spool_id": "99",
+    }
+
+    r = TestableReconcile(FakeSpoolman([spool_99], []), state_map, args=_DEFAULT_ARGS_8)
+    result = r._find_tier2_candidates(1, tag, {}, spool_index)
+
+    assert len(result) == 0, (
+        f"Spool 99 active in slot 8 (external) must be excluded from tier-2; got {result}"
+    )
+    assert any(
+        "TIER2_EXCLUDED" in msg and "other_slot=8" in msg
+        for msg, _ in r._log_calls
+    ), f"Expected TIER2_EXCLUDED other_slot=8; got {[m for m,_ in r._log_calls if 'TIER2' in m]}"
+
+
+def test_tray_empty_uses_empty_attribute():
+    """Fix 5: External spool with state!='empty' but attributes.empty=True is treated as empty — binding cleared."""
+    spool_93 = _spool(93, location="External", rfid_tag_uid=None, remaining_weight=200)
+    sm = FakeSpoolman([spool_93], [])
+
+    state_map = {
+        # Tray state is NOT "empty" but the empty attribute is True
+        _EXT_ENTITY: {"state": "Generic TPU", "attributes": {
+            "tag_uid": "", "tray_uuid": "", "empty": True,
+        }},
+        "input_text.ams_slot_8_spool_id": "93",
+        "input_boolean.filament_iq_nonrfid_enabled": "on",
+    }
+
+    r = TestableReconcile(sm, state_map, args=_DEFAULT_ARGS_8)
+    r._run_reconcile("test")
+
+    clear_writes = [
+        w for w in r._helper_writes
+        if "ams_slot_8_spool_id" in w.get("entity_id", "") and w.get("value") == "0"
+    ]
+    assert len(clear_writes) >= 1, (
+        f"Binding for slot 8 must be cleared when attributes.empty=True; writes={r._helper_writes}"
+    )
+    assert any(
+        "NONRFID_EMPTY_TRAY_CLEAR" in msg and "slot=8" in msg
+        for msg, _ in r._log_calls
+    ), f"Expected NONRFID_EMPTY_TRAY_CLEAR slot=8; got {r._log_calls}"
 
 
 if __name__ == "__main__":

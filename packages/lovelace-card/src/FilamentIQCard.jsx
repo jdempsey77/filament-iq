@@ -9,7 +9,11 @@ import { FilamentIQLogo } from './components/FilamentIQLogo'
 import SlotsTab from './components/SlotsTab'
 
 export function FilamentIQCard({ hass, getHass, navIntent, config }) {
-  const [activeTab, setActiveTab] = useState(config?.initial_tab || 'spools')
+  const [activeTab, setActiveTab] = useState(() => localStorage.getItem('filamentiq_tab') || config?.initial_tab || 'slots')
+  const handleTabChange = (tab) => {
+    localStorage.setItem('filamentiq_tab', tab)
+    setActiveTab(tab)
+  }
 
   const client = useMemo(() => {
     if (!hass) return null
@@ -36,7 +40,7 @@ export function FilamentIQCard({ hass, getHass, navIntent, config }) {
         <button class="fiq-btn-refresh" onClick={() => data.refresh()} title="Reload from Spoolman">↺</button>
       </div>
       <div class="fiq-subnav">
-        <TabBar active={activeTab} onChange={setActiveTab} />
+        <TabBar active={activeTab} onChange={handleTabChange} />
       </div>
       <div class="fiq-body">
         {activeTab === 'spools'    && <SpoolsTab    {...data} hass={hass} getHass={getHass} navIntent={navIntent} />}
