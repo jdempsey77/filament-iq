@@ -97,6 +97,7 @@ _KNOWN_UNBOUND_REASONS = [
     "AMBIGUOUS_SIG_NONRFID",
     "NO_CANDIDATE",
     "FORCE_ACCEPTED",
+    "PRINTER_SERIAL_CHANGED",
 ]
 
 _KNOWN_STATUSES = [
@@ -260,6 +261,21 @@ def test_dispatch_pending_rfid():
     assert sp.classify_slot_presentation("", "PENDING_RFID_READ") == sp.PENDING_RFID
 
 
+def test_dispatch_printer_serial_changed():
+    """PRINTER_SERIAL_CHANGED maps to the non-alarming swap-confirming label."""
+    assert (
+        sp.classify_slot_presentation("PRINTER_SERIAL_CHANGED", "UNBOUND: PRINTER_SERIAL_CHANGED")
+        == sp.PRINTER_SWAP_CONFIRMING
+    )
+
+
+def test_printer_swap_confirming_label_non_alarming():
+    """Swap-confirming label is informational (no action prompt)."""
+    label = sp.SLOT_PRESENTATION_LABELS[sp.PRINTER_SWAP_CONFIRMING]
+    assert label.primary == "Confirming after printer swap"
+    assert label.action is None
+
+
 def test_dispatch_unknown_fallthrough():
     assert sp.classify_slot_presentation("SOME_UNKNOWN_REASON", "SOME_UNKNOWN_STATUS") == sp.UNKNOWN
 
@@ -272,8 +288,8 @@ def test_label_dataclass_frozen():
 
 
 def test_label_count():
-    """Exactly 20 states in SLOT_PRESENTATION_LABELS."""
-    assert len(sp.SLOT_PRESENTATION_LABELS) == 20
+    """Exactly 21 states in SLOT_PRESENTATION_LABELS."""
+    assert len(sp.SLOT_PRESENTATION_LABELS) == 21
 
 
 def test_presentation_label_with_action():

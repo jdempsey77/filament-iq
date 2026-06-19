@@ -48,6 +48,12 @@ input_text:
     name: "Edit spool – location"
     max: 64
     initial: ""
+  # v1.11.0: persisted printer serial for hardware-swap (serial-delta) detection.
+  filament_iq_last_printer_serial:
+    name: "FilamentIQ Last Printer Serial"
+    max: 32
+    icon: mdi:printer-3d
+    initial: ""
   ams_slot_1_spool_id:
     name: AMS Slot 1 (AMS1_Slot1) – Spoolman spool ID
   ams_slot_2_spool_id:
@@ -2654,7 +2660,7 @@ automation:
       - condition: template
         value_template: >-
           {{ trigger.to_state.state | default('') not in
-          ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY'] }}
+          ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY', 'PRINTER_SERIAL_CHANGED'] }}
       - condition: state
         entity_id: input_boolean.filament_iq_startup_suppress_swap
         state: 'off'
@@ -2725,7 +2731,7 @@ automation:
             states('input_text.ams_slot_5_unbound_reason'),
             states('input_text.ams_slot_6_unbound_reason')
           ] %}
-          {{ reasons | reject('in', ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY']) | list | length > 0 }}
+          {{ reasons | reject('in', ['', 'unknown', 'unavailable', 'UNBOUND_TRAY_EMPTY', 'PRINTER_SERIAL_CHANGED']) | list | length > 0 }}
     actions:
       - action: notify.mobile_app_YOUR_DEVICE
         data:

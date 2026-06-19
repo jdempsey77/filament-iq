@@ -84,6 +84,10 @@ const LOCATION_TO_SLOT = {
 const primaryLabel = d => {
   if (d.status === 'empty') return 'Empty'
   const r = d.reason
+  // Printer hardware swap: binding preserved, RFID re-confirming. Show a neutral
+  // swap badge (never the raw reason string); the preserved spool name still
+  // renders on the secondary line below.
+  if (r === 'PRINTER_SERIAL_CHANGED') return '⚠ Confirming after printer swap'
   if (r.includes('RFID_NOT_REFRESHED')) return 'Reload Spool'
   if (d.status === 'needs_bind') {
     if (r.includes('NONRFID_NO_MATCH'))                return 'No Match Found'
@@ -241,7 +245,7 @@ function SlotRow({ n, data, onPopup, getHass, spools, borderBottom = true }) {
         h('span', { style: { fontSize: 9, color: '#636366' } }, `#${data.id}`),
         isActive && h('span', { style: { fontSize: 7, background: 'rgba(10,132,255,0.2)', color: '#0a84ff', padding: '1px 5px', borderRadius: 3, fontWeight: 700, marginLeft: 'auto' } }, 'ACTIVE'),
       ),
-      h('div', { style: { fontSize: 13, fontWeight: 700, color: isEmpty ? '#636366' : '#e5e5e7', lineHeight: 1.1 } },
+      h('div', { style: { fontSize: 13, fontWeight: 700, color: isEmpty ? '#636366' : (data.reason === 'PRINTER_SERIAL_CHANGED' ? '#ff9f0a' : '#e5e5e7'), lineHeight: 1.1 } },
         isEmpty ? 'Empty' : primaryLabel(data)),
       data.ranOut && h('div', { style: { fontSize: 10, color: '#ff9f0a', marginTop: 1 } }, '🪫 Ran out during print'),
       !isEmpty && h('div', { style: { display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden' } },

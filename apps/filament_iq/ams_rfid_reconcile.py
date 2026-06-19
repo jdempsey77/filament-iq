@@ -143,6 +143,18 @@ NO_CANDIDATE          = "NO_CANDIDATE"           # Python-internal sentinel, no 
 # DO NOT change this string value without coordinating across all three Jinja files.
 FORCE_ACCEPTED = "FORCE_ACCEPTED"
 
+# Sentinel written to input_text.ams_slot_N_unbound_reason when a printer hardware
+# swap is detected on startup (persisted serial != configured serial). Slot bindings
+# are quarantined (spool_id/expected_spool_id PRESERVED) so RFID can self-heal without
+# the reconciler firing per-slot truth-guard warnings against the new hardware.
+# Consumed by exact-equality Jinja matches / suppression lists in:
+#   - filament-iq/ha-config/packages/filament_iq.yaml
+#   - home_assistant ha-config + dashboards
+#   - slot_presentation.classify_slot_presentation
+#   - packages/lovelace-card (SlotsTab.jsx, PrinterDashboardCard.jsx)
+# DO NOT change this string value without coordinating across those consumers.
+PRINTER_SERIAL_CHANGED = "PRINTER_SERIAL_CHANGED"
+
 
 def _normalize_rfid_tag_uid(val) -> str:
     """Normalize RFID tag UID for comparison. Handles Spoolman JSON-encoded string literal (e.g. '\\\"071F87ED00000100\\\"')."""
@@ -480,6 +492,14 @@ class AmsRfidReconcile(FilamentIQBase):
                 "input_boolean.filament_iq_startup_suppress_swap",
             )
         ).strip()
+        # v1.11.0: persisted printer serial used for hardware-swap detection.
+        self._last_printer_serial_entity = str(
+            self.args.get(
+                "last_printer_serial_entity",
+                "input_text.filament_iq_last_printer_serial",
+            )
+        ).strip()
+        self._init_serial_detection()
         self.listen_state(
             self._on_manual_reconcile_button,
             self._reconcile_button_entity,
@@ -540,6 +560,109 @@ class AmsRfidReconcile(FilamentIQBase):
             )
             self._schedule_reconcile("print_ended")
 
+    def _init_serial_detection(self):
+        """Enable serial-delta detection only if the persisted-serial helper exists.
+
+        TRAP A1/A2: if the helper is missing, _set_helper() silently no-ops every
+        write, so the serial would never persist and we would re-quarantine forever.
+        Guard by disabling detection entirely when the helper is absent. Called from
+        initialize(); mirrors the presentation_state helper existence check.
+        """
+        if self._get_helper_state(self._last_printer_serial_entity) is None:
+            self._serial_detection_enabled = False
+            self.log(
+                "SERIAL_HELPER_MISSING — serial-delta detection disabled; declare "
+                "input_text.filament_iq_last_printer_serial in ha-config",
+                level="ERROR",
+            )
+        else:
+            self._serial_detection_enabled = True
+
+    def _maybe_quarantine_for_serial_change(self):
+        """Detect printer hardware swap by comparing persisted serial to config serial.
+
+        On delta: quarantine all physical slot bindings before the first reconcile.
+        Called from _run_reconcile_startup, AFTER startup_suppress_swap is ON and
+        BEFORE the first reconcile executes (TRAP A9 — ordering is load-bearing).
+        """
+        # attribute='all' read (via _get_helper_state) avoids the post-restart
+        # stale-cache bug where plain get_state() returns a wrong cached value.
+        persisted_raw = self._get_helper_state(self._last_printer_serial_entity)
+        persisted = str(persisted_raw or "").strip()
+        current_serial = str(self.args.get("printer_serial", "")).strip().lower()
+
+        # Not-ready helper reads ("unknown"/"unavailable") are NOT real serials —
+        # skip without persisting so a later (ready) startup pass can detect cleanly.
+        if persisted.lower() in ("unknown", "unavailable"):
+            self.log(
+                f"SERIAL_DELTA_HELPER_NOT_READY persisted={persisted!r} — skipping",
+                level="WARNING",
+            )
+            return
+
+        # Empty persisted serial = fresh install. Record current serial; never quarantine.
+        if persisted == "":
+            self.log("SERIAL_DELTA_FRESH_INSTALL — recording current serial", level="INFO")
+            self._set_helper(self._last_printer_serial_entity, current_serial)
+            return
+
+        persisted_norm = persisted.lower()
+        if persisted_norm == current_serial:
+            self.log("SERIAL_DELTA_NONE", level="DEBUG")
+            return
+
+        # Serials differ -> printer hardware swap.
+        self.log(
+            f"SERIAL_DELTA_DETECTED old={persisted_norm} new={current_serial}",
+            level="WARNING",
+        )
+        # Write order: quarantine FIRST, persist serial SECOND. A crash between the
+        # two re-detects on next boot and re-quarantines (idempotent and safe).
+        self._apply_printer_serial_quarantine()
+        self._set_helper(self._last_printer_serial_entity, current_serial)
+        self.log("SERIAL_DELTA_PERSISTED", level="INFO")
+
+    def _apply_printer_serial_quarantine(self):
+        """Quarantine every physical slot binding on a printer swap.
+
+        Sets UNBOUND: PRINTER_SERIAL_CHANGED but PRESERVES spool_id and
+        expected_spool_id (TRAP A7 — non-RFID self-heal needs expected_spool_id
+        intact). FORCE_ACCEPTED slots are exempt (TRAP A8).
+        """
+        quarantined = 0
+        skipped_force_accepted = 0
+        for slot in self._physical_ams_slots:
+            current_reason = (
+                self._get_helper_state(f"input_text.ams_slot_{slot}_unbound_reason") or ""
+            ).strip()
+            if current_reason == FORCE_ACCEPTED:
+                self.log(f"SERIAL_QUARANTINE_SKIP_FORCE_ACCEPTED slot={slot}", level="INFO")
+                skipped_force_accepted += 1
+                continue
+            preserved_id = str(
+                self._get_helper_state(f"input_text.ams_slot_{slot}_spool_id") or ""
+            ).strip()
+            self._set_helper(
+                f"input_text.ams_slot_{slot}_status", "UNBOUND: PRINTER_SERIAL_CHANGED"
+            )
+            self._set_helper(
+                f"input_text.ams_slot_{slot}_unbound_reason", PRINTER_SERIAL_CHANGED
+            )
+            # spool_id and expected_spool_id are intentionally PRESERVED.
+            self._write_presentation_state(
+                slot, PRINTER_SERIAL_CHANGED, "UNBOUND: PRINTER_SERIAL_CHANGED"
+            )
+            self.log(
+                f"SERIAL_QUARANTINE_APPLIED slot={slot} spool_id={preserved_id}",
+                level="INFO",
+            )
+            quarantined += 1
+        self.log(
+            f"SERIAL_QUARANTINE_COMPLETE slots_quarantined={quarantined} "
+            f"slots_skipped_force_accepted={skipped_force_accepted}",
+            level="INFO",
+        )
+
     def _run_reconcile_startup(self, kwargs):
         # Suppress HA spool-swap detection for 90s after startup (avoids false positives from bulk helper updates).
         try:
@@ -549,6 +672,11 @@ class AmsRfidReconcile(FilamentIQBase):
             )
         except Exception as e:
             self.log("Failed to set filament_iq_startup_suppress_swap on: %s" % (e,), level="WARNING")
+        # --- Serial-delta detection (v1.11.0) ---
+        # Runs AFTER startup_suppress_swap is ON and BEFORE the first reconcile
+        # (TRAP A9). Quarantine is idempotent across the startup-wait retry loop.
+        if self._serial_detection_enabled:
+            self._maybe_quarantine_for_serial_change()
         if DomainException is None:
             self._clear_legacy_signatures()
             self._run_reconcile("startup_delay")
@@ -1313,10 +1441,13 @@ class AmsRfidReconcile(FilamentIQBase):
                     if not self._nonrfid_tray_matches_bound_spool(tray_meta, helper_spool_id, spool_index):
                         fid_raw_swap = (tray_meta.get("filament_id") or "").strip()
                         unbound_reason_swap = (self._get_helper_state(f"input_text.ams_slot_{slot}_unbound_reason") or "").strip()
-                        # Generic filament with manual bind, or user force-accepted: do not treat as swap
+                        # Generic filament with manual bind, or user force-accepted: do not treat as swap.
+                        # PRINTER_SERIAL_CHANGED: during post-swap quarantine, preserve the binding so
+                        # non-RFID self-heal (bound invariant via expected_spool_id) can recover it.
                         preserve_bind = (
                             (is_generic_filament_id(fid_raw_swap) and helper_spool_id == helper_expected)
                             or unbound_reason_swap == FORCE_ACCEPTED
+                            or unbound_reason_swap == PRINTER_SERIAL_CHANGED
                         )
                         if preserve_bind:
                             self.log(
@@ -3805,6 +3936,14 @@ class AmsRfidReconcile(FilamentIQBase):
         helpers/unbound_reason are already set, caller must skip all Spoolman writes and continue."""
         norm_tag = _normalize_rfid_tag_uid(tag_uid)
         rfid_visible = bool(norm_tag and norm_tag != "0000000000000000")
+        # TRAP A4: during post-swap quarantine, the new hardware's RFID identity
+        # legitimately differs from the preserved binding. Still take the normal
+        # mismatch/clear action (no sticky suppression of real anomalies), but
+        # suppress the per-slot truth-guard PUSH notifications — those are the
+        # warning storm this feature exists to prevent.
+        swap_quarantine_active = (
+            self._get_helper_state(f"input_text.ams_slot_{slot}_unbound_reason") or ""
+        ).strip() == PRINTER_SERIAL_CHANGED
 
         if rfid_visible and helper_spool_id > 0:
             # v4: lot_nr is the primary identity — compare against tray_uuid
@@ -3825,11 +3964,14 @@ class AmsRfidReconcile(FilamentIQBase):
                 self._write_presentation_state(slot, UNBOUND_HELPER_RFID_MISMATCH, STATUS_UNBOUND_ACTION_REQUIRED)
                 t["unbound_reason"] = UNBOUND_HELPER_RFID_MISMATCH
                 t["unbound_detail"] = mismatch_detail
-                self._notify(
-                    f"RFID Truth Guard – Slot {slot}",
-                    f"Helper spool {helper_spool_id} identity does not match tray ({mismatch_detail}). Helper cleared.",
-                    notification_id=f"truth_guard_rfid_mismatch_{slot}",
-                )
+                if swap_quarantine_active:
+                    self.log(f"TRUTH_GUARD_NOTIFY_SUPPRESSED_SERIAL_SWAP slot={slot}", level="INFO")
+                else:
+                    self._notify(
+                        f"RFID Truth Guard – Slot {slot}",
+                        f"Helper spool {helper_spool_id} identity does not match tray ({mismatch_detail}). Helper cleared.",
+                        notification_id=f"truth_guard_rfid_mismatch_{slot}",
+                    )
                 return False
 
             # Migration fallback: lot_nr empty, check legacy extra.rfid_tag_uid
@@ -3849,11 +3991,14 @@ class AmsRfidReconcile(FilamentIQBase):
                 self._write_presentation_state(slot, UNBOUND_HELPER_RFID_MISMATCH, STATUS_UNBOUND_ACTION_REQUIRED)
                 t["unbound_reason"] = UNBOUND_HELPER_RFID_MISMATCH
                 t["unbound_detail"] = mismatch_detail
-                self._notify(
-                    f"RFID Truth Guard – Slot {slot}",
-                    f"Helper spool {helper_spool_id} identity does not match tray ({mismatch_detail}). Helper cleared.",
-                    notification_id=f"truth_guard_rfid_mismatch_{slot}",
-                )
+                if swap_quarantine_active:
+                    self.log(f"TRUTH_GUARD_NOTIFY_SUPPRESSED_SERIAL_SWAP slot={slot}", level="INFO")
+                else:
+                    self._notify(
+                        f"RFID Truth Guard – Slot {slot}",
+                        f"Helper spool {helper_spool_id} identity does not match tray ({mismatch_detail}). Helper cleared.",
+                        notification_id=f"truth_guard_rfid_mismatch_{slot}",
+                    )
                 return False
 
         if not rfid_visible and not tray_empty and helper_spool_id > 0 and isinstance(helper_spool_obj, dict):
@@ -3873,12 +4018,15 @@ class AmsRfidReconcile(FilamentIQBase):
                         f"— bound invariant holds (expected={helper_expected}), preserving manual bind",
                         level="WARNING",
                     )
-                    self._notify(
-                        f"Material Truth Guard (warn) – Slot {slot}",
-                        f"Spool {helper_spool_id} material ({spool_material}) differs from tray type ({tray_type}), "
-                        f"but binding preserved because it was manually assigned.",
-                        notification_id=f"truth_guard_material_warn_{slot}",
-                    )
+                    if swap_quarantine_active:
+                        self.log(f"TRUTH_GUARD_NOTIFY_SUPPRESSED_SERIAL_SWAP slot={slot}", level="INFO")
+                    else:
+                        self._notify(
+                            f"Material Truth Guard (warn) – Slot {slot}",
+                            f"Spool {helper_spool_id} material ({spool_material}) differs from tray type ({tray_type}), "
+                            f"but binding preserved because it was manually assigned.",
+                            notification_id=f"truth_guard_material_warn_{slot}",
+                        )
                     return True  # allow bind to proceed
 
                 # No bound invariant — this is likely an auto-match error. Clear helpers.
@@ -3893,11 +4041,14 @@ class AmsRfidReconcile(FilamentIQBase):
                 self._write_presentation_state(slot, UNBOUND_HELPER_MATERIAL_MISMATCH, STATUS_UNBOUND_ACTION_REQUIRED)
                 t["unbound_reason"] = UNBOUND_HELPER_MATERIAL_MISMATCH
                 t["unbound_detail"] = f"tray_type={tray_type} spool_material={spool_material}"
-                self._notify(
-                    f"Material Truth Guard – Slot {slot}",
-                    f"Helper spool {helper_spool_id} material ({spool_material}) does not match tray type ({tray_type}). Helper cleared.",
-                    notification_id=f"truth_guard_material_mismatch_{slot}",
-                )
+                if swap_quarantine_active:
+                    self.log(f"TRUTH_GUARD_NOTIFY_SUPPRESSED_SERIAL_SWAP slot={slot}", level="INFO")
+                else:
+                    self._notify(
+                        f"Material Truth Guard – Slot {slot}",
+                        f"Helper spool {helper_spool_id} material ({spool_material}) does not match tray type ({tray_type}). Helper cleared.",
+                        notification_id=f"truth_guard_material_mismatch_{slot}",
+                    )
                 return False
 
         return True

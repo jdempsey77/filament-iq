@@ -35,6 +35,7 @@ CONFLICT_RFID_MISMATCH = "CONFLICT_RFID_MISMATCH"
 CONFLICT_MATERIAL_MISMATCH = "CONFLICT_MATERIAL_MISMATCH"
 CONFLICT_DUPLICATE_UID = "CONFLICT_DUPLICATE_UID"
 CONFLICT_LOCATION = "CONFLICT_LOCATION"
+PRINTER_SWAP_CONFIRMING = "PRINTER_SWAP_CONFIRMING"
 ERROR = "ERROR"
 UNKNOWN = "UNKNOWN"
 
@@ -91,6 +92,7 @@ SLOT_PRESENTATION_LABELS: dict[str, PresentationLabel] = {
         "Two spools have the same tag — resolve in Spoolman",
     ),
     CONFLICT_LOCATION: PresentationLabel("Location conflict", "Tap to resolve"),
+    PRINTER_SWAP_CONFIRMING: PresentationLabel("Confirming after printer swap"),
     ERROR: PresentationLabel("Reconciler error", "Check AppDaemon logs"),
     UNKNOWN: PresentationLabel("Unknown state", "Check AppDaemon logs"),
 }
@@ -128,6 +130,9 @@ _NO_CANDIDATE = "NO_" + "CANDIDATE"  # matches NO_CANDIDATE constant in ams_rfid
 
 # FORCE_ACCEPTED sentinel
 _FORCE_ACCEPTED = "FORCE_ACCEPTED"
+
+# Printer hardware-swap quarantine sentinel (see ams_rfid_reconcile.PRINTER_SERIAL_CHANGED)
+_PRINTER_SERIAL_CHANGED = "PRINTER_SERIAL_CHANGED"
 
 # Status values that indicate a slot is uniquely resolved (bound)
 # Dispatch item 4: status in this set → BOUND
@@ -178,6 +183,12 @@ def classify_slot_presentation(unbound_reason: str, status: str) -> str:
     #    label is shown even when status resolves to OK/NON_RFID_REGISTERED.
     if unbound_reason == _FORCE_ACCEPTED:
         return OK_FORCE_ACCEPTED
+
+    # 3b. Printer hardware swap — binding preserved (spool_id intact), RFID
+    #     self-heal in progress. Informational, non-alarming; checked before the
+    #     bound-status test so the swap label wins while confirming.
+    if unbound_reason == _PRINTER_SERIAL_CHANGED:
+        return PRINTER_SWAP_CONFIRMING
 
     # 4. Uniquely resolved / successfully bound
     if status in _BOUND_STATUSES:

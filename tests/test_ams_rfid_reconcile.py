@@ -226,6 +226,8 @@ class TestableReconcile(AmsRfidReconcile):
         self._last_mapping_json_entity = f"input_text.{prefix}_last_mapping_json"
         self._reconcile_button_entity = f"input_button.{prefix}_rfid_reconcile_now"
         self._startup_suppress_entity = "input_boolean.filament_iq_startup_suppress_swap"
+        self._last_printer_serial_entity = "input_text.filament_iq_last_printer_serial"
+        self._serial_detection_enabled = False
         self._helper_writes = []
         self._active_run = None
         self._last_summary = None
@@ -363,6 +365,8 @@ class StartupWaiterHarness(AmsRfidReconcile):
         self.startup_wait_retry_max_seconds = int(a.get("startup_wait_retry_max_seconds", 30))
         self.startup_probe_helper_entity = str(a.get("startup_probe_helper_entity", "input_text.ams_slot_1_spool_id"))
         self._domain_exception_class_logged = False
+        self._serial_detection_enabled = False
+        self._last_printer_serial_entity = "input_text.filament_iq_last_printer_serial"
 
     def log(self, msg, level="INFO"):
         self._log_calls.append((msg, level))
