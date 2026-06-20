@@ -396,3 +396,66 @@ class TestSpoolmanContradictsEmptyGuard:
         d = decide_consumption([inp], min_consumption_g=2.0, max_consumption_g=1000.0)[0]
         assert d.method == "3mf_depleted"
         assert d.consumption_g == 1000.0
+
+
+class TestRfidZeroDeltaSlicerFallback:
+    """RFID zero/below-min delta falls back to a valid 3MF slicer estimate."""
+
+    def test_rfid_zero_delta_with_valid_3mf_falls_back(self):
+        """RFID delta=0 (coarse gauge), valid 3MF ≥ min → 3MF used.
+
+        Mirrors the observed spool 49 instance: gauge read 200g at both
+        start and end (delta=0) but the slicer estimated 120.7g consumed.
+        """
+        inp = _make_slot(
+            is_rfid=True, start_g=200.0, end_g=200.0,
+            threemf_used_g=120.7, threemf_method="exact_color_material",
+        )
+        d = decide_consumption([inp])[0]
+        assert d.method == "3mf"
+        assert abs(d.consumption_g - 120.7) < 0.01
+        assert d.skip_reason == "RFID_DELTA_ZERO_SLICER_FALLBACK"
+        assert d.confidence == "high"
+
+    def test_rfid_below_min_delta_with_valid_3mf_falls_back(self):
+        """RFID delta below min (0.5g) but valid 3MF ≥ min → 3MF used."""
+        inp = _make_slot(
+            is_rfid=True, start_g=900.0, end_g=899.5,
+            threemf_used_g=15.0, threemf_method="close_color_material",
+        )
+        d = decide_consumption([inp])[0]
+        assert d.method == "3mf"
+        assert abs(d.consumption_g - 15.0) < 0.01
+        assert d.skip_reason == "RFID_DELTA_ZERO_SLICER_FALLBACK"
+        assert d.confidence == "medium"
+
+    def test_rfid_zero_delta_no_3mf_stays_no_evidence(self):
+        """RFID delta=0, no 3MF estimate → BELOW_MIN no_evidence (unchanged)."""
+        inp = _make_slot(
+            is_rfid=True, start_g=200.0, end_g=200.0,
+            threemf_used_g=None, threemf_method=None,
+        )
+        d = decide_consumption([inp])[0]
+        assert d.method == "no_evidence"
+        assert "BELOW_MIN" in d.skip_reason
+
+    def test_rfid_zero_delta_3mf_also_below_min_stays_no_evidence(self):
+        """RFID delta=0 and 3MF also below min → no fallback, no_evidence."""
+        inp = _make_slot(
+            is_rfid=True, start_g=200.0, end_g=200.0,
+            threemf_used_g=1.0, threemf_method="exact_color_material",
+        )
+        d = decide_consumption([inp])[0]
+        assert d.method == "no_evidence"
+        assert "BELOW_MIN" in d.skip_reason
+
+    def test_rfid_credible_delta_wins_over_3mf(self):
+        """RFID delta ≥ min, 3MF also present → RFID wins (unchanged)."""
+        inp = _make_slot(
+            is_rfid=True, start_g=900.0, end_g=800.0,
+            threemf_used_g=120.7, threemf_method="exact_color_material",
+        )
+        d = decide_consumption([inp])[0]
+        assert d.method == "rfid_delta"
+        assert abs(d.consumption_g - 100.0) < 0.01
+        assert d.skip_reason is None

@@ -440,3 +440,60 @@ def test_runout_split_falls_back_when_depleted_slot_has_zero_seconds():
 
     assert _has_log(app, "split_method=remaining_based")
     assert abs(result[1][0] - 50.0) < 0.01
+
+
+# ── RFID zero-delta slicer fallback (end-to-end) ─────────────────────
+
+def test_rfid_zero_delta_slicer_fallback_end_to_end():
+    """RFID slot reads identical start/end (delta=0) but a valid 3MF match
+    exists → slicer estimate is written and a WARNING is logged.
+
+    Mirrors the observed spool 49 instance where the coarse fuel gauge read
+    200g at both start and end while the slicer estimated ~120g consumed.
+    """
+    state_map = {
+        "input_text.ams_slot_4_spool_id": "10",
+        "sensor.p1s_tray_4_fuel_gauge_remaining": "200.0",  # end == start → delta 0
+        "sensor.p1s_01p00c5a3101668_print_weight": "120",
+        "sensor.p1s_01p00c5a3101668_task_name": "calibration.3mf",
+    }
+    app = _make_app(state_map=state_map)
+    app._job_key = "rfid_zero_delta_test"
+    app._start_snapshot = {4: 200.0}
+    app._trays_used = {4}
+    app.threemf_enabled = True
+    app._threemf_data = [
+        {"index": 0, "used_g": 120.7, "color_hex": "161616", "material": "pla"}
+    ]
+
+    # Slot 4: RFID, loaded (not Empty), color/material for the matcher
+    app._state_map.update(_rfid_tag_uid_for_slots(app, [4]))
+    entity_4 = app._tray_entity_by_slot.get(4)
+    if entity_4:
+        app._state_map[entity_4] = "loaded"
+        app._state_map[f"{entity_4}::color"] = "#161616FF"
+        app._state_map[f"{entity_4}::type"] = "PLA"
+
+    app._spoolman_get_override = lambda path: {
+        "id": 10,
+        "remaining_weight": 500.0,
+        "filament": {"color_hex": "161616", "material": "PLA"},
+    }
+    app._use_remaining_override = {10: 379.3}
+
+    app._do_finish("finish")
+
+    # Slicer estimate was written (not discarded as below-min)
+    assert len(app._use_calls) == 1, f"expected 1 write, got {app._use_calls}"
+    assert app._use_calls[0]["spool_id"] == 10
+    assert abs(app._use_calls[0]["use_weight"] - 120.7) < 0.1
+
+    # WARNING surfaced with rfid_delta and threemf_used_g
+    fallback_logs = [
+        (msg, level) for msg, level in app._log_calls
+        if "RFID_DELTA_ZERO_SLICER_FALLBACK" in msg
+    ]
+    assert fallback_logs, "expected RFID_DELTA_ZERO_SLICER_FALLBACK log"
+    assert any(level == "WARNING" for _, level in fallback_logs)
+    assert any("slot=4" in msg and "threemf_used_g=120.7" in msg
+               for msg, _ in fallback_logs)

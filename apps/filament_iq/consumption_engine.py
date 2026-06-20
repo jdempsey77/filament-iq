@@ -9,6 +9,9 @@ Decision tree per slot:
   RFID spool:
     tray_empty OR end_g == 0  → rfid_delta_depleted  (use start_g, confidence=high)
     end_g available and > 0   → rfid_delta            (use start_g - end_g, confidence=high)
+      delta < min AND 3mf ≥ min → 3mf                 (RFID_DELTA_ZERO_SLICER_FALLBACK:
+                                                        coarse fuel gauge produced no usable
+                                                        delta; trust the slicer estimate)
     end_g is None, not empty  → no_evidence           (DATA_LOSS: end snapshot unavailable)
 
   Non-RFID spool:
@@ -72,7 +75,7 @@ def decide_consumption(
 
 def _decide_slot(inp: SlotInput, min_g: float, max_g: float) -> SlotDecision:
     if inp.is_rfid:
-        decision = _decide_rfid(inp)
+        decision = _decide_rfid(inp, min_g)
     else:
         decision = _decide_nonrfid(inp)
 
@@ -105,7 +108,7 @@ def _decide_slot(inp: SlotInput, min_g: float, max_g: float) -> SlotDecision:
     return decision
 
 
-def _decide_rfid(inp: SlotInput) -> SlotDecision:
+def _decide_rfid(inp: SlotInput, min_g: float) -> SlotDecision:
     if inp.start_g is None:
         return SlotDecision(
             slot=inp.slot,
@@ -128,10 +131,29 @@ def _decide_rfid(inp: SlotInput) -> SlotDecision:
 
     if inp.end_g is not None and inp.end_g > 0:
         raw_delta = inp.start_g - inp.end_g
+        rfid_consumption = max(0.0, raw_delta)
+        # RFID zero/below-min fallback to 3MF. The fuel gauge is a coarse
+        # integer-percent sensor (~10g resolution on a 1kg spool), so a
+        # sub-resolution print can read an identical start/end and produce a
+        # zero (or below-min) delta. When a valid slicer estimate exists,
+        # trust it instead of discarding a real print as nothing-consumed.
+        if (
+            rfid_consumption < min_g
+            and inp.threemf_used_g is not None
+            and inp.threemf_used_g >= min_g
+        ):
+            return SlotDecision(
+                slot=inp.slot,
+                spool_id=inp.spool_id,
+                consumption_g=inp.threemf_used_g,
+                method="3mf",
+                skip_reason="RFID_DELTA_ZERO_SLICER_FALLBACK",
+                confidence=_threemf_confidence(inp.threemf_method),
+            )
         return SlotDecision(
             slot=inp.slot,
             spool_id=inp.spool_id,
-            consumption_g=max(0.0, raw_delta),
+            consumption_g=rfid_consumption,
             method="rfid_delta",
             skip_reason=None,
             confidence="high",
