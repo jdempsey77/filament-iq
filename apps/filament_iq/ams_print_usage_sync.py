@@ -497,21 +497,17 @@ class AmsPrintUsageSync(FilamentIQBase):
             )
             end_g = end_raw if end_raw >= 0 else None
 
-            # 3MF data — suppressed for RFID slots (hardware truth wins),
-            # EXCEPT runout_split methods where RFID delta is stale on
-            # rehydrated prints (start_g rebuilt from fuel gauge ≈ end_g).
+            # 3MF data is always passed through, including for RFID slots.
+            # The consumption engine decides precedence: a credible RFID delta
+            # (>= min_consumption_g) still wins, but when the RFID delta is
+            # zero/below-min the engine falls back to the slicer estimate
+            # (RFID_DELTA_ZERO_SLICER_FALLBACK). The coarse fuel gauge silently
+            # produces zero deltas on sub-resolution prints, so discarding a
+            # valid slicer estimate would lose real consumption.
             threemf_used_g = None
             threemf_method = None
             if slot in threemf_matched_slots:
-                _, candidate_method = threemf_matched_slots[slot]
-                if is_rfid and candidate_method not in _RUNOUT_SPLIT_METHODS:
-                    self.log(
-                        f"3MF_SUPPRESSED_FOR_RFID slot={slot} spool_id={spool_id} "
-                        f"— RFID delta takes precedence over slicer estimate",
-                        level="DEBUG",
-                    )
-                else:
-                    threemf_used_g, threemf_method = threemf_matched_slots[slot]
+                threemf_used_g, threemf_method = threemf_matched_slots[slot]
 
             # Spoolman remaining — only for non-RFID depleted cases.
             # For runout_split_depleted slots, use threemf_used_g directly
@@ -1553,6 +1549,28 @@ class AmsPrintUsageSync(FilamentIQBase):
             min_consumption_g=self.min_consumption_g,
             max_consumption_g=self.max_consumption_g,
         )
+
+        # Surface RFID zero/below-min → slicer fallbacks (engine marks them via
+        # skip_reason on a 3mf decision). Coarse fuel gauge produced no usable
+        # delta; the slicer estimate was used instead.
+        _input_by_slot = {inp.slot: inp for inp in slot_inputs}
+        for d in all_decisions:
+            if d.skip_reason == "RFID_DELTA_ZERO_SLICER_FALLBACK":
+                _inp = _input_by_slot.get(d.slot)
+                if (
+                    _inp is not None
+                    and _inp.start_g is not None
+                    and _inp.end_g is not None
+                ):
+                    _rfid_delta = _inp.start_g - _inp.end_g
+                else:
+                    _rfid_delta = 0.0
+                self.log(
+                    f"RFID_DELTA_ZERO_SLICER_FALLBACK slot={d.slot} "
+                    f"rfid_delta={_rfid_delta:.1f} "
+                    f"threemf_used_g={d.consumption_g:.1f}",
+                    level="WARNING",
+                )
 
         for d in all_decisions:
             if d.method == "no_evidence":
@@ -2771,7 +2789,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 f"RFID_WEIGHT_MATCH slot={slot} spool_id={spool_id} "
                 f"rfid={rfid_weight_g}g delta={delta:.1f}g < "
                 f"{RECONCILE_MIN_DELTA_G}g threshold",
-                level="DEBUG",
+                level="INFO",
             )
             return
         if self.dry_run:

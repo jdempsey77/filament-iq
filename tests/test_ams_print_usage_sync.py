@@ -1081,6 +1081,20 @@ def test_rfid_weight_reconcile_skips_exact_match():
     assert _has_log(app, "RFID_WEIGHT_MATCH slot=4 spool_id=10")
 
 
+def test_rfid_weight_match_logs_at_info():
+    """RFID_WEIGHT_MATCH no-op log is raised to INFO (was DEBUG)."""
+    app = _reconcile_app(remain=39, tray_weight=1000, spoolman_remaining=390.0)
+    app._reconcile_rfid_weights()
+    match_logs = [
+        (msg, level) for msg, level in app._log_calls
+        if "RFID_WEIGHT_MATCH" in msg
+    ]
+    assert match_logs, "expected an RFID_WEIGHT_MATCH log"
+    assert all(level == "INFO" for _, level in match_logs), (
+        f"expected INFO level, got {match_logs}"
+    )
+
+
 def test_rfid_weight_reconcile_skips_non_rfid():
     """Slot with remain_enabled=False → skip, no PATCH."""
     app = _reconcile_app(remain=39, tray_weight=1000, remain_enabled=False,
@@ -3213,8 +3227,13 @@ class TestBuildSlotData:
 class TestCollectPrintInputs:
     """Tests for _collect_print_inputs method."""
 
-    def test_3mf_suppressed_for_rfid_slot(self):
-        """RFID slot with 3MF match → SlotInput.threemf_used_g is None."""
+    def test_3mf_preserved_for_rfid_slot(self):
+        """RFID slot with 3MF match → SlotInput.threemf_used_g preserved.
+
+        3MF is no longer suppressed at collection time; the consumption engine
+        decides precedence (RFID delta wins when credible, else slicer fallback).
+        is_rfid stays True for the engine's RFID decision path.
+        """
         app = _TestableUsageSync(
             state_map={
                 "input_text.ams_slot_1_spool_id": "10",
@@ -3231,8 +3250,9 @@ class TestCollectPrintInputs:
             spools_cache={},
         )
         assert len(inputs) == 1
-        assert inputs[0].threemf_used_g is None
-        assert inputs[0].threemf_method is None
+        assert inputs[0].threemf_used_g == 120.0
+        assert inputs[0].threemf_method == "exact_color_material"
+        assert inputs[0].is_rfid is True
 
     def test_non_rfid_tray_empty_fetches_spoolman_remaining(self):
         """Non-RFID slot, tray_empty=True → spoolman_remaining populated."""
