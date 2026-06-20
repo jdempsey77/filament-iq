@@ -24,37 +24,43 @@ function Icon({ path, size = 16, color = 'currentColor', style: extraStyle = {} 
 }
 
 // ── AMS unit definitions ─────────────────────────────────────
-const AMS_UNITS = [
+// Printer serial comes from card config (`printer_serial`). This default is
+// only a fallback when config omits it.
+const DEFAULT_SERIAL = '01p00c5b2201397'
+
+// Built at render time from the configured serial rather than at module load,
+// so the entity ids always track the active printer.
+const amsUnits = (serial) => [
   {
     name: 'AMS 2 Pro',
-    humEntity:     'sensor.p1s_01p00c5a3101668_ams_1_humidity',
-    tempEntity:    'sensor.p1s_01p00c5a3101668_ams_1_temperature',
-    dryEntity:     'binary_sensor.p1s_01p00c5a3101668_ams_1_drying',
-    dryTimeEntity: 'sensor.p1s_01p00c5a3101668_ams_1_remaining_drying_time',
+    humEntity:     `sensor.p1s_${serial}_ams_1_humidity`,
+    tempEntity:    `sensor.p1s_${serial}_ams_1_temperature`,
+    dryEntity:     `binary_sensor.p1s_${serial}_ams_1_drying`,
+    dryTimeEntity: `sensor.p1s_${serial}_ams_1_remaining_drying_time`,
     slots: [1, 2, 3, 4],
   },
   {
     name: 'AMS HT 1',
-    humEntity:     'sensor.p1s_01p00c5a3101668_ams_128_humidity',
-    tempEntity:    'sensor.p1s_01p00c5a3101668_ams_128_temperature',
-    dryEntity:     'binary_sensor.p1s_01p00c5a3101668_ams_128_drying',
-    dryTimeEntity: 'sensor.p1s_01p00c5a3101668_ams_128_remaining_drying_time',
+    humEntity:     `sensor.p1s_${serial}_ams_128_humidity`,
+    tempEntity:    `sensor.p1s_${serial}_ams_128_temperature`,
+    dryEntity:     `binary_sensor.p1s_${serial}_ams_128_drying`,
+    dryTimeEntity: `sensor.p1s_${serial}_ams_128_remaining_drying_time`,
     slots: [5],
   },
   {
     name: 'AMS HT 2',
-    humEntity:     'sensor.p1s_01p00c5a3101668_ams_129_humidity',
-    tempEntity:    'sensor.p1s_01p00c5a3101668_ams_129_temperature',
-    dryEntity:     'binary_sensor.p1s_01p00c5a3101668_ams_129_drying',
-    dryTimeEntity: 'sensor.p1s_01p00c5a3101668_ams_129_remaining_drying_time',
+    humEntity:     `sensor.p1s_${serial}_ams_129_humidity`,
+    tempEntity:    `sensor.p1s_${serial}_ams_129_temperature`,
+    dryEntity:     `binary_sensor.p1s_${serial}_ams_129_drying`,
+    dryTimeEntity: `sensor.p1s_${serial}_ams_129_remaining_drying_time`,
     slots: [6],
   },
   {
     name: 'AMS HT 3',
-    humEntity:     'sensor.p1s_01p00c5a3101668_ams_130_humidity',
-    tempEntity:    'sensor.p1s_01p00c5a3101668_ams_130_temperature',
-    dryEntity:     'binary_sensor.p1s_01p00c5a3101668_ams_130_drying',
-    dryTimeEntity: 'sensor.p1s_01p00c5a3101668_ams_130_remaining_drying_time',
+    humEntity:     `sensor.p1s_${serial}_ams_130_humidity`,
+    tempEntity:    `sensor.p1s_${serial}_ams_130_temperature`,
+    dryEntity:     `binary_sensor.p1s_${serial}_ams_130_drying`,
+    dryTimeEntity: `sensor.p1s_${serial}_ams_130_remaining_drying_time`,
     slots: [7],
     external: true,
   },
@@ -147,9 +153,12 @@ const weightPct = d => {
 
 // ── SlotRow — horizontal layout used by all sections ─────────
 function SlotRow({ n, data, onPopup, getHass, spools, borderBottom = true }) {
-  const isEmpty = data.status === 'empty'
-  const isActive = data.isActive
   const spoolId = parseInt(data.id, 10)
+  // Treat spool_id 0 / '0' / falsy as an empty slot: short-circuit before any
+  // Spoolman lookup or match attempt so an unbound slot renders a clean Empty
+  // state instead of "No Match Found" / "Too Generic" / "UNKNOWN #0".
+  const isEmpty = data.status === 'empty' || data.id === 0 || data.id === '0' || !data.id || spoolId === 0
+  const isActive = data.isActive
   const matchedSpool = (!isNaN(spoolId) && spoolId > 0) ? spools?.find(s => s.id === spoolId) : null
   const multiColorHexes = matchedSpool?.filament?.multi_color_hexes || null
   const slotSwatchBg = multiColorHexes && multiColorHexes.split(',').length >= 2
@@ -246,7 +255,9 @@ function SlotRow({ n, data, onPopup, getHass, spools, borderBottom = true }) {
         isActive && h('span', { style: { fontSize: 7, background: 'rgba(10,132,255,0.2)', color: '#0a84ff', padding: '1px 5px', borderRadius: 3, fontWeight: 700, marginLeft: 'auto' } }, 'ACTIVE'),
       ),
       h('div', { style: { fontSize: 13, fontWeight: 700, color: isEmpty ? '#636366' : (data.reason === 'PRINTER_SERIAL_CHANGED' ? '#ff9f0a' : '#e5e5e7'), lineHeight: 1.1 } },
-        isEmpty ? 'Empty' : primaryLabel(data)),
+        // External port (slot 8) is binary — when nothing is loaded show a
+        // minimal "No spool loaded" rather than a generic "Empty".
+        isEmpty ? (n === 8 ? 'No spool loaded' : 'Empty') : primaryLabel(data)),
       data.ranOut && h('div', { style: { fontSize: 10, color: '#ff9f0a', marginTop: 1 } }, '🪫 Ran out during print'),
       !isEmpty && h('div', { style: { display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden' } },
         h('span', { style: { fontSize: 11, color: '#8e8e93', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, data.name),
@@ -268,15 +279,18 @@ function SlotRow({ n, data, onPopup, getHass, spools, borderBottom = true }) {
 }
 
 // ── SlotsSegment — row layout ─────────────────────────────────
-function SlotsSegment({ getHass, onPopup, spools }) {
+function SlotsSegment({ getHass, onPopup, spools, printer_serial }) {
   const hass = getHass()
   const [reconciling, setReconciling] = useState(false)
   const sv = id => hass?.states?.[id]?.state ?? '—'
   const sa = (id, attr) => hass?.states?.[id]?.attributes?.[attr]
 
-  const activeAms  = sa('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index')
-  const activeTray = sa('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index')
-  const isPrinting = sv('sensor.p1s_01p00c5a3101668_current_stage') === 'printing'
+  const serial = String(printer_serial || DEFAULT_SERIAL).toLowerCase()
+  const AMS_UNITS = amsUnits(serial)
+
+  const activeAms  = sa(`sensor.p1s_${serial}_active_tray`, 'ams_index')
+  const activeTray = sa(`sensor.p1s_${serial}_active_tray`, 'tray_index')
+  const isPrinting = sv(`sensor.p1s_${serial}_current_stage`) === 'printing'
 
   const slotData = n => {
     const { ams, tray } = SLOT_AMS[n]
@@ -948,10 +962,10 @@ function SlotPopup({ popup, getHass, onClose, spools, updateSpool, deleteSpool, 
 }
 
 // ── Default export: wires SlotsSegment + SlotPopup ──────────
-export default function SlotsTab({ getHass, hass, spools, updateSpool, deleteSpool }) {
+export default function SlotsTab({ getHass, hass, spools, updateSpool, deleteSpool, printer_serial }) {
   const [popup, setPopup] = useState(null)
   return h('div', { style: { position: 'relative' } },
-    h(SlotsSegment, { getHass, onPopup: setPopup, spools }),
+    h(SlotsSegment, { getHass, onPopup: setPopup, spools, printer_serial }),
     popup && h(SlotPopup, { popup, getHass, onClose: () => setPopup(null), hass, spools, updateSpool, deleteSpool })
   )
 }

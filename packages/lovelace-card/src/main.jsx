@@ -11,10 +11,14 @@ import { render, h } from 'preact'
 import { FilamentIQCard } from './FilamentIQCard'
 import cardCSS from './styles/card.css?inline'
 
-const HT_DRYING_ENTITIES = [
-  'binary_sensor.p1s_01p00c5a3101668_ams_128_drying',
-  'binary_sensor.p1s_01p00c5a3101668_ams_129_drying',
-  'binary_sensor.p1s_01p00c5a3101668_ams_130_drying',
+// Printer serial comes from card config (`printer_serial`). This default is
+// only a fallback when config omits it (e.g. card embedded with empty config).
+const DEFAULT_SERIAL = '01p00c5b2201397'
+
+const htDryingEntities = (serial) => [
+  `binary_sensor.p1s_${serial}_ams_128_drying`,
+  `binary_sensor.p1s_${serial}_ams_129_drying`,
+  `binary_sensor.p1s_${serial}_ams_130_drying`,
 ]
 
 class FilamentIQManagerElement extends HTMLElement {
@@ -31,6 +35,10 @@ class FilamentIQManagerElement extends HTMLElement {
     this._config = config || {}
   }
 
+  _serial() {
+    return String(this._config?.printer_serial || DEFAULT_SERIAL).toLowerCase()
+  }
+
   set hass(hass) {
     this._hass = hass
     if (!this._rendered && hass) {
@@ -39,7 +47,7 @@ class FilamentIQManagerElement extends HTMLElement {
       const self = this
       const rawIntent = hass?.states?.['input_text.filament_iq_nav_intent']?.state || ''
       this._navIntent = rawIntent && rawIntent !== '—' ? rawIntent : null
-      render(h(FilamentIQCard, { hass, getHass: () => self._hass, navIntent: self._navIntent, config: self._config }), this)
+      render(h(FilamentIQCard, { hass, getHass: () => self._hass, navIntent: self._navIntent, config: self._config, printer_serial: self._serial() }), this)
       this._subscribeDrying(hass)
     }
   }
@@ -47,9 +55,10 @@ class FilamentIQManagerElement extends HTMLElement {
   _subscribeDrying(hass) {
     if (!hass?.connection) return
     const self = this
+    const dryingEntities = htDryingEntities(self._serial())
     hass.connection.subscribeEvents((event) => {
-      if (HT_DRYING_ENTITIES.includes(event.data?.entity_id) && self._rendered) {
-        render(h(FilamentIQCard, { hass: self._hass, getHass: () => self._hass, navIntent: self._navIntent, config: self._config }), self)
+      if (dryingEntities.includes(event.data?.entity_id) && self._rendered) {
+        render(h(FilamentIQCard, { hass: self._hass, getHass: () => self._hass, navIntent: self._navIntent, config: self._config, printer_serial: self._serial() }), self)
       }
     }, 'state_changed').then(unsub => {
       self._dryingUnsub = unsub

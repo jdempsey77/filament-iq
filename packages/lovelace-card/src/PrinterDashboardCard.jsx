@@ -1,6 +1,10 @@
 import { h, Component } from 'preact'
 import { useState } from 'preact/hooks'
 
+// Printer serial comes from card config (`printer_serial`). This default is
+// only a fallback when config omits it.
+const DEFAULT_SERIAL = '01p00c5b2201397'
+
 
 // ── MDI SVG paths — inline, no external dependency ──────────
 const ICONS = {
@@ -60,19 +64,20 @@ function SegBar({ active, onSwitch }) {
 }
 
 // ── Printer segment ──────────────────────────────────────────
-function PrinterSegment({ getHass }) {
+function PrinterSegment({ getHass, printer_serial }) {
   const hass = getHass()
   const sv = id => hass?.states?.[id]?.state ?? '—'
   const sa = (id, attr) => hass?.states?.[id]?.attributes?.[attr]
+  const serial = String(printer_serial || DEFAULT_SERIAL).toLowerCase()
 
-  const status     = sv('sensor.p1s_01p00c5a3101668_print_status')
-  const progress   = parseFloat(sv('sensor.p1s_01p00c5a3101668_print_progress')) || 0
-  const remaining  = parseFloat(sv('sensor.p1s_01p00c5a3101668_remaining_time')) || 0
-  const curLayer   = sv('sensor.p1s_01p00c5a3101668_current_layer')
-  const totalLayer = sv('sensor.p1s_01p00c5a3101668_total_layer_count')
-  const taskName   = sv('sensor.p1s_01p00c5a3101668_task_name')
-  const stage      = sv('sensor.p1s_01p00c5a3101668_current_stage')
-  const imgUrl     = sa('image.p1s_01p00c5a3101668_cover_image', 'entity_picture')
+  const status     = sv('sensor.p1s_' + serial + '_print_status')
+  const progress   = parseFloat(sv('sensor.p1s_' + serial + '_print_progress')) || 0
+  const remaining  = parseFloat(sv('sensor.p1s_' + serial + '_remaining_time')) || 0
+  const curLayer   = sv('sensor.p1s_' + serial + '_current_layer')
+  const totalLayer = sv('sensor.p1s_' + serial + '_total_layer_count')
+  const taskName   = sv('sensor.p1s_' + serial + '_task_name')
+  const stage      = sv('sensor.p1s_' + serial + '_current_stage')
+  const imgUrl     = sa('image.p1s_' + serial + '_cover_image', 'entity_picture')
 
   const isPrinting  = status === 'running'
   const isPaused    = status === 'pause'
@@ -83,7 +88,7 @@ function PrinterSegment({ getHass }) {
   const isIdleClean = !isActive && !isFinished
 
   // Total elapsed time — used in FINISHED chip
-  const startTimeState = hass?.states?.['sensor.p1s_01p00c5a3101668_start_time']?.state || ''
+  const startTimeState = hass?.states?.['sensor.p1s_' + serial + '_start_time']?.state || ''
   const elapsedMin     = startTimeState ? Math.round((Date.now() - new Date(startTimeState).getTime()) / 60000) : 0
   const elH            = Math.floor(elapsedMin / 60)
   const elM            = elapsedMin % 60
@@ -100,8 +105,8 @@ function PrinterSegment({ getHass }) {
   const remM   = Math.round((remaining - remH) * 60)
   const remStr = remH > 0 ? `${remH}h ${remM}m` : `${remM}m`
 
-  const activeTrayAmsIdx = sa('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index')
-  const activeTrayIdx    = sa('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index')
+  const activeTrayAmsIdx = sa('sensor.p1s_' + serial + '_active_tray', 'ams_index')
+  const activeTrayIdx    = sa('sensor.p1s_' + serial + '_active_tray', 'tray_index')
   const activeSlot       = parseInt(Object.entries(SLOT_AMS).find(
     ([, v]) => v.ams === activeTrayAmsIdx && v.tray === activeTrayIdx
   )?.[0] ?? 2)
@@ -116,21 +121,21 @@ function PrinterSegment({ getHass }) {
   const spoolId      = sv(`input_text.ams_slot_${activeSlot}_spool_id`)
   const activeName   = sv(`sensor.ams_slot_${activeSlot}_name`)
 
-  const nozzle     = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_nozzle_temperature')) || 0)
-  const nozzleTgt  = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_nozzle_target_temperature')) || 0)
-  const bed        = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_bed_temperature')) || 0)
-  const bedTgt     = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_bed_target_temperature')) || 0)
-  const chamberPct = sa('fan.p1s_01p00c5a3101668_chamber_fan', 'percentage') ?? 0
-  const chamberOn  = sv('fan.p1s_01p00c5a3101668_chamber_fan') === 'on'
-  const coolingPct = sa('fan.p1s_01p00c5a3101668_cooling_fan', 'percentage') ?? 0
-  const coolingOn  = sv('fan.p1s_01p00c5a3101668_cooling_fan') === 'on'
-  const rssi       = parseInt(sv('sensor.p1s_01p00c5a3101668_wi_fi_signal')) || 0
+  const nozzle     = Math.round(parseFloat(sv('sensor.p1s_' + serial + '_nozzle_temperature')) || 0)
+  const nozzleTgt  = Math.round(parseFloat(sv('sensor.p1s_' + serial + '_nozzle_target_temperature')) || 0)
+  const bed        = Math.round(parseFloat(sv('sensor.p1s_' + serial + '_bed_temperature')) || 0)
+  const bedTgt     = Math.round(parseFloat(sv('sensor.p1s_' + serial + '_bed_target_temperature')) || 0)
+  const chamberPct = sa('fan.p1s_' + serial + '_chamber_fan', 'percentage') ?? 0
+  const chamberOn  = sv('fan.p1s_' + serial + '_chamber_fan') === 'on'
+  const coolingPct = sa('fan.p1s_' + serial + '_cooling_fan', 'percentage') ?? 0
+  const coolingOn  = sv('fan.p1s_' + serial + '_cooling_fan') === 'on'
+  const rssi       = parseInt(sv('sensor.p1s_' + serial + '_wi_fi_signal')) || 0
   const wifiLabel  = rssi >= -50 ? 'Excellent' : rssi >= -60 ? 'Good' : rssi >= -70 ? 'Fair' : rssi >= -80 ? 'Weak' : 'Poor'
   const wifiColor  = rssi >= -60 ? '#4caf50' : rssi >= -70 ? '#ff9800' : '#f44336'
-  const hours      = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_total_usage')) || 0)
+  const hours      = Math.round(parseFloat(sv('sensor.p1s_' + serial + '_total_usage')) || 0)
 
   const printerOn  = sv('switch.officeoutlet01_3dprinter') === 'on'
-  const lightOn    = sv('light.p1s_01p00c5a3101668_chamber_light') === 'on'
+  const lightOn    = sv('light.p1s_' + serial + '_chamber_light') === 'on'
   const purifierOn = sv('fan.office_air_purifier') !== 'off'
   const bentoOn    = sv('switch.officeoutlet_02') === 'on'
 
@@ -155,7 +160,7 @@ function PrinterSegment({ getHass }) {
 
   const controls = [
     { label: 'Power',    on: printerOn,  onClick: togglePrinter,                                                                              icon: ICONS.refresh },
-    { label: 'Light',    on: lightOn,    onClick: () => call('light',  'toggle', { entity_id: 'light.p1s_01p00c5a3101668_chamber_light' }),    icon: ICONS.layers },
+    { label: 'Light',    on: lightOn,    onClick: () => call('light',  'toggle', { entity_id: 'light.p1s_' + serial + '_chamber_light' }),    icon: ICONS.layers },
     { label: 'Purifier', on: purifierOn, onClick: () => call('fan',    'toggle', { entity_id: 'fan.office_air_purifier' }),                    icon: ICONS.fan },
     { label: 'Bento',    on: bentoOn,    onClick: () => call('switch', 'toggle', { entity_id: 'switch.officeoutlet_02' }),                     icon: ICONS.link },
   ]
@@ -291,37 +296,39 @@ function PrinterSegment({ getHass }) {
 }
 
 // ── Slots segment ────────────────────────────────────────────
-const AMS_UNITS = [
+// Built at render time from the configured serial rather than at module load,
+// so the entity ids always track the active printer.
+const amsUnits = (serial) => [
   {
     name: 'AMS 2 Pro',
-    humEntity:     'sensor.p1s_01p00c5a3101668_ams_1_humidity',
-    tempEntity:    'sensor.p1s_01p00c5a3101668_ams_1_temperature',
-    dryEntity:     'binary_sensor.p1s_01p00c5a3101668_ams_1_drying',
-    dryTimeEntity: 'sensor.p1s_01p00c5a3101668_ams_1_remaining_drying_time',
+    humEntity:     'sensor.p1s_' + serial + '_ams_1_humidity',
+    tempEntity:    'sensor.p1s_' + serial + '_ams_1_temperature',
+    dryEntity:     'binary_sensor.p1s_' + serial + '_ams_1_drying',
+    dryTimeEntity: 'sensor.p1s_' + serial + '_ams_1_remaining_drying_time',
     slots: [1, 2, 3, 4],
   },
   {
     name: 'AMS HT 1',
-    humEntity:     'sensor.p1s_01p00c5a3101668_ams_128_humidity',
-    tempEntity:    'sensor.p1s_01p00c5a3101668_ams_128_temperature',
-    dryEntity:     'binary_sensor.p1s_01p00c5a3101668_ams_128_drying',
-    dryTimeEntity: 'sensor.p1s_01p00c5a3101668_ams_128_remaining_drying_time',
+    humEntity:     'sensor.p1s_' + serial + '_ams_128_humidity',
+    tempEntity:    'sensor.p1s_' + serial + '_ams_128_temperature',
+    dryEntity:     'binary_sensor.p1s_' + serial + '_ams_128_drying',
+    dryTimeEntity: 'sensor.p1s_' + serial + '_ams_128_remaining_drying_time',
     slots: [5],
   },
   {
     name: 'AMS HT 2',
-    humEntity:     'sensor.p1s_01p00c5a3101668_ams_129_humidity',
-    tempEntity:    'sensor.p1s_01p00c5a3101668_ams_129_temperature',
-    dryEntity:     'binary_sensor.p1s_01p00c5a3101668_ams_129_drying',
-    dryTimeEntity: 'sensor.p1s_01p00c5a3101668_ams_129_remaining_drying_time',
+    humEntity:     'sensor.p1s_' + serial + '_ams_129_humidity',
+    tempEntity:    'sensor.p1s_' + serial + '_ams_129_temperature',
+    dryEntity:     'binary_sensor.p1s_' + serial + '_ams_129_drying',
+    dryTimeEntity: 'sensor.p1s_' + serial + '_ams_129_remaining_drying_time',
     slots: [6],
   },
   {
     name: 'AMS HT 3',
-    humEntity:     'sensor.p1s_01p00c5a3101668_ams_130_humidity',
-    tempEntity:    'sensor.p1s_01p00c5a3101668_ams_130_temperature',
-    dryEntity:     'binary_sensor.p1s_01p00c5a3101668_ams_130_drying',
-    dryTimeEntity: 'sensor.p1s_01p00c5a3101668_ams_130_remaining_drying_time',
+    humEntity:     'sensor.p1s_' + serial + '_ams_130_humidity',
+    tempEntity:    'sensor.p1s_' + serial + '_ams_130_temperature',
+    dryEntity:     'binary_sensor.p1s_' + serial + '_ams_130_drying',
+    dryTimeEntity: 'sensor.p1s_' + serial + '_ams_130_remaining_drying_time',
     slots: [7],
     external: true,
   },
@@ -356,14 +363,16 @@ const primaryLabel = d => {
   return `${d.vendor} · ${d.material}`
 }
 
-function SlotsSegment({ getHass, onPopup }) {
+function SlotsSegment({ getHass, onPopup, printer_serial }) {
   const hass = getHass()
   const sv = id => hass?.states?.[id]?.state ?? '—'
   const sa = (id, attr) => hass?.states?.[id]?.attributes?.[attr]
+  const serial = String(printer_serial || DEFAULT_SERIAL).toLowerCase()
+  const AMS_UNITS = amsUnits(serial)
 
-  const activeAms  = sa('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index')
-  const activeTray = sa('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index')
-  const isPrinting = sv('sensor.p1s_01p00c5a3101668_current_stage') === 'printing'
+  const activeAms  = sa('sensor.p1s_' + serial + '_active_tray', 'ams_index')
+  const activeTray = sa('sensor.p1s_' + serial + '_active_tray', 'tray_index')
+  const isPrinting = sv('sensor.p1s_' + serial + '_current_stage') === 'printing'
 
   const slotData = n => {
     const { ams, tray } = SLOT_AMS[n]
@@ -606,19 +615,20 @@ class FiqSegment extends Component {
 }
 
 // ── Compact print status (Cameras tab) ───────────────────────
-function CompactPrintStatus({ getHass }) {
+function CompactPrintStatus({ getHass, printer_serial }) {
   const hass = getHass()
   const sv = id => hass?.states?.[id]?.state ?? '—'
   const sa = (id, attr) => hass?.states?.[id]?.attributes?.[attr]
+  const serial = String(printer_serial || DEFAULT_SERIAL).toLowerCase()
 
-  const status     = sv('sensor.p1s_01p00c5a3101668_print_status')
-  const progress   = parseFloat(sv('sensor.p1s_01p00c5a3101668_print_progress')) || 0
-  const remaining  = parseFloat(sv('sensor.p1s_01p00c5a3101668_remaining_time')) || 0
-  const curLayer   = sv('sensor.p1s_01p00c5a3101668_current_layer')
-  const totalLayer = sv('sensor.p1s_01p00c5a3101668_total_layer_count')
-  const taskName   = sv('sensor.p1s_01p00c5a3101668_task_name')
-  const nozzle     = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_nozzle_temperature')) || 0)
-  const bed        = Math.round(parseFloat(sv('sensor.p1s_01p00c5a3101668_bed_temperature')) || 0)
+  const status     = sv('sensor.p1s_' + serial + '_print_status')
+  const progress   = parseFloat(sv('sensor.p1s_' + serial + '_print_progress')) || 0
+  const remaining  = parseFloat(sv('sensor.p1s_' + serial + '_remaining_time')) || 0
+  const curLayer   = sv('sensor.p1s_' + serial + '_current_layer')
+  const totalLayer = sv('sensor.p1s_' + serial + '_total_layer_count')
+  const taskName   = sv('sensor.p1s_' + serial + '_task_name')
+  const nozzle     = Math.round(parseFloat(sv('sensor.p1s_' + serial + '_nozzle_temperature')) || 0)
+  const bed        = Math.round(parseFloat(sv('sensor.p1s_' + serial + '_bed_temperature')) || 0)
 
   const isPrinting = status === 'running'
   const isPaused   = status === 'pause'
@@ -631,14 +641,14 @@ function CompactPrintStatus({ getHass }) {
   const remM   = Math.round((remaining - remH) * 60)
   const remStr = remH > 0 ? `${remH}h ${remM}m left` : `${remM}m left`
 
-  const startTimeState = hass?.states?.['sensor.p1s_01p00c5a3101668_start_time']?.state || ''
+  const startTimeState = hass?.states?.['sensor.p1s_' + serial + '_start_time']?.state || ''
   const elapsedMin     = startTimeState ? Math.round((Date.now() - new Date(startTimeState).getTime()) / 60000) : 0
   const elH            = Math.floor(elapsedMin / 60)
   const elM            = elapsedMin % 60
   const elStr          = elH > 0 ? `${elH}h ${elM}m` : `${elM}m`
 
-  const activeTrayAmsIdx = sa('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index')
-  const activeTrayIdx    = sa('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index')
+  const activeTrayAmsIdx = sa('sensor.p1s_' + serial + '_active_tray', 'ams_index')
+  const activeTrayIdx    = sa('sensor.p1s_' + serial + '_active_tray', 'tray_index')
   const activeSlot       = parseInt(Object.entries(SLOT_AMS).find(
     ([, v]) => v.ams === activeTrayAmsIdx && v.tray === activeTrayIdx
   )?.[0] ?? 2)
@@ -721,6 +731,7 @@ class CamerasSegment extends Component {
   }
 
   async componentDidMount() {
+    const serial = String(this.props.printer_serial || DEFAULT_SERIAL).toLowerCase()
     if (this.tapoRef) {
       this._tapoCard = await this._createCard({
         type: 'custom:webrtc-camera',
@@ -747,7 +758,7 @@ class CamerasSegment extends Component {
         conditions: [{ entity: 'switch.officeoutlet01_3dprinter', state: 'on' }],
         card: {
           type: 'picture-entity',
-          entity: 'camera.p1s_01p00c5a3101668_camera',
+          entity: 'camera.p1s_' + serial + '_camera',
           show_state: false,
           show_name: false,
           camera_view: 'live',
@@ -807,7 +818,7 @@ class CamerasSegment extends Component {
         h('div', { style: { height: 90 }, ref: el => this.bambuRef = el }),
         h('div', { style: { height: 90 }, ref: el => this.nozzleRef = el })
       ),
-      h(CompactPrintStatus, { getHass: this.props.getHass })
+      h(CompactPrintStatus, { getHass: this.props.getHass, printer_serial: this.props.printer_serial })
     )
   }
 }
@@ -816,13 +827,14 @@ class CamerasSegment extends Component {
 export function PrinterDashboardCard({ config, getHass }) {
   const [seg, setSeg] = useState('printer')
   const [popup, setPopup] = useState(null)
+  const serial = String(config?.printer_serial || DEFAULT_SERIAL).toLowerCase()
 
   return h('div', { style: S.root },
     h(SegBar, { active: seg, onSwitch: setSeg }),
     h('div', { style: S.scrollArea },
-      seg === 'printer' && h(PrinterSegment, { getHass }),
-      seg === 'cameras' && h(CamerasSegment, { getHass }),
-      seg === 'slots'   && h(SlotsSegment,   { getHass, onPopup: setPopup }),
+      seg === 'printer' && h(PrinterSegment, { getHass, printer_serial: serial }),
+      seg === 'cameras' && h(CamerasSegment, { getHass, printer_serial: serial }),
+      seg === 'slots'   && h(SlotsSegment,   { getHass, onPopup: setPopup, printer_serial: serial }),
       seg === 'fiq'     && h(FiqSegment, { getHass }),
     ),
     popup && h(SlotPopup, { popup, getHass, onClose: () => setPopup(null) })
