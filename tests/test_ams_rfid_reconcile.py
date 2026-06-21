@@ -6698,7 +6698,15 @@ class TestPrintActiveFreeze:
         assert len(skip_logs) == 0, "should NOT skip when watchdog fires"
 
     def test_usage_skip_data_loss_warning(self):
-        """USAGE_SKIP with tray_seconds > 60 → WARNING level log."""
+        """Unbound slot with significant activity → WARNING surfaced.
+
+        An unbound slot (spool_id=0, not in the print-start spool_id snapshot)
+        is now caught by the phantom-slot filter before attribution. The
+        significant-activity signal is preserved as a PHANTOM_SLOT_FILTERED
+        WARNING (reporting the active_time) rather than the downstream
+        _collect_print_inputs USAGE_SKIP/DATA_LOSS warning, which is no longer
+        reachable once the phantom is removed first.
+        """
         from tests.test_ams_print_usage_sync import _TestableUsageSync, _default_state_map, _has_log
         import datetime as _dt
         app = _TestableUsageSync(
@@ -6710,8 +6718,9 @@ class TestPrintActiveFreeze:
             4: [{"start": _dt.datetime(2026, 1, 1, 0, 0, 0),
                  "end": _dt.datetime(2026, 1, 1, 1, 50, 36)}]
         }
-        # Clear slot 4 binding so USAGE_SKIP fires
+        # Clear slot 4 binding — unbound and absent from the start snapshot
         app._state_map["input_text.ams_slot_4_spool_id"] = "0"
+        app._spool_id_snapshot = {}
         app._job_key = "data_loss_test"
         app._start_snapshot = {4: 420.0}
         app._trays_used = {4}
@@ -6719,12 +6728,12 @@ class TestPrintActiveFreeze:
         app._do_finish("finish")
         warn_logs = [
             (msg, lvl) for msg, lvl in app._log_calls
-            if "USAGE_SKIP" in msg and "slot=4" in msg
+            if "PHANTOM_SLOT_FILTERED" in msg and "slot=4" in msg
         ]
-        assert len(warn_logs) >= 1, f"expected USAGE_SKIP log for slot 4, got {app._log_calls}"
+        assert len(warn_logs) >= 1, f"expected PHANTOM_SLOT_FILTERED log for slot 4, got {app._log_calls}"
         msg, lvl = warn_logs[0]
         assert lvl == "WARNING", f"expected WARNING level, got {lvl}"
-        assert "DATA_LOSS" in msg, f"expected DATA_LOSS in message, got {msg}"
+        assert "active_time=" in msg, f"expected active_time in message, got {msg}"
 
     def test_freeze_exception_safe(self):
         """get_state throws exception → print_active defaults False → reconcile proceeds."""
