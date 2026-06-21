@@ -1003,7 +1003,14 @@ class AmsPrintUsageSync(FilamentIQBase):
         if self._current_active_slot is not None and self._current_active_slot != slot:
             self._close_active_segment(self._current_active_slot)
 
+        # Persist the active-print snapshot only when a NEW slot enters
+        # _trays_used (e.g. a runout switch to a continuation slot). This keeps
+        # the disk snapshot eventually consistent without writing on every tray
+        # event. Existing slots re-activating do not change the set.
+        slot_is_new = slot not in self._trays_used
         self._trays_used.add(slot)
+        if slot_is_new:
+            self._persist_active_print()
         self._open_active_segment(slot)
         self._current_active_slot = slot
         if self._lifecycle_phase1:
@@ -1301,7 +1308,11 @@ class AmsPrintUsageSync(FilamentIQBase):
                             self.log(f"MW_RESULT url={_mw_meta.get('makerworld_url')} title={_mw_meta.get('title')}", level="INFO")
                         else:
                             self.log(f"MW_SKIP cache_path={_cache_path} bambulab={bool(self._bambulab_cache_path)} exists={os.path.exists(_cache_path)}", level="INFO")
-                if restored["trays_used"]:
+                # Only restore trays_used from disk on a rehydrated print.
+                # During a continuous run the live _trays_used is authoritative
+                # (it has been accumulating runout slot switches); overwriting it
+                # with the print-start snapshot would discard continuation slots.
+                if restored["trays_used"] and self._rehydrated:
                     self._trays_used = restored["trays_used"]
                 if restored["spool_id_snapshot"]:
                     self._spool_id_snapshot = restored["spool_id_snapshot"]
@@ -1464,6 +1475,35 @@ class AmsPrintUsageSync(FilamentIQBase):
             level="INFO",
         )
 
+        # Filter phantom slots — a slot with no bound spool (spool_id=0) can
+        # never have consumed filament regardless of recorded active_time. An
+        # AMS handoff artifact can leave active_time on an unbound external slot
+        # (e.g. slot 8); honoring it would wrongly pull it into attribution.
+        # Binding is resolved the same way as _collect_print_inputs: live helper
+        # read first, then the print-start snapshot fallback for depleted slots
+        # whose live helper has been cleared.
+        def _slot_bound(s):
+            sid = self._read_spool_id(s)
+            if sid <= 0:
+                sid = self._spool_id_snapshot.get(s, 0)
+            return sid > 0
+
+        phantom_slots = {s for s in self._trays_used if not _slot_bound(s)}
+        if phantom_slots:
+            tray_times = self._summarize_tray_times()
+            for s in sorted(phantom_slots):
+                self.log(
+                    f"PHANTOM_SLOT_FILTERED slot={s} spool_id=0 "
+                    f"active_time={tray_times.get(s, 0.0):.1f}s",
+                    level="WARNING",
+                )
+            self._trays_used = {s for s in self._trays_used if _slot_bound(s)}
+
+        # Multi-slot finish context: when more than one bound slot was active
+        # and a slot depletes, the runout split path — not 3mf_depleted — is the
+        # correct handler. Captured here as a safety net for Change 4 below.
+        multi_slot_context = len(self._trays_used) > 1
+
         # Detect and handle single-color multi-spool runout
         if self._threemf_data and len(threemf_matched_slots) > 0:
             threemf_matched_slots = self._detect_runout_split(
@@ -1549,6 +1589,20 @@ class AmsPrintUsageSync(FilamentIQBase):
             min_consumption_g=self.min_consumption_g,
             max_consumption_g=self.max_consumption_g,
         )
+
+        # Change 4 safety net: a 3mf_depleted decision in a multi-slot finish
+        # context means a depleted slot is about to claim the full slicer
+        # estimate instead of its split share. The runout split path is the
+        # correct handler; surface this so the misattribution is visible even
+        # if upstream gating did not fully prevent the scenario.
+        if multi_slot_context:
+            for d in all_decisions:
+                if d.method == "3mf_depleted":
+                    self.log(
+                        f"3MF_DEPLETED_MULTI_SLOT_DETECTED slot={d.slot} "
+                        f"— write proceeds; verify runout split fired upstream",
+                        level="WARNING",
+                    )
 
         # Surface RFID zero/below-min → slicer fallbacks (engine marks them via
         # skip_reason on a 3mf decision). Coarse fuel gauge produced no usable
@@ -1792,8 +1846,10 @@ class AmsPrintUsageSync(FilamentIQBase):
                             self.log(f"MW_RESULT url={_mw_meta.get('makerworld_url')} title={_mw_meta.get('title')}", level="INFO")
                         else:
                             self.log(f"MW_SKIP cache_path={_cache_path} bambulab={bool(self._bambulab_cache_path)} exists={os.path.exists(_cache_path)}", level="INFO")
+                # Union (not replace) so any live tray tracking that occurred
+                # before this rehydrate is preserved alongside the disk snapshot.
                 if restored["trays_used"]:
-                    self._trays_used = restored["trays_used"]
+                    self._trays_used |= set(restored["trays_used"])
                 if restored["spool_id_snapshot"]:
                     self._spool_id_snapshot = restored["spool_id_snapshot"]
                 if restored.get("print_start_time") is not None:
