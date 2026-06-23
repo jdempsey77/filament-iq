@@ -2731,7 +2731,11 @@ class AmsRfidReconcile(FilamentIQBase):
             self._get_helper_state(f"input_text.ams_slot_{slot}_spool_id"), 0
         )
 
-        if state in ("unknown", "unavailable", ""):
+        # An unloaded external feeder reports state "Empty" (literal), not "".
+        # Bambu populates name/type/color only when a spool is actually loaded,
+        # so treat the empty feeder as unloaded: NEEDS_ACTION must fire only for
+        # a loaded-but-unidentified spool, never for an idle/empty external slot.
+        if state.lower() in ("unknown", "unavailable", "", "empty"):
             self._set_helper(
                 f"input_text.ams_slot_{slot}_unbound_reason", UNBOUND_TRAY_EMPTY
             )
