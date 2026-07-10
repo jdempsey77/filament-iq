@@ -440,6 +440,7 @@
 
 /* ── Add row ─────────────────────────────────────────── */
 .fiq-add-row {
+  position: relative;
   background: var(--bg-1);
   border: 1px dashed var(--border);
   border-radius: 9px;
@@ -454,7 +455,7 @@
 }
 .fiq-add-fields {
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr 1fr;
+  grid-template-columns: 1.3fr 1fr 1fr 1fr 1fr;
   gap: 7px;
   margin-bottom: 8px;
 }

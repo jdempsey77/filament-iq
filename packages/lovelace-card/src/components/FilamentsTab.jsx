@@ -447,19 +447,36 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
   )
 }
 
+function formatSpoolmanError(e) {
+  const detail = e?.body?.detail
+  if (Array.isArray(detail)) {
+    return detail.map(d => {
+      const field = Array.isArray(d.loc) ? d.loc[d.loc.length - 1] : null
+      return field ? `${field}: ${d.msg}` : d.msg
+    }).join('; ')
+  }
+  if (typeof detail === 'string') return detail
+  return e?.message || 'Failed to create filament'
+}
+
 function FilamentAddRow({ vendors, onCreate, onCancel }) {
   const [name, setName] = useState('')
   const [vendorId, setVendorId] = useState('')
   const [material, setMaterial] = useState('')
   const [colorHex, setColorHex] = useState('')
+  const [density, setDensity] = useState('')
   const [saving, setSaving] = useState(false)
+  const [toast, setToast] = useState(null)
 
   const handleCreate = async () => {
     setSaving(true)
     try {
-      const data = { name, material, color_hex: colorHex, weight: 1000, diameter: 1.75 }
+      const data = { name, material, color_hex: colorHex, weight: 1000, diameter: 1.75, density: Number(density) }
       if (vendorId) data.vendor_id = Number(vendorId)
       await onCreate(data)
+    } catch (e) {
+      setToast({ msg: formatSpoolmanError(e), type: 'err' })
+      setTimeout(() => setToast(null), 5000)
     } finally {
       setSaving(false)
     }
@@ -468,6 +485,11 @@ function FilamentAddRow({ vendors, onCreate, onCancel }) {
   return (
     <div class="fiq-add-row">
       <div class="fiq-add-title">New filament</div>
+      {toast && (
+        <div class={`fiq-toast ${toast.type === 'err' ? 'fiq-toast-err' : 'fiq-toast-ok'}`}>
+          {toast.msg}
+        </div>
+      )}
       <div class="fiq-add-fields">
         <div>
           <div class="fiq-field-label">Name</div>
@@ -488,12 +510,16 @@ function FilamentAddRow({ vendors, onCreate, onCancel }) {
           <div class="fiq-field-label">Color hex</div>
           <input class="fiq-input" value={colorHex} onInput={e => setColorHex(e.target.value)} placeholder="ff0000" />
         </div>
+        <div>
+          <div class="fiq-field-label">Density (g/cm³)</div>
+          <input class="fiq-input" type="number" step="0.01" value={density} onInput={e => setDensity(e.target.value)} placeholder="1.24" />
+        </div>
       </div>
       <div class="fiq-panel-footer">
         <div />
         <div class="fiq-btn-group">
           <button class="fiq-btn-cancel" onClick={onCancel} disabled={saving}>Cancel</button>
-          <button class="fiq-btn-save" onClick={handleCreate} disabled={saving || !name}>{saving ? 'Creating...' : 'Create filament'}</button>
+          <button class="fiq-btn-save" onClick={handleCreate} disabled={saving || !name || density === ''}>{saving ? 'Creating...' : 'Create filament'}</button>
         </div>
       </div>
     </div>
