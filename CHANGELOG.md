@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.9.9] — 2026-07-09
+
+### Fixed
+
+- **"+ Add filament" 422 with no visible error** — Spoolman's `POST
+  /api/v1/filament` requires `density` (confirmed via its OpenAPI schema:
+  `FilamentParameters.required = [density, diameter]`), but the quick-add
+  form (`FilamentAddRow` in `FilamentsTab.jsx`) never collected or sent it.
+  Every submission was rejected with a 422 (`density: Field required`).
+  Added a required Density (g/cm³) input to the form, disabled the Create
+  button until it's filled, and included `density` in the create payload.
+- **Silent failure on create errors** — `handleCreate` only had a
+  `try/finally`, so a rejected `ProxyError` (carrying Spoolman's real
+  validation detail on `.body`) became an unhandled promise rejection with
+  nothing shown to the user beyond a generic `Spoolman proxy error: 422` in
+  the console. Added a `catch` that formats Spoolman's FastAPI/Pydantic
+  `detail` array into a readable message (e.g. `density: Field required`)
+  and surfaces it via the existing `.fiq-toast` error pattern (already used
+  in `SlotsTab.jsx`/`SpoolsTab.jsx`), auto-dismissing after 5s. This
+  generically catches any future 422 from this form, not just density.
+
 ## [1.9.8] — 2026-05-22
 
 ### Bug Fixes (AppDaemon — `ams_print_usage_sync`)
