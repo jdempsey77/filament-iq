@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'preact/hooks'
 import { ConfirmDialog } from './ConfirmDialog'
 import { LocationSelect } from './LocationSelect'
+import { useProvider } from '../provider/context'
 
 const LOCATION_TO_SLOT = {
   'AMS1_Slot1':   1,
@@ -164,7 +165,8 @@ function MatBadge({ material }) {
   return <span class={`fiq-mat-badge ${cls}`}>{material || '—'}</span>
 }
 
-export function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrintLabel, onPrintSwatchLabel, printingLabel, printingNiimbotLabel }) {
+export function SpoolEditPanel({ spool, onSave, onCancel, onDelete, onPrintLabel, onPrintSwatchLabel, printingLabel, printingNiimbotLabel }) {
+  const provider = useProvider()
   const [remaining, setRemaining] = useState(Math.round(spool.remaining_weight || 0))
   const [location, setLocation] = useState(spool.location || '')
   const [firstUsed, setFirstUsed] = useState(
@@ -188,50 +190,20 @@ export function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrin
   }, [spool.filament?.extra?.profile_url])
 
   useEffect(() => {
-    if (!showMore || profileLookedUp || !hass || !spool.filament?.id) return
+    if (!showMore || profileLookedUp || !provider || !spool.filament?.id) return
     setProfileLookedUp(true)
-    const requestId = Math.random().toString(36).slice(2)
-    let unsub = null
-    let timer = null
-    let done = false
-
-    const cleanup = () => {
-      if (timer) { clearTimeout(timer); timer = null }
-      if (unsub) { unsub(); unsub = null }
-    }
-
-    const run = async () => {
-      try {
-        unsub = await hass.connection.subscribeEvents((event) => {
-          const d = event.data || {}
-          if (d.request_id !== requestId || done) return
-          done = true
-          cleanup()
-          setProfileData(d)
-          setProfileStatus(d.status || 'unverified')
-        }, 'filament_iq_profile_lookup_response')
-
-        hass.connection.sendMessage({
-          type: 'fire_event',
-          event_type: 'filament_iq_profile_lookup_request',
-          event_data: { request_id: requestId, filament_id: spool.filament.id },
-        })
-        setProfileStatus('loading')
-
-        timer = setTimeout(() => {
-          if (done) return
-          done = true
-          cleanup()
-          setProfileStatus('error')
-        }, 20000)
-      } catch (e) {
-        cleanup()
-        setProfileStatus('error')
-      }
-    }
-
-    run()
-    return cleanup
+    setProfileStatus('loading')
+    let cancelled = false
+    provider.rpc('filament.profileLookup', { filament_id: spool.filament.id })
+      .then((d) => {
+        if (cancelled) return
+        setProfileData(d)
+        setProfileStatus(d.status || 'unverified')
+      })
+      .catch(() => {
+        if (!cancelled) setProfileStatus('error')
+      })
+    return () => { cancelled = true }
   }, [showMore])
 
   const handleSave = async () => {
@@ -244,12 +216,8 @@ export function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrin
       })
       // Fire FILAMENT_IQ_SLOT_ASSIGNED so AppDaemon writes input_text.ams_slot_N_spool_id
       const slot = LOCATION_TO_SLOT[location]
-      if (slot && hass) {
-        hass.connection.sendMessage({
-          type: 'fire_event',
-          event_type: 'FILAMENT_IQ_SLOT_ASSIGNED',
-          event_data: { slot, spool_id: spool.id },
-        })
+      if (slot && provider) {
+        provider.rpc('slot.assigned', { slot, spool_id: spool.id })
       }
     } finally {
       setSaving(false)
@@ -381,7 +349,8 @@ export function SpoolEditPanel({ spool, hass, onSave, onCancel, onDelete, onPrin
   )
 }
 
-function SpoolAddRow({ filaments, onCreate, onCancel, hass }) {
+function SpoolAddRow({ filaments, onCreate, onCancel }) {
+  const provider = useProvider()
   const [filamentId, setFilamentId] = useState('')
   const [initialWeight, setInitialWeight] = useState(1000)
   const [remainingWeight, setRemainingWeight] = useState(1000)
@@ -411,14 +380,10 @@ function SpoolAddRow({ filaments, onCreate, onCancel, hass }) {
         })
         if (spool?.id) created.push(spool)
       }
-      if (printLabel && hass && created.length > 0) {
+      if (printLabel && provider && created.length > 0) {
         for (const spool of created) {
           try {
-            hass.connection.sendMessage({
-              type: 'fire_event',
-              event_type: 'filament_iq_print_label',
-              event_data: { spool_id: spool.id },
-            })
+            provider.rpc('label.printFireAndForget', { spool_id: spool.id })
           } catch (e) {
             // Non-fatal — spool was created successfully
           }
@@ -505,7 +470,8 @@ function SpoolAddRow({ filaments, onCreate, onCancel, hass }) {
   )
 }
 
-export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createSpool, refresh, hass, getHass, navIntent }) {
+export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createSpool, refresh, navIntent }) {
+  const provider = useProvider()
   const [search, setSearch] = useState('')
   const [vendorFilter, setVendorFilter] = useState('')
   const [materialFilter, setMaterialFilter] = useState('')
@@ -519,15 +485,7 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
     const parsed = parseNavIntent(navIntent)
     if (parsed?.type === 'spool') {
       try {
-        getHass().connection.sendMessage({
-          type: 'call_service',
-          domain: 'input_text',
-          service: 'set_value',
-          service_data: {
-            entity_id: 'input_text.filament_iq_nav_intent',
-            value: '',
-          },
-        })
+        provider?.rpc('navIntent.clear')
       } catch (_) { /* non-fatal — entity may not exist on this install */ }
       setEditId(parsed.id)
     }
@@ -541,76 +499,6 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
   const [printingSpoolId, setPrintingSpoolId] = useState(null)
   const [printingNiimbotSpoolId, setPrintingNiimbotSpoolId] = useState(null)
   const [toast, setToast] = useState(null)
-
-  // Subscribe to label result events
-  useEffect(() => {
-    if (!hass) return
-    let unsub = null
-    const subscribe = async () => {
-      try {
-        unsub = await hass.connection.subscribeEvents((event) => {
-          const d = event.data || {}
-          if (d.spool_id === printingSpoolId || printingSpoolId) {
-            setPrintingSpoolId(null)
-            if (d.success) {
-              setToast({ msg: 'Label printed — spool moved to shelf', type: 'ok' })
-            } else {
-              setToast({ msg: `Print failed: ${d.error || 'unknown error'}`, type: 'err' })
-            }
-            setTimeout(() => setToast(null), 5000)
-          }
-        }, 'filament_iq_label_result')
-      } catch (e) { /* ignore subscription errors */ }
-    }
-    subscribe()
-    return () => { if (unsub) unsub() }
-  }, [hass, printingSpoolId])
-
-  // Subscribe to Niimbot swatch label result events
-  useEffect(() => {
-    if (!hass) return
-    let unsub = null
-    const subscribe = async () => {
-      try {
-        unsub = await hass.connection.subscribeEvents((event) => {
-          const d = event.data || {}
-          if (d.spool_id === printingNiimbotSpoolId || printingNiimbotSpoolId) {
-            setPrintingNiimbotSpoolId(null)
-            if (d.success) {
-              setToast({ msg: 'Swatch label queued for printing', type: 'ok' })
-            } else {
-              setToast({ msg: `Swatch print failed: ${d.error || 'unknown error'}`, type: 'err' })
-            }
-            setTimeout(() => setToast(null), 5000)
-          }
-        }, 'filament_iq_niimbot_label_result')
-      } catch (e) { /* ignore subscription errors */ }
-    }
-    subscribe()
-    return () => { if (unsub) unsub() }
-  }, [hass, printingNiimbotSpoolId])
-
-  // Timeout for in-flight print jobs
-  useEffect(() => {
-    if (!printingSpoolId) return
-    const timer = setTimeout(() => {
-      setPrintingSpoolId(null)
-      setToast({ msg: 'Print label timed out', type: 'err' })
-      setTimeout(() => setToast(null), 5000)
-    }, 15000)
-    return () => clearTimeout(timer)
-  }, [printingSpoolId])
-
-  // Timeout for in-flight Niimbot swatch print jobs
-  useEffect(() => {
-    if (!printingNiimbotSpoolId) return
-    const timer = setTimeout(() => {
-      setPrintingNiimbotSpoolId(null)
-      setToast({ msg: 'Swatch print timed out', type: 'err' })
-      setTimeout(() => setToast(null), 5000)
-    }, 15000)
-    return () => clearTimeout(timer)
-  }, [printingNiimbotSpoolId])
 
   const handleExport = useCallback(() => {
     const rows = [
@@ -636,37 +524,45 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
     URL.revokeObjectURL(url)
   }, [spools])
 
-  const handlePrintLabel = useCallback((spoolId) => {
-    if (!hass) return
+  const handlePrintLabel = useCallback(async (spoolId) => {
+    if (!provider) return
     setPrintingSpoolId(spoolId)
     try {
-      hass.connection.sendMessage({
-        type: 'fire_event',
-        event_type: 'filament_iq_print_label',
-        event_data: { spool_id: spoolId },
-      })
+      const d = await provider.rpc('label.print', { spool_id: spoolId })
+      setPrintingSpoolId(null)
+      if (d.success) {
+        setToast({ msg: 'Label printed — spool moved to shelf', type: 'ok' })
+      } else {
+        setToast({ msg: `Print failed: ${d.error || 'unknown error'}`, type: 'err' })
+      }
+      setTimeout(() => setToast(null), 5000)
     } catch (e) {
       setPrintingSpoolId(null)
-      setToast({ msg: `Print failed: ${e.message || e}`, type: 'err' })
+      const msg = e?.message?.endsWith('timed out') ? 'Print label timed out' : `Print failed: ${e.message || e}`
+      setToast({ msg, type: 'err' })
       setTimeout(() => setToast(null), 5000)
     }
-  }, [hass])
+  }, [provider])
 
-  const handlePrintSwatchLabel = useCallback((spoolId) => {
-    if (!hass) return
+  const handlePrintSwatchLabel = useCallback(async (spoolId) => {
+    if (!provider) return
     setPrintingNiimbotSpoolId(spoolId)
     try {
-      hass.connection.sendMessage({
-        type: 'fire_event',
-        event_type: 'filament_iq_print_niimbot_label',
-        event_data: { spool_id: spoolId },
-      })
+      const d = await provider.rpc('label.printNiimbot', { spool_id: spoolId })
+      setPrintingNiimbotSpoolId(null)
+      if (d.success) {
+        setToast({ msg: 'Swatch label queued for printing', type: 'ok' })
+      } else {
+        setToast({ msg: `Swatch print failed: ${d.error || 'unknown error'}`, type: 'err' })
+      }
+      setTimeout(() => setToast(null), 5000)
     } catch (e) {
       setPrintingNiimbotSpoolId(null)
-      setToast({ msg: `Swatch print failed: ${e.message || e}`, type: 'err' })
+      const msg = e?.message?.endsWith('timed out') ? 'Swatch print timed out' : `Swatch print failed: ${e.message || e}`
+      setToast({ msg, type: 'err' })
       setTimeout(() => setToast(null), 5000)
     }
-  }, [hass])
+  }, [provider])
 
   const emptySpools = useMemo(() =>
     (spools || []).filter(s => !s.archived && ((s.remaining_weight || 0) === 0)),
@@ -807,7 +703,6 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
       {adding && (
         <SpoolAddRow
           filaments={filaments}
-          hass={hass}
           onCreate={createSpool}
           onCancel={() => setAdding(false)}
         />
@@ -821,12 +716,8 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
             // Mirror SpoolEditPanel: fire FILAMENT_IQ_SLOT_ASSIGNED so AppDaemon
             // updates input_text.ams_slot_N_spool_id immediately.
             const slot = LOCATION_TO_SLOT[location]
-            if (slot && hass) {
-              hass.connection.sendMessage({
-                type: 'fire_event',
-                event_type: 'FILAMENT_IQ_SLOT_ASSIGNED',
-                event_data: { slot, spool_id: spoolId },
-              })
+            if (slot && provider) {
+              provider.rpc('slot.assigned', { slot, spool_id: spoolId })
             }
             setBinding(false)
           }}
@@ -873,7 +764,6 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
               {expanded && (
                 <SpoolEditPanel
                   spool={spool}
-                  hass={hass}
                   onSave={(id, patch) => updateSpool(id, patch).then(() => setEditId(null))}
                   onCancel={() => setEditId(null)}
                   onDelete={(id) => deleteSpool(id).then(() => setEditId(null))}

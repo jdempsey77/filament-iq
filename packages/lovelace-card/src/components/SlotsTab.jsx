@@ -1,6 +1,7 @@
 import { h } from 'preact'
 import { useState, useEffect } from 'preact/hooks'
 import { LocationSelect } from './LocationSelect'
+import { useProvider } from '../provider/context'
 
 // ── MDI SVG paths ────────────────────────────────────────────
 const ICONS = {
@@ -152,7 +153,8 @@ const weightPct = d => {
 }
 
 // ── SlotRow — horizontal layout used by all sections ─────────
-function SlotRow({ n, data, onPopup, getHass, spools, borderBottom = true }) {
+function SlotRow({ n, data, onPopup, spools, borderBottom = true }) {
+  const provider = useProvider()
   const spoolId = parseInt(data.id, 10)
   // Treat spool_id 0 / '0' / falsy as an empty slot: short-circuit before any
   // Spoolman lookup or match attempt so an unbound slot renders a clean Empty
@@ -175,47 +177,15 @@ function SlotRow({ n, data, onPopup, getHass, spools, borderBottom = true }) {
     if (isNaN(spoolId) || spoolId <= 0) return
     const filamentId = spools?.find(s => s.id === spoolId)?.filament?.id
     if (!filamentId) return
-    const hass = getHass ? getHass() : null
-    if (!hass) return
+    if (!provider) return
 
-    const requestId = Math.random().toString(36).slice(2)
-    let unsub = null
-    let timer = null
-    let done = false
-
-    const cleanup = () => {
-      if (timer) { clearTimeout(timer); timer = null }
-      if (unsub) { unsub(); unsub = null }
-    }
-
-    const run = async () => {
-      try {
-        unsub = await hass.connection.subscribeEvents((event) => {
-          const d = event.data || {}
-          if (d.request_id !== requestId || done) return
-          done = true
-          cleanup()
-          setProfileStatus(d.status || 'unverified')
-        }, 'filament_iq_profile_lookup_response')
-
-        hass.connection.sendMessage({
-          type: 'fire_event',
-          event_type: 'filament_iq_profile_lookup_request',
-          event_data: { request_id: requestId, filament_id: filamentId },
-        })
-
-        timer = setTimeout(() => {
-          if (done) return
-          done = true
-          cleanup()
-        }, 8000)
-      } catch (e) {
-        cleanup()
-      }
-    }
-
-    run()
-    return cleanup
+    let cancelled = false
+    provider.rpc('filament.profileLookup', { filament_id: filamentId })
+      .then((d) => {
+        if (!cancelled) setProfileStatus(d.status || 'unverified')
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
   }, [])
 
   return h('div', {
@@ -279,11 +249,12 @@ function SlotRow({ n, data, onPopup, getHass, spools, borderBottom = true }) {
 }
 
 // ── SlotsSegment — row layout ─────────────────────────────────
-function SlotsSegment({ getHass, onPopup, spools, printer_serial }) {
-  const hass = getHass()
+function SlotsSegment({ onPopup, spools, printer_serial }) {
+  const provider = useProvider()
   const [reconciling, setReconciling] = useState(false)
-  const sv = id => hass?.states?.[id]?.state ?? '—'
-  const sa = (id, attr) => hass?.states?.[id]?.attributes?.[attr]
+  const states = provider ? provider.getState().states : {}
+  const sv = id => states?.[id]?.state ?? '—'
+  const sa = (id, attr) => states?.[id]?.attributes?.[attr]
 
   const serial = String(printer_serial || DEFAULT_SERIAL).toLowerCase()
   const AMS_UNITS = amsUnits(serial)
@@ -325,8 +296,8 @@ function SlotsSegment({ getHass, onPopup, spools, printer_serial }) {
   const htUnits = AMS_UNITS.slice(1)
 
   const handleReconcile = () => {
-    if (!getHass()) return
-    getHass().callService('input_button', 'press', { entity_id: 'input_button.filament_iq_reconcile_now' })
+    if (!provider) return
+    provider.rpc('reconcile.now')
     setReconciling(true)
     setTimeout(() => setReconciling(false), 4000)
   }
@@ -351,7 +322,7 @@ function SlotsSegment({ getHass, onPopup, spools, printer_serial }) {
         )
       ),
       [1, 2, 3, 4].map((n, i) =>
-        h(SlotRow, { key: n, n, data: slotData(n), onPopup, getHass, spools, borderBottom: i < 3 })
+        h(SlotRow, { key: n, n, data: slotData(n), onPopup, spools, borderBottom: i < 3 })
       )
     ),
 
@@ -393,7 +364,7 @@ function SlotsSegment({ getHass, onPopup, spools, printer_serial }) {
               }
             }, `🔥 ${temp}°C · ${dryTimeStr} · 💧 ${hum}%`),
           ),
-          h(SlotRow, { n: unit.slots[0], data: slotData(unit.slots[0]), onPopup, getHass, spools, borderBottom: !isLast })
+          h(SlotRow, { n: unit.slots[0], data: slotData(unit.slots[0]), onPopup, spools, borderBottom: !isLast })
         )
       })
     ),
@@ -403,13 +374,14 @@ function SlotsSegment({ getHass, onPopup, spools, printer_serial }) {
       h('div', { style: { ...sectionHeaderStyle, justifyContent: 'flex-start' } },
         h('div', { style: sectionTitleStyle }, 'External')
       ),
-      h(SlotRow, { n: 8, data: slotData(8), onPopup, getHass, spools, borderBottom: false })
+      h(SlotRow, { n: 8, data: slotData(8), onPopup, spools, borderBottom: false })
     )
   )
 }
 
 // ── SpoolModal — bottom-sheet spool editor ───────────────────
-function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll }) {
+function SpoolModal({ spool, updateSpool, deleteSpool, onClose, onCloseAll }) {
+  const provider = useProvider()
   const [remaining, setRemaining] = useState(Math.round(spool.remaining_weight || 0))
   const [location, setLocation] = useState(spool.location || '')
   const [firstUsed, setFirstUsed] = useState(
@@ -426,83 +398,21 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
   const [profileLookedUp, setProfileLookedUp] = useState(false)
 
   useEffect(() => {
-    if (!showMore || profileLookedUp || !hass || !spool.filament?.id) return
+    if (!showMore || profileLookedUp || !provider || !spool.filament?.id) return
     setProfileLookedUp(true)
-    const requestId = Math.random().toString(36).slice(2)
-    let unsub = null
-    let timer = null
-    let done = false
-
-    const cleanup = () => {
-      if (timer) { clearTimeout(timer); timer = null }
-      if (unsub) { unsub(); unsub = null }
-    }
-
-    const run = async () => {
-      try {
-        unsub = await hass.connection.subscribeEvents((event) => {
-          const d = event.data || {}
-          if (d.request_id !== requestId || done) return
-          done = true
-          cleanup()
-          setProfileData(d)
-          setProfileStatus(d.status || 'unverified')
-        }, 'filament_iq_profile_lookup_response')
-
-        hass.connection.sendMessage({
-          type: 'fire_event',
-          event_type: 'filament_iq_profile_lookup_request',
-          event_data: { request_id: requestId, filament_id: spool.filament.id },
-        })
-        setProfileStatus('loading')
-
-        timer = setTimeout(() => {
-          if (done) return
-          done = true
-          cleanup()
-          setProfileStatus('error')
-        }, 20000)
-      } catch (e) {
-        cleanup()
-        setProfileStatus('error')
-      }
-    }
-
-    run()
-    return cleanup
+    setProfileStatus('loading')
+    let cancelled = false
+    provider.rpc('filament.profileLookup', { filament_id: spool.filament.id })
+      .then((d) => {
+        if (cancelled) return
+        setProfileData(d)
+        setProfileStatus(d.status || 'unverified')
+      })
+      .catch(() => {
+        if (!cancelled) setProfileStatus('error')
+      })
+    return () => { cancelled = true }
   }, [showMore])
-
-  useEffect(() => {
-    if (!printingNiimbotLabel || !hass) return
-    let unsub = null
-    const subscribe = async () => {
-      try {
-        unsub = await hass.connection.subscribeEvents((event) => {
-          const d = event.data || {}
-          if (d.spool_id !== spool.id) return
-          setPrintingNiimbotLabel(false)
-          if (d.success) {
-            setToast({ msg: 'Swatch label queued for printing', type: 'ok' })
-          } else {
-            setToast({ msg: `Swatch print failed: ${d.error || 'unknown error'}`, type: 'err' })
-          }
-          setTimeout(() => setToast(null), 5000)
-        }, 'filament_iq_niimbot_label_result')
-      } catch (e) {}
-    }
-    subscribe()
-    return () => { if (unsub) unsub() }
-  }, [hass, printingNiimbotLabel])
-
-  useEffect(() => {
-    if (!printingNiimbotLabel) return
-    const timer = setTimeout(() => {
-      setPrintingNiimbotLabel(false)
-      setToast({ msg: 'Swatch print timed out', type: 'err' })
-      setTimeout(() => setToast(null), 5000)
-    }, 15000)
-    return () => clearTimeout(timer)
-  }, [printingNiimbotLabel])
 
   const f = spool.filament || {}
   const vendor = f.vendor?.name || ''
@@ -530,12 +440,8 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
         ...(firstUsed ? { first_used: firstUsed } : {}),
       })
       const slot = LOCATION_TO_SLOT[location]
-      if (slot && hass) {
-        hass.connection.sendMessage({
-          type: 'fire_event',
-          event_type: 'FILAMENT_IQ_SLOT_ASSIGNED',
-          event_data: { slot, spool_id: spool.id },
-        })
+      if (slot && provider) {
+        provider.rpc('slot.assigned', { slot, spool_id: spool.id })
       }
       onClose()
     } finally {
@@ -549,30 +455,30 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
   }
 
   const handlePrintLabel = () => {
-    if (!hass) return
+    if (!provider) return
     setPrintingLabel(true)
     try {
-      hass.connection.sendMessage({
-        type: 'fire_event',
-        event_type: 'filament_iq_print_label',
-        event_data: { spool_id: spool.id },
-      })
+      provider.rpc('label.printFireAndForget', { spool_id: spool.id })
     } catch (_) {}
     setTimeout(() => setPrintingLabel(false), 15000)
   }
 
-  const handlePrintSwatchLabel = () => {
-    if (!hass) return
+  const handlePrintSwatchLabel = async () => {
+    if (!provider) return
     setPrintingNiimbotLabel(true)
     try {
-      hass.connection.sendMessage({
-        type: 'fire_event',
-        event_type: 'filament_iq_print_niimbot_label',
-        event_data: { spool_id: spool.id },
-      })
+      const d = await provider.rpc('label.printNiimbot', { spool_id: spool.id })
+      setPrintingNiimbotLabel(false)
+      if (d.success) {
+        setToast({ msg: 'Swatch label queued for printing', type: 'ok' })
+      } else {
+        setToast({ msg: `Swatch print failed: ${d.error || 'unknown error'}`, type: 'err' })
+      }
+      setTimeout(() => setToast(null), 5000)
     } catch (e) {
       setPrintingNiimbotLabel(false)
-      setToast({ msg: `Swatch print failed: ${e.message || e}`, type: 'err' })
+      const msg = e?.message?.endsWith('timed out') ? 'Swatch print timed out' : `Swatch print failed: ${e.message || e}`
+      setToast({ msg, type: 'err' })
       setTimeout(() => setToast(null), 5000)
     }
   }
@@ -845,8 +751,8 @@ function SpoolModal({ spool, hass, updateSpool, deleteSpool, onClose, onCloseAll
 }
 
 // ── SlotPopup ────────────────────────────────────────────────
-function SlotPopup({ popup, getHass, onClose, spools, updateSpool, deleteSpool, hass }) {
-  const hassInst = getHass()
+function SlotPopup({ popup, onClose, spools, updateSpool, deleteSpool }) {
+  const provider = useProvider()
   const [pendingOption, setPendingOption] = useState(null)
   const [spoolModal, setSpoolModal] = useState(false)
 
@@ -856,21 +762,15 @@ function SlotPopup({ popup, getHass, onClose, spools, updateSpool, deleteSpool, 
 
   const selectSpool = option => {
     setPendingOption(option)
-    getHass()?.callService('input_select', 'select_option', {
-      entity_id: popup.selectEntity,
-      option,
-    })
+    provider?.rpc('slot.selectSpool', { entity_id: popup.selectEntity, option })
   }
 
   const assignAndBind = () => {
-    getHass()?.callService('script', 'turn_on', {
-      entity_id: 'script.ams_slot_assign_and_update',
-      variables: { slot: String(popup.n) },
-    })
+    provider?.rpc('slot.assignAndBind', { slot: popup.n })
     onClose()
   }
 
-  const selectState = hassInst?.states?.[popup.selectEntity]
+  const selectState = provider ? provider.getState().states?.[popup.selectEntity] : null
   const allOptions = selectState?.attributes?.options || []
   const PLACEHOLDER = allOptions.find(o => o.startsWith('—') || o.startsWith('-')) || '— Select spool —'
   const options = allOptions.filter(o => o !== PLACEHOLDER)
@@ -952,7 +852,6 @@ function SlotPopup({ popup, getHass, onClose, spools, updateSpool, deleteSpool, 
     // SpoolModal renders above the slot popup sheet
     spoolModal && canEditSpool && h(SpoolModal, {
       spool,
-      hass,
       updateSpool,
       deleteSpool,
       onClose: () => setSpoolModal(false),
@@ -962,10 +861,10 @@ function SlotPopup({ popup, getHass, onClose, spools, updateSpool, deleteSpool, 
 }
 
 // ── Default export: wires SlotsSegment + SlotPopup ──────────
-export default function SlotsTab({ getHass, hass, spools, updateSpool, deleteSpool, printer_serial }) {
+export default function SlotsTab({ spools, updateSpool, deleteSpool, printer_serial }) {
   const [popup, setPopup] = useState(null)
   return h('div', { style: { position: 'relative' } },
-    h(SlotsSegment, { getHass, onPopup: setPopup, spools, printer_serial }),
-    popup && h(SlotPopup, { popup, getHass, onClose: () => setPopup(null), hass, spools, updateSpool, deleteSpool })
+    h(SlotsSegment, { onPopup: setPopup, spools, printer_serial }),
+    popup && h(SlotPopup, { popup, onClose: () => setPopup(null), spools, updateSpool, deleteSpool })
   )
 }

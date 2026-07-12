@@ -1,15 +1,16 @@
 import { useState, useCallback, useEffect, useRef } from 'preact/hooks'
+import { useProvider } from '../provider/context'
 
 let _db = null
 let _dbLoading = false
 let _dbCallbacks = []
 
-async function loadDB(client) {
+async function loadDB(provider) {
   if (_db) return _db
   if (_dbLoading) return new Promise(r => _dbCallbacks.push(r))
   _dbLoading = true
   try {
-    const data = await client.call('GET', '/api/v1/external/filament')
+    const data = await provider.rpc('filament.searchExternal')
     _db = Array.isArray(data) ? data : []
   } catch (e) {
     _db = []
@@ -45,7 +46,8 @@ function searchDB(db, query, limit = 30) {
   return results.slice(0, limit).map(r => r.item)
 }
 
-export function SpoolmanDBImport({ client, vendors, onImport, onCancel }) {
+export function SpoolmanDBImport({ vendors, onImport, onCancel }) {
+  const provider = useProvider()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [dbLoading, setDbLoading] = useState(false)
@@ -56,11 +58,11 @@ export function SpoolmanDBImport({ client, vendors, onImport, onCancel }) {
 
   useEffect(() => {
     setDbLoading(true)
-    loadDB(client).then(db => {
+    loadDB(provider).then(db => {
       dbRef.current = db
       setDbLoading(false)
     })
-  }, [client])
+  }, [provider])
 
   const handleQuery = useCallback((e) => {
     const q = e.target.value
@@ -98,7 +100,7 @@ export function SpoolmanDBImport({ client, vendors, onImport, onCancel }) {
       if (vendorId) {
         payload.vendor_id = Number(vendorId)
       } else if (selected.manufacturer) {
-        const newVendor = await client.call('POST', '/api/v1/vendor', {
+        const newVendor = await provider.rpc('vendor.create', {
           name: selected.manufacturer,
         })
         if (newVendor?.id) payload.vendor_id = newVendor.id
