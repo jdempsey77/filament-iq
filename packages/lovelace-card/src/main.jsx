@@ -9,6 +9,7 @@
 
 import { render, h } from 'preact'
 import { FilamentIQCard } from './FilamentIQCard'
+import { HassProvider } from './provider/HassProvider'
 import cardCSS from './styles/card.css?inline'
 
 // Printer serial comes from card config (`printer_serial`). This default is
@@ -29,6 +30,7 @@ class FilamentIQManagerElement extends HTMLElement {
     this._rendered = false
     this._navIntent = null
     this._dryingUnsub = null
+    this._provider = new HassProvider(() => this._hass)
   }
 
   setConfig(config) {
@@ -47,7 +49,7 @@ class FilamentIQManagerElement extends HTMLElement {
       const self = this
       const rawIntent = hass?.states?.['input_text.filament_iq_nav_intent']?.state || ''
       this._navIntent = rawIntent && rawIntent !== '—' ? rawIntent : null
-      render(h(FilamentIQCard, { hass, getHass: () => self._hass, navIntent: self._navIntent, config: self._config, printer_serial: self._serial() }), this)
+      render(h(FilamentIQCard, { provider: self._provider, navIntent: self._navIntent, config: self._config, printer_serial: self._serial() }), this)
       this._subscribeDrying(hass)
     }
   }
@@ -58,7 +60,7 @@ class FilamentIQManagerElement extends HTMLElement {
     const dryingEntities = htDryingEntities(self._serial())
     hass.connection.subscribeEvents((event) => {
       if (dryingEntities.includes(event.data?.entity_id) && self._rendered) {
-        render(h(FilamentIQCard, { hass: self._hass, getHass: () => self._hass, navIntent: self._navIntent, config: self._config, printer_serial: self._serial() }), self)
+        render(h(FilamentIQCard, { provider: self._provider, navIntent: self._navIntent, config: self._config, printer_serial: self._serial() }), self)
       }
     }, 'state_changed').then(unsub => {
       self._dryingUnsub = unsub

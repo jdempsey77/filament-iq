@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'preact/hooks'
-import { ProxyClient } from './api/proxy'
+import { useState } from 'preact/hooks'
+import { ProviderContext } from './provider/context'
 import { useSpoolman } from './hooks/useSpoolman'
 import { TabBar } from './components/TabBar'
 import { SpoolsTab } from './components/SpoolsTab'
@@ -12,7 +12,7 @@ import SlotsTab from './components/SlotsTab'
 // FIQ tab). Normal use supplies printer_serial via card config → main.jsx.
 const DEFAULT_SERIAL = '01p00c5b2201397'
 
-export function FilamentIQCard({ hass, getHass, navIntent, config, printer_serial }) {
+export function FilamentIQCard({ provider, navIntent, config, printer_serial }) {
   const serial = String(printer_serial || config?.printer_serial || DEFAULT_SERIAL).toLowerCase()
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('filamentiq_tab') || config?.initial_tab || 'slots')
   const handleTabChange = (tab) => {
@@ -20,14 +20,9 @@ export function FilamentIQCard({ hass, getHass, navIntent, config, printer_seria
     setActiveTab(tab)
   }
 
-  const client = useMemo(() => {
-    if (!hass) return null
-    return new ProxyClient(getHass || (() => hass))
-  }, [])
+  const data = useSpoolman(provider)
 
-  const data = useSpoolman(client)
-
-  if (!hass || !client) {
+  if (!provider) {
     return <div class="fiq-card"><div class="fiq-loading">Connecting to Home Assistant...</div></div>
   }
 
@@ -36,23 +31,25 @@ export function FilamentIQCard({ hass, getHass, navIntent, config, printer_seria
   }
 
   return (
-    <div class="fiq-card">
-      <div class="fiq-topbar">
-        <span class="fiq-title">
-          <span class="fiq-dot" />
-          <FilamentIQLogo height={28} showWordmark={true} />
-        </span>
-        <button class="fiq-btn-refresh" onClick={() => data.refresh()} title="Reload from Spoolman">↺</button>
+    <ProviderContext.Provider value={provider}>
+      <div class="fiq-card">
+        <div class="fiq-topbar">
+          <span class="fiq-title">
+            <span class="fiq-dot" />
+            <FilamentIQLogo height={28} showWordmark={true} />
+          </span>
+          <button class="fiq-btn-refresh" onClick={() => data.refresh()} title="Reload from Spoolman">↺</button>
+        </div>
+        <div class="fiq-subnav">
+          <TabBar active={activeTab} onChange={handleTabChange} />
+        </div>
+        <div class="fiq-body">
+          {activeTab === 'spools'    && <SpoolsTab    {...data} navIntent={navIntent} />}
+          {activeTab === 'filaments' && <FilamentsTab {...data} />}
+          {activeTab === 'vendors'   && <VendorsTab   {...data} />}
+          {activeTab === 'slots'     && <SlotsTab     spools={data.spools} updateSpool={data.updateSpool} deleteSpool={data.deleteSpool} printer_serial={serial} />}
+        </div>
       </div>
-      <div class="fiq-subnav">
-        <TabBar active={activeTab} onChange={handleTabChange} />
-      </div>
-      <div class="fiq-body">
-        {activeTab === 'spools'    && <SpoolsTab    {...data} hass={hass} getHass={getHass} navIntent={navIntent} />}
-        {activeTab === 'filaments' && <FilamentsTab {...data} client={client} hass={hass} />}
-        {activeTab === 'vendors'   && <VendorsTab   {...data} />}
-        {activeTab === 'slots'     && <SlotsTab     getHass={getHass} hass={hass} spools={data.spools} updateSpool={data.updateSpool} deleteSpool={data.deleteSpool} printer_serial={serial} />}
-      </div>
-    </div>
+    </ProviderContext.Provider>
   )
 }

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'preact/hooks'
 import { ConfirmDialog } from './ConfirmDialog'
 import { SpoolmanDBImport } from './SpoolmanDBImport'
+import { useProvider } from '../provider/context'
 
 function ColorDot({ hex, multiColorHexes }) {
   const colors = multiColorHexes ? multiColorHexes.split(',').map(h => `#${h.trim().replace('#','')}`) : null
@@ -25,7 +26,8 @@ function MatBadge({ material }) {
   return <span class={`fiq-mat-badge ${cls}`}>{material || '—'}</span>
 }
 
-function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass, initialProfileStatus, onProfileStatusChange }) {
+function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, initialProfileStatus, onProfileStatusChange }) {
+  const provider = useProvider()
   const [name, setName] = useState(filament.name || '')
   const [material, setMaterial] = useState(filament.material || '')
   const multiColorHexes = filament.multi_color_hexes || null
@@ -56,92 +58,34 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
   }
 
   useEffect(() => {
-    if (!hass) return
-    const requestId = Math.random().toString(36).slice(2)
-    let unsub = null
-    let timer = null
-    let done = false
-
-    const cleanup = () => {
-      if (timer) { clearTimeout(timer); timer = null }
-      if (unsub) { unsub(); unsub = null }
+    if (!provider) return
+    let cancelled = false
+    if (!initialProfileStatus || initialProfileStatus === 'idle') {
+      setProfileStatus('loading')
     }
-
-    const run = async () => {
-      try {
-        unsub = await hass.connection.subscribeEvents((event) => {
-          const d = event.data || {}
-          if (d.request_id !== requestId || done) return
-          done = true
-          cleanup()
-          setProfileData(d)
-          setProfileStatus(d.status || (d.matched ? 'candidate' : 'unverified'))
-        }, 'filament_iq_profile_lookup_response')
-
-        hass.connection.sendMessage({
-          type: 'fire_event',
-          event_type: 'filament_iq_profile_lookup_request',
-          event_data: { request_id: requestId, filament_id: filament.id },
-        })
-        if (!initialProfileStatus || initialProfileStatus === 'idle') {
-          setProfileStatus('loading')
-        }
-
-        timer = setTimeout(() => {
-          if (done) return
-          done = true
-          cleanup()
-          setProfileStatus('error')
-        }, 10000)
-      } catch (e) {
-        cleanup()
-        setProfileStatus('error')
-      }
-    }
-
-    run()
-    return cleanup
+    provider.rpc('filament.profileLookup', { filament_id: filament.id })
+      .then((d) => {
+        if (cancelled) return
+        setProfileData(d)
+        setProfileStatus(d.status || (d.matched ? 'candidate' : 'unverified'))
+      })
+      .catch(() => {
+        if (!cancelled) setProfileStatus('error')
+      })
+    return () => { cancelled = true }
   }, [])
 
   const sendVerify = async (eventData, onResult) => {
-    let unsub = null
-    let timer = null
-    let done = false
-
-    const cleanup = () => {
-      if (timer) { clearTimeout(timer); timer = null }
-      if (unsub) { unsub(); unsub = null }
-    }
-
     try {
-      unsub = await hass.connection.subscribeEvents((event) => {
-        const d = event.data || {}
-        if (d.filament_id !== filament.id || done) return
-        done = true
-        cleanup()
-        onResult(d, null)
-      }, 'filament_iq_profile_verify_result')
-
-      hass.connection.sendMessage({
-        type: 'fire_event',
-        event_type: 'filament_iq_profile_verify',
-        event_data: eventData,
-      })
-
-      timer = setTimeout(() => {
-        if (done) return
-        done = true
-        cleanup()
-        onResult(null, 'timeout')
-      }, 10000)
+      const result = await provider.rpc('filament.profileVerify', eventData)
+      onResult(result, null)
     } catch (e) {
-      cleanup()
       onResult(null, e.message || 'error')
     }
   }
 
   const handleConfirm = async () => {
-    if (!hass || profileAction) return
+    if (!provider || profileAction) return
     setProfileAction('confirming')
     await sendVerify(
       {
@@ -165,7 +109,7 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
   }
 
   const handleReject = async () => {
-    if (!hass) return
+    if (!provider) return
     setProfileAction('rejecting')
     await sendVerify(
       { filament_id: filament.id, action: 'reject' },
@@ -179,7 +123,7 @@ function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, hass
   }
 
   const handleNoMatch = async () => {
-    if (!hass || profileAction) return
+    if (!provider || profileAction) return
     setProfileAction('rejecting')
     await sendVerify(
       { filament_id: filament.id, action: 'no_match' },
@@ -526,7 +470,8 @@ function FilamentAddRow({ vendors, onCreate, onCancel }) {
   )
 }
 
-export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilament, createFilament, client, hass }) {
+export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilament, createFilament }) {
+  const provider = useProvider()
   const [search, setSearch] = useState('')
   const [vendorFilter, setVendorFilter] = useState('')
   const [materialFilter, setMaterialFilter] = useState('')
@@ -537,26 +482,14 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
   const [profileStatuses, setProfileStatuses] = useState({})
 
   useEffect(() => {
-    if (!hass) return
-    const reqId = Math.random().toString(36).slice(2)
-    let unsub = null
-    const run = async () => {
-      try {
-        unsub = await hass.connection.subscribeEvents((event) => {
-          const d = event.data || {}
-          if (d.request_id !== reqId) return
-          unsub && unsub()
-          setProfileStatuses(d.statuses || {})
-        }, 'filament_iq_profile_bulk_status_response')
-        hass.connection.sendMessage({
-          type: 'fire_event',
-          event_type: 'filament_iq_profile_bulk_status_request',
-          event_data: { request_id: reqId },
-        })
-      } catch (_) {}
-    }
-    run()
-    return () => { unsub && unsub() }
+    if (!provider) return
+    let cancelled = false
+    provider.rpc('filament.profileBulkStatus')
+      .then((statuses) => {
+        if (!cancelled) setProfileStatuses(statuses)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
   }, [])
 
   const allVendors = useMemo(() => {
@@ -613,7 +546,6 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
 
       {showImport && (
         <SpoolmanDBImport
-          client={client}
           vendors={vendors || []}
           onImport={async (payload) => {
             await createFilament(payload)
@@ -665,7 +597,6 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
                 <FilamentEditPanel
                   filament={fil}
                   vendors={vendors}
-                  hass={hass}
                   onSave={(id, patch) => updateFilament(id, patch).then(() => setEditId(null))}
                   onCancel={() => setEditId(null)}
                   onDelete={(id) => deleteFilament(id).then(() => setEditId(null))}

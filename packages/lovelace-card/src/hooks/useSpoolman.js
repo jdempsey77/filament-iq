@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'preact/hooks'
 
-export function useSpoolman(client) {
+export function useSpoolman(provider) {
   const [spools, setSpools] = useState(null)
   const [filaments, setFilaments] = useState(null)
   const [vendors, setVendors] = useState(null)
@@ -8,14 +8,14 @@ export function useSpoolman(client) {
   const [error, setError] = useState(null)
 
   const refresh = useCallback(async () => {
-    if (!client) return
+    if (!provider) return
     setLoading(true)
     setError(null)
     try {
       const [s, f, v] = await Promise.all([
-        client.call('GET', '/api/v1/spool'),
-        client.call('GET', '/api/v1/filament'),
-        client.call('GET', '/api/v1/vendor'),
+        provider.rpc('spool.list'),
+        provider.rpc('filament.list'),
+        provider.rpc('vendor.list'),
       ])
       setSpools(Array.isArray(s) ? s : [])
       setFilaments(Array.isArray(f) ? f : [])
@@ -25,57 +25,57 @@ export function useSpoolman(client) {
     } finally {
       setLoading(false)
     }
-  }, [client])
+  }, [provider])
 
   useEffect(() => {
-    if (client) refresh()
-  }, [client])
+    if (provider) refresh()
+  }, [provider])
 
   const createSpool = useCallback(async (data) => {
-    const result = await client?.call('POST', '/api/v1/spool', data)
+    const result = await provider?.rpc('spool.create', data)
     await refresh()
     return result
-  }, [client, refresh])
+  }, [provider, refresh])
 
   const updateSpool = useCallback(async (id, data) => {
-    await client?.call('PATCH', `/api/v1/spool/${id}`, data)
+    await provider?.rpc('spool.update', { id, data })
     await refresh()
-  }, [client, refresh])
+  }, [provider, refresh])
 
   const deleteSpool = useCallback(async (id) => {
-    await client?.call('DELETE', `/api/v1/spool/${id}`)
+    await provider?.rpc('spool.delete', { id })
     await refresh()
-  }, [client, refresh])
+  }, [provider, refresh])
 
   const createFilament = useCallback(async (data) => {
-    await client?.call('POST', '/api/v1/filament', data)
+    await provider?.rpc('filament.create', data)
     await refresh()
-  }, [client, refresh])
+  }, [provider, refresh])
 
   const updateFilament = useCallback(async (id, data) => {
-    await client?.call('PATCH', `/api/v1/filament/${id}`, data)
+    await provider?.rpc('filament.update', { id, data })
     await refresh()
-  }, [client, refresh])
+  }, [provider, refresh])
 
   const deleteFilament = useCallback(async (id) => {
-    await client?.call('DELETE', `/api/v1/filament/${id}`)
+    await provider?.rpc('filament.delete', { id })
     await refresh()
-  }, [client, refresh])
+  }, [provider, refresh])
 
   const createVendor = useCallback(async (data) => {
-    await client?.call('POST', '/api/v1/vendor', data)
+    await provider?.rpc('vendor.create', data)
     await refresh()
-  }, [client, refresh])
+  }, [provider, refresh])
 
   const updateVendor = useCallback(async (id, data) => {
-    await client?.call('PATCH', `/api/v1/vendor/${id}`, data)
+    await provider?.rpc('vendor.update', { id, data })
     await refresh()
-  }, [client, refresh])
+  }, [provider, refresh])
 
   const deleteVendor = useCallback(async (id) => {
-    await client?.call('DELETE', `/api/v1/vendor/${id}`)
+    await provider?.rpc('vendor.delete', { id })
     await refresh()
-  }, [client, refresh])
+  }, [provider, refresh])
 
   return {
     spools, filaments, vendors,
