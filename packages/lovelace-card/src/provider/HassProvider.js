@@ -57,29 +57,151 @@ function fireEvent(getHass, eventType, eventData) {
   hass.connection.sendMessage({ type: 'fire_event', event_type: eventType, event_data: eventData })
 }
 
+// Printer serial comes from card config, fed in by main.jsx via getSerial.
+// This default is only a fallback when config omits it.
+const DEFAULT_SERIAL = '01p00c5b2201397'
+
+// Slot -> AMS unit identity, and the ams_index/tray_index pair HA reports on
+// sensor.p1s_<serial>_active_tray when that slot is the one loaded in the
+// printer. Canonical mapping documented in d5-automation/ecosystem.yaml.
+// Duplicated here rather than sourced at runtime — this is a static browser
+// bundle with no build-time YAML read — but centralized to this ONE copy
+// (PrinterDashboardCard.jsx keeps its own, out of scope for this session).
+// Slot 8 (external) is given a sentinel ams/tray pair that active_tray can
+// never report, since the external port can't be "active" via AMS tracking.
+const SLOT_UNIT = {
+  1: { unit: 'AMS 2 Pro', ams: 0,   tray: 0 },
+  2: { unit: 'AMS 2 Pro', ams: 0,   tray: 1 },
+  3: { unit: 'AMS 2 Pro', ams: 0,   tray: 2 },
+  4: { unit: 'AMS 2 Pro', ams: 0,   tray: 3 },
+  5: { unit: 'HT1',       ams: 128, tray: 0 },
+  6: { unit: 'HT2',       ams: 129, tray: 0 },
+  7: { unit: 'HT3',       ams: 130, tray: 0 },
+  8: { unit: 'external',  ams: 255, tray: 0 },
+}
+
+// AMS 2 Pro has no drying capability/entities — dryEntity/dryTimeEntity are
+// intentionally omitted for it (nothing reads them today).
+const amsUnitEntities = (serial) => ({
+  'AMS 2 Pro': {
+    humEntity:  `sensor.p1s_${serial}_ams_1_humidity`,
+    tempEntity: `sensor.p1s_${serial}_ams_1_temperature`,
+  },
+  'HT1': {
+    humEntity:     `sensor.p1s_${serial}_ams_128_humidity`,
+    tempEntity:    `sensor.p1s_${serial}_ams_128_temperature`,
+    dryEntity:     `binary_sensor.p1s_${serial}_ams_128_drying`,
+    dryTimeEntity: `sensor.p1s_${serial}_ams_128_remaining_drying_time`,
+  },
+  'HT2': {
+    humEntity:     `sensor.p1s_${serial}_ams_129_humidity`,
+    tempEntity:    `sensor.p1s_${serial}_ams_129_temperature`,
+    dryEntity:     `binary_sensor.p1s_${serial}_ams_129_drying`,
+    dryTimeEntity: `sensor.p1s_${serial}_ams_129_remaining_drying_time`,
+  },
+  'HT3': {
+    humEntity:     `sensor.p1s_${serial}_ams_130_humidity`,
+    tempEntity:    `sensor.p1s_${serial}_ams_130_temperature`,
+    dryEntity:     `binary_sensor.p1s_${serial}_ams_130_drying`,
+    dryTimeEntity: `sensor.p1s_${serial}_ams_130_remaining_drying_time`,
+  },
+})
+
+const UNAVAILABLE = new Set(['unavailable', 'unknown', undefined, null, ''])
+
+function sv(states, id) {
+  return states?.[id]?.state
+}
+function sa(states, id, attr) {
+  return states?.[id]?.attributes?.[attr]
+}
+// Raw HA state, normalized to '' when the entity is missing/unavailable/unknown.
+function textField(states, id) {
+  const v = sv(states, id)
+  return UNAVAILABLE.has(v) ? '' : v
+}
+
 /**
  * HassProvider — the one place filament-iq's shared components are allowed
  * to know Home Assistant exists. getState()/subscribe()/rpc() are the only
  * surface; everything below (proxy.js's request/response correlation,
- * hass.callService, hass.connection.sendMessage) is an implementation detail.
+ * hass.callService, hass.connection.sendMessage, entity ids, HA's
+ * unavailable/unknown sentinel strings) is an implementation detail.
  */
 export class HassProvider {
-  constructor(getHass) {
+  constructor(getHass, getSerial) {
     this._getHass = typeof getHass === 'function' ? getHass : () => getHass
+    this._getSerial = typeof getSerial === 'function' ? getSerial : () => getSerial
     this._proxy = new ProxyClient(this._getHass)
   }
 
-  // Snapshot of every HA entity the cards read. A curated/named shape isn't
-  // practical here — slot/AMS/printer entity ids are built dynamically from
-  // printer_serial and slot number across ~30+ ids — so this mirrors
-  // hass.states directly and callers keep using states[entityId].
+  // Domain snapshot — slots, AMS-unit environment (humidity/temp/drying), and
+  // printer status. No entity ids or HA attribute paths leak out; the
+  // active-tray -> slot cross-reference and every "unavailable"/"unknown"
+  // sentinel check happen once, here.
   getState() {
     const hass = this._getHass()
-    return { states: hass?.states || {} }
+    const states = hass?.states || {}
+    const serial = String(this._getSerial() || DEFAULT_SERIAL).toLowerCase()
+
+    const isPrinting = sv(states, `sensor.p1s_${serial}_current_stage`) === 'printing'
+    const activeAms  = sa(states, `sensor.p1s_${serial}_active_tray`, 'ams_index')
+    const activeTray = sa(states, `sensor.p1s_${serial}_active_tray`, 'tray_index')
+
+    const slots = Object.keys(SLOT_UNIT).map(Number).sort((a, b) => a - b).map((index) => {
+      const { unit, ams, tray } = SLOT_UNIT[index]
+      const hex = sv(states, `sensor.ams_slot_${index}_color_hex`)
+      const colorHex = !UNAVAILABLE.has(hex) ? `#${hex}` : '#555'
+
+      const selectState = states?.[`input_select.ams_slot_${index}_select_spool`]
+      const allOptions = selectState?.attributes?.options || []
+      const placeholder = allOptions.find(o => o.startsWith('—') || o.startsWith('-'))
+      const spoolOptions = allOptions.filter(o => o !== placeholder)
+      const rawSelected = selectState?.state
+      const selectedOption = (!rawSelected || rawSelected === placeholder || UNAVAILABLE.has(rawSelected))
+        ? null
+        : rawSelected
+
+      return {
+        index,
+        unit,
+        status: sv(states, `sensor.ams_slot_${index}_status`) || 'empty',
+        unboundReason: textField(states, `input_text.ams_slot_${index}_unbound_reason`),
+        colorHex,
+        vendor: textField(states, `sensor.ams_slot_${index}_vendor`),
+        material: textField(states, `sensor.ams_slot_${index}_material`),
+        filamentName: textField(states, `sensor.ams_slot_${index}_name`),
+        spoolId: textField(states, `input_text.ams_slot_${index}_spool_id`),
+        remainingG: Number(sv(states, `sensor.ams_slot_${index}_remaining_g`)) || 0,
+        ranOut: sv(states, `input_boolean.ams_slot_${index}_ran_out`) === 'on',
+        isActive: isPrinting && activeAms === ams && activeTray === tray,
+        spoolOptions,
+        selectedOption,
+      }
+    })
+
+    const unitEntities = amsUnitEntities(serial)
+    const amsUnits = Object.keys(unitEntities).map((name) => {
+      const e = unitEntities[name]
+      const humidity = sv(states, e.humEntity)
+      const connected = !UNAVAILABLE.has(humidity)
+      const unit = {
+        name,
+        connected,
+        humidity: connected ? humidity : null,
+        temperature: connected ? sv(states, e.tempEntity) : null,
+      }
+      if (e.dryEntity) {
+        unit.drying = sv(states, e.dryEntity) === 'on'
+        unit.dryingRemainingMin = Math.round((parseFloat(sv(states, e.dryTimeEntity)) || 0) * 60)
+      }
+      return unit
+    })
+
+    return { slots, amsUnits, printer: { isPrinting } }
   }
 
-  // Live entity updates. Returns an unsubscribe fn. Callers filter for the
-  // entities they care about, same as before.
+  // Live entity updates. Returns an unsubscribe fn.
   subscribe(cb) {
     const hass = this._getHass()
     if (!hass?.connection) return () => {}
@@ -101,26 +223,20 @@ export class HassProvider {
   rpc(name, payload = {}) {
     switch (name) {
       // ── Spoolman CRUD (filament_iq_proxy passthrough) ──────────
-      case 'spool.list':     return this._proxy.call('GET', '/api/v1/spool')
-      case 'spool.create':   return this._proxy.call('POST', '/api/v1/spool', payload)
-      case 'spool.update':   return this._proxy.call('PATCH', `/api/v1/spool/${payload.id}`, payload.data)
-      case 'spool.delete':   return this._proxy.call('DELETE', `/api/v1/spool/${payload.id}`)
+      // spool/filament/vendor all hit the identical proxy shape — one
+      // type-parameterized verb instead of 12 hand-named ones.
+      case 'entity.list':   return this._proxy.call('GET', `/api/v1/${payload.type}`)
+      case 'entity.create': return this._proxy.call('POST', `/api/v1/${payload.type}`, payload.data)
+      case 'entity.update': return this._proxy.call('PATCH', `/api/v1/${payload.type}/${payload.id}`, payload.data)
+      case 'entity.delete': return this._proxy.call('DELETE', `/api/v1/${payload.type}/${payload.id}`)
 
-      case 'filament.list':   return this._proxy.call('GET', '/api/v1/filament')
-      case 'filament.create': return this._proxy.call('POST', '/api/v1/filament', payload)
-      case 'filament.update': return this._proxy.call('PATCH', `/api/v1/filament/${payload.id}`, payload.data)
-      case 'filament.delete': return this._proxy.call('DELETE', `/api/v1/filament/${payload.id}`)
+      // Distinct data source (bundled SpoolmanDB catalog), no CRUD siblings.
       case 'filament.searchExternal': return this._proxy.call('GET', '/api/v1/external/filament')
-
-      case 'vendor.list':   return this._proxy.call('GET', '/api/v1/vendor')
-      case 'vendor.create': return this._proxy.call('POST', '/api/v1/vendor', payload)
-      case 'vendor.update': return this._proxy.call('PATCH', `/api/v1/vendor/${payload.id}`, payload.data)
-      case 'vendor.delete': return this._proxy.call('DELETE', `/api/v1/vendor/${payload.id}`)
 
       // ── HA service calls ────────────────────────────────────────
       case 'slot.selectSpool':
         return this._getHass()?.callService('input_select', 'select_option', {
-          entity_id: payload.entity_id,
+          entity_id: `input_select.ams_slot_${payload.index}_select_spool`,
           option: payload.option,
         })
 
@@ -135,19 +251,7 @@ export class HassProvider {
           entity_id: 'input_button.filament_iq_reconcile_now',
         })
 
-      case 'navIntent.clear': {
-        const hass = this._getHass()
-        if (!hass?.connection) return Promise.resolve()
-        hass.connection.sendMessage({
-          type: 'call_service',
-          domain: 'input_text',
-          service: 'set_value',
-          service_data: { entity_id: 'input_text.filament_iq_nav_intent', value: '' },
-        })
-        return Promise.resolve()
-      }
-
-      // ── Fire events (hardware-actuating: label.*, slot.assigned) ──
+      // ── Fire events, request/response, correlated + timed out here ──
       case 'filament.profileLookup': {
         const requestId = generateId()
         return fireAndAwait(this._getHass, {
@@ -182,7 +286,15 @@ export class HassProvider {
         }).then((d) => d.statuses || {})
       }
 
-      case 'label.print':
+      // HARDWARE (label printer). awaitResponse defaults true; pass
+      // awaitResponse:false for the fire-and-forget shape (e.g. bulk
+      // spool-creation loops) — same event, same payload, caller just
+      // chooses whether to wait on the result.
+      case 'label.print': {
+        if (payload.awaitResponse === false) {
+          fireEvent(this._getHass, 'filament_iq_print_label', { spool_id: payload.spool_id })
+          return Promise.resolve()
+        }
         return fireAndAwait(this._getHass, {
           requestType: 'filament_iq_print_label',
           eventData: { spool_id: payload.spool_id },
@@ -191,7 +303,9 @@ export class HassProvider {
           matchValue: payload.spool_id,
           timeoutMs: 15000,
         })
+      }
 
+      // HARDWARE (Niimbot label printer).
       case 'label.printNiimbot':
         return fireAndAwait(this._getHass, {
           requestType: 'filament_iq_print_niimbot_label',
@@ -202,11 +316,8 @@ export class HassProvider {
           timeoutMs: 15000,
         })
 
-      // fire-and-forget: no response event exists for this one
-      case 'label.printFireAndForget':
-        fireEvent(this._getHass, 'filament_iq_print_label', { spool_id: payload.spool_id })
-        return Promise.resolve()
-
+      // HARDWARE (AppDaemon reconcile bookkeeping) — fire-and-forget, no
+      // response event exists for this one.
       case 'slot.assigned':
         fireEvent(this._getHass, 'FILAMENT_IQ_SLOT_ASSIGNED', { slot: payload.slot, spool_id: payload.spool_id })
         return Promise.resolve()

@@ -214,7 +214,7 @@ export function SpoolEditPanel({ spool, onSave, onCancel, onDelete, onPrintLabel
         location,
         ...(firstUsed ? { first_used: firstUsed } : {}),
       })
-      // Fire FILAMENT_IQ_SLOT_ASSIGNED so AppDaemon writes input_text.ams_slot_N_spool_id
+      // Fire slot.assigned so AppDaemon updates the slot's bound spool id
       const slot = LOCATION_TO_SLOT[location]
       if (slot && provider) {
         provider.rpc('slot.assigned', { slot, spool_id: spool.id })
@@ -383,7 +383,7 @@ function SpoolAddRow({ filaments, onCreate, onCancel }) {
       if (printLabel && provider && created.length > 0) {
         for (const spool of created) {
           try {
-            provider.rpc('label.printFireAndForget', { spool_id: spool.id })
+            provider.rpc('label.print', { spool_id: spool.id, awaitResponse: false })
           } catch (e) {
             // Non-fatal — spool was created successfully
           }
@@ -470,7 +470,7 @@ function SpoolAddRow({ filaments, onCreate, onCancel }) {
   )
 }
 
-export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createSpool, refresh, navIntent }) {
+export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createSpool, refresh, navIntent, onNavIntentConsumed }) {
   const provider = useProvider()
   const [search, setSearch] = useState('')
   const [vendorFilter, setVendorFilter] = useState('')
@@ -485,7 +485,7 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
     const parsed = parseNavIntent(navIntent)
     if (parsed?.type === 'spool') {
       try {
-        provider?.rpc('navIntent.clear')
+        onNavIntentConsumed?.()
       } catch (_) { /* non-fatal — entity may not exist on this install */ }
       setEditId(parsed.id)
     }
@@ -714,7 +714,7 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
           onBind={async (spoolId, location) => {
             await updateSpool(spoolId, { location })
             // Mirror SpoolEditPanel: fire FILAMENT_IQ_SLOT_ASSIGNED so AppDaemon
-            // updates input_text.ams_slot_N_spool_id immediately.
+            // updates the slot's bound spool id immediately.
             const slot = LOCATION_TO_SLOT[location]
             if (slot && provider) {
               provider.rpc('slot.assigned', { slot, spool_id: spoolId })
