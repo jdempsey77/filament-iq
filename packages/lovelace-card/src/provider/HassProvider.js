@@ -107,6 +107,38 @@ const amsUnitEntities = (serial) => ({
   },
 })
 
+// Entities that feed the domain snapshot for a given serial. subscribe()
+// filters state_changed events against this set BEFORE calling getState() —
+// on a busy HA instance (thousands of unrelated entities), rebuilding the
+// snapshot on every irrelevant event would be wasteful. Mirrors
+// filament-iq-ops's ha_client.py _watched_entity_ids() exactly — the two
+// providers must stay in lockstep here.
+function watchedEntityIds(serial) {
+  const ids = new Set([
+    `sensor.p1s_${serial}_current_stage`,
+    `sensor.p1s_${serial}_active_tray`,
+  ])
+  for (const index of Object.keys(SLOT_UNIT)) {
+    ids.add(`sensor.ams_slot_${index}_status`)
+    ids.add(`input_text.ams_slot_${index}_unbound_reason`)
+    ids.add(`sensor.ams_slot_${index}_color_hex`)
+    ids.add(`sensor.ams_slot_${index}_vendor`)
+    ids.add(`sensor.ams_slot_${index}_material`)
+    ids.add(`sensor.ams_slot_${index}_name`)
+    ids.add(`input_text.ams_slot_${index}_spool_id`)
+    ids.add(`sensor.ams_slot_${index}_remaining_g`)
+    ids.add(`input_boolean.ams_slot_${index}_ran_out`)
+    ids.add(`input_select.ams_slot_${index}_select_spool`)
+  }
+  for (const e of Object.values(amsUnitEntities(serial))) {
+    ids.add(e.humEntity)
+    ids.add(e.tempEntity)
+    if (e.dryEntity) ids.add(e.dryEntity)
+    if (e.dryTimeEntity) ids.add(e.dryTimeEntity)
+  }
+  return ids
+}
+
 const UNAVAILABLE = new Set(['unavailable', 'unknown', undefined, null, ''])
 
 function sv(states, id) {
@@ -201,14 +233,24 @@ export class HassProvider {
     return { slots, amsUnits, printer: { isPrinting } }
   }
 
-  // Live entity updates. Returns an unsubscribe fn.
+  // Live updates. Fires cb(freshDomainSnapshot) — never a raw HA event —
+  // whenever a watched entity changes; irrelevant state_changed events
+  // (the vast majority on a busy HA instance) are filtered out before
+  // getState() is ever called. Returns an unsubscribe fn.
   subscribe(cb) {
     const hass = this._getHass()
     if (!hass?.connection) return () => {}
+    const serial = String(this._getSerial() || DEFAULT_SERIAL).toLowerCase()
+    const watched = watchedEntityIds(serial)
     let unsub = null
     let cancelled = false
     hass.connection
-      .subscribeEvents((event) => cb(event), 'state_changed')
+      .subscribeEvents((event) => {
+        const entityId = event?.data?.entity_id
+        if (entityId && watched.has(entityId)) {
+          cb(this.getState())
+        }
+      }, 'state_changed')
       .then((u) => {
         if (cancelled) { u(); return }
         unsub = u

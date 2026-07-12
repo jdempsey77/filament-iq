@@ -16,12 +16,6 @@ import cardCSS from './styles/card.css?inline'
 // only a fallback when config omits it (e.g. card embedded with empty config).
 const DEFAULT_SERIAL = '01p00c5b2201397'
 
-const htDryingEntities = (serial) => [
-  `binary_sensor.p1s_${serial}_ams_128_drying`,
-  `binary_sensor.p1s_${serial}_ams_129_drying`,
-  `binary_sensor.p1s_${serial}_ams_130_drying`,
-]
-
 class FilamentIQManagerElement extends HTMLElement {
   constructor() {
     super()
@@ -29,7 +23,6 @@ class FilamentIQManagerElement extends HTMLElement {
     this._config = {}
     this._rendered = false
     this._navIntent = null
-    this._dryingUnsub = null
     this._provider = new HassProvider(() => this._hass, () => this._serial())
   }
 
@@ -50,7 +43,6 @@ class FilamentIQManagerElement extends HTMLElement {
       const rawIntent = hass?.states?.['input_text.filament_iq_nav_intent']?.state || ''
       this._navIntent = rawIntent && rawIntent !== '—' ? rawIntent : null
       render(h(FilamentIQCard, { provider: self._provider, navIntent: self._navIntent, onNavIntentConsumed: () => self._clearNavIntent(), config: self._config }), this)
-      this._subscribeDrying(hass)
     }
   }
 
@@ -62,26 +54,6 @@ class FilamentIQManagerElement extends HTMLElement {
       entity_id: 'input_text.filament_iq_nav_intent',
       value: '',
     })
-  }
-
-  _subscribeDrying(hass) {
-    if (!hass?.connection) return
-    const self = this
-    const dryingEntities = htDryingEntities(self._serial())
-    hass.connection.subscribeEvents((event) => {
-      if (dryingEntities.includes(event.data?.entity_id) && self._rendered) {
-        render(h(FilamentIQCard, { provider: self._provider, navIntent: self._navIntent, onNavIntentConsumed: () => self._clearNavIntent(), config: self._config }), self)
-      }
-    }, 'state_changed').then(unsub => {
-      self._dryingUnsub = unsub
-    }).catch(() => {})
-  }
-
-  disconnectedCallback() {
-    if (this._dryingUnsub) {
-      try { this._dryingUnsub() } catch (_) {}
-      this._dryingUnsub = null
-    }
   }
 
   get hass() {
