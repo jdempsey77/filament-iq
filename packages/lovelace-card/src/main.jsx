@@ -30,7 +30,7 @@ class FilamentIQManagerElement extends HTMLElement {
     this._rendered = false
     this._navIntent = null
     this._dryingUnsub = null
-    this._provider = new HassProvider(() => this._hass)
+    this._provider = new HassProvider(() => this._hass, () => this._serial())
   }
 
   setConfig(config) {
@@ -49,9 +49,19 @@ class FilamentIQManagerElement extends HTMLElement {
       const self = this
       const rawIntent = hass?.states?.['input_text.filament_iq_nav_intent']?.state || ''
       this._navIntent = rawIntent && rawIntent !== '—' ? rawIntent : null
-      render(h(FilamentIQCard, { provider: self._provider, navIntent: self._navIntent, config: self._config, printer_serial: self._serial() }), this)
+      render(h(FilamentIQCard, { provider: self._provider, navIntent: self._navIntent, onNavIntentConsumed: () => self._clearNavIntent(), config: self._config }), this)
       this._subscribeDrying(hass)
     }
+  }
+
+  // Nav-intent read (above) and clear (here) are a matched pair, both
+  // outside HassProvider — this is UI plumbing for a single hardcoded
+  // input_text, not a BFF-worthy operation.
+  _clearNavIntent() {
+    this._hass?.callService('input_text', 'set_value', {
+      entity_id: 'input_text.filament_iq_nav_intent',
+      value: '',
+    })
   }
 
   _subscribeDrying(hass) {
@@ -60,7 +70,7 @@ class FilamentIQManagerElement extends HTMLElement {
     const dryingEntities = htDryingEntities(self._serial())
     hass.connection.subscribeEvents((event) => {
       if (dryingEntities.includes(event.data?.entity_id) && self._rendered) {
-        render(h(FilamentIQCard, { provider: self._provider, navIntent: self._navIntent, config: self._config, printer_serial: self._serial() }), self)
+        render(h(FilamentIQCard, { provider: self._provider, navIntent: self._navIntent, onNavIntentConsumed: () => self._clearNavIntent(), config: self._config }), self)
       }
     }, 'state_changed').then(unsub => {
       self._dryingUnsub = unsub

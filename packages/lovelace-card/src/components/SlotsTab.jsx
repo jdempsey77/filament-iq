@@ -24,58 +24,13 @@ function Icon({ path, size = 16, color = 'currentColor', style: extraStyle = {} 
   }, h('path', { d: path }))
 }
 
-// ── AMS unit definitions ─────────────────────────────────────
-// Printer serial comes from card config (`printer_serial`). This default is
-// only a fallback when config omits it.
-const DEFAULT_SERIAL = '01p00c5b2201397'
-
-// Built at render time from the configured serial rather than at module load,
-// so the entity ids always track the active printer.
-const amsUnits = (serial) => [
-  {
-    name: 'AMS 2 Pro',
-    humEntity:     `sensor.p1s_${serial}_ams_1_humidity`,
-    tempEntity:    `sensor.p1s_${serial}_ams_1_temperature`,
-    dryEntity:     `binary_sensor.p1s_${serial}_ams_1_drying`,
-    dryTimeEntity: `sensor.p1s_${serial}_ams_1_remaining_drying_time`,
-    slots: [1, 2, 3, 4],
-  },
-  {
-    name: 'AMS HT 1',
-    humEntity:     `sensor.p1s_${serial}_ams_128_humidity`,
-    tempEntity:    `sensor.p1s_${serial}_ams_128_temperature`,
-    dryEntity:     `binary_sensor.p1s_${serial}_ams_128_drying`,
-    dryTimeEntity: `sensor.p1s_${serial}_ams_128_remaining_drying_time`,
-    slots: [5],
-  },
-  {
-    name: 'AMS HT 2',
-    humEntity:     `sensor.p1s_${serial}_ams_129_humidity`,
-    tempEntity:    `sensor.p1s_${serial}_ams_129_temperature`,
-    dryEntity:     `binary_sensor.p1s_${serial}_ams_129_drying`,
-    dryTimeEntity: `sensor.p1s_${serial}_ams_129_remaining_drying_time`,
-    slots: [6],
-  },
-  {
-    name: 'AMS HT 3',
-    humEntity:     `sensor.p1s_${serial}_ams_130_humidity`,
-    tempEntity:    `sensor.p1s_${serial}_ams_130_temperature`,
-    dryEntity:     `binary_sensor.p1s_${serial}_ams_130_drying`,
-    dryTimeEntity: `sensor.p1s_${serial}_ams_130_remaining_drying_time`,
-    slots: [7],
-    external: true,
-  },
-]
-
-const SLOT_AMS = {
-  1: { ams: 0,   tray: 0 },
-  2: { ams: 0,   tray: 1 },
-  3: { ams: 0,   tray: 2 },
-  4: { ams: 0,   tray: 3 },
-  5: { ams: 128, tray: 0 },
-  6: { ams: 129, tray: 0 },
-  7: { ams: 130, tray: 0 },
-  8: { ams: 255, tray: 0 },
+// ── Slot -> unit membership (for section grouping only; the AMS-index/
+// tray-index cross-reference itself now lives in HassProvider) ───────────
+const UNIT_SLOTS = {
+  'AMS 2 Pro': [1, 2, 3, 4],
+  'HT1': [5],
+  'HT2': [6],
+  'HT3': [7],
 }
 
 const LOCATION_TO_SLOT = {
@@ -90,7 +45,7 @@ const LOCATION_TO_SLOT = {
 
 const primaryLabel = d => {
   if (d.status === 'empty') return 'Empty'
-  const r = d.reason
+  const r = d.unboundReason
   // Printer hardware swap: binding preserved, RFID re-confirming. Show a neutral
   // swap badge (never the raw reason string); the preserved spool name still
   // renders on the secondary line below.
@@ -147,33 +102,30 @@ const S = {
 }
 
 // ── Shared helpers ────────────────────────────────────────────
-const weightPct = d => {
-  const g = parseFloat(d.g) || 0
-  return Math.min(100, Math.max(0, Math.round(g / 1000 * 100)))
-}
+const weightPct = d => Math.min(100, Math.max(0, Math.round((d.remainingG || 0) / 1000 * 100)))
 
 // ── SlotRow — horizontal layout used by all sections ─────────
 function SlotRow({ n, data, onPopup, spools, borderBottom = true }) {
   const provider = useProvider()
-  const spoolId = parseInt(data.id, 10)
+  const spoolId = parseInt(data.spoolId, 10)
   // Treat spool_id 0 / '0' / falsy as an empty slot: short-circuit before any
   // Spoolman lookup or match attempt so an unbound slot renders a clean Empty
   // state instead of "No Match Found" / "Too Generic" / "UNKNOWN #0".
-  const isEmpty = data.status === 'empty' || data.id === 0 || data.id === '0' || !data.id || spoolId === 0
+  const isEmpty = data.status === 'empty' || data.spoolId === 0 || data.spoolId === '0' || !data.spoolId || spoolId === 0
   const isActive = data.isActive
   const matchedSpool = (!isNaN(spoolId) && spoolId > 0) ? spools?.find(s => s.id === spoolId) : null
   const multiColorHexes = matchedSpool?.filament?.multi_color_hexes || null
   const slotSwatchBg = multiColorHexes && multiColorHexes.split(',').length >= 2
     ? (() => { const cols = multiColorHexes.split(',').map(h => `#${h.trim().replace('#','')}`); return `linear-gradient(135deg, ${cols[0]} 50%, ${cols[1]} 50%)` })()
-    : (isEmpty ? 'transparent' : data.color)
+    : (isEmpty ? 'transparent' : data.colorHex)
   const pct = weightPct(data)
-  const barColor = pct < 20 ? '#ff453a' : data.color
+  const barColor = pct < 20 ? '#ff453a' : data.colorHex
 
   const [profileStatus, setProfileStatus] = useState('idle')
 
   useEffect(() => {
     if (isEmpty || data.status !== 'ok') return
-    const spoolId = parseInt(data.id, 10)
+    const spoolId = parseInt(data.spoolId, 10)
     if (isNaN(spoolId) || spoolId <= 0) return
     const filamentId = spools?.find(s => s.id === spoolId)?.filament?.id
     if (!filamentId) return
@@ -221,16 +173,16 @@ function SlotRow({ n, data, onPopup, spools, borderBottom = true }) {
       !isEmpty && h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } },
         h('span', { style: { fontSize: 9, color: '#636366', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' } },
           data.vendor),
-        h('span', { style: { fontSize: 9, color: '#636366' } }, `#${data.id}`),
+        h('span', { style: { fontSize: 9, color: '#636366' } }, `#${data.spoolId}`),
         isActive && h('span', { style: { fontSize: 7, background: 'rgba(10,132,255,0.2)', color: '#0a84ff', padding: '1px 5px', borderRadius: 3, fontWeight: 700, marginLeft: 'auto' } }, 'ACTIVE'),
       ),
-      h('div', { style: { fontSize: 13, fontWeight: 700, color: isEmpty ? '#636366' : (data.reason === 'PRINTER_SERIAL_CHANGED' ? '#ff9f0a' : '#e5e5e7'), lineHeight: 1.1 } },
+      h('div', { style: { fontSize: 13, fontWeight: 700, color: isEmpty ? '#636366' : (data.unboundReason === 'PRINTER_SERIAL_CHANGED' ? '#ff9f0a' : '#e5e5e7'), lineHeight: 1.1 } },
         // External port (slot 8) is binary — when nothing is loaded show a
         // minimal "No spool loaded" rather than a generic "Empty".
         isEmpty ? (n === 8 ? 'No spool loaded' : 'Empty') : primaryLabel(data)),
       data.ranOut && h('div', { style: { fontSize: 10, color: '#ff9f0a', marginTop: 1 } }, '🪫 Ran out during print'),
       !isEmpty && h('div', { style: { display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden' } },
-        h('span', { style: { fontSize: 11, color: '#8e8e93', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, data.name),
+        h('span', { style: { fontSize: 11, color: '#8e8e93', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, data.filamentName),
         profileStatus === 'verified' && h('span', { class: 'fiq-slot-profile-pip fiq-slot-pip-verified', title: 'Profile verified' }, '✓ Profile'),
         profileStatus === 'candidate' && h('span', { class: 'fiq-slot-profile-pip fiq-slot-pip-candidate', title: 'Profile unverified — verify in Filaments tab' }, '? Unverified'),
       ),
@@ -242,58 +194,27 @@ function SlotRow({ n, data, onPopup, spools, borderBottom = true }) {
     // Grams + chevron
     h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 } },
       !isEmpty && h('span', { style: { fontSize: 13, fontWeight: 600, color: pct < 20 ? '#ff453a' : '#8e8e93' } },
-        `${Math.round(parseFloat(data.g) || 0)}g`),
+        `${Math.round(data.remainingG || 0)}g`),
       h('span', { style: { fontSize: 14, color: '#636366' } }, '›'),
     ),
   )
 }
 
 // ── SlotsSegment — row layout ─────────────────────────────────
-function SlotsSegment({ onPopup, spools, printer_serial }) {
+function SlotsSegment({ onPopup, spools }) {
   const provider = useProvider()
   const [reconciling, setReconciling] = useState(false)
-  const states = provider ? provider.getState().states : {}
-  const sv = id => states?.[id]?.state ?? '—'
-  const sa = (id, attr) => states?.[id]?.attributes?.[attr]
-
-  const serial = String(printer_serial || DEFAULT_SERIAL).toLowerCase()
-  const AMS_UNITS = amsUnits(serial)
-
-  const activeAms  = sa(`sensor.p1s_${serial}_active_tray`, 'ams_index')
-  const activeTray = sa(`sensor.p1s_${serial}_active_tray`, 'tray_index')
-  const isPrinting = sv(`sensor.p1s_${serial}_current_stage`) === 'printing'
-
-  const slotData = n => {
-    const { ams, tray } = SLOT_AMS[n]
-    const isActive = isPrinting && activeAms === ams && activeTray === tray
-    const status   = sv(`sensor.ams_slot_${n}_status`)
-    const reason   = sv(`input_text.ams_slot_${n}_unbound_reason`)
-    const hex      = sv(`sensor.ams_slot_${n}_color_hex`)
-    const color    = hex && !['unknown', 'unavailable', '—'].includes(hex) ? `#${hex}` : '#555'
-    return {
-      n, status, reason, color, isActive,
-      vendor:        sv(`sensor.ams_slot_${n}_vendor`),
-      material:      sv(`sensor.ams_slot_${n}_material`),
-      name:          sv(`sensor.ams_slot_${n}_name`),
-      id:            sv(`input_text.ams_slot_${n}_spool_id`),
-      g:             sv(`sensor.ams_slot_${n}_remaining_g`),
-      ranOut:        sv(`input_boolean.ams_slot_${n}_ran_out`) === 'on',
-      selectEntity:  `input_select.ams_slot_${n}_select_spool`,
-      selectCurrent: sv(`input_select.ams_slot_${n}_select_spool`),
-    }
-  }
+  const snapshot = provider ? provider.getState() : { slots: [], amsUnits: [] }
+  const slotByIndex = n => snapshot.slots.find(s => s.index === n) || {}
+  const unitByName = name => snapshot.amsUnits.find(u => u.name === name) || {}
 
   const sectionStyle = { background: '#2c2c2e', borderRadius: 10, border: '1px solid #3a3a3c', overflow: 'hidden' }
   const sectionHeaderStyle = { padding: '8px 12px', borderBottom: '1px solid #3a3a3c', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }
   const sectionTitleStyle = { fontSize: 11, fontWeight: 600, color: '#e5e5e7' }
   const sectionSubStyle = { fontSize: 10, color: '#8e8e93' }
 
-  const ams2pro = AMS_UNITS[0]
-  const ams2proHum = sv(ams2pro.humEntity)
-  const ams2proTemp = sv(ams2pro.tempEntity)
-  const ams2proConnected = !['unavailable', 'unknown', '—'].includes(ams2proHum)
-
-  const htUnits = AMS_UNITS.slice(1)
+  const ams2pro = unitByName('AMS 2 Pro')
+  const htUnitNames = ['HT1', 'HT2', 'HT3']
 
   const handleReconcile = () => {
     if (!provider) return
@@ -318,11 +239,11 @@ function SlotsSegment({ onPopup, spools, printer_serial }) {
       h('div', { style: sectionHeaderStyle },
         h('div', { style: sectionTitleStyle }, 'AMS 2 Pro'),
         h('div', { style: sectionSubStyle },
-          ams2proConnected ? `💧 ${ams2proHum}% · 🌡️ ${ams2proTemp}°C` : 'Disconnected'
+          ams2pro.connected ? `💧 ${ams2pro.humidity}% · 🌡️ ${ams2pro.temperature}°C` : 'Disconnected'
         )
       ),
-      [1, 2, 3, 4].map((n, i) =>
-        h(SlotRow, { key: n, n, data: slotData(n), onPopup, spools, borderBottom: i < 3 })
+      UNIT_SLOTS['AMS 2 Pro'].map((n, i) =>
+        h(SlotRow, { key: n, n, data: slotByIndex(n), onPopup, spools, borderBottom: i < 3 })
       )
     ),
 
@@ -331,17 +252,14 @@ function SlotsSegment({ onPopup, spools, printer_serial }) {
       h('div', { style: { ...sectionHeaderStyle, justifyContent: 'flex-start' } },
         h('div', { style: sectionTitleStyle }, 'HT Units')
       ),
-      htUnits.map((unit, i) => {
-        const hum      = sv(unit.humEntity)
-        const temp     = sv(unit.tempEntity)
-        const isDrying = sv(unit.dryEntity) === 'on'
-        const dryTimeRaw = parseFloat(sv(unit.dryTimeEntity)) || 0
-        const dh = Math.floor(dryTimeRaw)
-        const dm = Math.round((dryTimeRaw - dh) * 60)
+      htUnitNames.map((name, i) => {
+        const unit = unitByName(name)
+        const dh = Math.floor((unit.dryingRemainingMin || 0) / 60)
+        const dm = (unit.dryingRemainingMin || 0) % 60
         const dryTimeStr = dh > 0 ? `${dh}h ${String(dm).padStart(2, '0')}m` : `${dm}m`
-        const connected = !['unavailable', 'unknown', '—'].includes(hum)
-        const isLast = i === htUnits.length - 1
-        return h('div', { key: unit.name },
+        const isLast = i === htUnitNames.length - 1
+        const slotN = UNIT_SLOTS[name][0]
+        return h('div', { key: name },
           h('div', {
             style: {
               display: 'flex',
@@ -354,17 +272,17 @@ function SlotsSegment({ onPopup, spools, printer_serial }) {
           },
             h('span', { style: { fontSize: 9, color: '#636366', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' } },
               `HT${i + 1}`),
-            connected && !isDrying && h('span', { style: { fontSize: 9, color: '#8e8e93', marginLeft: 8 } },
-              `💧 ${hum}% · 🌡️ ${temp}°C`),
-            isDrying && h('span', {
+            unit.connected && !unit.drying && h('span', { style: { fontSize: 9, color: '#8e8e93', marginLeft: 8 } },
+              `💧 ${unit.humidity}% · 🌡️ ${unit.temperature}°C`),
+            unit.drying && h('span', {
               style: {
                 fontSize: 9, color: '#ff9f0a',
                 background: 'rgba(255,159,10,0.1)', border: '1px solid rgba(255,159,10,0.3)',
                 borderRadius: 8, padding: '1px 7px', marginLeft: 'auto',
               }
-            }, `🔥 ${temp}°C · ${dryTimeStr} · 💧 ${hum}%`),
+            }, `🔥 ${unit.temperature}°C · ${dryTimeStr} · 💧 ${unit.humidity}%`),
           ),
-          h(SlotRow, { n: unit.slots[0], data: slotData(unit.slots[0]), onPopup, spools, borderBottom: !isLast })
+          h(SlotRow, { n: slotN, data: slotByIndex(slotN), onPopup, spools, borderBottom: !isLast })
         )
       })
     ),
@@ -374,7 +292,7 @@ function SlotsSegment({ onPopup, spools, printer_serial }) {
       h('div', { style: { ...sectionHeaderStyle, justifyContent: 'flex-start' } },
         h('div', { style: sectionTitleStyle }, 'External')
       ),
-      h(SlotRow, { n: 8, data: slotData(8), onPopup, spools, borderBottom: false })
+      h(SlotRow, { n: 8, data: slotByIndex(8), onPopup, spools, borderBottom: false })
     )
   )
 }
@@ -458,7 +376,7 @@ function SpoolModal({ spool, updateSpool, deleteSpool, onClose, onCloseAll }) {
     if (!provider) return
     setPrintingLabel(true)
     try {
-      provider.rpc('label.printFireAndForget', { spool_id: spool.id })
+      provider.rpc('label.print', { spool_id: spool.id, awaitResponse: false })
     } catch (_) {}
     setTimeout(() => setPrintingLabel(false), 15000)
   }
@@ -756,32 +674,28 @@ function SlotPopup({ popup, onClose, spools, updateSpool, deleteSpool }) {
   const [pendingOption, setPendingOption] = useState(null)
   const [spoolModal, setSpoolModal] = useState(false)
 
-  const spoolId = parseInt(popup.id, 10)
+  const spoolId = parseInt(popup.spoolId, 10)
   const spool = spools?.find(s => s.id === spoolId)
-  const canEditSpool = popup.status === 'ok' && popup.id && popup.id !== '—' && popup.id !== 'unavailable' && popup.id !== 'unknown' && spool
+  const canEditSpool = popup.status === 'ok' && popup.spoolId && popup.spoolId !== '—' && popup.spoolId !== 'unavailable' && popup.spoolId !== 'unknown' && spool
 
   const selectSpool = option => {
     setPendingOption(option)
-    provider?.rpc('slot.selectSpool', { entity_id: popup.selectEntity, option })
+    provider?.rpc('slot.selectSpool', { index: popup.index, option })
   }
 
   const assignAndBind = () => {
-    provider?.rpc('slot.assignAndBind', { slot: popup.n })
+    provider?.rpc('slot.assignAndBind', { slot: popup.index })
     onClose()
   }
 
-  const selectState = provider ? provider.getState().states?.[popup.selectEntity] : null
-  const allOptions = selectState?.attributes?.options || []
-  const PLACEHOLDER = allOptions.find(o => o.startsWith('—') || o.startsWith('-')) || '— Select spool —'
-  const options = allOptions.filter(o => o !== PLACEHOLDER)
-  const currentOption = selectState?.state || popup.selectCurrent
-  const displaySelected = pendingOption ?? currentOption
+  const options = popup.spoolOptions || []
+  const displaySelected = pendingOption ?? popup.selectedOption
 
-  const pct = Math.min(100, Math.round((parseFloat(popup.g) || 0) / 1000 * 100))
+  const pct = Math.min(100, Math.round((popup.remainingG || 0) / 1000 * 100))
   const popupMultiHexes = spool?.filament?.multi_color_hexes || null
   const popupSwatchBg = popupMultiHexes && popupMultiHexes.split(',').length >= 2
     ? (() => { const cols = popupMultiHexes.split(',').map(h => `#${h.trim().replace('#','')}`); return `linear-gradient(135deg, ${cols[0]} 50%, ${cols[1]} 50%)` })()
-    : popup.color
+    : popup.colorHex
 
   return h('div', {
     style: S.popupOverlay,
@@ -790,12 +704,12 @@ function SlotPopup({ popup, onClose, spools, updateSpool, deleteSpool }) {
     h('div', { style: S.popupSheet },
       h('div', { style: S.popupDrag }),
       h('div', { style: S.popupHeader },
-        h('div', { style: S.popupUnit }, `Slot ${popup.n}`),
+        h('div', { style: S.popupUnit }, `Slot ${popup.index}`),
         h('div', { style: S.popupTitle },
           popup.status === 'needs_bind' ? 'Binding Required' : `${popup.vendor} · ${popup.material}`
         ),
         h('div', { style: S.popupSub },
-          popup.status === 'ok' ? `Currently assigned · spool #${popup.id}` : 'Select a spool below'
+          popup.status === 'ok' ? `Currently assigned · spool #${popup.spoolId}` : 'Select a spool below'
         )
       ),
 
@@ -810,15 +724,15 @@ function SlotPopup({ popup, onClose, spools, updateSpool, deleteSpool }) {
       },
         h('div', { style: { ...S.csDot, background: popupSwatchBg } }),
         h('div', { style: { flex: 1, minWidth: 0 } },
-          h('div', { style: S.csName }, popup.name),
-          h('div', { style: S.csMeta }, `Spool #${popup.id}`),
+          h('div', { style: S.csName }, popup.filamentName),
+          h('div', { style: S.csMeta }, `Spool #${popup.spoolId}`),
           h('div', { style: S.csWbar },
             h('div', { style: { ...S.csWfill, width: `${pct}%` } })
           )
         ),
         h('div', { style: { textAlign: 'right', flexShrink: 0 } },
           h('div', { style: S.csPct }, `${pct}%`),
-          h('div', { style: S.csG }, `${Math.round(parseFloat(popup.g) || 0)}g left`)
+          h('div', { style: S.csG }, `${Math.round(popup.remainingG || 0)}g left`)
         ),
         canEditSpool && h(Icon, { path: ICONS.chevron, size: 16, color: '#555', style: { marginLeft: 4 } }),
       ),
@@ -861,10 +775,10 @@ function SlotPopup({ popup, onClose, spools, updateSpool, deleteSpool }) {
 }
 
 // ── Default export: wires SlotsSegment + SlotPopup ──────────
-export default function SlotsTab({ spools, updateSpool, deleteSpool, printer_serial }) {
+export default function SlotsTab({ spools, updateSpool, deleteSpool }) {
   const [popup, setPopup] = useState(null)
   return h('div', { style: { position: 'relative' } },
-    h(SlotsSegment, { onPopup: setPopup, spools, printer_serial }),
+    h(SlotsSegment, { onPopup: setPopup, spools }),
     popup && h(SlotPopup, { popup, onClose: () => setPopup(null), spools, updateSpool, deleteSpool })
   )
 }

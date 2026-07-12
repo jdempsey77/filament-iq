@@ -8,12 +8,7 @@ import { VendorsTab } from './components/VendorsTab'
 import { FilamentIQLogo } from './components/FilamentIQLogo'
 import SlotsTab from './components/SlotsTab'
 
-// Fallback when the card is embedded with empty config (e.g. printer-dashboard
-// FIQ tab). Normal use supplies printer_serial via card config → main.jsx.
-const DEFAULT_SERIAL = '01p00c5b2201397'
-
-export function FilamentIQCard({ provider, navIntent, config, printer_serial }) {
-  const serial = String(printer_serial || config?.printer_serial || DEFAULT_SERIAL).toLowerCase()
+export function FilamentIQCard({ provider, navIntent, onNavIntentConsumed, config }) {
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('filamentiq_tab') || config?.initial_tab || 'slots')
   const handleTabChange = (tab) => {
     localStorage.setItem('filamentiq_tab', tab)
@@ -44,10 +39,10 @@ export function FilamentIQCard({ provider, navIntent, config, printer_serial }) 
           <TabBar active={activeTab} onChange={handleTabChange} />
         </div>
         <div class="fiq-body">
-          {activeTab === 'spools'    && <SpoolsTab    {...data} navIntent={navIntent} />}
+          {activeTab === 'spools'    && <SpoolsTab    {...data} navIntent={navIntent} onNavIntentConsumed={onNavIntentConsumed} />}
           {activeTab === 'filaments' && <FilamentsTab {...data} />}
           {activeTab === 'vendors'   && <VendorsTab   {...data} />}
-          {activeTab === 'slots'     && <SlotsTab     spools={data.spools} updateSpool={data.updateSpool} deleteSpool={data.deleteSpool} printer_serial={serial} />}
+          {activeTab === 'slots'     && <SlotsTab     spools={data.spools} updateSpool={data.updateSpool} deleteSpool={data.deleteSpool} />}
         </div>
       </div>
     </ProviderContext.Provider>

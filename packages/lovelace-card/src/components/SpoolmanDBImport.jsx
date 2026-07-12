@@ -100,8 +100,9 @@ export function SpoolmanDBImport({ vendors, onImport, onCancel }) {
       if (vendorId) {
         payload.vendor_id = Number(vendorId)
       } else if (selected.manufacturer) {
-        const newVendor = await provider.rpc('vendor.create', {
-          name: selected.manufacturer,
+        const newVendor = await provider.rpc('entity.create', {
+          type: 'vendor',
+          data: { name: selected.manufacturer },
         })
         if (newVendor?.id) payload.vendor_id = newVendor.id
       }
