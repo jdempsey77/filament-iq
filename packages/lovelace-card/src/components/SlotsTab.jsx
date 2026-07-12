@@ -2,6 +2,7 @@ import { h } from 'preact'
 import { useState, useEffect } from 'preact/hooks'
 import { LocationSelect } from './LocationSelect'
 import { useProvider } from '../provider/context'
+import { useSnapshot } from '../hooks/useSnapshot'
 
 // ── MDI SVG paths ────────────────────────────────────────────
 const ICONS = {
@@ -204,7 +205,7 @@ function SlotRow({ n, data, onPopup, spools, borderBottom = true }) {
 function SlotsSegment({ onPopup, spools }) {
   const provider = useProvider()
   const [reconciling, setReconciling] = useState(false)
-  const snapshot = provider ? provider.getState() : { slots: [], amsUnits: [] }
+  const snapshot = useSnapshot() || { slots: [], amsUnits: [] }
   const slotByIndex = n => snapshot.slots.find(s => s.index === n) || {}
   const unitByName = name => snapshot.amsUnits.find(u => u.name === name) || {}
 
