@@ -26,7 +26,7 @@ function MatBadge({ material }) {
   return <span class={`fiq-mat-badge ${cls}`}>{material || '—'}</span>
 }
 
-function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, initialProfileStatus, onProfileStatusChange }) {
+export function FilamentEditPanel({ filament, vendors, onSave, onCancel, onDelete, initialProfileStatus, onProfileStatusChange }) {
   const provider = useProvider()
   const [name, setName] = useState(filament.name || '')
   const [material, setMaterial] = useState(filament.material || '')
@@ -470,7 +470,16 @@ function FilamentAddRow({ vendors, onCreate, onCancel }) {
   )
 }
 
-export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilament, createFilament }) {
+const FILAMENT_SORT_COLUMNS = [
+  { key: 'name', label: 'Name' },
+  { key: 'vendor', label: 'Vendor' },
+  { key: 'material', label: 'Material' },
+  { key: 'weight', label: 'Weight' },
+]
+
+// isDesktop/selected/onSelect are no-ops unless a desktop shell passes them
+// (see FilamentIQCard.jsx) -- mobile behavior (inline expand) is unchanged.
+export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilament, createFilament, isDesktop, selected, onSelect }) {
   const provider = useProvider()
   const [search, setSearch] = useState('')
   const [vendorFilter, setVendorFilter] = useState('')
@@ -481,6 +490,8 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
   const [showImport, setShowImport] = useState(false)
   const [profileStatuses, setProfileStatuses] = useState({})
   const [profileStatusesUnavailable, setProfileStatusesUnavailable] = useState(false)
+  const [sortKey, setSortKey] = useState('name')
+  const [sortDir, setSortDir] = useState('asc')
 
   useEffect(() => {
     if (!provider) return
@@ -530,6 +541,34 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
     })
   }, [filaments, search, vendorFilter, materialFilter, profileFilter, profileStatuses])
 
+  const sorted = useMemo(() => {
+    if (!isDesktop) return filtered
+    const dir = sortDir === 'asc' ? 1 : -1
+    return [...filtered].sort((a, b) => {
+      let av, bv
+      if (sortKey === 'weight') { av = a.weight || 0; bv = b.weight || 0 }
+      else if (sortKey === 'vendor') { av = (a.vendor?.name || '').toLowerCase(); bv = (b.vendor?.name || '').toLowerCase() }
+      else { av = (a[sortKey] || '').toLowerCase(); bv = (b[sortKey] || '').toLowerCase() }
+      if (av < bv) return -1 * dir
+      if (av > bv) return 1 * dir
+      return 0
+    })
+  }, [filtered, isDesktop, sortKey, sortDir])
+
+  const handleSort = (key) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }
+
+  const handleRowClick = (fil) => {
+    if (isDesktop) {
+      onSelect?.({ type: 'filament', id: fil.id })
+    } else {
+      setEditId(prev => prev === fil.id ? null : fil.id)
+      setAdding(false)
+    }
+  }
+
   return (
     <div>
       <div class="fiq-toolbar">
@@ -577,13 +616,27 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
         />
       )}
 
+      {isDesktop && (
+        <div class="fiq-table-header cols-6">
+          <span />
+          {FILAMENT_SORT_COLUMNS.map(col => (
+            <button key={col.key} class="fiq-th-sort" onClick={() => handleSort(col.key)}>
+              {col.label}
+              {sortKey === col.key && <span class="fiq-th-sort-arrow">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+            </button>
+          ))}
+          <span />
+        </div>
+      )}
+
       <div class="fiq-table">
-        {filtered.map(fil => {
-          const expanded = editId === fil.id
+        {sorted.map(fil => {
+          const expanded = !isDesktop && editId === fil.id
+          const isSelected = isDesktop && selected?.type === 'filament' && selected?.id === fil.id
           const pStatus = profileStatuses[String(fil.id)]
           return (
-            <div key={fil.id} class={`fiq-row${expanded ? ' expanded' : ''}`}>
-              <div class="fiq-row-main cols-6" onClick={() => { setEditId(expanded ? null : fil.id); setAdding(false) }}>
+            <div key={fil.id} class={`fiq-row${expanded ? ' expanded' : ''}${isSelected ? ' fiq-row-selected' : ''}`}>
+              <div class="fiq-row-main cols-6" onClick={() => handleRowClick(fil)}>
                 <ColorDot hex={fil.color_hex} multiColorHexes={fil.multi_color_hexes} />
                 <div>
                   <div class="fiq-fname">{fil.name || '—'}</div>
@@ -604,7 +657,9 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
                   <span class="fiq-id-badge">#{fil.id}</span>
                 </div>
                 <div class="fiq-row-acts">
-                  <button class={`fiq-icon-btn${expanded ? ' icon-active' : ''}`} onClick={e => { e.stopPropagation(); setEditId(expanded ? null : fil.id); setAdding(false) }}>✏</button>
+                  {isDesktop
+                    ? <span class="fiq-cell right">›</span>
+                    : <button class={`fiq-icon-btn${expanded ? ' icon-active' : ''}`} onClick={e => { e.stopPropagation(); handleRowClick(fil) }}>✏</button>}
                 </div>
               </div>
               {expanded && (
@@ -629,6 +684,10 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
           )
         })}
       </div>
+
+      {isDesktop && (
+        <div class="fiq-table-footer">{sorted.length} filament{sorted.length !== 1 ? 's' : ''}</div>
+      )}
     </div>
   )
 }

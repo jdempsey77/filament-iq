@@ -84,11 +84,6 @@ export class BffProvider {
     if (UNAVAILABLE_VERBS.has(name)) {
       throw new Error(`${name}: no AppDaemon listener registered (filament_profile_lookup not in apps.yaml)`)
     }
-    // No Authorization header set here on purpose: POST /rpc/* requires
-    // HTTP Basic as defense-in-depth behind Authelia. The browser's native
-    // Basic-auth prompt (triggered by the server's 401 challenge, cached
-    // by the browser for the session) supplies it -- this file never
-    // embeds a credential, matching "zero secrets in a public repo".
     const res = await fetch(`${this._baseUrl}/rpc/${name}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
