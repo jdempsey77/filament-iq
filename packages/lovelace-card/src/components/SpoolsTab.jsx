@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'preact/hooks'
 import { ConfirmDialog } from './ConfirmDialog'
 import { LocationSelect } from './LocationSelect'
 import { useProvider } from '../provider/context'
+import { useSnapshot } from '../hooks/useSnapshot'
 
 const LOCATION_TO_SLOT = {
   'AMS1_Slot1':   1,
@@ -135,6 +136,51 @@ function ColorDot({ hex, multiColorHexes }) {
   )
 }
 
+// Replaces a blind "archive everything empty" confirm with a checked list --
+// every candidate is pre-checked (the fast path still archives all in one
+// click), EXCEPT a spool currently loaded in a slot right now, which starts
+// unchecked and flagged (that's the one you'd regret losing). Purely
+// client-side: `candidates` is already the loaded `spools` array filtered by
+// remaining_weight, and slot occupancy is already in the domain snapshot
+// (slots[].spoolId) -- no new endpoint or RPC verb needed for this.
+function ArchiveConfirmPanel({ candidates, loadedSpoolIds, selected, onToggle, onConfirm, onCancel, archiving }) {
+  const count = selected.size
+  return (
+    <div class="fiq-add-row">
+      <div class="fiq-add-title">Archive empty spools</div>
+      <div class="fiq-archive-list">
+        {candidates.map(s => {
+          const f = s.filament || {}
+          const loaded = loadedSpoolIds.has(s.id)
+          const lastUsed = s.last_used ? s.last_used.substring(0, 10) : '—'
+          return (
+            <label key={s.id} class={`fiq-archive-row${loaded ? ' fiq-archive-row-warn' : ''}`}>
+              <input type="checkbox" checked={selected.has(s.id)} onChange={() => onToggle(s.id)} />
+              <ColorDot hex={f.color_hex || '555555'} multiColorHexes={f.multi_color_hexes} />
+              <div class="fiq-archive-row-info">
+                <div class="fiq-fname">{f.vendor?.name || ''} {f.name || '—'}</div>
+                <div class="fiq-fsub">
+                  #{s.id} · last used {lastUsed} · {Math.round(s.remaining_weight || 0)}g
+                  {loaded ? ' · Currently loaded in a slot' : ''}
+                </div>
+              </div>
+            </label>
+          )
+        })}
+      </div>
+      <div class="fiq-panel-footer">
+        <div />
+        <div class="fiq-btn-group">
+          <button class="fiq-btn-cancel" onClick={onCancel} disabled={archiving}>Cancel</button>
+          <button class="fiq-btn-save" onClick={onConfirm} disabled={archiving || count === 0}>
+            {archiving ? 'Archiving...' : `Archive ${count}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function LocationBadge({ location }) {
   if (!location) return null
   const loc = location.toUpperCase()
@@ -154,7 +200,7 @@ function LocationBadge({ location }) {
   return <span class={`fiq-loc-badge ${cls}`}>{label}</span>
 }
 
-function MatBadge({ material }) {
+export function MatBadge({ material }) {
   const m = (material || '').toUpperCase()
   const cls = m === 'PLA' ? 'fiq-mat-pla'
     : m === 'PLA+' ? 'fiq-mat-pla-plus'
@@ -165,13 +211,21 @@ function MatBadge({ material }) {
   return <span class={`fiq-mat-badge ${cls}`}>{material || '—'}</span>
 }
 
-export function SpoolEditPanel({ spool, onSave, onCancel, onDelete, onPrintLabel, onPrintSwatchLabel, printingLabel, printingNiimbotLabel }) {
+export function SpoolEditPanel({ spool, onSave, onCancel, onDelete, onPrintLabel, onPrintSwatchLabel, printingLabel, printingNiimbotLabel, identity = false }) {
   const provider = useProvider()
   const [remaining, setRemaining] = useState(Math.round(spool.remaining_weight || 0))
   const [location, setLocation] = useState(spool.location || '')
   const [firstUsed, setFirstUsed] = useState(
     spool.first_used ? spool.first_used.substring(0, 10) : ''
   )
+  const f = spool.filament || {}
+  const identityColorHex = (f.color_hex || '555555').replace('#', '')
+  const identityIsBlack = identityColorHex.toLowerCase() === '000000'
+  const identityMultiHexes = f.multi_color_hexes ? f.multi_color_hexes.split(',').map(h => `#${h.trim().replace('#','')}`) : null
+  const identitySwatchBg = identityMultiHexes && identityMultiHexes.length >= 2
+    ? `linear-gradient(135deg, ${identityMultiHexes[0]} 50%, ${identityMultiHexes[1]} 50%)`
+    : `#${identityColorHex}`
+  const identitySubtitle = [f.vendor?.name, f.material, location || 'Unassigned'].filter(Boolean).join(' · ')
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
   const [showMore, setShowMore] = useState(false)
@@ -226,6 +280,15 @@ export function SpoolEditPanel({ spool, onSave, onCancel, onDelete, onPrintLabel
 
   return (
     <div class="fiq-edit-panel">
+      {identity && (
+        <div class="fiq-detail-identity">
+          <div class="fiq-detail-swatch" style={{ background: identitySwatchBg, border: identityIsBlack && !identityMultiHexes ? '1px solid var(--border)' : 'none' }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div class="fiq-detail-name">{f.name || '—'}</div>
+            <div class="fiq-detail-sub">{identitySubtitle}</div>
+          </div>
+        </div>
+      )}
       <div class="fiq-fields">
         <div>
           <div class="fiq-field-label">Remaining (g)</div>
@@ -470,7 +533,17 @@ function SpoolAddRow({ filaments, onCreate, onCancel }) {
   )
 }
 
-export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createSpool, refresh, navIntent, onNavIntentConsumed }) {
+const SPOOL_SORT_COLUMNS = [
+  { key: 'name', label: 'Name' },
+  { key: 'vendor', label: 'Vendor' },
+  { key: 'material', label: 'Material' },
+  { key: 'id', label: 'ID' },
+  { key: 'remaining', label: 'Remaining' },
+]
+
+// isDesktop/selected/onSelect are no-ops unless a desktop shell passes them
+// (see FilamentIQCard.jsx) -- mobile behavior (inline expand) is unchanged.
+export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createSpool, refresh, navIntent, onNavIntentConsumed, isDesktop, selected, onSelect }) {
   const provider = useProvider()
   const [search, setSearch] = useState('')
   const [vendorFilter, setVendorFilter] = useState('')
@@ -479,15 +552,22 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
   const [showEmpty, setShowEmpty] = useState(false)
   const [colorFamily, setColorFamily] = useState('')
   const [editId, setEditId] = useState(null)
+  const [sortKey, setSortKey] = useState('name')
+  const [sortDir, setSortDir] = useState('asc')
 
   // Nav intent: read once at mount, clear entity, pre-open spool edit panel
+  // (inline on mobile, routed to the right DetailPanel on desktop)
   useEffect(() => {
     const parsed = parseNavIntent(navIntent)
     if (parsed?.type === 'spool') {
       try {
         onNavIntentConsumed?.()
       } catch (_) { /* non-fatal — entity may not exist on this install */ }
-      setEditId(parsed.id)
+      if (isDesktop) {
+        onSelect?.({ type: 'spool', id: parsed.id })
+      } else {
+        setEditId(parsed.id)
+      }
     }
   }, [])
 
@@ -495,10 +575,23 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
   const [binding, setBinding] = useState(false)
 
   const [archiveConfirm, setArchiveConfirm] = useState(false)
+  const [archiveSelected, setArchiveSelected] = useState(new Set())
   const [archiving, setArchiving] = useState(false)
   const [printingSpoolId, setPrintingSpoolId] = useState(null)
   const [printingNiimbotSpoolId, setPrintingNiimbotSpoolId] = useState(null)
   const [toast, setToast] = useState(null)
+
+  // Slot occupancy for the archive-confirm list -- already in the domain
+  // snapshot (slots[].spoolId), same source SlotsSegment already reads.
+  const snapshot = useSnapshot()
+  const loadedSpoolIds = useMemo(() => {
+    const set = new Set()
+    ;(snapshot?.slots || []).forEach(s => {
+      const id = parseInt(s.spoolId, 10)
+      if (!isNaN(id) && id > 0) set.add(id)
+    })
+    return set
+  }, [snapshot])
 
   const handleExport = useCallback(() => {
     const rows = [
@@ -569,11 +662,27 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
     [spools]
   )
 
+  const openArchiveConfirm = () => {
+    // Pre-check everything except spools currently loaded in a slot --
+    // those are the ones you'd regret losing, so they start unchecked.
+    setArchiveSelected(new Set(emptySpools.filter(s => !loadedSpoolIds.has(s.id)).map(s => s.id)))
+    setArchiveConfirm(true)
+  }
+
+  const toggleArchiveSelected = (id) => {
+    setArchiveSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   const doArchive = async () => {
     setArchiveConfirm(false)
     setArchiving(true)
     try {
-      await Promise.all(emptySpools.map(s => updateSpool(s.id, { archived: true })))
+      await Promise.all([...archiveSelected].map(id => updateSpool(id, { archived: true })))
     } finally {
       setArchiving(false)
     }
@@ -641,6 +750,37 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
     })
   }, [spools, search, vendorFilter, materialFilter, locationFilter, showEmpty, colorFamily])
 
+  const sorted = useMemo(() => {
+    if (!isDesktop) return filtered
+    const dir = sortDir === 'asc' ? 1 : -1
+    return [...filtered].sort((a, b) => {
+      let av, bv
+      if (sortKey === 'id') { av = a.id; bv = b.id }
+      else if (sortKey === 'remaining') { av = a.remaining_weight || 0; bv = b.remaining_weight || 0 }
+      else if (sortKey === 'vendor') { av = (a.filament?.vendor?.name || '').toLowerCase(); bv = (b.filament?.vendor?.name || '').toLowerCase() }
+      else if (sortKey === 'material') { av = (a.filament?.material || '').toLowerCase(); bv = (b.filament?.material || '').toLowerCase() }
+      else { av = (a.filament?.name || '').toLowerCase(); bv = (b.filament?.name || '').toLowerCase() }
+      if (av < bv) return -1 * dir
+      if (av > bv) return 1 * dir
+      return 0
+    })
+  }, [filtered, isDesktop, sortKey, sortDir])
+
+  const handleSort = (key) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }
+
+  const handleRowClick = (spool) => {
+    if (isDesktop) {
+      onSelect?.({ type: 'spool', id: spool.id })
+    } else {
+      setEditId(prev => prev === spool.id ? null : spool.id)
+      setAdding(false)
+      setBinding(false)
+    }
+  }
+
   return (
     <div style={{position:"relative"}}>
 
@@ -684,7 +824,7 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
         >⊘ Empty</button>
         <div class="fiq-spacer" />
         {emptySpools.length > 0 && (
-          <button class="fiq-btn-archive" onClick={() => setArchiveConfirm(true)} disabled={archiving}>
+          <button class="fiq-btn-archive" onClick={openArchiveConfirm} disabled={archiving}>
             {archiving ? 'Archiving...' : `Archive empty (${emptySpools.length})`}
           </button>
         )}
@@ -692,11 +832,14 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
       </div>
 
       {archiveConfirm && (
-        <ConfirmDialog
-          message={`Archive ${emptySpools.length} empty spool${emptySpools.length !== 1 ? 's' : ''}? They will be hidden from the list.`}
-          confirmLabel="Archive"
+        <ArchiveConfirmPanel
+          candidates={emptySpools}
+          loadedSpoolIds={loadedSpoolIds}
+          selected={archiveSelected}
+          onToggle={toggleArchiveSelected}
           onConfirm={doArchive}
           onCancel={() => setArchiveConfirm(false)}
+          archiving={archiving}
         />
       )}
 
@@ -725,19 +868,33 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
         />
       )}
 
+      {isDesktop && (
+        <div class="fiq-table-header">
+          <span />
+          {SPOOL_SORT_COLUMNS.map(col => (
+            <button key={col.key} class="fiq-th-sort" onClick={() => handleSort(col.key)}>
+              {col.label}
+              {sortKey === col.key && <span class="fiq-th-sort-arrow">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+            </button>
+          ))}
+          <span />
+        </div>
+      )}
+
       <div class="fiq-table">
-        {filtered.map(spool => {
+        {sorted.map(spool => {
           const f = spool.filament || {}
           const remaining = Math.round(spool.remaining_weight || 0)
           const initial = Math.round(spool.initial_weight || 1000)
           const pct = initial > 0 ? Math.min(100, Math.round((remaining / initial) * 100)) : 0
           const isLow = remaining > 0 && remaining < 100
           const color = f.color_hex || '555555'
-          const expanded = editId === spool.id
+          const expanded = !isDesktop && editId === spool.id
+          const isSelected = isDesktop && selected?.type === 'spool' && selected?.id === spool.id
 
           return (
-            <div key={spool.id} class={`fiq-row${expanded ? ' expanded' : ''}`}>
-              <div class="fiq-row-main" onClick={() => { setEditId(expanded ? null : spool.id); setAdding(false); setBinding(false) }}>
+            <div key={spool.id} class={`fiq-row${expanded ? ' expanded' : ''}${isSelected ? ' fiq-row-selected' : ''}`}>
+              <div class="fiq-row-main" onClick={() => handleRowClick(spool)}>
                 <ColorDot hex={color} multiColorHexes={f.multi_color_hexes} />
                 <div>
                   <div class="fiq-fname">{f.name || '—'}</div>
@@ -758,7 +915,9 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
                   {remaining}g{isLow ? ' ⚠' : ''}
                 </div>
                 <div class="fiq-row-acts">
-                  <button class={`fiq-icon-btn${expanded ? ' icon-active' : ''}`} onClick={e => { e.stopPropagation(); setEditId(expanded ? null : spool.id); setAdding(false); setBinding(false) }}>✏</button>
+                  {isDesktop
+                    ? <span class="fiq-cell right">›</span>
+                    : <button class={`fiq-icon-btn${expanded ? ' icon-active' : ''}`} onClick={e => { e.stopPropagation(); handleRowClick(spool) }}>✏</button>}
                 </div>
               </div>
               {expanded && (
@@ -777,6 +936,10 @@ export function SpoolsTab({ spools, filaments, updateSpool, deleteSpool, createS
           )
         })}
       </div>
+
+      {isDesktop && (
+        <div class="fiq-table-footer">{sorted.length} spool{sorted.length !== 1 ? 's' : ''}</div>
+      )}
     </div>
   )
 }

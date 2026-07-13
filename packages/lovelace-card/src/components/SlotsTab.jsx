@@ -1,8 +1,9 @@
 import { h } from 'preact'
 import { useState, useEffect } from 'preact/hooks'
-import { LocationSelect } from './LocationSelect'
 import { useProvider } from '../provider/context'
 import { useSnapshot } from '../hooks/useSnapshot'
+import { useSpoolPrintActions } from '../hooks/useSpoolPrintActions'
+import { SpoolEditPanel, MatBadge } from './SpoolsTab'
 
 // ── MDI SVG paths ────────────────────────────────────────────
 const ICONS = {
@@ -32,16 +33,6 @@ const UNIT_SLOTS = {
   'HT1': [5],
   'HT2': [6],
   'HT3': [7],
-}
-
-const LOCATION_TO_SLOT = {
-  'AMS1_Slot1':   1,
-  'AMS1_Slot2':   2,
-  'AMS1_Slot3':   3,
-  'AMS1_Slot4':   4,
-  'AMS128_Slot1': 5,
-  'AMS129_Slot1': 6,
-  'AMS130_Slot1': 7,
 }
 
 const primaryLabel = d => {
@@ -105,24 +96,14 @@ const S = {
 // ── Shared helpers ────────────────────────────────────────────
 const weightPct = d => Math.min(100, Math.max(0, Math.round((d.remainingG || 0) / 1000 * 100)))
 
-// ── SlotRow — horizontal layout used by all sections ─────────
-function SlotRow({ n, data, onPopup, spools, borderBottom = true }) {
+// Shared across SlotRow (mobile) and SlotCard (desktop) -- exactly one of
+// those two ever mounts for a given slot at a time (SlotsSegment picks one
+// or the other based on isDesktop), so calling this from either is safe:
+// the profileLookup RPC never fires twice concurrently for the same slot.
+function useSlotProfileStatus(data, spools) {
   const provider = useProvider()
-  const spoolId = parseInt(data.spoolId, 10)
-  // Treat spool_id 0 / '0' / falsy as an empty slot: short-circuit before any
-  // Spoolman lookup or match attempt so an unbound slot renders a clean Empty
-  // state instead of "No Match Found" / "Too Generic" / "UNKNOWN #0".
-  const isEmpty = data.status === 'empty' || data.spoolId === 0 || data.spoolId === '0' || !data.spoolId || spoolId === 0
-  const isActive = data.isActive
-  const matchedSpool = (!isNaN(spoolId) && spoolId > 0) ? spools?.find(s => s.id === spoolId) : null
-  const multiColorHexes = matchedSpool?.filament?.multi_color_hexes || null
-  const slotSwatchBg = multiColorHexes && multiColorHexes.split(',').length >= 2
-    ? (() => { const cols = multiColorHexes.split(',').map(h => `#${h.trim().replace('#','')}`); return `linear-gradient(135deg, ${cols[0]} 50%, ${cols[1]} 50%)` })()
-    : (isEmpty ? 'transparent' : data.colorHex)
-  const pct = weightPct(data)
-  const barColor = pct < 20 ? '#ff453a' : data.colorHex
-
   const [profileStatus, setProfileStatus] = useState('idle')
+  const isEmpty = data.status === 'empty' || data.spoolId === 0 || data.spoolId === '0' || !data.spoolId || parseInt(data.spoolId, 10) === 0
 
   useEffect(() => {
     if (isEmpty || data.status !== 'ok') return
@@ -144,10 +125,31 @@ function SlotRow({ n, data, onPopup, spools, borderBottom = true }) {
         // already renders nothing); log so it's still debuggable. Self-
         // healing: once the listener exists, this starts rendering real
         // verified/candidate pips with no further change needed here.
-        console.warn('[SlotRow] profileLookup unavailable:', e?.message || e)
+        console.warn('[useSlotProfileStatus] profileLookup unavailable:', e?.message || e)
       })
     return () => { cancelled = true }
   }, [])
+
+  return profileStatus
+}
+
+// ── SlotRow — horizontal layout used by all sections ─────────
+function SlotRow({ n, data, onPopup, spools, borderBottom = true }) {
+  const spoolId = parseInt(data.spoolId, 10)
+  // Treat spool_id 0 / '0' / falsy as an empty slot: short-circuit before any
+  // Spoolman lookup or match attempt so an unbound slot renders a clean Empty
+  // state instead of "No Match Found" / "Too Generic" / "UNKNOWN #0".
+  const isEmpty = data.status === 'empty' || data.spoolId === 0 || data.spoolId === '0' || !data.spoolId || spoolId === 0
+  const isActive = data.isActive
+  const matchedSpool = (!isNaN(spoolId) && spoolId > 0) ? spools?.find(s => s.id === spoolId) : null
+  const multiColorHexes = matchedSpool?.filament?.multi_color_hexes || null
+  const slotSwatchBg = multiColorHexes && multiColorHexes.split(',').length >= 2
+    ? (() => { const cols = multiColorHexes.split(',').map(h => `#${h.trim().replace('#','')}`); return `linear-gradient(135deg, ${cols[0]} 50%, ${cols[1]} 50%)` })()
+    : (isEmpty ? 'transparent' : data.colorHex)
+  const pct = weightPct(data)
+  const barColor = pct < 20 ? '#ff453a' : data.colorHex
+
+  const profileStatus = useSlotProfileStatus(data, spools)
 
   return h('div', {
     style: {
@@ -209,8 +211,102 @@ function SlotRow({ n, data, onPopup, spools, borderBottom = true }) {
   )
 }
 
+function slotShortLabel(n) {
+  if (n >= 1 && n <= 4) return `Slot ${n}`
+  if (n === 5) return 'HT1'
+  if (n === 6) return 'HT2'
+  if (n === 7) return 'HT3'
+  return 'External'
+}
+
+function dryTimeLabel(minutes) {
+  const dh = Math.floor((minutes || 0) / 60)
+  const dm = (minutes || 0) % 60
+  return dh > 0 ? `${dh}h ${String(dm).padStart(2, '0')}m` : `${dm}m`
+}
+
+// ── SlotCard — desktop hybrid card: color-flooded header (status pill only)
+// + neutral body (vendor/material/remaining/fill bar). Status color and
+// filament color never compete: the header is flooded with the filament's
+// own color, and the status pill's background is fixed per status (never
+// derived from the filament color), so a low red spool still reads "LOW".
+// `ambient` (HT cards only -- each HT unit maps to exactly one slot) renders
+// as translucent pills bottom-left of the color field so they read on any
+// filament color; AMS 2 Pro's ambient reading covers 4 slots and lives once
+// in its section header instead (see SlotsSegment).
+function SlotCard({ n, data, onPopup, spools, ambient }) {
+  const spoolId = parseInt(data.spoolId, 10)
+  const isEmpty = data.status === 'empty' || data.spoolId === 0 || data.spoolId === '0' || !data.spoolId || spoolId === 0
+  const isActive = data.isActive
+  const matchedSpool = (!isNaN(spoolId) && spoolId > 0) ? spools?.find(s => s.id === spoolId) : null
+  const multiColorHexes = matchedSpool?.filament?.multi_color_hexes || null
+  const headerBg = isEmpty
+    ? null
+    : (multiColorHexes && multiColorHexes.split(',').length >= 2
+        ? (() => { const cols = multiColorHexes.split(',').map(h => `#${h.trim().replace('#','')}`); return `linear-gradient(135deg, ${cols[0]} 50%, ${cols[1]} 50%)` })()
+        // data.colorHex is already a resolved CSS color (e.g. "#3388ff"),
+        // per the domain snapshot contract -- SlotRow/SlotPopup use it bare
+        // the same way. Prefixing it again here produced invalid CSS
+        // ("##3388ff"), which silently fell back to .fiq-slot-card's own
+        // flat gray background.
+        : data.colorHex)
+  const pct = weightPct(data)
+  const profileStatus = useSlotProfileStatus(data, spools)
+
+  let statusCls = null
+  let statusText = null
+  if (isEmpty) { statusCls = 'status-empty'; statusText = 'EMPTY' }
+  else if (data.status === 'needs_bind') { statusCls = 'status-unbound'; statusText = 'UNBOUND' }
+  else if (pct < 20) { statusCls = 'status-low'; statusText = 'LOW' }
+  else if (isActive) { statusCls = 'status-active'; statusText = 'ACTIVE' }
+
+  return (
+    <div class="fiq-slot-card" onClick={() => onPopup(data)}>
+      <div
+        class={`fiq-slot-card-color${isEmpty ? ' fiq-slot-card-color-empty' : ''}`}
+        style={isEmpty ? undefined : { background: headerBg }}
+      >
+        <div class="fiq-slot-card-color-top">
+          <span class="fiq-slot-card-label">{slotShortLabel(n)}</span>
+          {statusText && <span class={`fiq-slot-status-pill ${statusCls}`}>{statusText}</span>}
+        </div>
+        {ambient && (
+          <div class="fiq-slot-card-ambient-row">
+            {ambient.drying ? (
+              <span class="fiq-slot-card-ambient-pill drying">🔥 {ambient.temperature}°C · {dryTimeLabel(ambient.dryingRemainingMin)}</span>
+            ) : ambient.connected ? (
+              <>
+                <span class="fiq-slot-card-ambient-pill">💧 {ambient.humidity}%</span>
+                <span class="fiq-slot-card-ambient-pill">🌡️ {ambient.temperature}°C</span>
+              </>
+            ) : (
+              <span class="fiq-slot-card-ambient-pill">Disconnected</span>
+            )}
+          </div>
+        )}
+      </div>
+      <div class="fiq-slot-card-body">
+        {isEmpty ? (
+          <span class="fiq-slot-card-empty-label">{n === 8 ? 'No spool loaded' : 'Empty'}</span>
+        ) : (
+          <>
+            <div class="fiq-slot-card-vendor">{data.vendor} · {data.filamentName}</div>
+            <div class="fiq-slot-card-meta">
+              <MatBadge material={data.material} />
+              <span class="fiq-slot-card-remaining">{Math.round(data.remainingG || 0)}g</span>
+            </div>
+            <div class="fiq-slot-card-pbar"><div class="fiq-slot-card-pbar-fill" style={{ width: `${pct}%`, background: data.colorHex }} /></div>
+            {profileStatus === 'verified' && <span class="fiq-slot-profile-pip fiq-slot-pip-verified" title="Profile verified">✓ Profile</span>}
+            {profileStatus === 'candidate' && <span class="fiq-slot-profile-pip fiq-slot-pip-candidate" title="Profile unverified — verify in Filaments tab">? Unverified</span>}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── SlotsSegment — row layout ─────────────────────────────────
-function SlotsSegment({ onPopup, spools }) {
+function SlotsSegment({ onPopup, spools, isDesktop }) {
   const provider = useProvider()
   const [reconciling, setReconciling] = useState(false)
   const snapshot = useSnapshot() || { slots: [], amsUnits: [] }
@@ -232,15 +328,62 @@ function SlotsSegment({ onPopup, spools }) {
     setTimeout(() => setReconciling(false), 4000)
   }
 
+  const reconcileBtn = h('button', {
+    class: 'fiq-btn-bind',
+    onClick: handleReconcile,
+    disabled: reconciling,
+    style: reconciling ? { opacity: 0.6, cursor: 'default' } : undefined,
+  }, reconciling ? '↻ Reconciling…' : '↺ Reconcile')
+
+  // Desktop: grouped 2-up card sections, mirroring mobile's AMS/HT/External
+  // grouping -- AMS 2 Pro's ambient reading covers 4 slots so it appears
+  // once in the section header; each HT card carries its own ambient
+  // reading since each HT unit maps to exactly one slot. Reconcile lives in
+  // the topbar on desktop (FilamentIQCard.jsx), not here -- a full-width
+  // button is a mobile pattern.
+  if (isDesktop) {
+    return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 16 } },
+      // Boxed panel: the border + header bar make it visually explicit that
+      // the ambient pills belong to THIS unit's 4 slots, not the page at
+      // large. HT/External below stays unwrapped -- each of those cards
+      // already carries its own reading, so there's no shared ownership to
+      // scope with a container.
+      h('div', { class: 'fiq-slot-section-panel' },
+        h('div', { class: 'fiq-slot-section-header' },
+          h('span', { class: 'fiq-slot-section-title' }, 'AMS 2 Pro'),
+          ams2pro.connected
+            ? h('div', { class: 'fiq-ambient-readings' },
+                h('span', { class: 'fiq-ambient-pill' }, `💧 ${ams2pro.humidity}%`),
+                h('span', { class: 'fiq-ambient-pill' }, `🌡️ ${ams2pro.temperature}°C`),
+              )
+            : h('span', { class: 'fiq-ambient-disconnected' }, 'Disconnected')
+        ),
+        h('div', { class: 'fiq-slot-grid' },
+          UNIT_SLOTS['AMS 2 Pro'].map(n => h(SlotCard, { key: n, n, data: slotByIndex(n), onPopup, spools }))
+        )
+      ),
+
+      // HT Units + External share one unlabeled 2-up section: no header,
+      // since each card is already self-labeled (HT1/HT2/HT3/External) and
+      // -- unlike AMS 2 Pro -- neither carries a shared ambient reading that
+      // would need a header to hold it. Folding External in here (rather
+      // than its own section below) fills the gap HT3 would otherwise leave
+      // alone in a 3-card 2-up grid.
+      h('div', { class: 'fiq-slot-section' },
+        h('div', { class: 'fiq-slot-grid' },
+          [...htUnitNames.map(name => {
+            const slotN = UNIT_SLOTS[name][0]
+            return h(SlotCard, { key: slotN, n: slotN, data: slotByIndex(slotN), onPopup, spools, ambient: unitByName(name) })
+          }), h(SlotCard, { key: 8, n: 8, data: slotByIndex(8), onPopup, spools })]
+        )
+      )
+    )
+  }
+
   return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
 
     h('div', { style: { display: 'flex', justifyContent: 'flex-end', padding: '0 2px 4px' } },
-      h('button', {
-        class: 'fiq-btn-bind',
-        onClick: handleReconcile,
-        disabled: reconciling,
-        style: reconciling ? { opacity: 0.6, cursor: 'default' } : undefined,
-      }, reconciling ? '↻ Reconciling…' : '↺ Reconcile')
+      reconcileBtn
     ),
 
     // AMS 2 Pro — 4 slot rows
@@ -306,120 +449,20 @@ function SlotsSegment({ onPopup, spools }) {
   )
 }
 
-// ── SpoolModal — bottom-sheet spool editor ───────────────────
-function SpoolModal({ spool, updateSpool, deleteSpool, onClose, onCloseAll }) {
-  const provider = useProvider()
-  const [remaining, setRemaining] = useState(Math.round(spool.remaining_weight || 0))
-  const [location, setLocation] = useState(spool.location || '')
-  const [firstUsed, setFirstUsed] = useState(
-    spool.first_used ? spool.first_used.substring(0, 10) : ''
-  )
-  const [saving, setSaving] = useState(false)
-  const [confirming, setConfirming] = useState(false)
-  const [showMore, setShowMore] = useState(false)
-  const [printingLabel, setPrintingLabel] = useState(false)
-  const [printingNiimbotLabel, setPrintingNiimbotLabel] = useState(false)
-  const [toast, setToast] = useState(null)
-  const [profileStatus, setProfileStatus] = useState('idle')
-  const [profileData, setProfileData] = useState(null)
-  const [profileLookedUp, setProfileLookedUp] = useState(false)
-
-  useEffect(() => {
-    if (!showMore || profileLookedUp || !provider || !spool.filament?.id) return
-    setProfileLookedUp(true)
-    setProfileStatus('loading')
-    let cancelled = false
-    provider.rpc('filament.profileLookup', { filament_id: spool.filament.id })
-      .then((d) => {
-        if (cancelled) return
-        setProfileData(d)
-        setProfileStatus(d.status || 'unverified')
-      })
-      .catch(() => {
-        if (!cancelled) setProfileStatus('error')
-      })
-    return () => { cancelled = true }
-  }, [showMore])
-
-  const f = spool.filament || {}
-  const vendor = f.vendor?.name || ''
-  const material = f.material || ''
-  const name = f.name || '—'
-  const colorHex = (f.color_hex || '555555').replace('#', '')
-  const swatchColor = `#${colorHex}`
-  const isBlack = colorHex.toLowerCase() === '000000'
-  const multiHexes = f.multi_color_hexes ? f.multi_color_hexes.split(',').map(h => `#${h.trim().replace('#','')}`) : null
-  const swatchBg = multiHexes && multiHexes.length >= 2
-    ? `linear-gradient(135deg, ${multiHexes[0]} 50%, ${multiHexes[1]} 50%)`
-    : swatchColor
-
-  const lotNr = spool.lot_nr || '—'
-  const lastUsed = spool.last_used ? spool.last_used.substring(0, 10) : '—'
-  const locationDisplay = location || 'Unassigned'
-  const subtitle = [vendor, material, locationDisplay].filter(Boolean).join(' · ')
-
-  const handleSave = async () => {
-    setSaving(true)
-    try {
-      await updateSpool(spool.id, {
-        remaining_weight: Number(remaining),
-        location,
-        ...(firstUsed ? { first_used: firstUsed } : {}),
-      })
-      const slot = LOCATION_TO_SLOT[location]
-      if (slot && provider) {
-        provider.rpc('slot.assigned', { slot, spool_id: spool.id })
-      }
-      onClose()
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleDelete = async () => {
-    await deleteSpool(spool.id)
-    onCloseAll()
-  }
-
-  const handlePrintLabel = () => {
-    if (!provider) return
-    setPrintingLabel(true)
-    try {
-      provider.rpc('label.print', { spool_id: spool.id, awaitResponse: false })
-    } catch (_) {}
-    setTimeout(() => setPrintingLabel(false), 15000)
-  }
-
-  const handlePrintSwatchLabel = async () => {
-    if (!provider) return
-    setPrintingNiimbotLabel(true)
-    try {
-      const d = await provider.rpc('label.printNiimbot', { spool_id: spool.id })
-      setPrintingNiimbotLabel(false)
-      if (d.success) {
-        setToast({ msg: 'Swatch label queued for printing', type: 'ok' })
-      } else {
-        setToast({ msg: `Swatch print failed: ${d.error || 'unknown error'}`, type: 'err' })
-      }
-      setTimeout(() => setToast(null), 5000)
-    } catch (e) {
-      setPrintingNiimbotLabel(false)
-      const msg = e?.message?.endsWith('timed out') ? 'Swatch print timed out' : `Swatch print failed: ${e.message || e}`
-      setToast({ msg, type: 'err' })
-      setTimeout(() => setToast(null), 5000)
-    }
-  }
-
-  const inpStyle = {
-    background: '#2a2a2e',
-    border: '1px solid #3a3a3c',
-    borderRadius: 6,
-    padding: '6px 8px',
-    fontSize: 12,
-    color: '#e5e5e7',
-    width: '100%',
-    boxSizing: 'border-box',
-  }
+// ── SpoolSheet — bottom-sheet chrome around the shared SpoolEditPanel ──
+// Replaces the old standalone SpoolModal. All field editing, profile lookup,
+// delete-confirm, and print-label logic now live in one place (SpoolEditPanel,
+// exported from SpoolsTab.jsx) -- this wrapper only supplies the mobile
+// bottom-sheet frame (overlay, drag handle, "Spool #N" header) and the
+// identity block via SpoolEditPanel's `identity` prop, since there's no
+// adjacent row here to show swatch/name the way SpoolsTab's row does.
+//
+// Note: the old SpoolModal fired label.print fire-and-forget with no
+// success/failure feedback; this wrapper uses useSpoolPrintActions, the same
+// awaited+toast pattern SpoolsTab's row-level print button already uses --
+// bringing this path in line with that one rather than the other way round.
+function SpoolSheet({ spool, updateSpool, deleteSpool, onClose, onCloseAll }) {
+  const { printingLabel, printingNiimbotLabel, toast, handlePrintLabel, handlePrintSwatchLabel } = useSpoolPrintActions(spool)
 
   return h('div', {
     style: {
@@ -441,7 +484,6 @@ function SpoolModal({ spool, updateSpool, deleteSpool, onClose, onCloseAll }) {
       },
       onClick: e => e.stopPropagation(),
     },
-
       // Drag handle
       h('div', { style: { width: 36, height: 4, background: '#3a3a3e', borderRadius: 2, margin: '10px auto 4px' } }),
 
@@ -461,227 +503,30 @@ function SpoolModal({ spool, updateSpool, deleteSpool, onClose, onCloseAll }) {
         }, '×')
       ),
 
-      // Identity block: swatch + name + subtitle
-      h('div', {
-        style: {
-          padding: '10px 16px 14px',
-          display: 'flex', alignItems: 'center', gap: 12,
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-          borderTop: '1px solid rgba(255,255,255,0.06)',
-        },
-      },
-        h('div', {
-          style: {
-            width: 40, height: 40, borderRadius: 8, flexShrink: 0,
-            background: swatchBg,
-            border: isBlack && !multiHexes ? '1px solid #444' : 'none',
-          },
-        }),
-        h('div', { style: { flex: 1, minWidth: 0 } },
-          h('div', { style: { fontSize: 13, fontWeight: 600, color: '#e5e5e7' } }, name),
-          h('div', { style: { fontSize: 11, color: '#8e8e93', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, subtitle),
-        )
-      ),
-
-      // Fields row: Remaining · Location
-      h('div', {
-        style: {
-          padding: '10px 16px',
-          display: 'flex', gap: 8,
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-        },
-      },
-        h('div', { style: { flex: 1 } },
-          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#555', marginBottom: 4 } }, 'Remaining (g)'),
-          h('input', {
-            style: inpStyle,
-            type: 'number',
-            value: remaining,
-            onInput: e => setRemaining(e.target.value),
-          })
-        ),
-        h('div', { style: { flex: 1 } },
-          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#555', marginBottom: 4 } }, 'Location'),
-          h(LocationSelect, { value: location, onChange: setLocation }),
-        ),
-      ),
-
-      // More info toggle
-      h('div', {
-        style: {
-          padding: '8px 16px 6px',
-          display: 'flex', alignItems: 'center', gap: 6,
-          cursor: 'pointer', color: '#8e8e93', fontSize: 12,
-        },
-        onClick: () => setShowMore(v => !v),
-      },
-        h('svg', { viewBox: '0 0 24 24', style: { width: 14, height: 14, fill: '#8e8e93', flexShrink: 0 } },
-          h('path', { d: 'M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z' })
-        ),
-        h('span', null, 'More info'),
-        h('svg', {
-          viewBox: '0 0 24 24',
-          style: { width: 14, height: 14, fill: '#8e8e93', flexShrink: 0, transform: showMore ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' },
-        },
-          h('path', { d: 'M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z' })
-        ),
-      ),
-      showMore && h('div', {
-        style: {
-          margin: '0 16px 8px',
-          background: '#2c2c2e',
-          borderRadius: 8,
-          padding: '10px 12px',
-        },
-      },
-        h('div', { style: { marginBottom: 8 } },
-          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#555', marginBottom: 3 } }, 'LOT #'),
-          h('div', { style: { fontSize: 11, fontFamily: 'monospace', color: '#e5e5e7', wordBreak: 'break-all', whiteSpace: 'normal' } }, lotNr),
-        ),
-        h('div', { style: { marginBottom: 8 } },
-          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#555', marginBottom: 3 } }, 'Spool ID'),
-          h('div', { style: { fontSize: 11, fontFamily: 'monospace', color: '#e5e5e7' } }, `#${spool.id}`),
-        ),
-        h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 } },
-          h('div', null,
-            h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#555', marginBottom: 4 } }, 'First used'),
-            h('input', { style: inpStyle, type: 'date', value: firstUsed, onInput: e => setFirstUsed(e.target.value) }),
-          ),
-          h('div', null,
-            h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#555', marginBottom: 3 } }, 'Last used'),
-            h('div', { style: { fontSize: 11, fontFamily: 'monospace', color: '#e5e5e7' } }, lastUsed),
-          ),
-        ),
-        profileStatus !== 'idle' && h('div', { style: { marginTop: 10, paddingTop: 10, borderTop: '0.5px solid #3a3a3c' } },
-          h('div', { style: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#636366', marginBottom: 6 } }, '3D Filament Profile'),
-          profileStatus === 'loading' && h('div', { class: 'fiq-profile-loading' }, 'Looking up profile...'),
-          profileStatus === 'verified' && profileData && h('div', null,
-            h('div', { class: 'fiq-profile-match-row' },
-              h('span', { class: 'fiq-profile-badge fiq-profile-verified' }, '✓ Verified'),
-              h('span', { class: 'fiq-profile-name' }, profileData.profile_name),
-            ),
-            h('div', { class: 'fiq-profile-actions', style: { marginTop: 6 } },
-              h('button', { class: 'fiq-profile-btn', onClick: () => window.open(profileData.profile_url, '_blank', 'noopener') }, 'View profile ↗'),
-            ),
-          ),
-          profileStatus === 'candidate' && profileData && h('div', null,
-            h('div', { class: 'fiq-profile-match-row' },
-              h('span', { class: 'fiq-profile-badge fiq-profile-candidate' }, '? Candidate'),
-              h('span', { class: 'fiq-profile-name' }, profileData.profile_name),
-            ),
-            h('div', { class: 'fiq-profile-actions', style: { marginTop: 6 } },
-              h('button', { class: 'fiq-profile-btn', onClick: () => window.open(profileData.profile_url, '_blank', 'noopener') }, 'View candidate ↗'),
-              h('span', { class: 'fiq-profile-loading', style: { marginLeft: 4 } }, 'Verify in Filaments tab'),
-            ),
-          ),
-          (profileStatus === 'no_profile_exists' || profileStatus === 'unverified' || profileStatus === 'error') && h('div', { class: 'fiq-profile-match-row' },
-            h('span', { class: 'fiq-profile-badge fiq-profile-none' }, '— No profile'),
-          ),
-        ),
-      ),
-
-      // Action row 1: Delete | Spool Label | Swatch
-      h('div', { style: { padding: '10px 16px 4px', display: 'flex', gap: 8 } },
-        h('button', {
-          style: {
-            flex: 1, background: '#3a1515', border: 'none', borderRadius: 8,
-            padding: '9px 4px', fontSize: 12, fontWeight: 600, color: '#e05555',
-            cursor: 'pointer',
-          },
-          onClick: () => setConfirming(true),
-          disabled: saving,
-        }, 'Delete spool'),
-        h('button', {
-          style: {
-            flex: 1, background: '#1a2035', border: 'none', borderRadius: 8,
-            padding: '9px 4px', fontSize: 12, fontWeight: 600, color: '#5B8AF0',
-            cursor: 'pointer',
-          },
-          onClick: handlePrintLabel,
-          disabled: saving || printingLabel,
-        }, printingLabel ? '⏳ Printing…' : '🖨 Spool Label'),
-        h('button', {
-          style: {
-            flex: 1, background: '#1a2035', border: 'none', borderRadius: 8,
-            padding: '9px 4px', fontSize: 12, fontWeight: 600, color: '#5B8AF0',
-            cursor: 'pointer',
-          },
-          onClick: handlePrintSwatchLabel,
-          disabled: saving || printingNiimbotLabel || profileStatus !== 'verified',
-          title: profileStatus !== 'verified' ? 'Verify filament profile in Filaments tab to enable swatch printing' : '',
-        }, printingNiimbotLabel ? 'Queuing…' : '🖨 Swatch'),
-      ),
-
-      // Action row 2: Cancel | Save changes
-      h('div', { style: { padding: '8px 16px 20px', display: 'flex', gap: 8 } },
-        h('button', {
-          style: {
-            flex: 1, background: '#2a2a2e', border: 'none', borderRadius: 8,
-            padding: '11px 8px', fontSize: 13, fontWeight: 600, color: '#8e8e93',
-            cursor: 'pointer',
-          },
-          onClick: onClose,
-          disabled: saving,
-        }, 'Cancel'),
-        h('button', {
-          style: {
-            flex: 2, background: '#1a2035', border: 'none', borderRadius: 8,
-            padding: '11px 8px', fontSize: 13, fontWeight: 600, color: '#5B8AF0',
-            cursor: 'pointer',
-          },
-          onClick: handleSave,
-          disabled: saving,
-        }, saving ? 'Saving…' : 'Save changes'),
-      ),
-
-      // Confirm delete overlay
-      confirming && h('div', {
-        style: {
-          position: 'absolute', inset: 0,
-          background: 'rgba(0,0,0,0.80)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          borderRadius: '16px 16px 0 0',
-        },
-      },
-        h('div', {
-          style: {
-            background: '#2c2c2e', borderRadius: 12,
-            padding: '22px 20px', margin: '0 28px', width: '100%',
-          },
-        },
-          h('div', { style: { fontSize: 14, fontWeight: 600, color: '#f5f5f5', marginBottom: 6, textAlign: 'center' } },
-            'Delete this spool?'),
-          h('div', { style: { fontSize: 12, color: '#8e8e93', marginBottom: 18, textAlign: 'center' } },
-            'This cannot be undone.'),
-          h('div', { style: { display: 'flex', gap: 8 } },
-            h('button', {
-              style: {
-                flex: 1, background: '#2a2a2e', border: 'none', borderRadius: 8,
-                padding: '11px 8px', fontSize: 13, fontWeight: 600, color: '#8e8e93',
-                cursor: 'pointer',
-              },
-              onClick: () => setConfirming(false),
-            }, 'Cancel'),
-            h('button', {
-              style: {
-                flex: 2, background: '#3a1515', border: 'none', borderRadius: 8,
-                padding: '11px 8px', fontSize: 13, fontWeight: 600, color: '#e05555',
-                cursor: 'pointer',
-              },
-              onClick: handleDelete,
-            }, 'Delete'),
-          )
-        )
-      ),
+      h(SpoolEditPanel, {
+        spool,
+        identity: true,
+        onSave: (id, patch) => updateSpool(id, patch).then(() => onClose()),
+        onCancel: onClose,
+        onDelete: (id) => deleteSpool(id).then(() => onCloseAll()),
+        onPrintLabel: handlePrintLabel,
+        onPrintSwatchLabel: handlePrintSwatchLabel,
+        printingLabel,
+        printingNiimbotLabel,
+      }),
     )
   )
 }
 
-// ── SlotPopup ────────────────────────────────────────────────
-function SlotPopup({ popup, onClose, spools, updateSpool, deleteSpool }) {
+// ── SlotPopupContent — shared slot detail body: identity block (tappable
+// to open the bound spool), spool-select picker, "Assign & bind". Used by
+// both the mobile bottom-sheet overlay (SlotPopup) and the desktop right
+// DetailPanel (SlotDetailPanel) -- same content, different chrome, per the
+// desktop layout spec ("same panel component for both slot and spool
+// contexts").
+function SlotPopupContent({ popup, spools, onOpenSpool, onAssigned }) {
   const provider = useProvider()
   const [pendingOption, setPendingOption] = useState(null)
-  const [spoolModal, setSpoolModal] = useState(false)
 
   const spoolId = parseInt(popup.spoolId, 10)
   const spool = spools?.find(s => s.id === spoolId)
@@ -694,7 +539,7 @@ function SlotPopup({ popup, onClose, spools, updateSpool, deleteSpool }) {
 
   const assignAndBind = () => {
     provider?.rpc('slot.assignAndBind', { slot: popup.index })
-    onClose()
+    onAssigned?.()
   }
 
   const options = popup.spoolOptions || []
@@ -706,74 +551,88 @@ function SlotPopup({ popup, onClose, spools, updateSpool, deleteSpool }) {
     ? (() => { const cols = popupMultiHexes.split(',').map(h => `#${h.trim().replace('#','')}`); return `linear-gradient(135deg, ${cols[0]} 50%, ${cols[1]} 50%)` })()
     : popup.colorHex
 
+  return h('div', null,
+    h('div', { style: S.popupHeader },
+      h('div', { style: S.popupUnit }, `Slot ${popup.index}`),
+      h('div', { style: S.popupTitle },
+        popup.status === 'needs_bind' ? 'Binding Required'
+          : popup.status === 'empty' ? (popup.index === 8 ? 'No spool loaded' : 'Empty')
+          : `${popup.vendor} · ${popup.material}`
+      ),
+      h('div', { style: S.popupSub },
+        popup.status === 'ok' ? `Currently assigned · spool #${popup.spoolId}` : 'Select a spool below'
+      )
+    ),
+
+    // Spool identity block — tappable if canEditSpool
+    popup.status === 'ok' && h('div', {
+      style: {
+        ...S.currentSpool,
+        cursor: canEditSpool ? 'pointer' : 'default',
+        transition: 'background 0.15s',
+      },
+      onClick: canEditSpool ? () => onOpenSpool(spool) : undefined,
+    },
+      h('div', { style: { ...S.csDot, background: popupSwatchBg } }),
+      h('div', { style: { flex: 1, minWidth: 0 } },
+        h('div', { style: S.csName }, popup.filamentName),
+        h('div', { style: S.csMeta }, `Spool #${popup.spoolId}`),
+        h('div', { style: S.csWbar },
+          h('div', { style: { ...S.csWfill, width: `${pct}%` } })
+        )
+      ),
+      h('div', { style: { textAlign: 'right', flexShrink: 0 } },
+        h('div', { style: S.csPct }, `${pct}%`),
+        h('div', { style: S.csG }, `${Math.round(popup.remainingG || 0)}g left`)
+      ),
+      canEditSpool && h(Icon, { path: ICONS.chevron, size: 16, color: '#555', style: { marginLeft: 4 } }),
+    ),
+
+    h('div', { style: S.popupSec }, 'Select spool'),
+    h('div', { style: S.pickerList, onTouchMove: e => e.stopPropagation() },
+      options.length === 0
+        ? h('div', { style: { padding: '16px', fontSize: 12, color: '#555', textAlign: 'center' } },
+            'No spools available — run Reconcile'
+          )
+        : options.map(option =>
+            h('div', {
+              key: option,
+              style: { ...S.pickerRow, ...(option === displaySelected ? S.pickerRowSelected : {}) },
+              onClick: () => selectSpool(option),
+            },
+              h('div', { style: { ...S.pickerLabel, color: option === displaySelected ? '#6aabda' : '#e8e8ea' } }, option),
+              option === displaySelected && h(Icon, { path: ICONS.chevron, size: 14, color: '#6aabda' })
+            )
+          )
+    ),
+    h('div', {
+      style: S.assignBtn,
+      onClick: assignAndBind,
+    },
+      h(Icon, { path: ICONS.link, size: 16, color: '#6aabda' }),
+      h('span', { style: S.assignLabel }, 'Assign & bind')
+    )
+  )
+}
+
+// ── SlotPopup — mobile bottom-sheet overlay wrapper ─────────
+function SlotPopup({ popup, onClose, spools, updateSpool, deleteSpool }) {
+  const [spoolModal, setSpoolModal] = useState(false)
+  const spoolId = parseInt(popup.spoolId, 10)
+  const spool = spools?.find(s => s.id === spoolId)
+  const canEditSpool = popup.status === 'ok' && popup.spoolId && popup.spoolId !== '—' && popup.spoolId !== 'unavailable' && popup.spoolId !== 'unknown' && spool
+
   return h('div', {
     style: S.popupOverlay,
     onClick: e => { if (e.target === e.currentTarget) onClose() },
   },
     h('div', { style: S.popupSheet },
       h('div', { style: S.popupDrag }),
-      h('div', { style: S.popupHeader },
-        h('div', { style: S.popupUnit }, `Slot ${popup.index}`),
-        h('div', { style: S.popupTitle },
-          popup.status === 'needs_bind' ? 'Binding Required' : `${popup.vendor} · ${popup.material}`
-        ),
-        h('div', { style: S.popupSub },
-          popup.status === 'ok' ? `Currently assigned · spool #${popup.spoolId}` : 'Select a spool below'
-        )
-      ),
-
-      // Spool identity block — tappable if canEditSpool
-      popup.status === 'ok' && h('div', {
-        style: {
-          ...S.currentSpool,
-          cursor: canEditSpool ? 'pointer' : 'default',
-          transition: 'background 0.15s',
-        },
-        onClick: canEditSpool ? () => setSpoolModal(true) : undefined,
-      },
-        h('div', { style: { ...S.csDot, background: popupSwatchBg } }),
-        h('div', { style: { flex: 1, minWidth: 0 } },
-          h('div', { style: S.csName }, popup.filamentName),
-          h('div', { style: S.csMeta }, `Spool #${popup.spoolId}`),
-          h('div', { style: S.csWbar },
-            h('div', { style: { ...S.csWfill, width: `${pct}%` } })
-          )
-        ),
-        h('div', { style: { textAlign: 'right', flexShrink: 0 } },
-          h('div', { style: S.csPct }, `${pct}%`),
-          h('div', { style: S.csG }, `${Math.round(popup.remainingG || 0)}g left`)
-        ),
-        canEditSpool && h(Icon, { path: ICONS.chevron, size: 16, color: '#555', style: { marginLeft: 4 } }),
-      ),
-
-      h('div', { style: S.popupSec }, 'Select spool'),
-      h('div', { style: S.pickerList, onTouchMove: e => e.stopPropagation() },
-        options.length === 0
-          ? h('div', { style: { padding: '16px', fontSize: 12, color: '#555', textAlign: 'center' } },
-              'No spools available — run Reconcile'
-            )
-          : options.map(option =>
-              h('div', {
-                key: option,
-                style: { ...S.pickerRow, ...(option === displaySelected ? S.pickerRowSelected : {}) },
-                onClick: () => selectSpool(option),
-              },
-                h('div', { style: { ...S.pickerLabel, color: option === displaySelected ? '#6aabda' : '#e8e8ea' } }, option),
-                option === displaySelected && h(Icon, { path: ICONS.chevron, size: 14, color: '#6aabda' })
-              )
-            )
-      ),
-      h('div', {
-        style: S.assignBtn,
-        onClick: assignAndBind,
-      },
-        h(Icon, { path: ICONS.link, size: 16, color: '#6aabda' }),
-        h('span', { style: S.assignLabel }, 'Assign & bind')
-      )
+      h(SlotPopupContent, { popup, spools, onOpenSpool: () => setSpoolModal(true), onAssigned: onClose }),
     ),
 
-    // SpoolModal renders above the slot popup sheet
-    spoolModal && canEditSpool && h(SpoolModal, {
+    // SpoolSheet renders above the slot popup sheet
+    spoolModal && canEditSpool && h(SpoolSheet, {
       spool,
       updateSpool,
       deleteSpool,
@@ -783,11 +642,31 @@ function SlotPopup({ popup, onClose, spools, updateSpool, deleteSpool }) {
   )
 }
 
+// ── SlotDetailPanel — desktop right-panel content for a selected slot.
+// Same SlotPopupContent body as mobile, no overlay chrome; tapping the bound
+// spool routes to the spool context (onOpenSpool) instead of opening another
+// sheet, since there's only one persistent detail panel at desktop widths.
+export function SlotDetailPanel({ popup, spools, onOpenSpool }) {
+  return h(SlotPopupContent, { popup, spools, onOpenSpool })
+}
+
 // ── Default export: wires SlotsSegment + SlotPopup ──────────
-export default function SlotsTab({ spools, updateSpool, deleteSpool }) {
+// At desktop widths (isDesktop + onSelectSlot supplied by FilamentIQCard),
+// a slot click routes to the parent's selected-entity state -> right
+// DetailPanel instead of opening the local mobile overlay. Falls back to
+// the mobile popup whenever onSelectSlot isn't wired up (e.g. the HA card /
+// printer-dashboard surfaces, which stay mobile-only and never pass it).
+export default function SlotsTab({ spools, updateSpool, deleteSpool, isDesktop, onSelectSlot }) {
   const [popup, setPopup] = useState(null)
+  const handlePopup = (data) => {
+    if (isDesktop && onSelectSlot) {
+      onSelectSlot(data)
+    } else {
+      setPopup(data)
+    }
+  }
   return h('div', { style: { position: 'relative' } },
-    h(SlotsSegment, { onPopup: setPopup, spools }),
+    h(SlotsSegment, { onPopup: handlePopup, spools, isDesktop }),
     popup && h(SlotPopup, { popup, onClose: () => setPopup(null), spools, updateSpool, deleteSpool })
   )
 }

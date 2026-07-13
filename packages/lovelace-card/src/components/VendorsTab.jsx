@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'preact/hooks'
 import { ConfirmDialog } from './ConfirmDialog'
 
-function VendorEditPanel({ vendor, onSave, onCancel, onDelete }) {
+export function VendorEditPanel({ vendor, onSave, onCancel, onDelete }) {
   const [name, setName] = useState(vendor.name || '')
   const [comment, setComment] = useState(vendor.comment || '')
   const [confirming, setConfirming] = useState(false)
@@ -84,10 +84,20 @@ function VendorAddRow({ onCreate, onCancel }) {
   )
 }
 
-export function VendorsTab({ vendors, filaments, updateVendor, deleteVendor, createVendor }) {
+const VENDOR_SORT_COLUMNS = [
+  { key: 'name', label: 'Vendor' },
+  { key: 'comment', label: 'Comment' },
+  { key: 'count', label: 'Filaments' },
+]
+
+// isDesktop/selected/onSelect are no-ops unless a desktop shell passes them
+// (see FilamentIQCard.jsx) -- mobile behavior (inline expand) is unchanged.
+export function VendorsTab({ vendors, filaments, updateVendor, deleteVendor, createVendor, isDesktop, selected, onSelect }) {
   const [search, setSearch] = useState('')
   const [editId, setEditId] = useState(null)
   const [adding, setAdding] = useState(false)
+  const [sortKey, setSortKey] = useState('name')
+  const [sortDir, setSortDir] = useState('asc')
 
   const filamentCounts = useMemo(() => {
     const counts = {}
@@ -106,6 +116,33 @@ export function VendorsTab({ vendors, filaments, updateVendor, deleteVendor, cre
     })
   }, [vendors, search])
 
+  const sorted = useMemo(() => {
+    if (!isDesktop) return filtered
+    const dir = sortDir === 'asc' ? 1 : -1
+    return [...filtered].sort((a, b) => {
+      let av, bv
+      if (sortKey === 'count') { av = filamentCounts[a.id] || 0; bv = filamentCounts[b.id] || 0 }
+      else { av = (a[sortKey] || '').toLowerCase(); bv = (b[sortKey] || '').toLowerCase() }
+      if (av < bv) return -1 * dir
+      if (av > bv) return 1 * dir
+      return 0
+    })
+  }, [filtered, isDesktop, sortKey, sortDir, filamentCounts])
+
+  const handleSort = (key) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }
+
+  const handleRowClick = (vendor) => {
+    if (isDesktop) {
+      onSelect?.({ type: 'vendor', id: vendor.id })
+    } else {
+      setEditId(prev => prev === vendor.id ? null : vendor.id)
+      setAdding(false)
+    }
+  }
+
   return (
     <div>
       <div class="fiq-toolbar">
@@ -121,12 +158,25 @@ export function VendorsTab({ vendors, filaments, updateVendor, deleteVendor, cre
         />
       )}
 
+      {isDesktop && (
+        <div class="fiq-table-header cols-4">
+          {VENDOR_SORT_COLUMNS.map(col => (
+            <button key={col.key} class="fiq-th-sort" onClick={() => handleSort(col.key)}>
+              {col.label}
+              {sortKey === col.key && <span class="fiq-th-sort-arrow">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+            </button>
+          ))}
+          <span />
+        </div>
+      )}
+
       <div class="fiq-table">
-        {filtered.map(vendor => {
-          const expanded = editId === vendor.id
+        {sorted.map(vendor => {
+          const expanded = !isDesktop && editId === vendor.id
+          const isSelected = isDesktop && selected?.type === 'vendor' && selected?.id === vendor.id
           return (
-            <div key={vendor.id} class={`fiq-row${expanded ? ' expanded' : ''}`}>
-              <div class="fiq-row-main cols-4" onClick={() => { setEditId(expanded ? null : vendor.id); setAdding(false) }}>
+            <div key={vendor.id} class={`fiq-row${expanded ? ' expanded' : ''}${isSelected ? ' fiq-row-selected' : ''}`}>
+              <div class="fiq-row-main cols-4" onClick={() => handleRowClick(vendor)}>
                 <div>
                   <div class="fiq-fname">{vendor.name || '—'}</div>
                   <div class="fiq-fsub">{vendor.external_id || ''}</div>
@@ -134,7 +184,9 @@ export function VendorsTab({ vendors, filaments, updateVendor, deleteVendor, cre
                 <div class="fiq-cell">{vendor.comment || ''}</div>
                 <div class="fiq-cell">{filamentCounts[vendor.id] || 0} filaments</div>
                 <div class="fiq-row-acts">
-                  <button class={`fiq-icon-btn${expanded ? ' icon-active' : ''}`} onClick={e => { e.stopPropagation(); setEditId(expanded ? null : vendor.id); setAdding(false) }}>✏</button>
+                  {isDesktop
+                    ? <span class="fiq-cell right">›</span>
+                    : <button class={`fiq-icon-btn${expanded ? ' icon-active' : ''}`} onClick={e => { e.stopPropagation(); handleRowClick(vendor) }}>✏</button>}
                 </div>
               </div>
               {expanded && (
@@ -149,6 +201,10 @@ export function VendorsTab({ vendors, filaments, updateVendor, deleteVendor, cre
           )
         })}
       </div>
+
+      {isDesktop && (
+        <div class="fiq-table-footer">{sorted.length} vendor{sorted.length !== 1 ? 's' : ''}</div>
+      )}
     </div>
   )
 }
