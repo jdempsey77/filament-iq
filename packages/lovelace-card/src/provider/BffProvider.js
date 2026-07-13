@@ -96,16 +96,30 @@ export class BffProvider {
     if (this._eventSource) return
     const es = new EventSource(`${this._baseUrl}/events`)
     es.onmessage = (evt) => {
+      let snapshot
       try {
-        const snapshot = JSON.parse(evt.data)
-        this._snapshot = snapshot
-        cacheSet('snapshot', snapshot)
-        for (const cb of this._subscribers) cb(snapshot)
-      } catch (_) { /* malformed frame -- skip, keep prior snapshot */ }
+        snapshot = JSON.parse(evt.data)
+      } catch (e) {
+        // Surfaced, not swallowed: a malformed frame here (e.g. a proxy
+        // mangling/truncating the response in transit) previously failed
+        // silently, leaving the shell stuck on stale cached data with no
+        // visible error to debug from.
+        console.error('[BffProvider] malformed SSE frame, keeping prior snapshot', e, evt.data?.slice(0, 200))
+        return
+      }
+      if (!Array.isArray(snapshot?.slots) || !Array.isArray(snapshot?.amsUnits)) {
+        console.error('[BffProvider] SSE frame missing expected shape, keeping prior snapshot', snapshot)
+        return
+      }
+      this._snapshot = snapshot
+      cacheSet('snapshot', snapshot)
+      for (const cb of this._subscribers) cb(snapshot)
     }
     es.onerror = () => {
       // EventSource auto-reconnects on its own with the browser's built-in
-      // backoff; nothing to do here beyond letting it retry.
+      // backoff; log so a broken connection is visible instead of the UI
+      // just silently sitting on stale data with no indication why.
+      console.warn('[BffProvider] SSE connection error -- browser will auto-reconnect')
     }
     this._eventSource = es
   }
