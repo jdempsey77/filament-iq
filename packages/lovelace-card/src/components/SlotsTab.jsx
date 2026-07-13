@@ -137,8 +137,14 @@ function SlotRow({ n, data, onPopup, spools, borderBottom = true }) {
       .then((d) => {
         if (!cancelled) setProfileStatus(d.status || 'unverified')
       })
-      .catch(() => {
-        if (!cancelled) setProfileStatus('unavailable')
+      .catch((e) => {
+        // Known-unavailable (no AppDaemon listener) on every slot right
+        // now -- a persistent pip on all 8 rows for a feature nobody can
+        // use yet is noise, not signal. Stay at the default 'idle' (which
+        // already renders nothing); log so it's still debuggable. Self-
+        // healing: once the listener exists, this starts rendering real
+        // verified/candidate pips with no further change needed here.
+        console.warn('[SlotRow] profileLookup unavailable:', e?.message || e)
       })
     return () => { cancelled = true }
   }, [])
@@ -188,7 +194,6 @@ function SlotRow({ n, data, onPopup, spools, borderBottom = true }) {
         h('span', { style: { fontSize: 11, color: '#8e8e93', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, data.filamentName),
         profileStatus === 'verified' && h('span', { class: 'fiq-slot-profile-pip fiq-slot-pip-verified', title: 'Profile verified' }, '✓ Profile'),
         profileStatus === 'candidate' && h('span', { class: 'fiq-slot-profile-pip fiq-slot-pip-candidate', title: 'Profile unverified — verify in Filaments tab' }, '? Unverified'),
-        profileStatus === 'unavailable' && h('span', { class: 'fiq-slot-profile-pip fiq-slot-pip-unavailable', title: 'Profile check unavailable' }, '— Unavailable'),
       ),
       !isEmpty && h('div', { style: { width: '100%', height: 2, background: '#3a3a3c', borderRadius: 2, overflow: 'hidden', marginTop: 2 } },
         h('div', { style: { width: `${pct}%`, height: '100%', borderRadius: 2, background: barColor } })
