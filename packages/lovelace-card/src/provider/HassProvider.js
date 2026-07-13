@@ -1,5 +1,19 @@
 import { ProxyClient } from '../api/proxy'
 
+// Confirmed via git history (home_assistant repo, appdaemon/apps/apps.yaml)
+// on 2026-07-12: filament_profile_lookup.py was added 2026-05-23 (commit
+// 98f1684) but only apps.yaml.example was updated, never the real
+// apps.yaml -- no AppDaemon listener has ever existed for these event
+// types. Fail fast instead of waiting out fireAndAwait's full 10-30s
+// timeout for a response that structurally cannot arrive. Remove from
+// this set (not the case blocks below, which stay correct and ready)
+// once the app is actually registered.
+const UNAVAILABLE_VERBS = new Set([
+  'filament.profileLookup',
+  'filament.profileVerify',
+  'filament.profileBulkStatus',
+])
+
 function generateId() {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
   return Math.random().toString(36).slice(2)
@@ -263,6 +277,9 @@ export class HassProvider {
   }
 
   rpc(name, payload = {}) {
+    if (UNAVAILABLE_VERBS.has(name)) {
+      return Promise.reject(new Error(`${name}: no AppDaemon listener registered (filament_profile_lookup not in apps.yaml)`))
+    }
     switch (name) {
       // ── Spoolman CRUD (filament_iq_proxy passthrough) ──────────
       // spool/filament/vendor all hit the identical proxy shape — one

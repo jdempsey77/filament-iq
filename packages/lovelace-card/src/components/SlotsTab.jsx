@@ -137,7 +137,9 @@ function SlotRow({ n, data, onPopup, spools, borderBottom = true }) {
       .then((d) => {
         if (!cancelled) setProfileStatus(d.status || 'unverified')
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!cancelled) setProfileStatus('unavailable')
+      })
     return () => { cancelled = true }
   }, [])
 
@@ -186,6 +188,7 @@ function SlotRow({ n, data, onPopup, spools, borderBottom = true }) {
         h('span', { style: { fontSize: 11, color: '#8e8e93', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, data.filamentName),
         profileStatus === 'verified' && h('span', { class: 'fiq-slot-profile-pip fiq-slot-pip-verified', title: 'Profile verified' }, '✓ Profile'),
         profileStatus === 'candidate' && h('span', { class: 'fiq-slot-profile-pip fiq-slot-pip-candidate', title: 'Profile unverified — verify in Filaments tab' }, '? Unverified'),
+        profileStatus === 'unavailable' && h('span', { class: 'fiq-slot-profile-pip fiq-slot-pip-unavailable', title: 'Profile check unavailable' }, '— Unavailable'),
       ),
       !isEmpty && h('div', { style: { width: '100%', height: 2, background: '#3a3a3c', borderRadius: 2, overflow: 'hidden', marginTop: 2 } },
         h('div', { style: { width: `${pct}%`, height: '100%', borderRadius: 2, background: barColor } })

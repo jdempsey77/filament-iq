@@ -480,6 +480,7 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
   const [adding, setAdding] = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [profileStatuses, setProfileStatuses] = useState({})
+  const [profileStatusesUnavailable, setProfileStatusesUnavailable] = useState(false)
 
   useEffect(() => {
     if (!provider) return
@@ -488,7 +489,14 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
       .then((statuses) => {
         if (!cancelled) setProfileStatuses(statuses)
       })
-      .catch(() => {})
+      .catch(() => {
+        // Silent before: the profile filter dropdown would just show
+        // misleadingly empty/wrong results (pStatus undefined for every
+        // filament) with no indication why. Each row's own profileLookup
+        // effect still surfaces "Profile lookup unavailable" independently
+        // -- this only needs to disable the filter, not repeat that message.
+        if (!cancelled) setProfileStatusesUnavailable(true)
+      })
     return () => { cancelled = true }
   }, [])
 
@@ -534,8 +542,14 @@ export function FilamentsTab({ filaments, vendors, updateFilament, deleteFilamen
           <option value="">All materials</option>
           {allMaterials.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
-        <select class="fiq-filter" value={profileFilter} onChange={e => setProfileFilter(e.target.value)}>
-          <option value="">All profiles</option>
+        <select
+          class="fiq-filter"
+          value={profileFilter}
+          onChange={e => setProfileFilter(e.target.value)}
+          disabled={profileStatusesUnavailable}
+          title={profileStatusesUnavailable ? 'Profile status check unavailable' : ''}
+        >
+          <option value="">{profileStatusesUnavailable ? 'Profiles unavailable' : 'All profiles'}</option>
           <option value="verified">✓ Verified</option>
           <option value="needs_verification">? Needs verification</option>
         </select>

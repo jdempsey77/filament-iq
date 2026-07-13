@@ -1,5 +1,16 @@
 import { cacheGet, cacheSet } from '../cache'
 
+// Mirrors HassProvider.js's UNAVAILABLE_VERBS exactly -- confirmed via git
+// history on 2026-07-12 that no AppDaemon listener has ever existed for
+// these event types (filament_profile_lookup.py added 2026-05-23 but never
+// registered in the real apps.yaml). The BFF (rpc.py) fails fast on these
+// too; gating here as well avoids even the network round-trip.
+const UNAVAILABLE_VERBS = new Set([
+  'filament.profileLookup',
+  'filament.profileVerify',
+  'filament.profileBulkStatus',
+])
+
 // Same 8 slots / 4 AMS units shape HassProvider.getState() always returns,
 // even with no data yet -- so components never need a "provider not ready"
 // special case. No entity ids here, just the domain contract's own literal
@@ -70,6 +81,9 @@ export class BffProvider {
   }
 
   async rpc(name, payload = {}) {
+    if (UNAVAILABLE_VERBS.has(name)) {
+      throw new Error(`${name}: no AppDaemon listener registered (filament_profile_lookup not in apps.yaml)`)
+    }
     // No Authorization header set here on purpose: POST /rpc/* requires
     // HTTP Basic as defense-in-depth behind Authelia. The browser's native
     // Basic-auth prompt (triggered by the server's 401 challenge, cached
