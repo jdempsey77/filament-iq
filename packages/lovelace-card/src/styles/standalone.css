@@ -1,0 +1,20 @@
+/* Full-page wrapper for the standalone shell -- .fiq-card itself is styled
+   for HA's rounded-card Lovelace grid; this makes it fill the viewport
+   instead, and prevents a white flash before card.css/the dark background
+   apply on a cold PWA launch. */
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #111113;
+}
+#app {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+#app .fiq-card {
+  flex: 1;
+  border-radius: 0;
+  height: 100%;
+}

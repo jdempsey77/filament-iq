@@ -137,7 +137,15 @@ function SlotRow({ n, data, onPopup, spools, borderBottom = true }) {
       .then((d) => {
         if (!cancelled) setProfileStatus(d.status || 'unverified')
       })
-      .catch(() => {})
+      .catch((e) => {
+        // Known-unavailable (no AppDaemon listener) on every slot right
+        // now -- a persistent pip on all 8 rows for a feature nobody can
+        // use yet is noise, not signal. Stay at the default 'idle' (which
+        // already renders nothing); log so it's still debuggable. Self-
+        // healing: once the listener exists, this starts rendering real
+        // verified/candidate pips with no further change needed here.
+        console.warn('[SlotRow] profileLookup unavailable:', e?.message || e)
+      })
     return () => { cancelled = true }
   }, [])
 
