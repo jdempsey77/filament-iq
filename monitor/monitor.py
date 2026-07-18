@@ -913,6 +913,7 @@ _NIIMBOT_SCRIPT = "/home/jdempsey/print_niimbot.sh"
 _NIIMBOT_POLL_S = 5
 _NIIMBOT_TIMEOUT_S = 120
 _NIIMBOT_ERROR_SLEEP_S = 10
+_NIIMBOT_RETRY_DELAY_S = 30
 
 
 class NiimbotPrintLoop:
@@ -946,6 +947,14 @@ class NiimbotPrintLoop:
             return
 
         rc = self._print_once(filament_id)
+        if rc != 0 and not self.shutdown.is_set():
+            log.warning(
+                "NIIMBOT_PRINT_RETRY filament_id=%s in %ds (first attempt rc=%d)",
+                filament_id, _NIIMBOT_RETRY_DELAY_S, rc,
+            )
+            self.shutdown.wait(_NIIMBOT_RETRY_DELAY_S)
+            if not self.shutdown.is_set():
+                rc = self._print_once(filament_id)
 
         self._clear_queue()
         log.info("NIIMBOT_PRINT_DONE filament_id=%s returncode=%d", filament_id, rc)
