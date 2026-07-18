@@ -105,6 +105,35 @@ project rules). `label.print`/`label.printNiimbot` remain physically
 unverified until the user runs one — see the "Hardware verbs never
 physically verified" note this entry does NOT yet retire.
 
+**Update, same day**: user ran real print attempts. The lock/retry fix above
+was confirmed working correctly, but 8 straight attempts still failed — all
+died immediately on BLE connect, before any print protocol data went out.
+Root cause turned out to be a stale/zombie `Connected: yes` device state at
+the BlueZ layer on ska, never cleared because every observed failure was a
+fast in-process exception (well under the 120s subprocess timeout), so the
+`TimeoutExpired`-only force-disconnect added above never actually fired.
+User-approved `bluetoothctl disconnect` + `bluetoothctl remove` on ska
+(state change, not a code change) cleared it. Two real prints succeeded
+immediately after (`returncode=0`), and heartbeat ran clean for ~37 minutes
+(9 consecutive `NIIMBOT_HEARTBEAT_OK`, 10:42–11:19) — a sharp contrast with
+the near-constant failures beforehand. **However this was temporary, not a
+lasting fix**: heartbeat reverted to `timeout>20s` failure at 11:23 and
+stayed failed continuously afterward (15+ consecutive fails through at
+least 12:28, no code or state changes made in between). The bond-clear
+provided real but time-limited relief — whatever accumulates to cause the
+BlueZ-side stuck state recurs within roughly half an hour of clearing it.
+**`label.printNiimbot` is physically verified as capable of working**
+(2 real prints succeeded) but the underlying BLE instability is NOT
+resolved and should not be considered fixed — see the "Hardware verbs
+never physically verified" note, which should be updated to reflect
+"verified working intermittently," not "verified reliable."
+`label.print` (Brother QL-810W) remains completely unverified. Full detail
+in d5-automation `ECOSYSTEM_STATE.md` (2026-07-18 entries), including 3
+follow-up gaps identified live and left for a future
+session: the `[:500]` stderr truncation, force-disconnect's `TimeoutExpired`-
+only scope, and a `_clear_queue()` race that silently drops a second print
+request queued while the first is still in-flight.
+
 ### 2026-05-25 — RunoutTracker zero-write: post-write remaining zeroed for ran_out slots (v1.10.2)
 
 **Decision**: Zero-write belongs in `AMSPrintUsageSync`, NOT `RunoutTracker`. When `input_boolean.ams_slot_N_ran_out` is on at print finish, the consumption estimate may undershot (Spoolman shows non-zero remaining after the /use write). Fix has two parts:
