@@ -878,6 +878,34 @@ class PrintLifecycleMonitor:
         self._persist_state()
 
 
+# ── Shared BLE coordination (Loops 4 & 5) ──────────────────────────────
+# Loop 4 (print) and Loop 5 (heartbeat) each spawn an independent subprocess
+# that opens its own BLE connection to the same D11_H MAC. BlueZ only
+# supports one live connection per peripheral, so the lock below serializes
+# access. A subprocess.run(timeout=...) SIGKILLs the child on timeout, which
+# skips the child's `async with BleakClient` cleanup and can leave BlueZ
+# believing the device is still connected — the force-disconnect clears
+# that zombie state so the next attempt isn't blocked by it.
+
+_D11_MAC = "C9:44:3A:01:03:09"
+
+_D11_BLE_LOCK = threading.Lock()
+
+
+def _ble_force_disconnect(mac: str) -> None:
+    """Best-effort BlueZ-level disconnect after a subprocess.run() timeout
+    SIGKILLs a BLE child before it can clean up its own connection."""
+    try:
+        subprocess.run(
+            ["bluetoothctl", "disconnect", mac],
+            timeout=5,
+            capture_output=True,
+            text=True,
+        )
+    except Exception as e:
+        log.warning("NIIMBOT_FORCE_DISCONNECT_FAILED MAC=%s error=%s", mac, e)
+
+
 # ── Loop 4: Niimbot Print Queue ──────────────────────────────────────
 
 _NIIMBOT_HELPER = "input_text.filament_iq_niimbot_print_queue"
@@ -917,7 +945,14 @@ class NiimbotPrintLoop:
         if not filament_id:
             return
 
+        rc = self._print_once(filament_id)
+
+        self._clear_queue()
+        log.info("NIIMBOT_PRINT_DONE filament_id=%s returncode=%d", filament_id, rc)
+
+    def _print_once(self, filament_id: str) -> int:
         log.info("NIIMBOT_PRINT_START filament_id=%s", filament_id)
+        _D11_BLE_LOCK.acquire()
         try:
             result = subprocess.run(
                 [_NIIMBOT_SCRIPT, filament_id],
@@ -931,16 +966,16 @@ class NiimbotPrintLoop:
                     "NIIMBOT_PRINT_FAILED filament_id=%s returncode=%d stdout=%s stderr=%s",
                     filament_id, rc, result.stdout.strip()[:500], result.stderr.strip()[:500],
                 )
+            return rc
         except subprocess.TimeoutExpired:
             log.error("NIIMBOT_TIMEOUT filament_id=%s (>%ds)", filament_id, _NIIMBOT_TIMEOUT_S)
-            rc = -1
+            _ble_force_disconnect(_D11_MAC)
+            return -1
         except Exception as e:
             log.error("NIIMBOT_SUBPROCESS_ERROR filament_id=%s: %s", filament_id, e)
-            rc = -1
+            return -1
         finally:
-            self._clear_queue()
-
-        log.info("NIIMBOT_PRINT_DONE filament_id=%s returncode=%d", filament_id, rc)
+            _D11_BLE_LOCK.release()
 
     def _clear_queue(self) -> None:
         """Clear the Niimbot print queue helper in HA."""
@@ -950,8 +985,8 @@ class NiimbotPrintLoop:
 
 
 # ── Loop 5: D11 Heartbeat ────────────────────────────────────────────
+# (_D11_MAC and _D11_BLE_LOCK are defined above, shared with Loop 4)
 
-_D11_MAC = "C9:44:3A:01:03:09"
 _D11_GATT_CHAR = "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"
 _D11_PYTHON = "/home/jdempsey/niimprint-311-env/bin/python3"
 _D11_HEARTBEAT_INTERVAL_S = 240  # 4 minutes
@@ -986,6 +1021,7 @@ class D11HeartbeatLoop:
             self.shutdown.wait(_D11_HEARTBEAT_INTERVAL_S)
 
     def _heartbeat(self) -> None:
+        _D11_BLE_LOCK.acquire()
         try:
             result = subprocess.run(
                 [_D11_PYTHON, "-c", _D11_SCRIPT],
@@ -1003,8 +1039,11 @@ class D11HeartbeatLoop:
                 )
         except subprocess.TimeoutExpired:
             log.warning("NIIMBOT_HEARTBEAT_FAIL MAC=%s timeout>%ds", _D11_MAC, _D11_HEARTBEAT_TIMEOUT_S)
+            _ble_force_disconnect(_D11_MAC)
         except Exception as e:
             log.warning("NIIMBOT_HEARTBEAT_FAIL MAC=%s error=%s", _D11_MAC, e)
+        finally:
+            _D11_BLE_LOCK.release()
 
 
 # ── Main ─────────────────────────────────────────────────────────────
