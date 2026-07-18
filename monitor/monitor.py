@@ -926,6 +926,11 @@ class NiimbotPrintLoop:
                 text=True,
             )
             rc = result.returncode
+            if rc != 0:
+                log.error(
+                    "NIIMBOT_PRINT_FAILED filament_id=%s returncode=%d stdout=%s stderr=%s",
+                    filament_id, rc, result.stdout.strip()[:500], result.stderr.strip()[:500],
+                )
         except subprocess.TimeoutExpired:
             log.error("NIIMBOT_TIMEOUT filament_id=%s (>%ds)", filament_id, _NIIMBOT_TIMEOUT_S)
             rc = -1
