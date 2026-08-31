@@ -414,10 +414,17 @@ class AmsRfidReconcile(FilamentIQBase):
                     self._external_slot = int(slots[0])
                     break
 
-        self._last_mapping_json_entity = str(
+        # Last-mapping snapshot is written to a file (read by the
+        # sensor.filament_iq_last_mapping_json command_line sensor), not an
+        # input_text helper — the helper was retired to dodge HA's 255-char limit.
+        # Must live in the shared HA config dir: AppDaemon sees it as
+        # /homeassistant, HA Core (which runs the command_line sensor) sees the
+        # same dir as /config. HA Core cannot read the addon's own /config
+        # (/addon_configs/<slug>), so the file has to go here to be readable.
+        self._last_mapping_json_path = str(
             self.args.get(
-                "last_mapping_json_entity",
-                "input_text.filament_iq_last_mapping_json",
+                "last_mapping_json_path",
+                "/homeassistant/filament_iq/filament_iq_last_mapping.json",
             )
         ).strip()
 
@@ -4273,21 +4280,36 @@ class AmsRfidReconcile(FilamentIQBase):
     _LAST_MAPPING_JSON_MAX = 255
 
     def write_last_mapping_json(self, reason, mapping):
-        """Write compact JSON to last_mapping_json_entity. Always <= 255 chars."""
+        """Write compact JSON to the last_mapping_json file (read by the
+        sensor.filament_iq_last_mapping_json command_line sensor). Kept <= 255
+        chars so the command_line sensor's state stays within HA's limit."""
         ts = datetime.datetime.now().isoformat()[:19]
         out = json.dumps({"ts": ts, "reason": reason, "mapping": mapping}, separators=(",", ":"))
         if len(out) <= self._LAST_MAPPING_JSON_MAX:
-            self._set_helper(self._last_mapping_json_entity, out)
+            self._write_last_mapping_file(out)
             return
         out = json.dumps({"reason": reason[:32], "mapping": mapping}, separators=(",", ":"))
         if len(out) <= self._LAST_MAPPING_JSON_MAX:
-            self._set_helper(self._last_mapping_json_entity, out)
+            self._write_last_mapping_file(out)
             return
         out = json.dumps({"mapping": mapping}, separators=(",", ":"))
         if len(out) <= self._LAST_MAPPING_JSON_MAX:
-            self._set_helper(self._last_mapping_json_entity, out)
+            self._write_last_mapping_file(out)
             return
-        self._set_helper(self._last_mapping_json_entity, out[:self._LAST_MAPPING_JSON_MAX])
+        self._write_last_mapping_file(out[:self._LAST_MAPPING_JSON_MAX])
+
+    def _write_last_mapping_file(self, out):
+        """Atomically write the compact mapping JSON to self._last_mapping_json_path."""
+        path = self._last_mapping_json_path
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = f"{path}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(out)
+            os.replace(tmp, path)
+            self.log(f"_LAST_MAPPING_WROTE path={path} bytes={len(out)}", level="DEBUG")
+        except OSError as e:
+            self.log(f"write_last_mapping_json: failed to write {path}: {e}", level="WARNING")
 
     def _apply_unbound_reason(self, slot, t, tray_meta, tag_uid, tray_empty, tray_state_str, tray_uuid=""):
         """Set t[\"unbound_reason\"] and t[\"unbound_detail\"], log one INFO line, and write reason to helper."""
