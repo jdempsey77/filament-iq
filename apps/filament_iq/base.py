@@ -88,13 +88,29 @@ class FilamentIQBase(hass.Hass):
         """Wrap each concrete app's initialize() so the notification registry
         loads, self-heals (dismiss-all if already paused), and the pause
         listener registers automatically — no per-app wiring required.
+
+        Two hard guarantees, verified by tests:
+        - The subclass's own initialize() always runs, no matter what
+          _fiq_bootstrap() does (even an exception escaping every internal
+          try/except there is still caught here).
+        - A sentinel on the wrapper (_fiq_is_wrapped) makes wrapping
+          idempotent, so a partial module reload that re-triggers
+          __init_subclass__ on an already-wrapped method cannot stack a
+          second bootstrap call onto every initialize().
         """
         super().__init_subclass__(**kwargs)
         orig_initialize = cls.__dict__.get("initialize")
-        if orig_initialize is not None:
+        if orig_initialize is not None and not getattr(orig_initialize, "_fiq_is_wrapped", False):
             def _fiq_wrapped_initialize(self, *a, **kw):
-                self._fiq_bootstrap()
+                try:
+                    self._fiq_bootstrap()
+                except Exception as exc:
+                    try:
+                        self.log(f"FIQ_BOOTSTRAP_UNEXPECTED_FAILURE error={exc}", level="WARNING")
+                    except Exception:
+                        pass
                 return orig_initialize(self, *a, **kw)
+            _fiq_wrapped_initialize._fiq_is_wrapped = True
             cls.initialize = _fiq_wrapped_initialize
 
     def _fiq_bootstrap(self) -> None:

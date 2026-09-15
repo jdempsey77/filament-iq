@@ -403,3 +403,96 @@ class TestNotificationRegistry:
         )
         assert app._fiq_registry == ["nid_untouched"]
         assert app._service_calls == []
+
+
+# ── initialize() wrapper robustness ─────────────────────────────────
+
+class _TestableInitializeRaises(_TestableRegistryApp):
+    """Own initialize() always raises, to prove the pause listener still
+    registers (it runs inside _fiq_bootstrap, before this is ever called)."""
+
+    def initialize(self):
+        raise RuntimeError("subclass initialize blew up")
+
+
+class _TestableCountingInit(_TestableRegistryApp):
+    """Counts how many times its own initialize() body actually runs."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.initialize_call_count = 0
+
+    def initialize(self):
+        self.initialize_call_count += 1
+
+
+class TestInitializeWrapperRobustness:
+
+    def test_orig_initialize_always_called_even_if_bootstrap_blows_up(self, tmp_path):
+        """Simulate an exception escaping every internal try/except inside
+        _fiq_bootstrap (e.g. a bug in the exception-handling path itself) —
+        the subclass's own initialize() must still run."""
+        app = _TestableAppWithInit(
+            args={}, state_map={"input_boolean.filament_iq_enabled": "on"}, data_dir=str(tmp_path),
+        )
+
+        def _boom():
+            raise RuntimeError("bootstrap itself is broken")
+
+        app._fiq_bootstrap = _boom
+        app.initialize()
+        assert app.initialize_called is True
+
+    def test_orig_initialize_always_called_when_log_also_raises(self, tmp_path):
+        """Even the fallback log() call in the wrapper's own except-handler
+        can raise (e.g. AppDaemon not fully up yet) — still must not block
+        the subclass's initialize()."""
+        app = _TestableAppWithInit(
+            args={}, state_map={"input_boolean.filament_iq_enabled": "on"}, data_dir=str(tmp_path),
+        )
+
+        def _boom():
+            raise RuntimeError("bootstrap broken")
+
+        def _log_boom(msg, level="INFO"):
+            raise RuntimeError("logging broken too")
+
+        app._fiq_bootstrap = _boom
+        app.log = _log_boom
+        app.initialize()  # must not raise
+        assert app.initialize_called is True
+
+    def test_pause_listener_registered_even_if_subclass_initialize_raises(self, tmp_path):
+        app = _TestableInitializeRaises(
+            args={}, state_map={"input_boolean.filament_iq_enabled": "on"}, data_dir=str(tmp_path),
+        )
+        with pytest.raises(RuntimeError, match="subclass initialize blew up"):
+            app.initialize()
+        assert len(app._listen_state_calls) == 1
+        assert app._listen_state_calls[0]["entity_id"] == "input_boolean.filament_iq_enabled"
+
+    def test_sentinel_marks_wrapped_initialize(self):
+        assert getattr(_TestableAppWithInit.__dict__["initialize"], "_fiq_is_wrapped", False) is True
+
+    def test_sentinel_prevents_double_wrap_on_reinit_subclass_hook(self, tmp_path):
+        """Simulate __init_subclass__ re-firing on an already-wrapped class
+        (e.g. a partial module reload calling the hook again on the same
+        method object) — bootstrap must not stack a second call per
+        initialize()."""
+        # Re-trigger the hook directly against the already-wrapped class.
+        FilamentIQBase.__init_subclass__.__func__(_TestableCountingInit)
+
+        app = _TestableCountingInit(
+            args={}, state_map={"input_boolean.filament_iq_enabled": "on"}, data_dir=str(tmp_path),
+        )
+        bootstrap_calls = []
+        real_bootstrap = app._fiq_bootstrap
+
+        def _counting_bootstrap():
+            bootstrap_calls.append(1)
+            real_bootstrap()
+
+        app._fiq_bootstrap = _counting_bootstrap
+        app.initialize()
+        assert len(bootstrap_calls) == 1
+        assert app.initialize_call_count == 1
