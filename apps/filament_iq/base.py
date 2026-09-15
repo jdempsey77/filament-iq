@@ -101,7 +101,11 @@ class FilamentIQBase(hass.Hass):
         super().__init_subclass__(**kwargs)
         orig_initialize = cls.__dict__.get("initialize")
         if orig_initialize is not None and not getattr(orig_initialize, "_fiq_is_wrapped", False):
-            def _fiq_wrapped_initialize(self, *a, **kw):
+            def _fiq_wrapped_initialize(self):
+                # AppDaemon introspects initialize()'s signature before
+                # calling it and rejects anything other than (self) — no
+                # *args/**kwargs passthrough here, and it is always called
+                # with zero arguments in practice.
                 try:
                     self._fiq_bootstrap()
                 except Exception as exc:
@@ -109,7 +113,7 @@ class FilamentIQBase(hass.Hass):
                         self.log(f"FIQ_BOOTSTRAP_UNEXPECTED_FAILURE error={exc}", level="WARNING")
                     except Exception:
                         pass
-                return orig_initialize(self, *a, **kw)
+                return orig_initialize(self)
             _fiq_wrapped_initialize._fiq_is_wrapped = True
             cls.initialize = _fiq_wrapped_initialize
 

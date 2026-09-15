@@ -5,6 +5,7 @@ pause switch gate.
 Run: python -m pytest tests/test_base_fiq_gate.py -v
 """
 
+import inspect
 import os
 import sys
 import types
@@ -473,6 +474,21 @@ class TestInitializeWrapperRobustness:
 
     def test_sentinel_marks_wrapped_initialize(self):
         assert getattr(_TestableAppWithInit.__dict__["initialize"], "_fiq_is_wrapped", False) is True
+
+    def test_wrapped_initialize_signature_is_self_only(self):
+        """AppDaemon introspects initialize()'s signature before calling it
+        and rejects anything other than exactly (self) — no *args/**kwargs
+        passthrough, since AppDaemon always calls it with zero arguments.
+        Regression test: an earlier version of the wrapper used
+        (self, *a, **kw) and every app failed to start in production with
+        AppDaemon's BadInitializeMethod error, even though every local test
+        passed (the test harnesses call .initialize() directly and never
+        exercise AppDaemon's own signature validation)."""
+        sig = inspect.signature(_TestableAppWithInit.__dict__["initialize"])
+        params = list(sig.parameters.values())
+        assert len(params) == 1
+        assert params[0].name == "self"
+        assert params[0].kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
 
     def test_sentinel_prevents_double_wrap_on_reinit_subclass_hook(self, tmp_path):
         """Simulate __init_subclass__ re-firing on an already-wrapped class
