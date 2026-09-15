@@ -77,6 +77,66 @@ def build_slot_mappings(prefix: str, ams_units=None):
 class FilamentIQBase(hass.Hass):
     """Base class for FilamentIQ apps. Provides config validation and entity prefix building."""
 
+    FIQ_ENABLED_ENTITY = "input_boolean.filament_iq_enabled"
+
+    def fiq_enabled(self) -> bool:
+        """Read the master pause switch. Fail open: missing/unknown/unavailable/errors -> True.
+
+        Warns once per app instance (not per call) so a typo'd entity name
+        never silently floods the log while still never silently pausing
+        the system.
+        """
+        entity = str(self.args.get("enabled_entity", self.FIQ_ENABLED_ENTITY))
+        try:
+            state = self.get_state(entity)
+        except Exception as exc:
+            self._fiq_enabled_warn_once(
+                f"FIQ_ENABLED_READ_FAILED entity={entity} error={exc}"
+            )
+            return True
+        if state in (None, "", "unknown", "unavailable"):
+            self._fiq_enabled_warn_once(
+                f"FIQ_ENABLED_UNRESOLVED entity={entity} state={state!r}"
+            )
+            return True
+        return str(state) == "on"
+
+    def _fiq_enabled_warn_once(self, msg: str) -> None:
+        if getattr(self, "_fiq_enabled_warned", False):
+            return
+        self._fiq_enabled_warned = True
+        self.log(msg, level="WARNING")
+
+    def fiq_notify(self, title, message, notification_id=None, push=False,
+                    push_service=None) -> None:
+        """Single notification chokepoint: gates persistent + push notifications
+        on the master pause switch. When paused, logs one debug line and sends
+        nothing.
+        """
+        if not self.fiq_enabled():
+            self.log(f"FIQ_PAUSED suppressed notification: {title}", level="DEBUG")
+            return
+        if notification_id is not None:
+            self.call_service(
+                "persistent_notification/create",
+                title=title,
+                message=message,
+                notification_id=notification_id,
+            )
+        if push:
+            service = push_service or getattr(self, "notify_service", None)
+            if service:
+                self.call_service(f"notify/{service}", title=title, message=message)
+
+    @property
+    def dry_run(self) -> bool:
+        """True when explicitly configured dry_run, OR the master switch is paused."""
+        return bool(getattr(self, "_dry_run_cfg", False)) or not self.fiq_enabled()
+
+    @dry_run.setter
+    def dry_run(self, value) -> None:
+        self._dry_run_cfg = bool(value)
+
     def _validate_config(self, required_keys: list, typed_keys: dict = None,
                          range_keys: dict = None) -> None:
         """Validate config: presence, type, and range.

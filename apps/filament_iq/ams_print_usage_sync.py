@@ -156,7 +156,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self.spoolman_base_url = str(
             self.args.get("spoolman_url", self.args.get("spoolman_base_url", ""))
         ).rstrip("/")
-        self.dry_run = bool(self.args.get("dry_run", False))
+        self._dry_run_cfg = bool(self.args.get("dry_run", False))
         self.min_consumption_g = float(self.args.get("min_consumption_g", 2))
         self.max_consumption_g = float(self.args.get("max_consumption_g", 1000))
         self.auto_empty_spools = bool(self.args.get("auto_empty_spools", False))
@@ -677,14 +677,15 @@ class AmsPrintUsageSync(FilamentIQBase):
                         level="INFO",
                     )
                     try:
-                        self.call_service(
-                            f"notify/{self.notify_service}",
-                            title=f"Spool depleted — slot {decision.slot}",
-                            message=(
+                        self.fiq_notify(
+                            f"Spool depleted — slot {decision.slot}",
+                            (
                                 f"Spool #{decision.spool_id} is empty. "
                                 f"Load a new spool and bind it to slot {decision.slot} "
                                 f"to resume tracking."
                             ),
+                            push=True,
+                            push_service=self.notify_service,
                         )
                     except Exception as e:
                         self.log(
@@ -870,10 +871,8 @@ class AmsPrintUsageSync(FilamentIQBase):
         message = "\n".join(lines)
 
         try:
-            self.call_service(
-                f"notify/{self.notify_service}",
-                title=title,
-                message=message,
+            self.fiq_notify(
+                title, message, push=True, push_service=self.notify_service
             )
         except Exception as exc:
             self.log(f"USAGE_NOTIFY_FAILED: {exc}", level="WARNING")
@@ -1183,9 +1182,9 @@ class AmsPrintUsageSync(FilamentIQBase):
         )
         try:
             msg = f"Print started with unbound active slot: {slots_str}"
-            self.call_service(
-                f"notify/{self.notify_service}",
-                title="Print With Unbound Slot", message=msg,
+            self.fiq_notify(
+                "Print With Unbound Slot", msg,
+                push=True, push_service=self.notify_service,
             )
         except Exception as e:
             self.log(f"UNBOUND_WARN_NOTIFY_FAILED: {e}", level="WARNING")
@@ -1639,14 +1638,15 @@ class AmsPrintUsageSync(FilamentIQBase):
                     and d.spool_id is not None
                 ):
                     try:
-                        self.call_service(
-                            f"notify/{self.notify_service}",
-                            title="Consumption Not Recorded",
-                            message=(
+                        self.fiq_notify(
+                            "Consumption Not Recorded",
+                            (
                                 f"Slot {d.slot} (spool {d.spool_id}) used filament "
                                 "but no slicer data or RFID delta was available to "
                                 "record consumption in Spoolman."
                             ),
+                            push=True,
+                            push_service=self.notify_service,
                         )
                         self.log(
                             f"USAGE_NO_EVIDENCE_NOTIFY slot={d.slot} spool_id={d.spool_id}",

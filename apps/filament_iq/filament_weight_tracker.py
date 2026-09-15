@@ -253,18 +253,16 @@ class FilamentWeightTracker(FilamentIQBase):
         if self._before_snapshot is None:
             success = self._take_before_snapshot(reason="manual")
             if success:
-                self.call_service(
-                    "persistent_notification/create",
-                    title="Weight Tracker",
-                    message=f"Before snapshot taken ({len(self._before_snapshot)} spools). "
+                self.fiq_notify(
+                    "Weight Tracker",
+                    f"Before snapshot taken ({len(self._before_snapshot)} spools). "
                     "Press again after print for delta report.",
                     notification_id="weight_tracker_manual",
                 )
         else:
             self._take_after_snapshot_and_report(reason="manual")
-            self.call_service(
-                "persistent_notification/create",
-                title="Weight Tracker",
-                message="Delta report generated. Check filament_weight_reports.log.",
+            self.fiq_notify(
+                "Weight Tracker",
+                "Delta report generated. Check filament_weight_reports.log.",
                 notification_id="weight_tracker_manual",
             )
