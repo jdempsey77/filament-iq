@@ -1010,7 +1010,18 @@
   padding: 8px 10px;
   gap: 4px;
 }
-.fiq-slot-card-color.fiq-slot-card-color-empty { background: var(--bg-1) !important; }
+/* Desktop empty-slot treatment: a diagonal hazard pinstripe so an empty
+   card reads as "notably empty" rather than a flat dark box easy to miss.
+   None of the existing tokens (--bg-1, --danger, --bg-0) land close enough
+   to these three colors to substitute -- this pattern is intentionally its
+   own distinct, attention-grabbing treatment, not general chrome. */
+.fiq-slot-card-color.fiq-slot-card-color-empty {
+  background: repeating-linear-gradient(135deg,
+    #F5F3EE 0px, #F5F3EE 14px,
+    #E24B4A 14px, #E24B4A 18px,
+    #F5F3EE 18px, #F5F3EE 32px,
+    #1a1a18 32px, #1a1a18 36px) !important;
+}
 .fiq-slot-card-color-top {
   display: flex;
   align-items: center;
@@ -1022,6 +1033,15 @@
   font-weight: 600;
   color: #fff;
   text-shadow: 0 1px 2px rgba(0,0,0,0.55);
+}
+/* The hazard stripe is a light field -- white text would disappear, so the
+   label flips to a translucent white chip with dark text on empty cards. */
+.fiq-slot-card-color-empty .fiq-slot-card-label {
+  color: #1a1a18;
+  text-shadow: none;
+  background: rgba(255,255,255,0.72);
+  padding: 1px 6px;
+  border-radius: 4px;
 }
 .fiq-slot-status-pill {
   font-size: 9px;
@@ -1036,7 +1056,7 @@
 .fiq-slot-status-pill.status-active  { background: rgba(48,209,88,0.9);  color: #04240f; }
 .fiq-slot-status-pill.status-low     { background: rgba(255,59,48,0.92); color: #2a0300; }
 .fiq-slot-status-pill.status-idle    { background: rgba(0,0,0,0.35);     color: #fff; }
-.fiq-slot-status-pill.status-empty   { background: rgba(142,142,147,0.6); color: #fff; }
+.fiq-slot-status-pill.status-empty   { background: rgba(26,26,24,0.72); color: #fff; }
 .fiq-slot-status-pill.status-unbound { background: rgba(255,159,10,0.9); color: #2a1600; }
 
 /* Per-card ambient readings (HT cards only -- each HT unit maps to one
