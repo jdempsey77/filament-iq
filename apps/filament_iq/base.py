@@ -9,6 +9,9 @@ ha-bambulab tray entities: sensor.{prefix}_ams_{ams_entity_idx}_tray_{tray_idx}
 active_tray sensor uses ams_index 0 for first AMS, 128/129/130 for HT.
 """
 
+import json
+import os
+
 import hassapi as hass
 
 TERMINAL_PRINT_STATES = frozenset({
@@ -78,6 +81,133 @@ class FilamentIQBase(hass.Hass):
     """Base class for FilamentIQ apps. Provides config validation and entity prefix building."""
 
     FIQ_ENABLED_ENTITY = "input_boolean.filament_iq_enabled"
+    FIQ_DEFAULT_DATA_DIR = "/addon_configs/a0d7b954_appdaemon/data/filament_iq"
+    FIQ_REGISTRY_MAX_ENTRIES = 200
+
+    def __init_subclass__(cls, **kwargs):
+        """Wrap each concrete app's initialize() so the notification registry
+        loads, self-heals (dismiss-all if already paused), and the pause
+        listener registers automatically — no per-app wiring required.
+        """
+        super().__init_subclass__(**kwargs)
+        orig_initialize = cls.__dict__.get("initialize")
+        if orig_initialize is not None:
+            def _fiq_wrapped_initialize(self, *a, **kw):
+                self._fiq_bootstrap()
+                return orig_initialize(self, *a, **kw)
+            cls.initialize = _fiq_wrapped_initialize
+
+    def _fiq_bootstrap(self) -> None:
+        """Run once, right before an app's own initialize() logic. Every
+        failure here is caught and logged — a registry/listener problem must
+        never block an app from starting (fail open, always)."""
+        try:
+            self._fiq_load_registry()
+        except Exception as exc:
+            self.log(f"FIQ_BOOTSTRAP_REGISTRY_LOAD_FAILED error={exc}", level="WARNING")
+            self._fiq_registry = []
+        try:
+            if not self.fiq_enabled():
+                self.fiq_dismiss_all()
+        except Exception as exc:
+            self.log(f"FIQ_BOOTSTRAP_DISMISS_FAILED error={exc}", level="WARNING")
+        try:
+            entity = str(self.args.get("enabled_entity", self.FIQ_ENABLED_ENTITY))
+            self.listen_state(self._fiq_on_pause_state_change, entity)
+        except Exception as exc:
+            self.log(f"FIQ_BOOTSTRAP_LISTENER_FAILED error={exc}", level="WARNING")
+
+    def _fiq_on_pause_state_change(self, entity, attribute, old, new, kwargs) -> None:
+        """Fires on every state change of the switch entity. Only acts on a
+        transition TO off — resuming (-> on) never replays or re-creates
+        anything. Idempotent: off->off, a restart while already off, and a
+        double-fire are all harmless because fiq_dismiss_all() just re-clears
+        an already-empty (or already-consistent) registry.
+        """
+        if new != "off":
+            return
+        try:
+            self.fiq_dismiss_all()
+        except Exception as exc:
+            self.log(f"FIQ_PAUSE_DISMISS_FAILED error={exc}", level="WARNING")
+
+    def _fiq_registry_path(self) -> str:
+        data_dir = str(self.args.get("data_dir", "") or "").strip().rstrip("/")
+        if not data_dir:
+            data_dir = self.FIQ_DEFAULT_DATA_DIR
+        name = str(getattr(self, "name", "") or "app")
+        return os.path.join(data_dir, f"active_notifications_{name}.json")
+
+    def _fiq_ensure_registry_loaded(self) -> None:
+        if getattr(self, "_fiq_registry", None) is None:
+            self._fiq_load_registry()
+
+    def _fiq_load_registry(self) -> None:
+        """Load this app's on-disk notification registry. Never raises: a
+        missing file is an empty registry, a corrupt one logs a warning and
+        starts empty."""
+        self._fiq_registry = []
+        path = self._fiq_registry_path()
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            return
+        except Exception as exc:
+            self.log(f"FIQ_REGISTRY_CORRUPT path={path} error={exc}", level="WARNING")
+            return
+        if isinstance(data, list):
+            self._fiq_registry = [str(x) for x in data]
+        else:
+            self.log(f"FIQ_REGISTRY_CORRUPT path={path} error=not_a_list", level="WARNING")
+
+    def _fiq_save_registry(self) -> None:
+        path = self._fiq_registry_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp_path = f"{path}.tmp"
+            with open(tmp_path, "w") as f:
+                json.dump(self._fiq_registry, f)
+            os.replace(tmp_path, path)
+        except Exception as exc:
+            self.log(f"FIQ_REGISTRY_SAVE_FAILED path={path} error={exc}", level="WARNING")
+
+    def _fiq_registry_add(self, notification_id) -> None:
+        self._fiq_ensure_registry_loaded()
+        nid = str(notification_id)
+        if nid in self._fiq_registry:
+            self._fiq_registry.remove(nid)
+        self._fiq_registry.append(nid)
+        if len(self._fiq_registry) > self.FIQ_REGISTRY_MAX_ENTRIES:
+            self._fiq_registry = self._fiq_registry[-self.FIQ_REGISTRY_MAX_ENTRIES:]
+        self._fiq_save_registry()
+
+    def fiq_dismiss(self, notification_id) -> None:
+        """Delete a persistent notification and remove it from the registry.
+        Ungated — dismissal must work while paused."""
+        nid = str(notification_id)
+        try:
+            self.call_service("persistent_notification/delete", notification_id=nid)
+        except Exception as exc:
+            self.log(f"FIQ_DISMISS_FAILED notification_id={nid} error={exc}", level="WARNING")
+        self._fiq_ensure_registry_loaded()
+        if nid in self._fiq_registry:
+            self._fiq_registry.remove(nid)
+            self._fiq_save_registry()
+
+    def fiq_dismiss_all(self) -> None:
+        """Delete every notification this app instance has registered, then
+        truncate the registry. The registry is authoritative — never iterate
+        HA's persistent-notification list and delete by prefix/wildcard,
+        that would destroy unrelated HA notices."""
+        self._fiq_ensure_registry_loaded()
+        for nid in list(self._fiq_registry):
+            try:
+                self.call_service("persistent_notification/delete", notification_id=nid)
+            except Exception as exc:
+                self.log(f"FIQ_DISMISS_ALL_ITEM_FAILED notification_id={nid} error={exc}", level="WARNING")
+        self._fiq_registry = []
+        self._fiq_save_registry()
 
     def fiq_enabled(self) -> bool:
         """Read the master pause switch. Fail open: missing/unknown/unavailable/errors -> True.
@@ -123,6 +253,7 @@ class FilamentIQBase(hass.Hass):
                 message=message,
                 notification_id=notification_id,
             )
+            self._fiq_registry_add(notification_id)
         if push:
             service = push_service or getattr(self, "notify_service", None)
             if service:

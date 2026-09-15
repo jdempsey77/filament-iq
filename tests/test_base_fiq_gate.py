@@ -187,3 +187,219 @@ class TestDryRunProperty:
         app = _TestableBase(state_map={"input_boolean.filament_iq_enabled": "on"})
         app.dry_run = True
         assert app._dry_run_cfg is True
+
+
+# ── registry harnesses ──────────────────────────────────────────────
+
+class _TestableRegistryApp(FilamentIQBase):
+    """FilamentIQBase with mocked I/O and a real on-disk registry (tmp_path)."""
+
+    def __init__(self, args=None, state_map=None, data_dir=None, name="test_registry_app"):
+        a = dict(args or {})
+        if data_dir is not None:
+            a["data_dir"] = data_dir
+        super().__init__(None, name, None, a, None, None, None)
+        self.name = name
+        self._log_calls = []
+        self._service_calls = []
+        self._state_map = state_map or {}
+        self._listen_state_calls = []
+
+    def log(self, msg, level="INFO"):
+        self._log_calls.append((level, msg))
+
+    def get_state(self, entity_id, attribute=None):
+        return self._state_map.get(entity_id, "")
+
+    def call_service(self, service, **kwargs):
+        self._service_calls.append({"service": service, **kwargs})
+
+    def listen_state(self, callback, entity_id, **kwargs):
+        self._listen_state_calls.append({"callback": callback, "entity_id": entity_id, **kwargs})
+
+
+class _TestableAppWithInit(_TestableRegistryApp):
+    """Defines its own initialize(), so __init_subclass__ wraps it with the
+    bootstrap hook exactly like a real concrete app (AmsRfidGuard, etc.)."""
+
+    def __init__(self, args=None, state_map=None, data_dir=None, name="test_registry_app"):
+        super().__init__(args=args, state_map=state_map, data_dir=data_dir, name=name)
+        self.initialize_called = False
+
+    def initialize(self):
+        self.initialize_called = True
+
+
+# ── notification registry ───────────────────────────────────────────
+
+class TestNotificationRegistry:
+
+    def test_suppressed_notification_not_registered(self, tmp_path):
+        app = _TestableRegistryApp(
+            state_map={"input_boolean.filament_iq_enabled": "off"},
+            data_dir=str(tmp_path),
+        )
+        app.fiq_notify("Title", "Msg", notification_id="nid_1")
+        app._fiq_ensure_registry_loaded()
+        assert app._fiq_registry == []
+        assert app._service_calls == []
+
+    def test_created_notification_is_registered(self, tmp_path):
+        app = _TestableRegistryApp(
+            state_map={"input_boolean.filament_iq_enabled": "on"},
+            data_dir=str(tmp_path),
+        )
+        app.fiq_notify("Title", "Msg", notification_id="nid_1")
+        assert "nid_1" in app._fiq_registry
+
+    def test_fiq_dismiss_removes_from_registry_and_deletes(self, tmp_path):
+        app = _TestableRegistryApp(
+            state_map={"input_boolean.filament_iq_enabled": "on"},
+            data_dir=str(tmp_path),
+        )
+        app.fiq_notify("Title", "Msg", notification_id="nid_1")
+        app.fiq_dismiss("nid_1")
+        assert "nid_1" not in app._fiq_registry
+        deletes = [c for c in app._service_calls if c["service"] == "persistent_notification/delete"]
+        assert any(c["notification_id"] == "nid_1" for c in deletes)
+
+    def test_fiq_dismiss_all_deletes_exactly_registered_ids(self, tmp_path):
+        app = _TestableRegistryApp(
+            state_map={"input_boolean.filament_iq_enabled": "on"},
+            data_dir=str(tmp_path),
+        )
+        app.fiq_notify("T1", "M1", notification_id="nid_1")
+        app.fiq_notify("T2", "M2", notification_id="nid_2")
+        app.fiq_dismiss_all()
+        deleted_ids = {
+            c["notification_id"] for c in app._service_calls
+            if c["service"] == "persistent_notification/delete"
+        }
+        assert deleted_ids == {"nid_1", "nid_2"}
+        assert app._fiq_registry == []
+
+    def test_registry_survives_simulated_restart(self, tmp_path):
+        data_dir = str(tmp_path)
+        app1 = _TestableRegistryApp(
+            state_map={"input_boolean.filament_iq_enabled": "on"}, data_dir=data_dir,
+        )
+        app1.fiq_notify("T", "M", notification_id="nid_restart")
+
+        # Simulate restart: brand-new instance, same name/data_dir, nothing
+        # carried over in memory.
+        app2 = _TestableRegistryApp(
+            state_map={"input_boolean.filament_iq_enabled": "on"}, data_dir=data_dir,
+        )
+        app2._fiq_load_registry()
+        assert "nid_restart" in app2._fiq_registry
+
+    def test_create_restart_then_pause_still_clears(self, tmp_path):
+        """Proves on-disk persistence, not in-memory state: create a
+        notification, simulate a restart (new instance), then pause — it
+        still clears."""
+        data_dir = str(tmp_path)
+        app1 = _TestableRegistryApp(
+            state_map={"input_boolean.filament_iq_enabled": "on"}, data_dir=data_dir,
+        )
+        app1.fiq_notify("T", "M", notification_id="nid_persist")
+
+        app2 = _TestableRegistryApp(
+            state_map={"input_boolean.filament_iq_enabled": "on"}, data_dir=data_dir,
+        )
+        app2._fiq_on_pause_state_change(
+            "input_boolean.filament_iq_enabled", "state", "on", "off", {}
+        )
+        deleted_ids = {
+            c["notification_id"] for c in app2._service_calls
+            if c["service"] == "persistent_notification/delete"
+        }
+        assert "nid_persist" in deleted_ids
+
+    def test_initialize_with_switch_already_off_dismisses_everything(self, tmp_path):
+        data_dir = str(tmp_path)
+        app1 = _TestableAppWithInit(
+            args={}, state_map={"input_boolean.filament_iq_enabled": "on"}, data_dir=data_dir,
+        )
+        app1.fiq_notify("T", "M", notification_id="nid_startup")
+
+        app2 = _TestableAppWithInit(
+            args={}, state_map={"input_boolean.filament_iq_enabled": "off"}, data_dir=data_dir,
+        )
+        app2.initialize()
+        assert app2.initialize_called is True
+        deleted_ids = {
+            c["notification_id"] for c in app2._service_calls
+            if c["service"] == "persistent_notification/delete"
+        }
+        assert "nid_startup" in deleted_ids
+        assert app2._fiq_registry == []
+
+    def test_initialize_registers_pause_listener(self, tmp_path):
+        app = _TestableAppWithInit(
+            args={}, state_map={"input_boolean.filament_iq_enabled": "on"}, data_dir=str(tmp_path),
+        )
+        app.initialize()
+        assert len(app._listen_state_calls) == 1
+        assert app._listen_state_calls[0]["entity_id"] == "input_boolean.filament_iq_enabled"
+
+    def test_corrupt_registry_file_logs_warning_and_starts_empty(self, tmp_path):
+        app = _TestableRegistryApp(data_dir=str(tmp_path))
+        path = app._fiq_registry_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write("{not valid json")
+        app._fiq_load_registry()
+        assert app._fiq_registry == []
+        assert any("FIQ_REGISTRY_CORRUPT" in m for _, m in app._log_calls)
+
+    def test_corrupt_registry_file_does_not_crash_bootstrap(self, tmp_path):
+        data_dir = str(tmp_path)
+        app = _TestableAppWithInit(
+            args={}, state_map={"input_boolean.filament_iq_enabled": "on"}, data_dir=data_dir,
+        )
+        path = app._fiq_registry_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write("not json at all {{{")
+        app.initialize()  # must not raise
+        assert app.initialize_called is True
+        assert app._fiq_registry == []
+
+    def test_registry_cap_drops_oldest_first(self, tmp_path):
+        app = _TestableRegistryApp(
+            state_map={"input_boolean.filament_iq_enabled": "on"}, data_dir=str(tmp_path),
+        )
+        for i in range(205):
+            app.fiq_notify("T", "M", notification_id=f"nid_{i}")
+        assert len(app._fiq_registry) == 200
+        assert "nid_0" not in app._fiq_registry
+        assert "nid_4" not in app._fiq_registry
+        assert "nid_5" in app._fiq_registry
+        assert "nid_204" in app._fiq_registry
+
+    def test_off_transition_handler_idempotent(self, tmp_path):
+        app = _TestableRegistryApp(
+            state_map={"input_boolean.filament_iq_enabled": "on"}, data_dir=str(tmp_path),
+        )
+        app.fiq_notify("T", "M", notification_id="nid_1")
+        for _ in range(3):
+            app._fiq_on_pause_state_change(
+                "input_boolean.filament_iq_enabled", "state", "on", "off", {}
+            )
+        assert app._fiq_registry == []
+        deletes_for_nid1 = [
+            c for c in app._service_calls
+            if c["service"] == "persistent_notification/delete" and c["notification_id"] == "nid_1"
+        ]
+        assert len(deletes_for_nid1) == 1
+
+    def test_on_transition_does_not_dismiss(self, tmp_path):
+        app = _TestableRegistryApp(
+            state_map={"input_boolean.filament_iq_enabled": "on"}, data_dir=str(tmp_path),
+        )
+        app._fiq_registry = ["nid_untouched"]
+        app._fiq_on_pause_state_change(
+            "input_boolean.filament_iq_enabled", "state", "off", "on", {}
+        )
+        assert app._fiq_registry == ["nid_untouched"]
+        assert app._service_calls == []

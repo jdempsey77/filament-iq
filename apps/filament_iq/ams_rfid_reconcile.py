@@ -4376,10 +4376,7 @@ class AmsRfidReconcile(FilamentIQBase):
             f"rfid_no_shelf_slot_{slot}",
             f"rfid_unbound_slot_{slot}",
         ):
-            try:
-                self.call_service("persistent_notification/delete", notification_id=nid)
-            except Exception:
-                pass  # HA delete on non-existent notification is safe; swallow any error
+            self.fiq_dismiss(nid)
 
     # ─────────────────────────────────────────────────────────────────────────
 
