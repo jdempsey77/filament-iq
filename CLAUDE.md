@@ -77,6 +77,11 @@ Claude Code MUST NEVER commit or store any of the following in this repo:
 - apps/filament_iq/apps.yaml.example — placeholder values ONLY
 - Default values in Python source — placeholder values ONLY
 
+### Reading a live secrets file
+Read `apps.yaml`, `deploy.env`, or any other live config here with
+`peek`, never `cat`/`head`/`sed`/an editor (F17,
+`_reorg/HANDOFF_f17_peek_secret_file.md` in the Mac's `~/code`).
+
 ## Source of Truth
 
 filament-iq is the SOURCE OF TRUTH for all Python source in apps/filament_iq/.
