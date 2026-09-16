@@ -2191,13 +2191,14 @@ class AmsRfidReconcile(FilamentIQBase):
                             self._apply_unbound_reason(slot, t, tray_meta, tag_uid, tray_empty, tray_state_str, tray_uuid=tray_uuid)
                             self._notify_unbound_rfid_no_shelf(slot, tag_uid, tray_meta)
                             try:
-                                self.call_service(
-                                    f"notify/{self.notify_service}",
-                                    title=f"Filament IQ — Slot {slot} blocked",
-                                    message=(
+                                self.fiq_notify(
+                                    f"Filament IQ — Slot {slot} blocked",
+                                    (
                                         f"Slot {slot}: RFID chip belongs to a depleted spool {all_owner_ids}. "
                                         "Remove it and load a replacement spool."
                                     ),
+                                    push=True,
+                                    push_service=self.notify_service,
                                 )
                             except Exception as exc:
                                 self.log(
@@ -3516,13 +3517,14 @@ class AmsRfidReconcile(FilamentIQBase):
         # This method is no longer called. Remove in next cleanup phase.
         """Push an actionable mobile notification for an ambiguous match."""
         try:
-            self.call_service(
-                f"notify/{self.notify_service}",
-                title="Filament IQ \u2014 Spool Match Needed",
-                message=(
+            self.fiq_notify(
+                "Filament IQ \u2014 Spool Match Needed",
+                (
                     f"Slot {slot}: ambiguous match ({reason_detail}). "
                     "Open Spoolman to assign manually."
                 ),
+                push=True,
+                push_service=self.notify_service,
             )
         except Exception as exc:
             self.log(
@@ -4374,18 +4376,12 @@ class AmsRfidReconcile(FilamentIQBase):
             f"rfid_no_shelf_slot_{slot}",
             f"rfid_unbound_slot_{slot}",
         ):
-            try:
-                self.call_service("persistent_notification/delete", notification_id=nid)
-            except Exception:
-                pass  # HA delete on non-existent notification is safe; swallow any error
+            self.fiq_dismiss(nid)
 
     # ─────────────────────────────────────────────────────────────────────────
 
     def _notify(self, title, message, notification_id=None):
-        kwargs = {"title": title, "message": message}
-        if notification_id:
-            kwargs["notification_id"] = notification_id
-        self.call_service("persistent_notification/create", **kwargs)
+        self.fiq_notify(title, message, notification_id=notification_id)
 
     def _spoolman_get(self, path):
         req = urllib.request.Request(

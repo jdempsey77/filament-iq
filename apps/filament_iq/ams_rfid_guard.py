@@ -54,7 +54,7 @@ class AmsRfidGuard(FilamentIQBase):
             self.args.get("spoolman_url", self.args.get("spoolman_base_url", ""))
         ).rstrip("/")
         self.scan_interval_seconds = int(self.args.get("scan_interval_seconds", 300))
-        self.dry_run = bool(self.args.get("dry_run", False))
+        self._dry_run_cfg = bool(self.args.get("dry_run", False))
         self.notify_cooldown_minutes = int(self.args.get("notify_cooldown_minutes", 360))
         self.cache_sensor = str(
             self.args.get("cache_sensor_entity", "sensor.spoolman_spools_cache")
@@ -345,10 +345,9 @@ class AmsRfidGuard(FilamentIQBase):
             nid_suffix = (
                 f"dryrun_{reason}" if violation.get("dry_run") else reason
             )
-            self.call_service(
-                "persistent_notification/create",
-                title=title,
-                message=msg,
+            self.fiq_notify(
+                title,
+                msg,
                 notification_id=f"rfid_guard_quarantine_{spool_id}_{nid_suffix}",
             )
         except Exception as exc:
