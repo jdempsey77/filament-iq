@@ -900,6 +900,12 @@ class AmsRfidReconcile(FilamentIQBase):
             return False
 
         # PATCH filament color
+        if self.dry_run:
+            self.log(
+                f"COLOR_SYNC_DRYRUN filament_id={filament_id} old={existing_color} new={target_color} spool_id={spool_id} slot={slot}",
+                level="INFO",
+            )
+            return False
         result = self._spoolman_patch(f"/api/v1/filament/{filament_id}", {"color_hex": target_color})
         if result is not None:
             self.log(
@@ -4392,6 +4398,8 @@ class AmsRfidReconcile(FilamentIQBase):
         return self._urlopen_json(req)
 
     def _spoolman_post(self, path, payload):
+        if self.fiq_write_blocked("POST", path, payload):
+            return None
         req = urllib.request.Request(
             urllib.parse.urljoin(self.spoolman_url + "/", path.lstrip("/")),
             method="POST",
@@ -4401,6 +4409,8 @@ class AmsRfidReconcile(FilamentIQBase):
         return self._urlopen_json(req)
 
     def _spoolman_patch(self, path, payload):
+        if self.fiq_write_blocked("PATCH", path, payload):
+            return None
         spool_id = ""
         if "/spool/" in path:
             try:

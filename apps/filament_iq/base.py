@@ -203,11 +203,11 @@ class FilamentIQBase(hass.Hass):
         self._fiq_save_registry()
 
     def fiq_dismiss(self, notification_id) -> None:
-        """Delete a persistent notification and remove it from the registry.
+        """Dismiss a persistent notification and remove it from the registry.
         Ungated — dismissal must work while paused."""
         nid = str(notification_id)
         try:
-            self.call_service("persistent_notification/delete", notification_id=nid)
+            self.call_service("persistent_notification/dismiss", notification_id=nid)
         except Exception as exc:
             self.log(f"FIQ_DISMISS_FAILED notification_id={nid} error={exc}", level="WARNING")
         self._fiq_ensure_registry_loaded()
@@ -216,14 +216,14 @@ class FilamentIQBase(hass.Hass):
             self._fiq_save_registry()
 
     def fiq_dismiss_all(self) -> None:
-        """Delete every notification this app instance has registered, then
+        """Dismiss every notification this app instance has registered, then
         truncate the registry. The registry is authoritative — never iterate
         HA's persistent-notification list and delete by prefix/wildcard,
         that would destroy unrelated HA notices."""
         self._fiq_ensure_registry_loaded()
         for nid in list(self._fiq_registry):
             try:
-                self.call_service("persistent_notification/delete", notification_id=nid)
+                self.call_service("persistent_notification/dismiss", notification_id=nid)
             except Exception as exc:
                 self.log(f"FIQ_DISMISS_ALL_ITEM_FAILED notification_id={nid} error={exc}", level="WARNING")
         self._fiq_registry = []
@@ -287,6 +287,21 @@ class FilamentIQBase(hass.Hass):
     @dry_run.setter
     def dry_run(self, value) -> None:
         self._dry_run_cfg = bool(value)
+
+    def fiq_write_blocked(self, what: str, target: str, detail=None) -> bool:
+        """Spoolman write chokepoint gate. Reuses dry_run (config OR paused
+        switch) rather than adding a second mechanism. Call at the top of every
+        method that issues a non-GET Spoolman request: if this returns True,
+        log WOULD_<what> and return None without touching the network.
+        """
+        if not self.dry_run:
+            return False
+        self.log(
+            f"WOULD_{what} target={target} detail={detail!r} "
+            f"(dry_run/paused — Spoolman write suppressed)",
+            level="INFO",
+        )
+        return True
 
     def _validate_config(self, required_keys: list, typed_keys: dict = None,
                          range_keys: dict = None) -> None:

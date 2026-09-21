@@ -2737,6 +2737,8 @@ class AmsPrintUsageSync(FilamentIQBase):
         return 0.0
 
     def _spoolman_patch(self, spool_id, data):
+        if self.fiq_write_blocked("PATCH", f"spool/{spool_id}", data):
+            return None
         url = f"{self.spoolman_base_url}/api/v1/spool/{spool_id}"
         try:
             payload = json.dumps(data).encode("utf-8")
@@ -2871,6 +2873,8 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     def _spoolman_use(self, spool_id, use_weight_g):
         """PUT /api/v1/spool/{id}/use — returns updated spool dict or None on failure."""
+        if self.fiq_write_blocked("USE", f"spool/{spool_id}", {"use_weight_g": use_weight_g}):
+            return None
         url = f"{self.spoolman_base_url}/api/v1/spool/{spool_id}/use"
         payload = json.dumps(
             {"use_weight": round(use_weight_g, 2)}

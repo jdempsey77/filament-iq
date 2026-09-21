@@ -261,7 +261,7 @@ class TestNotificationRegistry:
         app.fiq_notify("Title", "Msg", notification_id="nid_1")
         app.fiq_dismiss("nid_1")
         assert "nid_1" not in app._fiq_registry
-        deletes = [c for c in app._service_calls if c["service"] == "persistent_notification/delete"]
+        deletes = [c for c in app._service_calls if c["service"] == "persistent_notification/dismiss"]
         assert any(c["notification_id"] == "nid_1" for c in deletes)
 
     def test_fiq_dismiss_all_deletes_exactly_registered_ids(self, tmp_path):
@@ -274,7 +274,7 @@ class TestNotificationRegistry:
         app.fiq_dismiss_all()
         deleted_ids = {
             c["notification_id"] for c in app._service_calls
-            if c["service"] == "persistent_notification/delete"
+            if c["service"] == "persistent_notification/dismiss"
         }
         assert deleted_ids == {"nid_1", "nid_2"}
         assert app._fiq_registry == []
@@ -312,7 +312,7 @@ class TestNotificationRegistry:
         )
         deleted_ids = {
             c["notification_id"] for c in app2._service_calls
-            if c["service"] == "persistent_notification/delete"
+            if c["service"] == "persistent_notification/dismiss"
         }
         assert "nid_persist" in deleted_ids
 
@@ -330,7 +330,7 @@ class TestNotificationRegistry:
         assert app2.initialize_called is True
         deleted_ids = {
             c["notification_id"] for c in app2._service_calls
-            if c["service"] == "persistent_notification/delete"
+            if c["service"] == "persistent_notification/dismiss"
         }
         assert "nid_startup" in deleted_ids
         assert app2._fiq_registry == []
@@ -390,7 +390,7 @@ class TestNotificationRegistry:
         assert app._fiq_registry == []
         deletes_for_nid1 = [
             c for c in app._service_calls
-            if c["service"] == "persistent_notification/delete" and c["notification_id"] == "nid_1"
+            if c["service"] == "persistent_notification/dismiss" and c["notification_id"] == "nid_1"
         ]
         assert len(deletes_for_nid1) == 1
 
