@@ -2205,6 +2205,7 @@ class AmsRfidReconcile(FilamentIQBase):
                                     ),
                                     push=True,
                                     push_service=self.notify_service,
+                                    tag=f"ams_bind_slot_{slot}",
                                 )
                             except Exception as exc:
                                 self.log(
@@ -3518,26 +3519,6 @@ class AmsRfidReconcile(FilamentIQBase):
         )
         # Mobile push owned by ams_bind_reminder_push HA automation (30s debounce)
 
-    def _notify_mobile_match_needed(self, slot, reason_detail):
-        # DEPRECATED: mobile push moved to ams_bind_reminder_push HA automation
-        # This method is no longer called. Remove in next cleanup phase.
-        """Push an actionable mobile notification for an ambiguous match."""
-        try:
-            self.fiq_notify(
-                "Filament IQ \u2014 Spool Match Needed",
-                (
-                    f"Slot {slot}: ambiguous match ({reason_detail}). "
-                    "Open Spoolman to assign manually."
-                ),
-                push=True,
-                push_service=self.notify_service,
-            )
-        except Exception as exc:
-            self.log(
-                f"NONRFID_NEEDS_ACTION_MOBILE_NOTIFY_FAILED slot={slot}: {exc}",
-                level="WARNING",
-            )
-
     def _notify_nonrfid_new_fallback(self, slot, spool_id, tray_meta):
         """PHASE_2_6: Non-RFID bind used New fallback (no Shelf match)."""
         summary = (
@@ -3548,26 +3529,7 @@ class AmsRfidReconcile(FilamentIQBase):
         self._notify(
             f"Non-RFID New fallback Slot {slot}",
             summary,
-            notification_id=f"nonrfid_new_fallback_slot_{slot}_{spool_id}",
-        )
-
-    def _notify_unbound(self, slot, tag_uid, tray_meta, candidate_ids):
-        summary = (
-            f"slot={slot}\n"
-            f"tag_uid={tag_uid}\n"
-            f"type={tray_meta.get('type','')}\n"
-            f"color_hex={tray_meta.get('color_hex','')}\n"
-            f"name={tray_meta.get('name','')}\n"
-            f"filament_id={tray_meta.get('filament_id','')}\n"
-            f"deterministic_candidates={','.join(str(x) for x in candidate_ids) if candidate_ids else 'none'}\n\n"
-            "No deterministic match. ACTION REQUIRED:\n"
-            "1) Run script.filament_iq_rfid_manual_enroll_tag_to_spool with slot + spool_id, OR\n"
-            f"2) Press {self._reconcile_button_entity}."
-        )
-        self._notify(
-            f"RFID UNBOUND Slot {slot}",
-            summary,
-            notification_id=f"rfid_unbound_slot_{slot}",
+            notification_id=f"nonrfid_new_fallback_slot_{slot}",
         )
 
     def _tray_meta(self, attrs, state_value):
@@ -4376,11 +4338,14 @@ class AmsRfidReconcile(FilamentIQBase):
             )
 
     def _dismiss_slot_notifications(self, slot):
-        """Delete all 3 slot-keyed persistent notifications (no-op if absent)."""
+        """Dismiss all slot-keyed persistent notifications (no-op if absent).
+        rfid_unbound_* is a legacy id (no longer created) kept so old entries clear."""
         for nid in (
             f"rfid_conflict_slot_{slot}",
             f"rfid_no_shelf_slot_{slot}",
             f"rfid_unbound_slot_{slot}",
+            f"nonrfid_needs_action_slot_{slot}",
+            f"nonrfid_new_fallback_slot_{slot}",
         ):
             self.fiq_dismiss(nid)
 

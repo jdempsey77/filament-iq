@@ -257,11 +257,26 @@ class FilamentIQBase(hass.Hass):
         self._fiq_enabled_warned = True
         self.log(msg, level="WARNING")
 
+    # Notification standard: pushes go through HA's script.notify_jerry so the
+    # payload shape (tag/group/url/interruption level, iOS thread-id) lives in one place.
+    FIQ_NOTIFY_GROUP = "filament-iq"
+    FIQ_TAP_URL = "/lovelace-stage/printer"
+    _FIQ_HELPER_RECIPIENTS = {
+        "jerry_mobile": "jerry", "notify.jerry_mobile": "jerry",
+        "household_mobile": "household", "notify.household_mobile": "household",
+    }
+
     def fiq_notify(self, title, message, notification_id=None, push=False,
-                    push_service=None) -> None:
+                    push_service=None, tag=None, url=None, level="active") -> None:
         """Single notification chokepoint: gates persistent + push notifications
         on the master pause switch. When paused, logs one debug line and sends
         nothing.
+
+        Pushes to jerry_mobile / household_mobile go through script.notify_jerry
+        (tag replaces a prior push for the same subject; url is the tap target).
+        Any other configured service keeps the legacy direct notify/<service>
+        call so recipients never change. `notification_id` creates the bell
+        entry as before; bell-only callers (push=False) are untouched.
         """
         if not self.fiq_enabled():
             self.log(f"FIQ_PAUSED suppressed notification: {title}", level="DEBUG")
@@ -276,7 +291,19 @@ class FilamentIQBase(hass.Hass):
             self._fiq_registry_add(notification_id)
         if push:
             service = push_service or getattr(self, "notify_service", None)
-            if service:
+            recipients = self._FIQ_HELPER_RECIPIENTS.get(str(service or ""))
+            if recipients:
+                self.call_service(
+                    "script/notify_jerry",
+                    title=title,
+                    message=message,
+                    tag=tag or notification_id or "filament-iq",
+                    group=self.FIQ_NOTIFY_GROUP,
+                    url=url or str(self.args.get("tap_url", self.FIQ_TAP_URL)),
+                    level=level,
+                    recipients=recipients,
+                )
+            elif service:
                 self.call_service(f"notify/{service}", title=title, message=message)
 
     @property

@@ -154,6 +154,38 @@ class TestFiqNotify:
         app.fiq_notify("Title", "Message", push=True)
         assert app._service_calls[0]["service"] == "notify/mobile_app_default"
 
+    def test_jerry_mobile_push_goes_through_notify_jerry_helper(self):
+        app = _TestableBase(state_map={"input_boolean.filament_iq_enabled": "on"})
+        app.fiq_notify("Print Complete", "msg", push=True, push_service="jerry_mobile",
+                       tag="fiq-print-result")
+        call = app._service_calls[0]
+        assert call["service"] == "script/notify_jerry"
+        assert call["tag"] == "fiq-print-result"
+        assert call["group"] == "filament-iq"
+        assert call["url"] == "/lovelace-stage/printer"
+        assert call["level"] == "active"
+        assert call["recipients"] == "jerry"
+
+    def test_household_service_keeps_household_recipients(self):
+        app = _TestableBase(state_map={"input_boolean.filament_iq_enabled": "on"})
+        app.fiq_notify("T", "m", push=True, push_service="household_mobile")
+        assert app._service_calls[0]["recipients"] == "household"
+
+    def test_unknown_service_keeps_legacy_direct_call_recipient_unchanged(self):
+        app = _TestableBase(state_map={"input_boolean.filament_iq_enabled": "on"})
+        app.fiq_notify("T", "m", push=True, push_service="mobile_app_YOUR_DEVICE")
+        assert app._service_calls[0]["service"] == "notify/mobile_app_YOUR_DEVICE"
+
+    def test_helper_push_paused_sends_nothing(self):
+        app = _TestableBase(state_map={"input_boolean.filament_iq_enabled": "off"})
+        app.fiq_notify("T", "m", push=True, push_service="jerry_mobile")
+        assert app._service_calls == []
+
+    def test_never_critical(self):
+        app = _TestableBase(state_map={"input_boolean.filament_iq_enabled": "on"})
+        app.fiq_notify("T", "m", push=True, push_service="jerry_mobile")
+        assert "critical" not in repr(app._service_calls[0]).lower()
+
     def test_missing_entity_fails_open_and_notifies(self):
         app = _TestableBase()
         app.fiq_notify("Title", "Message", notification_id="nid_1")

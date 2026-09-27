@@ -686,6 +686,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                             ),
                             push=True,
                             push_service=self.notify_service,
+                            tag=f"ams_bind_slot_{decision.slot}",
                         )
                     except Exception as e:
                         self.log(
@@ -872,7 +873,8 @@ class AmsPrintUsageSync(FilamentIQBase):
 
         try:
             self.fiq_notify(
-                title, message, push=True, push_service=self.notify_service
+                title, message, push=True, push_service=self.notify_service,
+                tag="fiq-print-result",
             )
         except Exception as exc:
             self.log(f"USAGE_NOTIFY_FAILED: {exc}", level="WARNING")
@@ -1185,6 +1187,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             self.fiq_notify(
                 "Print With Unbound Slot", msg,
                 push=True, push_service=self.notify_service,
+                tag="fiq-print-unbound",
             )
         except Exception as e:
             self.log(f"UNBOUND_WARN_NOTIFY_FAILED: {e}", level="WARNING")
@@ -1647,6 +1650,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                             ),
                             push=True,
                             push_service=self.notify_service,
+                            tag=f"fiq-nousage-slot-{d.slot}",
                         )
                         self.log(
                             f"USAGE_NO_EVIDENCE_NOTIFY slot={d.slot} spool_id={d.spool_id}",

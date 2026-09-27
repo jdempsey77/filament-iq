@@ -201,10 +201,10 @@ class SpoolmanDropdownSync(FilamentIQBase):
 
     def _notify_error(self, message):
         try:
-            self.call_service(
-                "persistent_notification/create",
-                title="Spoolman filament dropdown",
-                message=f"Endpoint: {self.filament_url}\nError: {message}",
+            self.fiq_notify(
+                "Spoolman filament dropdown",
+                f"Endpoint: {self.filament_url}\nError: {message}",
+                notification_id="spoolman_dropdown_sync_error",
             )
         except Exception as e:
             self.log(
