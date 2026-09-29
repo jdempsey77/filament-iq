@@ -19,16 +19,23 @@ if [ -z "${SPOOL_ID}" ] || [ "${SPOOL_ID}" = "0" ]; then
     exit 1
 fi
 
-CONFIG_ENV="${HOME}/.config/filament_iq/monitor-config.env"
-if [ -f "${CONFIG_ENV}" ]; then
-    # shellcheck disable=SC1090
-    source "${CONFIG_ENV}"
-fi
-
+# SPOOLMAN_URL: environment first, then the monitor config (monitor-config.conf is the
+# live name; monitor-config.env is the legacy name), then the same default monitor.py
+# uses. The monitor launches this script without passing SPOOLMAN_URL and the live
+# config has no such key, so without a default every label print failed before
+# reaching Spoolman. Only that one key is read (not `source`d): the config also
+# holds AMS_SLOTS etc.
 if [ -z "${SPOOLMAN_URL:-}" ]; then
-    echo "Error: SPOOLMAN_URL not set in ${CONFIG_ENV}" >&2
-    exit 1
+    for cfg in "${HOME}/.config/filament_iq/monitor-config.conf" \
+               "${HOME}/.config/filament_iq/monitor-config.env"; do
+        if [ -f "${cfg}" ]; then
+            SPOOLMAN_URL=$(sed -n 's/^SPOOLMAN_URL=//p' "${cfg}" | head -n1 | tr -d "\"'")
+            [ -n "${SPOOLMAN_URL}" ] && break
+        fi
+    done
 fi
+SPOOLMAN_URL="${SPOOLMAN_URL:-http://192.168.4.124:7912}"
+SPOOLMAN_URL="${SPOOLMAN_URL%/}"
 
 SPOOL_JSON_FILE=$(mktemp /tmp/niimbot_spool_XXXXXX.json)
 trap 'rm -f "${SPOOL_JSON_FILE}"' EXIT
