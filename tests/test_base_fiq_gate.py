@@ -154,6 +154,38 @@ class TestFiqNotify:
         app.fiq_notify("Title", "Message", push=True)
         assert app._service_calls[0]["service"] == "notify/mobile_app_default"
 
+    def test_jerry_mobile_push_goes_through_notify_jerry_helper(self):
+        app = _TestableBase(state_map={"input_boolean.filament_iq_enabled": "on"})
+        app.fiq_notify("Print Complete", "msg", push=True, push_service="jerry_mobile",
+                       tag="fiq-print-result")
+        call = app._service_calls[0]
+        assert call["service"] == "script/notify_jerry"
+        assert call["tag"] == "fiq-print-result"
+        assert call["group"] == "filament-iq"
+        assert call["url"] == "/lovelace-stage/printer"
+        assert call["level"] == "active"
+        assert call["recipients"] == "jerry"
+
+    def test_household_service_keeps_household_recipients(self):
+        app = _TestableBase(state_map={"input_boolean.filament_iq_enabled": "on"})
+        app.fiq_notify("T", "m", push=True, push_service="household_mobile")
+        assert app._service_calls[0]["recipients"] == "household"
+
+    def test_unknown_service_keeps_legacy_direct_call_recipient_unchanged(self):
+        app = _TestableBase(state_map={"input_boolean.filament_iq_enabled": "on"})
+        app.fiq_notify("T", "m", push=True, push_service="mobile_app_YOUR_DEVICE")
+        assert app._service_calls[0]["service"] == "notify/mobile_app_YOUR_DEVICE"
+
+    def test_helper_push_paused_sends_nothing(self):
+        app = _TestableBase(state_map={"input_boolean.filament_iq_enabled": "off"})
+        app.fiq_notify("T", "m", push=True, push_service="jerry_mobile")
+        assert app._service_calls == []
+
+    def test_never_critical(self):
+        app = _TestableBase(state_map={"input_boolean.filament_iq_enabled": "on"})
+        app.fiq_notify("T", "m", push=True, push_service="jerry_mobile")
+        assert "critical" not in repr(app._service_calls[0]).lower()
+
     def test_missing_entity_fails_open_and_notifies(self):
         app = _TestableBase()
         app.fiq_notify("Title", "Message", notification_id="nid_1")
@@ -261,7 +293,7 @@ class TestNotificationRegistry:
         app.fiq_notify("Title", "Msg", notification_id="nid_1")
         app.fiq_dismiss("nid_1")
         assert "nid_1" not in app._fiq_registry
-        deletes = [c for c in app._service_calls if c["service"] == "persistent_notification/delete"]
+        deletes = [c for c in app._service_calls if c["service"] == "persistent_notification/dismiss"]
         assert any(c["notification_id"] == "nid_1" for c in deletes)
 
     def test_fiq_dismiss_all_deletes_exactly_registered_ids(self, tmp_path):
@@ -274,7 +306,7 @@ class TestNotificationRegistry:
         app.fiq_dismiss_all()
         deleted_ids = {
             c["notification_id"] for c in app._service_calls
-            if c["service"] == "persistent_notification/delete"
+            if c["service"] == "persistent_notification/dismiss"
         }
         assert deleted_ids == {"nid_1", "nid_2"}
         assert app._fiq_registry == []
@@ -312,7 +344,7 @@ class TestNotificationRegistry:
         )
         deleted_ids = {
             c["notification_id"] for c in app2._service_calls
-            if c["service"] == "persistent_notification/delete"
+            if c["service"] == "persistent_notification/dismiss"
         }
         assert "nid_persist" in deleted_ids
 
@@ -330,7 +362,7 @@ class TestNotificationRegistry:
         assert app2.initialize_called is True
         deleted_ids = {
             c["notification_id"] for c in app2._service_calls
-            if c["service"] == "persistent_notification/delete"
+            if c["service"] == "persistent_notification/dismiss"
         }
         assert "nid_startup" in deleted_ids
         assert app2._fiq_registry == []
@@ -390,7 +422,7 @@ class TestNotificationRegistry:
         assert app._fiq_registry == []
         deletes_for_nid1 = [
             c for c in app._service_calls
-            if c["service"] == "persistent_notification/delete" and c["notification_id"] == "nid_1"
+            if c["service"] == "persistent_notification/dismiss" and c["notification_id"] == "nid_1"
         ]
         assert len(deletes_for_nid1) == 1
 

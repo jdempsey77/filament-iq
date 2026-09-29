@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **Notification standard.** Phone pushes from the AppDaemon apps now go through
+  HA's `script.notify_jerry` (tag / group `filament-iq` / tap URL
+  `/lovelace-stage/printer` / interruption level; iOS `thread-id`) when the
+  configured `notify_service` is `jerry_mobile` or `household_mobile`. Any other
+  service keeps the legacy direct `notify/<service>` call, so recipients do not
+  change. Bell-only entries stay bell-only (no new pushes).
+- Bell ids: `nonrfid_new_fallback_slot_N` no longer includes the spool id;
+  `rfid_guard_quarantine_<spool>` is one entry per spool (updated in place);
+  the Spoolman dropdown-sync error now has a fixed id and honours the pause switch;
+  slot binding also dismisses `nonrfid_needs_action_slot_N` / `nonrfid_new_fallback_slot_N`.
+
+### Removed
+
+- Dead helpers `_notify_mobile_match_needed` and `_notify_unbound` (never called).
+- Dead package automations `p1s_detect_spool_swap_during_print`,
+  `ams_tray_auto_detect_and_assign` and `ams_print_unbound_warning` from
+  `ha-config/packages/filament_iq.yaml` (the package is not loaded live).
+
 ## [1.9.9] — 2026-07-09
 
 ### Fixed

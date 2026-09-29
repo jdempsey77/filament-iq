@@ -686,6 +686,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                             ),
                             push=True,
                             push_service=self.notify_service,
+                            tag=f"ams_bind_slot_{decision.slot}",
                         )
                     except Exception as e:
                         self.log(
@@ -872,7 +873,8 @@ class AmsPrintUsageSync(FilamentIQBase):
 
         try:
             self.fiq_notify(
-                title, message, push=True, push_service=self.notify_service
+                title, message, push=True, push_service=self.notify_service,
+                tag="fiq-print-result",
             )
         except Exception as exc:
             self.log(f"USAGE_NOTIFY_FAILED: {exc}", level="WARNING")
@@ -1185,6 +1187,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             self.fiq_notify(
                 "Print With Unbound Slot", msg,
                 push=True, push_service=self.notify_service,
+                tag="fiq-print-unbound",
             )
         except Exception as e:
             self.log(f"UNBOUND_WARN_NOTIFY_FAILED: {e}", level="WARNING")
@@ -1647,6 +1650,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                             ),
                             push=True,
                             push_service=self.notify_service,
+                            tag=f"fiq-nousage-slot-{d.slot}",
                         )
                         self.log(
                             f"USAGE_NO_EVIDENCE_NOTIFY slot={d.slot} spool_id={d.spool_id}",
@@ -2737,6 +2741,8 @@ class AmsPrintUsageSync(FilamentIQBase):
         return 0.0
 
     def _spoolman_patch(self, spool_id, data):
+        if self.fiq_write_blocked("PATCH", f"spool/{spool_id}", data):
+            return None
         url = f"{self.spoolman_base_url}/api/v1/spool/{spool_id}"
         try:
             payload = json.dumps(data).encode("utf-8")
@@ -2871,6 +2877,8 @@ class AmsPrintUsageSync(FilamentIQBase):
 
     def _spoolman_use(self, spool_id, use_weight_g):
         """PUT /api/v1/spool/{id}/use — returns updated spool dict or None on failure."""
+        if self.fiq_write_blocked("USE", f"spool/{spool_id}", {"use_weight_g": use_weight_g}):
+            return None
         url = f"{self.spoolman_base_url}/api/v1/spool/{spool_id}/use"
         payload = json.dumps(
             {"use_weight": round(use_weight_g, 2)}

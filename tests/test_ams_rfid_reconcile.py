@@ -5343,25 +5343,6 @@ class TestNotifyNonrfidNewFallback:
         assert "New fallback" in r._notify_calls[0][0]
 
 
-class TestNotifyUnbound:
-    """_notify_unbound calls _notify with candidate_ids."""
-
-    def test_calls_notify_with_candidates(self):
-        fm = FakeSpoolman([], [])
-        r = _EventTestReconcile(fm, {}, args={})
-        tray_meta = {"type": "PLA", "color_hex": "FF0000", "name": "Red", "filament_id": "123"}
-        r._notify_unbound(1, "AABBCCDD", tray_meta, [10, 20])
-        assert len(r._notify_calls) == 1
-        assert "UNBOUND" in r._notify_calls[0][0]
-
-    def test_calls_notify_no_candidates(self):
-        fm = FakeSpoolman([], [])
-        r = _EventTestReconcile(fm, {}, args={})
-        tray_meta = {"type": "PLA", "color_hex": "FF0000", "name": "Red", "filament_id": "123"}
-        r._notify_unbound(1, "AABBCCDD", tray_meta, [])
-        assert len(r._notify_calls) == 1
-
-
 class TestOnReconcileEvent:
     """_on_reconcile_event calls _schedule_reconcile."""
 

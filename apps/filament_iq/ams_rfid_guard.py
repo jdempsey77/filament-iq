@@ -342,13 +342,11 @@ class AmsRfidGuard(FilamentIQBase):
             f"Found: {violation.get('found', '')}"
         )
         try:
-            nid_suffix = (
-                f"dryrun_{reason}" if violation.get("dry_run") else reason
-            )
+            nid_suffix = "_dryrun" if violation.get("dry_run") else ""
             self.fiq_notify(
                 title,
                 msg,
-                notification_id=f"rfid_guard_quarantine_{spool_id}_{nid_suffix}",
+                notification_id=f"rfid_guard_quarantine_{spool_id}{nid_suffix}",
             )
         except Exception as exc:
             self.log(
