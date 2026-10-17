@@ -2486,17 +2486,15 @@ automation:
       - variables:
           slot_num: >-
             {{ trigger.entity_id | regex_findall('ams_slot_(\d+)_unbound') | first }}
-      - action: notify.mobile_app_YOUR_DEVICE
+      - action: script.notify_jerry
         data:
-          title: "AMS Slot {{ slot_num }} Needs Binding"
+          title: "🧵 AMS slot {{ slot_num }} unbound"
           message: >-
-            ⚠️ Slot {{ slot_num }}: {{ states('sensor.ams_slot_' ~ slot_num ~ '_name') }}
-            Reason: {{ trigger.to_state.state }}
-            Open dashboard to bind.
-          data:
-            tag: "ams_bind_slot_{{ slot_num }}"
-            clickAction: "/lovelace/3d-printer"
-            url: "/lovelace/3d-printer"
+            {{ states('sensor.ams_slot_' ~ slot_num ~ '_name') }} · {{ trigger.to_state.state }}
+          tag: "ams_bind_slot_{{ slot_num }}"
+          group: filament-iq
+          url: /lovelace-stage/printer
+          persist: "ams_bind_slot_{{ slot_num }}"
     mode: queued
     max: 6
   
@@ -2521,11 +2519,12 @@ automation:
       - variables:
           slot_num: >-
             {{ trigger.entity_id | regex_findall('ams_slot_(\d+)_unbound') | first }}
-      - action: notify.mobile_app_YOUR_DEVICE
+      - action: script.notify_jerry
         data:
-          message: clear_notification
-          data:
-            tag: "ams_bind_slot_{{ slot_num }}"
+          tag: "ams_bind_slot_{{ slot_num }}"
+          group: filament-iq
+          persist: "ams_bind_slot_{{ slot_num }}"
+          clear: true
     mode: queued
     max: 6
   
