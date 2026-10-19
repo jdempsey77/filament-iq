@@ -41,7 +41,13 @@ ams_rfid_reconcile:
   color_distance_threshold: 90
   reconcile_button_entity: "input_button.filament_iq_reconcile_now"
   nonrfid_enabled_entity: "input_boolean.filament_iq_nonrfid_enabled"
-  last_mapping_json_entity: "input_text.filament_iq_last_mapping_json"
+  # Last-mapping snapshot is written to this file and exposed via the
+  # sensor.filament_iq_last_mapping_json command_line sensor (the old
+  # input_text helper was retired to avoid HA's 255-char limit).
+  # Must be in the shared HA config dir: AppDaemon writes /homeassistant/...,
+  # HA Core reads the same dir as /config/... (the command_line sensor command
+  # cannot read the addon's own /addon_configs/<slug> path).
+  last_mapping_json_path: "/homeassistant/filament_iq/filament_iq_last_mapping.json"
   startup_suppress_swap_entity: "input_boolean.filament_iq_startup_suppress_swap"
 
 # ── AMS RFID Guard ────────────────────────────────────────────────────────
