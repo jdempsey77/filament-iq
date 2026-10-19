@@ -9,7 +9,7 @@ Runs on ska as a systemd user unit. Five concurrent loops:
   5. D11 heartbeat (BLE keepalive to D11_H label printer every 4 minutes)
 
 Artifacts written to NAS at ARTIFACT_ROOT. Secrets loaded from
-~/.config/filament_iq/secrets.env. Config from monitor-config.env.
+~/.config/filament_iq/secrets.env. Config from monitor-config.conf.
 
 Python 3.12 stdlib only — no pip dependencies.
 """
@@ -60,8 +60,12 @@ HA_RESOURCE_ENTITIES = {
 _ALERT_COOLDOWN_S = 3600  # 60 minutes
 
 CONFIG_DIR = Path.home() / ".config" / "filament_iq"
-SECRETS_FILE = CONFIG_DIR / "secrets.env"
-CONFIG_FILE = CONFIG_DIR / "monitor-config.env"
+# Overridable so the systemd unit can point this at a `sops exec-file`
+# FIFO decrypted from secrets.enc.env, instead of a plaintext file --
+# see _reorg/HANDOFF_secrets_audit_f12_and_groupb.md. Default unchanged
+# for local/manual runs.
+SECRETS_FILE = Path(os.environ.get("FILAMENT_IQ_SECRETS_FILE", str(CONFIG_DIR / "secrets.env")))
+CONFIG_FILE = CONFIG_DIR / "monitor-config.conf"
 STATE_FILE = CONFIG_DIR / "monitor_state.json"
 
 log = logging.getLogger("filament_iq_monitor")
@@ -91,9 +95,16 @@ def _build_entities(printer_serial: str, ams_slots: list[int]) -> dict:
 # ── Config Loading ───────────────────────────────────────────────────
 
 def _load_env_file(path: Path) -> dict[str, str]:
-    """Parse KEY=VALUE lines from an env file. Strips quotes."""
+    """Parse KEY=VALUE lines from an env file. Strips quotes.
+
+    `exists()`, not `is_file()`: SECRETS_FILE can be a FIFO when it's
+    `sops exec-file`'s substituted temp path, and a FIFO is never
+    `S_ISREG` -- `is_file()` returns False for it even while it holds
+    real, readable data. Found by running this against the real thing,
+    not by reasoning about it in advance.
+    """
     result = {}
-    if not path.is_file():
+    if not path.exists():
         return result
     with open(path) as f:
         for line in f:
@@ -141,7 +152,7 @@ class Config:
         self.appdaemon_addon_id = config.get("APPDAEMON_ADDON_ID", "a0d7b954_appdaemon")
 
         # Resource monitoring
-        self.notify_service = config.get("NOTIFY_SERVICE", "mobile_app_YOUR_DEVICE")
+        # Alerts go through HA's script.notify_jerry (Jerry's iPhone); NOTIFY_SERVICE is no longer used.
         self.resource_poll_interval = int(config.get("RESOURCE_POLL_INTERVAL", "60"))
         self.resource_cpu_warn = float(config.get("RESOURCE_CPU_WARN", "80"))
         self.resource_mem_warn = float(config.get("RESOURCE_MEM_WARN", "85"))
@@ -204,10 +215,30 @@ def _ha_set_state(cfg: Config, entity_id: str, state: str) -> bool:
         return False
 
 
-def _send_ha_notification(cfg: Config, title: str, message: str) -> None:
-    """POST a mobile notification via HA notify service. Never raises."""
-    url = f"{cfg.ha_url}/api/services/notify/{cfg.notify_service}"
-    payload = json.dumps({"title": title, "message": message}).encode("utf-8")
+def resource_alert_title(host: str, label: str, value, unit: str) -> str:
+    """Push title: emoji + what + where, <= 40 chars ("\U0001F7E0 ska CPU 91%")."""
+    t = f"\U0001F7E0 {host} {label} {value}{unit}"
+    return t if len(t) <= 40 else t[:39] + "\u2026"
+
+
+NOTIFY_GROUP = "ops"
+NOTIFY_URL = "/lovelace-stage/system-health"
+
+
+def _send_ha_notification(cfg: Config, title: str, message: str, tag: str,
+                          persist: str = "", clear: bool = False, bell_message: str = "") -> None:
+    """Call HA's script.notify_jerry (notification standard). Never raises.
+
+    clear=True dismisses the earlier push (same tag) and bell entry instead of sending.
+    """
+    url = f"{cfg.ha_url}/api/services/script/notify_jerry"
+    fields = {"tag": tag, "persist": persist, "clear": True} if clear else {
+        "title": title, "message": message, "tag": tag, "group": NOTIFY_GROUP,
+        "url": NOTIFY_URL, "level": "active", "persist": persist,
+    }
+    if bell_message and not clear:
+        fields["bell_message"] = bell_message  # long text for the HA bell only
+    payload = json.dumps(fields).encode("utf-8")
     req = urllib.request.Request(
         url,
         data=payload,
@@ -464,6 +495,7 @@ class SystemResourceMonitor:
         self.shutdown = shutdown_event
         self.resource_log = _setup_artifact_log(cfg, "system_resources", "system_resources.log")
         self.last_alert_ts: dict[str, float] = {}
+        self.alerting: set[str] = set()
         # CPU sampling state (for /proc/stat delta)
         self._prev_cpu_idle: int = 0
         self._prev_cpu_total: int = 0
@@ -607,10 +639,16 @@ class SystemResourceMonitor:
         unit: str,
     ) -> None:
         """Log and optionally notify on threshold breach."""
-        if value is None or value < threshold:
+        if value is None:
             return
-
         metric_key = f"{host}_{label}"
+        if value < threshold:
+            # Back under the threshold: dismiss the earlier push and bell entry (once).
+            if metric_key in self.alerting:
+                self.alerting.discard(metric_key)
+                tag, persist = self._alert_ids(host, label)
+                _send_ha_notification(self.cfg, "", "", tag, persist, clear=True)
+            return
         self.resource_log.warning(
             "THRESHOLD_BREACH host=%s metric=%s value=%s%s threshold=%s%s",
             host, label, value, unit, threshold, unit,
@@ -620,11 +658,20 @@ class SystemResourceMonitor:
         last = self.last_alert_ts.get(metric_key, 0.0)
         if now - last >= _ALERT_COOLDOWN_S:
             self.last_alert_ts[metric_key] = now
+            self.alerting.add(metric_key)
+            tag, persist = self._alert_ids(host, label)
             _send_ha_notification(
                 self.cfg,
-                "\u26a0\ufe0f Resource Alert",
-                f"{label} at {value}{unit} on {host} (threshold: {threshold}{unit})",
+                resource_alert_title(host, label, value, unit),
+                f"limit {threshold}{unit}",
+                tag, persist,
+                bell_message=f"{label} at {value}{unit} on {host} (threshold: {threshold}{unit})",
             )
+
+    @staticmethod
+    def _alert_ids(host: str, label: str):
+        slug = f"{host}-{label}".lower().replace(" ", "-")
+        return f"res-{slug}", f"ops_res_{slug.replace('-', '_')}"
 
 
 # ── Loop 3: Print Lifecycle ──────────────────────────────────────────
@@ -1068,8 +1115,9 @@ def main() -> None:
 
     log.info("Filament IQ Monitor starting")
 
-    # Validate config files exist
-    if not SECRETS_FILE.is_file():
+    # Validate config files exist. SECRETS_FILE may be a FIFO (see
+    # _load_env_file's docstring) -- exists() covers both shapes.
+    if not SECRETS_FILE.exists():
         log.error("Secrets file not found: %s", SECRETS_FILE)
         sys.exit(1)
     if not CONFIG_FILE.is_file():
