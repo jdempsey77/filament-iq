@@ -67,6 +67,73 @@ Snapshot of released versions, test coverage, key decisions, and open work. Upda
 
 ## Key Decisions
 
+### 2026-07-18 — D11_H BLE connection lifecycle fix (first real-hardware print attempt)
+
+First physical trigger of `label.printNiimbot` surfaced a real bug, not just a
+hardware/calibration issue: printer beeped but never printed. Diagnosed via
+`/analyze` (SR lens) on d5-automation, fix implemented and deployed same session.
+
+**Root cause**: `NiimbotPrintLoop` (print) and `D11HeartbeatLoop` (heartbeat,
+added 2026-05-19) each spawn an independent subprocess opening its own BLE
+connection to the D11_H MAC, with no coordination. BlueZ only supports one
+live connection per peripheral. Worse, `subprocess.run(timeout=N)` SIGKILLs
+the child on timeout, which skips the child's `async with BleakClient`
+cleanup — a live `bluetoothctl info` check during diagnosis showed the
+device stuck `Connected: yes` with zero processes attached. The heartbeat
+loop (whose whole purpose is keeping the printer awake — see 2026-05-19
+entry below) was itself failing `NIIMBOT_HEARTBEAT_FAIL ... timeout>20s`
+on nearly every cycle in the surrounding log window, meaning the printer
+was very likely cold/asleep by the time the real print request landed.
+
+**Fix** (`monitor/monitor.py`, 3 commits):
+1. `NiimbotPrintLoop._poll()` now logs `stdout`/`stderr` on non-zero
+   returncode — previously captured but never logged, so the real error
+   from `print_niimbot.sh`/`test_d11h_print.py` was invisible.
+2. Shared `threading.Lock` (both loops run as daemon threads in one
+   process) serializes BLE access between the print and heartbeat loops,
+   plus a best-effort `bluetoothctl disconnect` on `TimeoutExpired` to
+   clear the zombie connection before the next attempt.
+3. Retry-once-after-30s on non-zero exit — this closes the "D11 print
+   retry" backlog item below, open since 2026-05-18.
+
+Deployed to `/home/jdempsey/filament_iq/monitor.py`, service restarted
+cleanly (5 threads active, first post-restart heartbeat succeeded).
+
+**Not done this session**: no real print job was fired to verify the fix
+end-to-end (hardware-actuating action, requires explicit user approval per
+project rules). `label.print`/`label.printNiimbot` remain physically
+unverified until the user runs one — see the "Hardware verbs never
+physically verified" note this entry does NOT yet retire.
+
+**Update, same day**: user ran real print attempts. The lock/retry fix above
+was confirmed working correctly, but 8 straight attempts still failed — all
+died immediately on BLE connect, before any print protocol data went out.
+Root cause turned out to be a stale/zombie `Connected: yes` device state at
+the BlueZ layer on ska, never cleared because every observed failure was a
+fast in-process exception (well under the 120s subprocess timeout), so the
+`TimeoutExpired`-only force-disconnect added above never actually fired.
+User-approved `bluetoothctl disconnect` + `bluetoothctl remove` on ska
+(state change, not a code change) cleared it. Two real prints succeeded
+immediately after (`returncode=0`), and heartbeat ran clean for ~37 minutes
+(9 consecutive `NIIMBOT_HEARTBEAT_OK`, 10:42–11:19) — a sharp contrast with
+the near-constant failures beforehand. **However this was temporary, not a
+lasting fix**: heartbeat reverted to `timeout>20s` failure at 11:23 and
+stayed failed continuously afterward (15+ consecutive fails through at
+least 12:28, no code or state changes made in between). The bond-clear
+provided real but time-limited relief — whatever accumulates to cause the
+BlueZ-side stuck state recurs within roughly half an hour of clearing it.
+**`label.printNiimbot` is physically verified as capable of working**
+(2 real prints succeeded) but the underlying BLE instability is NOT
+resolved and should not be considered fixed — see the "Hardware verbs
+never physically verified" note, which should be updated to reflect
+"verified working intermittently," not "verified reliable."
+`label.print` (Brother QL-810W) remains completely unverified. Full detail
+in d5-automation `ECOSYSTEM_STATE.md` (2026-07-18 entries), including 3
+follow-up gaps identified live and left for a future
+session: the `[:500]` stderr truncation, force-disconnect's `TimeoutExpired`-
+only scope, and a `_clear_queue()` race that silently drops a second print
+request queued while the first is still in-flight.
+
 ### 2026-05-25 — RunoutTracker zero-write: post-write remaining zeroed for ran_out slots (v1.10.2)
 
 **Decision**: Zero-write belongs in `AMSPrintUsageSync`, NOT `RunoutTracker`. When `input_boolean.ams_slot_N_ran_out` is on at print finish, the consumption estimate may undershot (Spoolman shows non-zero remaining after the /use write). Fix has two parts:
@@ -229,8 +296,9 @@ lookup only, while candidate pools continue to use the filtered index.
 
 ### Medium Priority
 
-- [ ] **D11 print retry** — If `print_niimbot.sh` returns non-zero, wait 30s and retry once before
-  clearing the queue. Handles printer wake-up lag for sparsely-used sessions. (2026-05-18)
+- [x] **D11 print retry** — If `print_niimbot.sh` returns non-zero, wait 30s and retry once before
+  clearing the queue. Handles printer wake-up lag for sparsely-used sessions. (2026-05-18,
+  closed 2026-07-18 — see Key Decisions entry above)
 
 ### Low Priority
 
