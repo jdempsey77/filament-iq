@@ -9,6 +9,7 @@ import datetime
 import json
 import os
 import sys
+import tempfile
 import types
 import unittest
 import unittest.mock
@@ -223,7 +224,8 @@ class TestableReconcile(AmsRfidReconcile):
         self._tray_entity_by_slot = tray
         self._canonical_location_by_slot = canon
         self._physical_ams_slots = tuple(sorted(tray.keys()))
-        self._last_mapping_json_entity = f"input_text.{prefix}_last_mapping_json"
+        self._last_mapping_json_path = os.path.join(
+            tempfile.mkdtemp(), "filament_iq_last_mapping.json")
         self._reconcile_button_entity = f"input_button.{prefix}_rfid_reconcile_now"
         self._startup_suppress_entity = "input_boolean.filament_iq_startup_suppress_swap"
         self._last_printer_serial_entity = "input_text.filament_iq_last_printer_serial"
@@ -4987,10 +4989,11 @@ class TestWriteLastMappingJson:
         r._active_run = {"writes": [], "no_write_paths": [], "decisions": [],
                          "conflicts": [], "validation_transcripts": []}
         r.write_last_mapping_json("test", {"1": 10})
-        # Check it was written
-        writes = [w for w in r._helper_writes
-                  if "last_mapping_json" in w.get("entity_id", "")]
-        assert len(writes) == 1
+        # Written to the file, not to an input_text helper
+        with open(r._last_mapping_json_path, encoding="utf-8") as f:
+            assert json.loads(f.read())["mapping"] == {"1": 10}
+        assert not [w for w in r._helper_writes
+                    if "last_mapping_json" in w.get("entity_id", "")]
 
     def test_long_mapping_truncated(self):
         sm = FakeSpoolman([], [])
@@ -5002,10 +5005,8 @@ class TestWriteLastMappingJson:
         # Very long mapping
         mapping = {str(i): i * 1000 for i in range(100)}
         r.write_last_mapping_json("x" * 100, mapping)
-        writes = [w for w in r._helper_writes
-                  if "last_mapping_json" in w.get("entity_id", "")]
-        assert len(writes) == 1
-        assert len(writes[0].get("value", "")) <= 255
+        with open(r._last_mapping_json_path, encoding="utf-8") as f:
+            assert len(f.read()) <= 255
 
 
 class TestComputeHaSig:
@@ -5196,34 +5197,31 @@ class TestWriteLastMappingJson:
             r._service_calls.append({"service": service, **kw})
             original_call(service, **kw)
         r.call_service = tracking_call
-        # Ensure the last_mapping_json entity exists in state
-        r._state_map[r._last_mapping_json_entity] = ""
         return r
+
+    def _written(self, r):
+        assert r._service_calls == []  # no input_text/set_value any more
+        with open(r._last_mapping_json_path, encoding="utf-8") as f:
+            return f.read()
 
     def test_short_json_passes(self):
         r = self._app()
         r.write_last_mapping_json("test", {"1": 42})
-        assert len(r._service_calls) == 1
-        written = r._service_calls[0]["value"]
-        assert len(written) <= 255
+        assert len(self._written(r)) <= 255
 
     def test_truncation_removes_timestamp(self):
         r = self._app()
         # Long mapping that's >255 with timestamp
         big_mapping = {str(i): f"spool_{i}_very_long_name_here" for i in range(10)}
         r.write_last_mapping_json("very_long_reason_string_that_goes_on", big_mapping)
-        assert len(r._service_calls) == 1
-        written = r._service_calls[0]["value"]
-        assert len(written) <= 255
+        assert len(self._written(r)) <= 255
 
     def test_extreme_truncation(self):
         r = self._app()
         # Extremely long mapping
         big_mapping = {str(i): f"spool_{i}_" + "x" * 50 for i in range(20)}
         r.write_last_mapping_json("reason", big_mapping)
-        assert len(r._service_calls) == 1
-        written = r._service_calls[0]["value"]
-        assert len(written) <= 255
+        assert len(self._written(r)) <= 255
 
 
 def _mock_urlopen_cm(data_bytes):
