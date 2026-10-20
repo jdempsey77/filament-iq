@@ -9,7 +9,7 @@ html, body {
   background: #111113;
 }
 #app {
-  height: 100dvh;
+  height: calc(100dvh - var(--portal-nav-h, 0px));
   display: flex;
   flex-direction: column;
 }
