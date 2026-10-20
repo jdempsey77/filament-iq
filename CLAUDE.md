@@ -23,11 +23,37 @@ python3 scripts/audit_config_driven.py
 ### CI
 CI runs on push/PR to main: installs `appdaemon pytest` on Python 3.11, runs pytest, then runs the audit script (continue-on-error).
 
-### Deploy to Home Assistant
-```bash
-# Requires scripts/deploy.env (copy from deploy.env.example)
-bash scripts/manage_filament_iq.sh
-```
+
+## Deploy
+
+Read from `release.yaml` on `main`:
+
+| Field | Value |
+|---|---|
+| target | `ha-green` |
+| how | `hand`: not scripted from this repo (conformance check 2 is open) |
+| path | None on HA Green. The AppDaemon apps are copied in from the `home-assistant-config` repo on the Mac |
+| script / restart | From `home-assistant-config` on the Mac: `scripts/sync_from_filament_iq.sh --ref <tag>`, then `scripts/manage_ha.sh --appdaemon` (restarts AppDaemon). `monitor/` goes to ska with `MONITOR_HOST=ska bash monitor/deploy.sh` |
+| smoke | None yet (check 5 is open). `manage_ha.sh --validate` needs `deploy.env` |
+| rollback | `hand`: re-sync the previous tag (`sync_from_filament_iq.sh --ref <prev>`) and run `--appdaemon` again |
+| ledger | `script`: `manage_ha.sh` (home-assistant-config) writes the ledger line. `monitor/deploy.sh` writes none |
+| order | `50` |
+| secrets | `deploy.env`: plaintext `scripts/deploy.env` in home-assistant-config. GAP: move it to sops (check 7 is open) |
+
+Every deploy is still done by hand from the Mac. `scripts/manage_filament_iq.sh`
+in this repo is the old direct path; the contract uses home-assistant-config.
+
+## Where it deploys
+
+- **Host:** HA Green (Home Assistant), inside the AppDaemon add-on.
+- **Running:** the apps in `apps/filament_iq/`, copied into the HA config by
+  home-assistant-config's sync script.
+- **Checkout:** `~/code/platform/filament-iq` on the Mac, on `main`. Nothing
+  on HA Green is a git checkout.
+- **Also:** `monitor/monitor.py` runs on ska as `filament-iq-monitor.service`,
+  copied there by `monitor/deploy.sh`.
+- **Config:** `scripts/deploy.env` (from `deploy.env.example`) in
+  home-assistant-config holds the HA host and SSH settings.
 
 ## Architecture
 
