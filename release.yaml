@@ -5,12 +5,12 @@ tier: 2
 branch: main
 test: "/usr/bin/python3 -m pytest tests/ -q"
 ci: true                           # .github/workflows/ci.yml: pytest on PRs to main
-secrets: deploy.env                # GAP: plaintext (home-assistant-config's scripts/deploy.env does the deploy), move to sops
+secrets: none                      # this repo deploys nothing; the Green's credentials are home-assistant-config's sops file
 deploy:
-  target: ha-green
-  how: hand
+  target: none                     # runs on the HA Green (AppDaemon), but is SHIPPED by home-assistant-config
+  how: none
   order: 50
-  ledger: script                   # manage_ha.sh (home-assistant-config) writes the ledger line
-  note: "AppDaemon apps ship from home-assistant-config on the Mac: scripts/sync_from_filament_iq.sh --ref <tag> && scripts/manage_ha.sh --appdaemon. The ska monitor moved to print-ops (its own release.yaml)."
-smoke: {command: null}             # GAP: no smoke check (manage_ha.sh --validate needs deploy.env)
-rollback: hand                     # re-sync the previous tag (sync_from_filament_iq.sh --ref <prev>) and --appdaemon again
+  ledger: none                     # the /deploy home-assistant-config ledger line covers it
+  note: "Shipped by home-assistant-config (Jerry 2026-10-21, 'a'): a PR there runs scripts/sync_from_filament_iq.sh --ref <tag|sha> (pins .source-ref), then /deploy home-assistant-config copies the apps to the Green, restarts AppDaemon (print-guarded, auto-rollback) and its smoke checks the filament_iq apps loaded."
+smoke: {command: null}             # how none: nothing to smoke here; home-assistant-config's scripts/smoke.sh checks the apps
+rollback: hand                     # a home-assistant-config PR that re-syncs the previous ref, or /deploy home-assistant-config <older tag>

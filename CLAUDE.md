@@ -26,35 +26,49 @@ CI runs on push/PR to main: installs `appdaemon pytest` on Python 3.11, runs pyt
 
 ## Deploy
 
-Read from `release.yaml` on `main`:
+**Release = a PR into home-assistant-config, then `/deploy home-assistant-config`.**
+This repo deploys nothing itself (Jerry 2026-10-21, "a": the apps ship
+inside home-assistant-config's release).
+
+1. Merge here (PR-only `main`).
+2. In home-assistant-config, a PR runs
+   `scripts/sync_from_filament_iq.sh --ref <tag>` (a land tag, else the
+   `main` SHA). It vendors `apps/filament_iq/` into
+   `appdaemon/apps/filament_iq/` and pins the commit in `.source-ref`.
+3. Jerry's `/deploy home-assistant-config` copies the apps to the HA Green
+   and restarts AppDaemon (print-guarded, backed up, auto-rolled-back). Its
+   smoke (`scripts/smoke.sh`) proves the filament_iq apps loaded: add-on
+   started, live `.source-ref` = the checkout's, every filament_iq app
+   re-initialized since the files landed, no filament_iq start failure or
+   traceback since.
+
+`release.yaml` on `main`:
 
 | Field | Value |
 |---|---|
-| target | `ha-green` |
-| how | `hand`: not scripted from this repo (conformance check 2 is open) |
-| path | None on HA Green. The AppDaemon apps are copied in from the `home-assistant-config` repo on the Mac |
-| script / restart | From `home-assistant-config` on the Mac: `scripts/sync_from_filament_iq.sh --ref <tag>`, then `scripts/manage_ha.sh --appdaemon` (restarts AppDaemon). The ska monitor is not in this repo any more: it moved to print-ops (`monitor/deploy.sh` refuses) |
-| smoke | None yet (check 5 is open). `manage_ha.sh --validate` needs `deploy.env` |
-| rollback | `hand`: re-sync the previous tag (`sync_from_filament_iq.sh --ref <prev>`) and run `--appdaemon` again |
-| ledger | `script`: `manage_ha.sh` (home-assistant-config) writes the ledger line |
-| order | `50` |
-| secrets | `deploy.env`: plaintext `scripts/deploy.env` in home-assistant-config. GAP: move it to sops (check 7 is open) |
+| target / how | `none` / `none`: shipped by home-assistant-config (`/deploy` prints the note and stops) |
+| smoke | `null` here; home-assistant-config's `scripts/smoke.sh` checks the apps |
+| rollback | `hand`: a home-assistant-config PR that re-syncs the previous ref, or `/deploy home-assistant-config <older tag>` |
+| ledger | `none`: the home-assistant-config `/deploy` line covers it |
+| secrets | `none`: the Green's credentials are home-assistant-config's sops file |
 
-Every deploy is still done by hand from the Mac. `scripts/manage_filament_iq.sh`
-in this repo is the old direct path; the contract uses home-assistant-config.
+Legacy scripts that still read a plaintext `scripts/deploy.env` here
+(`scripts/manage_filament_iq.sh`, `scripts/validate_filament_iq.sh`,
+`scripts/regression_test.sh`) are NOT part of the release; don't use them to
+deploy.
 
 ## Where it deploys
 
-- **Host:** HA Green (Home Assistant), inside the AppDaemon add-on.
-- **Running:** the apps in `apps/filament_iq/`, copied into the HA config by
-  home-assistant-config's sync script.
-- **Checkout:** `~/code/platform/filament-iq` on the Mac, on `main`. Nothing
-  on HA Green is a git checkout.
+- **Host:** HA Green (Home Assistant), inside the AppDaemon add-on
+  (`/app_configs/a0d7b954_appdaemon/apps/filament_iq/`).
+- **Shipped by:** home-assistant-config: `sync_from_filament_iq.sh --ref <tag>`
+  in a PR there, then `/deploy home-assistant-config` (from ska).
+- **Checkout:** `~/code/platform/filament-iq` on the Mac is for PRs only.
+  Nothing on HA Green is a git checkout; the live `.source-ref` names the
+  filament-iq commit that runs.
 - **Not here:** the ska companion daemon (`filament-iq-monitor.service`) lives
   in the print-ops repo and deploys from there with `/deploy`; `monitor/` here
   keeps only a retired `deploy.sh` stub and the config example.
-- **Config:** `scripts/deploy.env` (from `deploy.env.example`) in
-  home-assistant-config holds the HA host and SSH settings.
 
 ## Architecture
 
@@ -85,7 +99,7 @@ Tests in `tests/` mock `hassapi.Hass` with a fake class injected into `sys.modul
 - Entity IDs contain printer serial (e.g., `sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_1`). The `TRAY_ENTITY_BY_SLOT` dict in each app maps slot numbers to entity IDs.
 - Identity stored in Spoolman `lot_nr` field: RFID spools use `tray_uuid` (32-char hex), non-RFID use `type|filament_id|color_hex`.
 - The `comment` field in Spoolman is reserved for human use — apps never write to it.
-- Deploy script uses `scripts/deploy.env` (gitignored) for SSH/HA credentials.
+- The legacy scripts above use `scripts/deploy.env` (gitignored); the release path doesn't.
 
 ## Security Rules — Non-Negotiable
 
