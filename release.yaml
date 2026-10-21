@@ -10,7 +10,7 @@ deploy:
   target: ha-green
   how: hand
   order: 50
-  ledger: script                   # manage_ha.sh (home-assistant-config) writes the ledger line; monitor/deploy.sh writes none
-  note: "AppDaemon apps ship from home-assistant-config on the Mac: scripts/sync_from_filament_iq.sh --ref <tag> && scripts/manage_ha.sh --appdaemon. monitor/ -> ska by MONITOR_HOST=ska bash monitor/deploy.sh."
+  ledger: script                   # manage_ha.sh (home-assistant-config) writes the ledger line
+  note: "AppDaemon apps ship from home-assistant-config on the Mac: scripts/sync_from_filament_iq.sh --ref <tag> && scripts/manage_ha.sh --appdaemon. The ska monitor moved to print-ops (its own release.yaml)."
 smoke: {command: null}             # GAP: no smoke check (manage_ha.sh --validate needs deploy.env)
 rollback: hand                     # re-sync the previous tag (sync_from_filament_iq.sh --ref <prev>) and --appdaemon again
