@@ -33,10 +33,10 @@ Read from `release.yaml` on `main`:
 | target | `ha-green` |
 | how | `hand`: not scripted from this repo (conformance check 2 is open) |
 | path | None on HA Green. The AppDaemon apps are copied in from the `home-assistant-config` repo on the Mac |
-| script / restart | From `home-assistant-config` on the Mac: `scripts/sync_from_filament_iq.sh --ref <tag>`, then `scripts/manage_ha.sh --appdaemon` (restarts AppDaemon). `monitor/` goes to ska with `MONITOR_HOST=ska bash monitor/deploy.sh` |
+| script / restart | From `home-assistant-config` on the Mac: `scripts/sync_from_filament_iq.sh --ref <tag>`, then `scripts/manage_ha.sh --appdaemon` (restarts AppDaemon). The ska monitor is not in this repo any more: it moved to print-ops (`monitor/deploy.sh` refuses) |
 | smoke | None yet (check 5 is open). `manage_ha.sh --validate` needs `deploy.env` |
 | rollback | `hand`: re-sync the previous tag (`sync_from_filament_iq.sh --ref <prev>`) and run `--appdaemon` again |
-| ledger | `script`: `manage_ha.sh` (home-assistant-config) writes the ledger line. `monitor/deploy.sh` writes none |
+| ledger | `script`: `manage_ha.sh` (home-assistant-config) writes the ledger line |
 | order | `50` |
 | secrets | `deploy.env`: plaintext `scripts/deploy.env` in home-assistant-config. GAP: move it to sops (check 7 is open) |
 
@@ -50,8 +50,9 @@ in this repo is the old direct path; the contract uses home-assistant-config.
   home-assistant-config's sync script.
 - **Checkout:** `~/code/platform/filament-iq` on the Mac, on `main`. Nothing
   on HA Green is a git checkout.
-- **Also:** `monitor/monitor.py` runs on ska as `filament-iq-monitor.service`,
-  copied there by `monitor/deploy.sh`.
+- **Not here:** the ska companion daemon (`filament-iq-monitor.service`) lives
+  in the print-ops repo and deploys from there with `/deploy`; `monitor/` here
+  keeps only a retired `deploy.sh` stub and the config example.
 - **Config:** `scripts/deploy.env` (from `deploy.env.example`) in
   home-assistant-config holds the HA host and SSH settings.
 

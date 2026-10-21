@@ -2,9 +2,10 @@
 
 ## Overview
 
-Adding a new AMS unit (e.g. a third AMS HT) requires changes across two repos:
-the `filament-iq` package (slot mapping, card, monitor, tests) and the
-`home_assistant` config repo (helpers, automations, scripts, dashboard). The
+Adding a new AMS unit (e.g. a third AMS HT) requires changes across three repos:
+the `filament-iq` package (slot mapping, card, tests), the
+`home_assistant` config repo (helpers, automations, scripts, dashboard) and
+`print-ops` (the ska monitor's slot mapping). The
 architecture is config-driven — `consumption_engine.py`, `threemf_parser.py`,
 and `ams_print_usage_sync.py` require **zero changes**. All slot knowledge
 flows from `base.py` through `build_slot_mappings()`.
@@ -66,7 +67,8 @@ upper bound.
 
 ## Step 3 — monitor.py: slot mapping
 
-File: `monitor/monitor.py`
+File: `monitor.py` in the **print-ops** repo (the monitor moved there on
+2026-10-20; deploy it with `/deploy`)
 
 Add to `_SLOT_TO_AMS`:
 
