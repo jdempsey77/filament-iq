@@ -52,11 +52,6 @@ inside home-assistant-config's release).
 | ledger | `none`: the home-assistant-config `/deploy` line covers it |
 | secrets | `none`: the Green's credentials are home-assistant-config's sops file |
 
-Legacy scripts that still read a plaintext `scripts/deploy.env` here
-(`scripts/manage_filament_iq.sh`, `scripts/validate_filament_iq.sh`,
-`scripts/regression_test.sh`) are NOT part of the release; don't use them to
-deploy.
-
 ## Where it deploys
 
 - **Host:** HA Green (Home Assistant), inside the AppDaemon add-on
@@ -99,7 +94,6 @@ Tests in `tests/` mock `hassapi.Hass` with a fake class injected into `sys.modul
 - Entity IDs contain printer serial (e.g., `sensor.p1s_YOUR_PRINTER_SERIAL_ams_1_tray_1`). The `TRAY_ENTITY_BY_SLOT` dict in each app maps slot numbers to entity IDs.
 - Identity stored in Spoolman `lot_nr` field: RFID spools use `tray_uuid` (32-char hex), non-RFID use `type|filament_id|color_hex`.
 - The `comment` field in Spoolman is reserved for human use — apps never write to it.
-- The legacy scripts above use `scripts/deploy.env` (gitignored); the release path doesn't.
 
 ## Security Rules — Non-Negotiable
 
