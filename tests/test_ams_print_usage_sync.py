@@ -99,6 +99,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self.min_consumption_g = float(a.get("min_consumption_g", 2))
         self.max_consumption_g = float(a.get("max_consumption_g", 1000))
         self.min_tray_active_seconds = float(a.get("min_tray_active_seconds", 10))
+        self.nousage_alert_min_seconds = float(a.get("nousage_alert_min_seconds", 300))
         self.auto_empty_spools = bool(a.get("auto_empty_spools", False))
         self.auto_archive_depleted_spools = bool(a.get("auto_archive_depleted_spools", False))
         self.notify_service = str(a.get("notify_service", "mobile_app_YOUR_DEVICE"))
