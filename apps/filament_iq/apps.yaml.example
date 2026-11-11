@@ -92,6 +92,9 @@ ams_print_usage_sync:
   dry_run: false
   min_consumption_g: 2
   max_consumption_g: 300
+  # A failed/cancelled print raises "Consumption Not Recorded" for a slot only
+  # when that slot fed for at least this many seconds. Finished prints always alert.
+  nousage_alert_min_seconds: 300
   threemf_enabled: true
   trays_used_entity: "input_text.filament_iq_trays_used_this_print"
   notify_target: []  # optional: ["notify mobile app"] for push

@@ -139,6 +139,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 "max_consumption_g": (float, 1000.0),
                 "min_consumption_g": (float, 2.0),
                 "min_tray_active_seconds": (float, 10.0),
+                "nousage_alert_min_seconds": (float, 300.0),
                 "printer_ftps_port": (int, 990),
                 "dry_run": (bool, False),
                 "data_dir": (str, ""),
@@ -147,6 +148,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 "max_consumption_g": (1.0, None),
                 "min_consumption_g": (0.0, None),
                 "min_tray_active_seconds": (0.0, None),
+                "nousage_alert_min_seconds": (0.0, None),
                 "printer_ftps_port": (1, 65535),
             },
         )
@@ -164,6 +166,12 @@ class AmsPrintUsageSync(FilamentIQBase):
             self.args.get("auto_archive_depleted_spools", False)
         )
         self.min_tray_active_seconds = float(self.args.get("min_tray_active_seconds", 10))
+        # A failed/cancelled print raises "Consumption Not Recorded" for a slot
+        # only when the slot fed for at least this long. Finished prints always
+        # alert. Paused time counts as slot time.
+        self.nousage_alert_min_seconds = float(
+            self.args.get("nousage_alert_min_seconds", 300)
+        )
         self.notify_service = str(self.args.get("notify_service", "mobile_app_YOUR_DEVICE"))
         _data_dir = str(self.args.get("data_dir", "")).strip().rstrip("/") or _DEFAULT_DATA_DIR
         self._seen_jobs_path = os.path.join(_data_dir, "seen_job_keys.json")
@@ -995,6 +1003,8 @@ class AmsPrintUsageSync(FilamentIQBase):
                 level="WARNING",
             )
 
+    _LATE_TASK_NAME_WINDOW_S = 300
+
     def _on_task_name_change(self, entity, attribute, old, new, kwargs):
         """Follow the task-name sensor while a job is open and tracking is on.
 
@@ -1010,6 +1020,19 @@ class AmsPrintUsageSync(FilamentIQBase):
         if name in ("", "unknown", "unavailable"):
             return
         if name == self._job_task_name:
+            return
+        # Only a name that lands shortly after the start is "late". With no
+        # known start time, or outside the window, a changed name is a
+        # different print: keep the recorded name so the next return to
+        # running supersedes the open job instead of absorbing the new print.
+        start = self._print_start_time
+        if start is None or (time.time() - start) > self._LATE_TASK_NAME_WINDOW_S:
+            self.log(
+                f"JOB_TASK_NAME_NOT_ADOPTED job_key={self._job_key} "
+                f"recorded={self._job_task_name!r} new={name!r} "
+                f"reason={'no_start_time' if start is None else 'outside_window'}",
+                level="INFO",
+            )
             return
         self.log(
             f"JOB_TASK_NAME_UPDATED job_key={self._job_key} "
@@ -1504,6 +1527,38 @@ class AmsPrintUsageSync(FilamentIQBase):
                 )
         self._do_finish(status)
 
+    _RFID_RECONCILE_DELAY_S = 60
+
+    def _schedule_rfid_weight_reconcile(self) -> None:
+        """Run the RFID weight reconciler 60 s after a finish. Called from the
+        full finish and from both NO_ACTIVE_SLOTS exits, so RFID spool totals
+        are brought back to the fuel gauge even when nothing was written."""
+        self.run_in(
+            self._reconcile_rfid_weights_deferred, self._RFID_RECONCILE_DELAY_S
+        )
+        self.log(
+            f"RFID_WEIGHT_RECONCILE_DEFERRED job_key={self._job_key} "
+            f"delay={self._RFID_RECONCILE_DELAY_S}s",
+            level="INFO",
+        )
+
+    def _nousage_alert_due(self, slot, status) -> tuple:
+        """Should a not-recorded slot on this print be reported? Returns
+        (due, active_seconds).
+
+        Finished prints: always. Failed/cancelled prints: only when the slot
+        fed for at least `nousage_alert_min_seconds` — a cancel in the first
+        seconds uses next to nothing. A rehydrated print has no valid tray
+        timing, so it is reported rather than silently dropped. Paused time
+        counts as slot time.
+        """
+        active_s = float(self._summarize_tray_times().get(slot, 0.0) or 0.0)
+        if str(status).strip().lower() in self._SUCCESS_STATES:
+            return True, active_s
+        if self._rehydrated:
+            return True, active_s
+        return active_s >= self.nousage_alert_min_seconds, active_s
+
     def _notify_no_active_slots(self, status, task_name, print_weight_g) -> None:
         """One alert when a print that finished successfully tracked no slot
         although a spool was bound: real filament was used and nothing was
@@ -1591,6 +1646,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                     level="INFO",
                 )
             self._notify_no_active_slots(status, task_name, print_weight_g)
+            self._schedule_rfid_weight_reconcile()
             self._on_print_end()
             self._clear_active_print()
             return
@@ -1777,6 +1833,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 f"USAGE_SKIP reason=NO_ACTIVE_SLOTS job_key={self._job_key}",
                 level="INFO",
             )
+            self._schedule_rfid_weight_reconcile()
             self._on_print_end()
             self._clear_active_print()
             return
@@ -1832,10 +1889,43 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"reason={d.skip_reason}",
                     level="INFO",
                 )
+                _slot_is_rfid = self._is_rfid_slot(d.slot)
+                _alert_due, _active_s = self._nousage_alert_due(d.slot, status)
+                if (
+                    _slot_is_rfid
+                    and str(d.skip_reason or "").startswith("BELOW_MIN")
+                    and _alert_due
+                ):
+                    # RFID fuel gauge showed no usable delta and there was no
+                    # slicer weight to fall back on. Not a push: the RFID
+                    # weight reconciler puts the spool total right after the
+                    # finish. One WARNING line so it can be counted.
+                    self.log(
+                        f"RFID_ZERO_DELTA_NO_SLICER slot={d.slot} "
+                        f"spool_id={d.spool_id} status={status} "
+                        f"active_s={_active_s:.0f} "
+                        f"slicer_estimate_g={print_weight_g:.1f} "
+                        f"job_key={self._job_key}",
+                        level="WARNING",
+                    )
                 if (
                     d.skip_reason == "NO_3MF_AND_TRAY_NOT_EMPTY"
-                    and not self._is_rfid_slot(d.slot)
+                    and not _slot_is_rfid
                     and d.spool_id is not None
+                    and not _alert_due
+                ):
+                    self.log(
+                        f"USAGE_NO_EVIDENCE_NOTIFY_SKIPPED slot={d.slot} "
+                        f"spool_id={d.spool_id} status={status} "
+                        f"active_s={_active_s:.0f} "
+                        f"min_s={self.nousage_alert_min_seconds:.0f}",
+                        level="INFO",
+                    )
+                if (
+                    d.skip_reason == "NO_3MF_AND_TRAY_NOT_EMPTY"
+                    and not _slot_is_rfid
+                    and d.spool_id is not None
+                    and _alert_due
                 ):
                     try:
                         self.fiq_notify(
@@ -1885,13 +1975,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._write_print_history(all_decisions, task_name, status, print_weight_g)
 
         # Schedule RFID reconciler (60s defer)
-        _RECONCILE_DELAY = 60
-        self.run_in(self._reconcile_rfid_weights_deferred, _RECONCILE_DELAY)
-        self.log(
-            f"RFID_WEIGHT_RECONCILE_DEFERRED job_key={self._job_key} "
-            f"delay={_RECONCILE_DELAY}s",
-            level="INFO",
-        )
+        self._schedule_rfid_weight_reconcile()
 
         if status not in self._FAILED_STATES:
             self._last_processed_job_key = self._job_key
