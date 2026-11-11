@@ -326,6 +326,11 @@ class AmsPrintUsageSync(FilamentIQBase):
             self._print_status_entity,
         )
 
+        self.listen_state(
+            self._on_task_name_change,
+            self._task_name_entity,
+        )
+
         # Phase 3: swap detection listeners + rehydration
         if self._lifecycle_phase3:
             for slot in sorted(self._tray_entity_by_slot.keys()):
@@ -929,27 +934,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 self._on_print_start()
             self.run_in(self._check_unbound_trays, 10)
         elif old in ("running", "printing") and new not in ("running", "printing", "pause", "paused"):
-            self._print_active = False
-            if self._current_active_slot is not None:
-                self._close_active_segment(self._current_active_slot)
-                self._current_active_slot = None
-            self.log(
-                f"TRAY_TRACKING_END trays_used={self._trays_used} "
-                f"active_times={self._summarize_tray_times()}",
-                level="INFO",
-            )
-            try:
-                trays_str = ",".join(str(s) for s in sorted(self._trays_used))
-                self.call_service(
-                    "input_text/set_value",
-                    entity_id=self._trays_used_entity,
-                    value=trays_str,
-                )
-            except Exception as e:
-                self.log(
-                    f"TRAY_TRACKING: Failed to update HA helper: {e}",
-                    level="WARNING",
-                )
+            self._end_tray_tracking()
             # Set-once invariant: only fire end-of-print teardown for
             # terminal states. Transient blips (prepare/unknown/unavailable/
             # idle) leave `_job_key` and `_print_start_time` intact so the
@@ -965,6 +950,73 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"preserving job_key={self._job_key}",
                     level="DEBUG",
                 )
+        elif (
+            new in self._TERMINAL_STATES
+            and old not in self._TERMINAL_STATES
+            and self._job_key
+        ):
+            # A terminal state reached from pause/paused/offline/unknown/
+            # unavailable (pause then cancel; a print that ends while the
+            # printer is offline). The job is still open: close it through the
+            # normal finish path. Runs once — the finish path clears the job
+            # key, so a repeated terminal event finds no open job.
+            self.log(
+                f"PRINT_FINISH_FROM_NON_RUNNING job_key={self._job_key} "
+                f"old={old!r} new={new!r}",
+                level="INFO",
+            )
+            self._end_tray_tracking()
+            if self._lifecycle_phase2:
+                self._on_print_finish(new)
+            elif self._lifecycle_phase1:
+                self._on_print_end()
+
+    def _end_tray_tracking(self) -> None:
+        """Stop tray tracking: close the open segment, publish trays used."""
+        self._print_active = False
+        if self._current_active_slot is not None:
+            self._close_active_segment(self._current_active_slot)
+            self._current_active_slot = None
+        self.log(
+            f"TRAY_TRACKING_END trays_used={self._trays_used} "
+            f"active_times={self._summarize_tray_times()}",
+            level="INFO",
+        )
+        try:
+            trays_str = ",".join(str(s) for s in sorted(self._trays_used))
+            self.call_service(
+                "input_text/set_value",
+                entity_id=self._trays_used_entity,
+                value=trays_str,
+            )
+        except Exception as e:
+            self.log(
+                f"TRAY_TRACKING: Failed to update HA helper: {e}",
+                level="WARNING",
+            )
+
+    def _on_task_name_change(self, entity, attribute, old, new, kwargs):
+        """Follow the task-name sensor while a job is open and tracking is on.
+
+        The task name can arrive after the print status flips to running, in
+        which case the job recorded the previous print's name. Adopting the
+        late value keeps `_is_different_job` from mistaking a later reconnect
+        of this same print for a new one. Never while tracking is off: during
+        a dropout a changed name is exactly the evidence of a different print.
+        """
+        if not self._job_key or not self._print_active:
+            return
+        name = str(new or "").strip()
+        if name in ("", "unknown", "unavailable"):
+            return
+        if name == self._job_task_name:
+            return
+        self.log(
+            f"JOB_TASK_NAME_UPDATED job_key={self._job_key} "
+            f"old={self._job_task_name!r} new={name!r}",
+            level="INFO",
+        )
+        self._job_task_name = name
 
     def _is_different_job(self) -> bool:
         """True when the printer is now running a different task than the open job.
