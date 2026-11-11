@@ -1300,8 +1300,8 @@ class AmsPrintUsageSync(FilamentIQBase):
                             level="INFO",
                         )
                         _3mf_fname = fname.replace(".slice_info.config", ".3mf") if fname.endswith(".slice_info.config") else fname
-                        _cache_path = os.path.join(self._bambulab_cache_path, _3mf_fname)
-                        if self._bambulab_cache_path and os.path.exists(_cache_path):
+                        _cache_path = self._find_cache_file(_3mf_fname)
+                        if _cache_path:
                             _mw_meta = parse_3mf_metadata(_cache_path)
                             self._write_makerworld_sensors(
                                 makerworld_url=_mw_meta.get("makerworld_url"),
@@ -1309,7 +1309,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                             )
                             self.log(f"MW_RESULT url={_mw_meta.get('makerworld_url')} title={_mw_meta.get('title')}", level="INFO")
                         else:
-                            self.log(f"MW_SKIP cache_path={_cache_path} bambulab={bool(self._bambulab_cache_path)} exists={os.path.exists(_cache_path)}", level="INFO")
+                            self.log(f"MW_SKIP file={_3mf_fname} bambulab={bool(self._bambulab_cache_path)} exists=False", level="INFO")
                 # Only restore trays_used from disk on a rehydrated print.
                 # During a continuous run the live _trays_used is authoritative
                 # (it has been accumulating runout slot switches); overwriting it
@@ -1840,8 +1840,8 @@ class AmsPrintUsageSync(FilamentIQBase):
                             level="INFO",
                         )
                         _3mf_fname = fname.replace(".slice_info.config", ".3mf") if fname.endswith(".slice_info.config") else fname
-                        _cache_path = os.path.join(self._bambulab_cache_path, _3mf_fname)
-                        if self._bambulab_cache_path and os.path.exists(_cache_path):
+                        _cache_path = self._find_cache_file(_3mf_fname)
+                        if _cache_path:
                             _mw_meta = parse_3mf_metadata(_cache_path)
                             self._write_makerworld_sensors(
                                 makerworld_url=_mw_meta.get("makerworld_url"),
@@ -1849,7 +1849,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                             )
                             self.log(f"MW_RESULT url={_mw_meta.get('makerworld_url')} title={_mw_meta.get('title')}", level="INFO")
                         else:
-                            self.log(f"MW_SKIP cache_path={_cache_path} bambulab={bool(self._bambulab_cache_path)} exists={os.path.exists(_cache_path)}", level="INFO")
+                            self.log(f"MW_SKIP file={_3mf_fname} bambulab={bool(self._bambulab_cache_path)} exists=False", level="INFO")
                 # Union (not replace) so any live tray tracking that occurred
                 # before this rehydrate is preserved alongside the disk snapshot.
                 if restored["trays_used"]:
@@ -1932,15 +1932,47 @@ class AmsPrintUsageSync(FilamentIQBase):
             code = ""
         return code if code else None
 
+    def _cache_search_dirs(self) -> list:
+        """Directories ha-bambulab writes print files to, in lookup order.
+
+        Two layouts exist and both must keep working:
+          old: <bambulab_cache_path>/<n>-<task>.{gcode,3mf,slice_info.config}
+          new: <parent of bambulab_cache_path>/<n>-<task>.gcode.{gcode,3mf,slice_info.config}
+        The new layout drops the trailing ``cache/`` directory, so the parent
+        of the configured path is searched second. No config change needed.
+        """
+        cache_path = str(self._bambulab_cache_path or "").strip()
+        if not cache_path:
+            return []
+        normalized = cache_path.rstrip("/") or cache_path
+        dirs = [normalized]
+        parent = os.path.dirname(normalized)
+        if parent and parent != normalized:
+            dirs.append(parent)
+        return dirs
+
+    def _find_cache_file(self, filename: str) -> str:
+        """Return the full path of `filename` in the ha-bambulab cache, or ""."""
+        if not filename:
+            return ""
+        for directory in self._cache_search_dirs():
+            candidate = os.path.join(directory, filename)
+            if os.path.exists(candidate):
+                return candidate
+        return ""
+
     def _try_cache_3mf(self) -> bool:
         """Attempt to read slice_info.config from ha-bambulab local cache.
+
+        Handles both ha-bambulab layouts (see `_cache_search_dirs`):
+          old: gcode `<n>-<task>.gcode`       → `<n>-<task>.slice_info.config`
+          new: gcode `<n>-<task>.gcode.gcode` → `<n>-<task>.gcode.slice_info.config`
 
         Returns True and sets self._threemf_data on cache hit.
         Returns False on any miss or error — caller must fall through to FTPS.
         """
         try:
-            cache_path = self._bambulab_cache_path
-            if not cache_path:
+            if not self._cache_search_dirs():
                 return False
 
             gcode_file = str(
@@ -1968,7 +2000,12 @@ class AmsPrintUsageSync(FilamentIQBase):
                 self.log("3MF_CACHE_MISS reason=task_name_unavailable", level="INFO")
                 return False
 
-            if cached_task != current_task:
+            # New layout: the gcode file is `<n>-<task>.gcode.gcode`, so the
+            # stem still carries one ".gcode" after the task name.
+            task_candidates = {cached_task}
+            if cached_task.endswith(".gcode"):
+                task_candidates.add(cached_task[:-6])
+            if current_task not in task_candidates:
                 self.log(
                     f"3MF_CACHE_MISS reason=task_mismatch "
                     f"cached={cached_task!r} current={current_task!r}",
@@ -1977,11 +2014,17 @@ class AmsPrintUsageSync(FilamentIQBase):
                 return False
 
             slice_filename = stem + ".slice_info.config"
-            full_path = os.path.join(cache_path, slice_filename)
+            full_path = self._find_cache_file(slice_filename)
 
-            if not os.path.exists(full_path):
-                self.log(f"3MF_CACHE_MISS reason=file_not_found path={full_path}", level="INFO")
+            if not full_path:
+                self.log(
+                    f"3MF_CACHE_MISS reason=file_not_found file={slice_filename} "
+                    f"searched={self._cache_search_dirs()}",
+                    level="INFO",
+                )
                 return False
+            # Siblings (other plates) live next to the file that was found.
+            cache_path = os.path.dirname(full_path)
 
             file_mtime = os.path.getmtime(full_path)
             start_time = getattr(self, "_print_start_time", None) or 0
