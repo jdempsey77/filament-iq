@@ -250,3 +250,89 @@ def test_find_cache_file_covers_both_directories(cache):
     assert app._find_cache_file(new_3mf.name) == str(new_3mf)
     assert app._find_cache_file("nope.3mf") == ""
     assert app._find_cache_file("") == ""
+
+
+# ── task names that really end in ".gcode" ────────────────────────────
+
+
+def test_old_layout_task_name_ending_in_gcode(cache):
+    """Old layout, task "spacer.gcode": gcode `<n>-spacer.gcode.gcode` in cache/."""
+    _prints, cache_dir, _ = cache
+    _write(
+        cache_dir / "51234-spacer.gcode.slice_info.config",
+        _slice_info(("GFL99", "12.50", "#8E9089")),
+    )
+    app = _app(cache, "51234-spacer.gcode.gcode", "spacer.gcode")
+
+    assert app._try_cache_3mf() is True
+    assert [f["used_g"] for f in app._threemf_data] == [12.5]
+    assert app._threemf_filename == "51234-spacer.gcode.slice_info.config"
+
+
+def test_new_layout_task_name_ending_in_gcode(cache):
+    """New layout, task "spacer.gcode": gcode `<n>-spacer.gcode.gcode.gcode` in prints/."""
+    prints, _cache_dir, _ = cache
+    _write(
+        prints / "51234-spacer.gcode.gcode.slice_info.config",
+        _slice_info(("GFL99", "12.50", "#8E9089")),
+    )
+    app = _app(cache, "51234-spacer.gcode.gcode.gcode", "spacer.gcode")
+
+    assert app._try_cache_3mf() is True
+    assert [f["used_g"] for f in app._threemf_data] == [12.5]
+    assert app._threemf_filename == "51234-spacer.gcode.gcode.slice_info.config"
+
+
+# ── real timing: the sensor lags the print start ──────────────────────
+
+
+def test_sensor_names_previous_print_at_start_then_hits_at_finish(cache):
+    """The gcode-file sensor still names the previous print when the job starts.
+
+    Observed order: two `task_mismatch` misses in the first 30 s (first try,
+    then the 20 s cache retry), the sensor and file update about two minutes
+    in, and the lookup run at print finish hits.
+    """
+    prints, _cache_dir, _ = cache
+    _write(
+        prints / "168902-cdxl_x1_coupons_chassis_Coupons.gcode.slice_info.config",
+        _slice_info(("GFA00", "36.60", "#8E9089")),
+        mtime=time.time() - 3600,
+    )
+    app = _app(
+        cache,
+        "168902-cdxl_x1_coupons_chassis_Coupons.gcode.gcode",  # previous print
+        "cdxl_x1_coupons_chassis_Chassis",
+    )
+    app.threemf_enabled = True
+    app._lifecycle_phase1 = True
+    app._lifecycle_phase2 = True
+    app._start_snapshot = {1: 900.0}
+    app._state_map["input_text.ams_slot_4_spool_id"] = "118"
+    app._spool_id_snapshot = {4: 118}
+    app._trays_used = {4}
+    app._print_active = True
+
+    # t+10 s and t+30 s: both lookups miss on the previous print's name.
+    app._fetch_3mf_background({"attempt": 1})
+    app._fetch_3mf_background({"attempt": 1, "cache_retry": True})
+    misses = [m for m, _ in app._log_calls if "3MF_CACHE_MISS reason=task_mismatch" in m]
+    assert len(misses) == 2
+    assert app._threemf_data is None
+
+    # ~2 min in: ha-bambulab writes this print's files and updates the sensor.
+    _write(
+        prints / "2710709-cdxl_x1_coupons_chassis_Chassis.gcode.slice_info.config",
+        _slice_info(("GFL99", "488.51", "#8E9089")),
+    )
+    app._state_map[GCODE_ENTITY] = "2710709-cdxl_x1_coupons_chassis_Chassis.gcode.gcode"
+
+    # Print finish: the last-resort lookup hits.
+    app._on_print_finish("finish")
+
+    assert _has_log(app, "3MF_CACHE_HIT")
+    assert _has_log(app, "3MF_CACHE_REHYDRATE_HIT")
+    assert not _has_log(app, "3MF_UNAVAILABLE_AT_FINISH")
+    # …and the non-RFID slot is written by the slicer method.
+    assert _has_log(app, "method=3mf")
+    assert app._use_calls == [{"spool_id": 118, "use_weight": 488.51}]
