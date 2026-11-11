@@ -123,6 +123,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         # Lifecycle phase flags (must mirror ams_print_usage_sync.py init)
         self._lifecycle_phase1 = bool(a.get("lifecycle_phase1_enabled", False))
         self._job_key = ""
+        self._job_task_name = ""
         self._print_start_time = None
         self._start_snapshot = {}
         self._fuel_gauge_pattern = str(

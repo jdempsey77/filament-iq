@@ -204,6 +204,9 @@ class AmsPrintUsageSync(FilamentIQBase):
         # Phase 1: Print start lifecycle (absorbs automations A, B, C)
         self._lifecycle_phase1 = bool(self.args.get("lifecycle_phase1_enabled", False))
         self._job_key = ""
+        # Task name the open job was started under. Used to tell a reconnect
+        # of the same print from a different print starting over an open job.
+        self._job_task_name = ""
         self._print_start_time = None
         self._start_snapshot = {}  # {slot_int: grams_float}
         self._start_tray_uuid = {}  # {slot_int: str} tray_uuid at print start
@@ -892,12 +895,21 @@ class AmsPrintUsageSync(FilamentIQBase):
 
         if new in ("running", "printing") and old not in ("running", "printing", "pause", "paused"):
             if self._job_key:
-                self.log(
-                    f"PRINT_STATUS_SPURIOUS_SKIP job_key={self._job_key} "
-                    f"old={old!r} new={new!r} — skipping reset, job already active",
-                    level="INFO",
-                )
-                return
+                if not self._is_different_job():
+                    self.log(
+                        f"PRINT_STATUS_SPURIOUS_SKIP job_key={self._job_key} "
+                        f"old={old!r} new={new!r} — skipping reset, job already active",
+                        level="INFO",
+                    )
+                    # Same print coming back (printer dropout, AppDaemon/HA
+                    # blip). Keep the job, but switch tray tracking back on:
+                    # the running → offline edge turned it off.
+                    self._resume_tray_tracking()
+                    return
+                # A different print started while the old job was still open
+                # (its finish was never seen). Close the old job so the new
+                # print gets its own key and start snapshot.
+                self._supersede_open_job()
             self._trays_used = set()
             self._spool_id_snapshot = {}
             self._tray_active_times = {}
@@ -953,6 +965,100 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"preserving job_key={self._job_key}",
                     level="DEBUG",
                 )
+
+    def _is_different_job(self) -> bool:
+        """True when the printer is now running a different task than the open job.
+
+        Rule: the task-name sensor is readable AND the open job recorded a task
+        name AND the two differ. Anything else (sensor unavailable, no recorded
+        name) is treated as the same print — a false "new job" would discard a
+        live print's state, which is the worse error. The gcode-file sensor is
+        deliberately not used: it lags the print start by minutes and still
+        names the previous print when an early dropout ends.
+        """
+        open_task = str(getattr(self, "_job_task_name", "") or "").strip()
+        if not open_task:
+            return False
+        current_task = str(self.get_state(self._task_name_entity) or "").strip()
+        if current_task in ("", "unknown", "unavailable"):
+            return False
+        return current_task != open_task
+
+    def _supersede_open_job(self) -> None:
+        """Close an open job whose finish was never seen. Nothing is written
+        for it (its end state is unknown); one alert says so."""
+        old_job = self._job_key
+        old_task = self._job_task_name
+        new_task = str(self.get_state(self._task_name_entity) or "").strip()
+        self.log(
+            f"PRINT_JOB_SUPERSEDED old_job_key={old_job} old_task={old_task!r} "
+            f"new_task={new_task!r} — finish never seen, usage not recorded",
+            level="WARNING",
+        )
+        try:
+            self.fiq_notify(
+                "Consumption Not Recorded",
+                (
+                    f"Print '{old_task}' never reported a finish before "
+                    f"'{new_task}' started. Its filament use was not recorded "
+                    "in Spoolman."
+                ),
+                push=True,
+                push_service=self.notify_service,
+                tag="fiq-nousage-job",
+            )
+        except Exception as e:
+            self.log(f"PRINT_JOB_SUPERSEDED_NOTIFY_FAILED: {e}", level="WARNING")
+        self._on_print_end()
+        self._clear_active_print()
+
+    def _resume_tray_tracking(self) -> None:
+        """Switch tray tracking back on for the job that is already open.
+
+        Keeps the job key, start snapshot, slots and times gathered so far.
+        Re-seeds the active tray so a slot that was never seeded (dropout in
+        the first seconds) or changed during the dropout is picked up, and a
+        new timing segment opens for the slot now feeding.
+        """
+        was_active = self._print_active
+        self._print_active = True
+        seeded = self._seed_resumed_tray()
+        if not seeded and self._current_active_slot is None:
+            # Active tray not readable yet (integration still reconnecting).
+            self.run_in(self._delayed_resume_seed, 5)
+            self.run_in(self._delayed_resume_seed, 15)
+        if not was_active or seeded:
+            self.log(
+                f"TRAY_TRACKING_RESUMED job_key={self._job_key} "
+                f"trays_used={self._trays_used} active_slot={self._current_active_slot}",
+                level="INFO",
+            )
+
+    def _seed_resumed_tray(self) -> bool:
+        """Seed the active tray on resume. Returns True if a slot became active."""
+        if self._current_active_slot is not None:
+            return False
+        before = set(self._trays_used)
+        self._seed_active_trays()
+        slot = self._current_active_slot
+        if slot is None:
+            return False
+        if slot not in before:
+            if self._lifecycle_phase1:
+                self._seed_slot_start_grams(slot)
+            self._persist_active_print()
+        return True
+
+    def _delayed_resume_seed(self, kwargs):
+        if not self._print_active or not self._job_key:
+            return
+        if self._seed_resumed_tray():
+            self.log(
+                f"TRAY_TRACKING_RESUMED job_key={self._job_key} "
+                f"trays_used={self._trays_used} active_slot={self._current_active_slot} "
+                f"(delayed seed)",
+                level="INFO",
+            )
 
     def _resolve_active_tray_slot(self):
         try:
@@ -1125,6 +1231,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._write_makerworld_sensors()
         task_name = str(self.get_state(self._task_name_entity) or "")
         self._job_key = f"{task_name.replace(' ', '_')}_{int(time.time())}"
+        self._job_task_name = task_name.strip()
         self._start_snapshot = self._build_start_snapshot()
 
         # Write HA helpers (bridge for automation D)
@@ -1217,6 +1324,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._start_snapshot = {}
         self._start_tray_uuid = {}
         self._job_key = ""
+        self._job_task_name = ""
         self._threemf_filename = None
         self._threemf_data = None
         self._threemf_source_mtime = 0.0
@@ -1344,6 +1452,42 @@ class AmsPrintUsageSync(FilamentIQBase):
                 )
         self._do_finish(status)
 
+    def _notify_no_active_slots(self, status, task_name, print_weight_g) -> None:
+        """One alert when a print that finished successfully tracked no slot
+        although a spool was bound: real filament was used and nothing was
+        recorded. Failed/cancelled prints and printers with nothing bound stay
+        log-only (a cancel in the first seconds legitimately has no slot)."""
+        if str(status).strip().lower() not in self._SUCCESS_STATES:
+            return
+        bound = bool(self._spool_id_snapshot) or any(
+            self._read_spool_id(s) > 0 for s in self._tray_entity_by_slot
+        )
+        if not bound:
+            return
+        self.log(
+            f"USAGE_NO_SLOTS_FINISHED job_key={self._job_key} status={status} "
+            f"slicer_estimate_g={print_weight_g:.1f} — finished print tracked no "
+            f"slot, nothing recorded",
+            level="WARNING",
+        )
+        try:
+            self.fiq_notify(
+                "Consumption Not Recorded",
+                (
+                    f"Print '{task_name}' finished but no filament slot was "
+                    f"tracked (slicer estimate {print_weight_g:.0f} g). Nothing "
+                    "was recorded in Spoolman."
+                ),
+                push=True,
+                push_service=self.notify_service,
+                tag="fiq-nousage-job",
+            )
+            self.log(
+                f"USAGE_NO_SLOTS_NOTIFY job_key={self._job_key}", level="INFO"
+            )
+        except Exception as e:
+            self.log(f"USAGE_NO_SLOTS_NOTIFY_FAILED: {e}", level="WARNING")
+
     def _do_finish(self, status: str) -> None:
         """Orchestrate the five phases of print finish processing."""
 
@@ -1394,6 +1538,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"USAGE_SKIP reason=NO_ACTIVE_SLOTS job_key={self._job_key}",
                     level="INFO",
                 )
+            self._notify_no_active_slots(status, task_name, print_weight_g)
             self._on_print_end()
             self._clear_active_print()
             return
@@ -1825,6 +1970,15 @@ class AmsPrintUsageSync(FilamentIQBase):
                     )
                 except Exception:
                     pass
+            # Record the open job's task name (used by _is_different_job) only
+            # when the restored key really belongs to the task now printing.
+            _task = task_name.strip()
+            if (
+                not self._job_task_name
+                and _task not in ("", "unknown", "unavailable")
+                and self._job_key.startswith(_task.replace(" ", "_"))
+            ):
+                self._job_task_name = _task
             restored = self._load_active_print(self._job_key)
             if restored is not None:
                 self._threemf_data = restored["threemf_data"]
