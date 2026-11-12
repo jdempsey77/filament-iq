@@ -43,8 +43,13 @@ def normalize_color_hex(raw: str) -> str:
 
     Handles:
       #RRGGBBAA or RRGGBBAA → strip alpha (last 2) → 6 char lower
-      #AARRGGBB or AARRGGBB → if first 2 chars are ff/00, strip alpha (first 2)
       #RRGGBB or RRGGBB    → 6 char lower
+
+    Every 8-char input is RRGGBBAA. The callers pass AMS tray colours (the Bambu integration's
+    tray `color` attribute, e.g. "000000FF") and Spoolman color_hex (6 chars, or RRGGBBAA);
+    3MF slice_info colours go through normalize_color(), the same rule. Nothing here sends
+    AARRGGBB. Guessing it from a leading ff/00 turned black "000000FF" into blue "0000ff" and
+    Bambu green "00AE42FF" into "ae42ff", so those trays never matched their 3MF filament.
     """
     if not raw:
         return ""
@@ -54,8 +59,6 @@ def normalize_color_hex(raw: str) -> str:
     if len(s) == 6 and re.match(r"^[0-9a-f]{6}$", s):
         return s
     if len(s) == 8 and re.match(r"^[0-9a-f]{8}$", s):
-        if s[:2] in ("ff", "00"):
-            return s[2:8]   # AARRGGBB → RRGGBB
         return s[:6]        # RRGGBBAA → RRGGBB
     return ""
 
