@@ -10,9 +10,12 @@ slot helper cleared. The scale said 29.0 g.
 
   - Empty for <= NEAR_FINISH_EMPTY_S at a normal finish → 3mf_empty_at_finish: the slicer
     figure, spool stays bound, never zeroed (even if the ran_out boolean is still on)
-  - Empty age unknown + remainder far above the slicer figure → 3mf_depletion_suspect:
-    the slicer figure, DEPLETION_SUSPECT logged and a push sent
-  - a real runout (Empty long before the finish) or a failed/cancelled print → 3mf_depleted
+  - remainder far above the slicer figure at a normal finish (empty age known or not)
+    → 3mf_depletion_suspect: the slicer figure, DEPLETION_SUSPECT logged and a push sent
+    after the write, saying what was actually recorded (IN-1048)
+  - a runout the runout split handled (continuation slot) keeps today's path (IN-1048)
+  - 3mf_empty_at_finish leaves a bell entry, so a real last-minute runout is not silent
+  - a believable runout, or a failed/cancelled print → today's path
 """
 
 import datetime
@@ -91,6 +94,11 @@ def _suspect_pushes(app):
     return [c for c in app._service_calls if c.get("title") == SUSPECT_TITLE]
 
 
+def _bells(app, slot=4):
+    return [c for c in app._service_calls
+            if c.get("title") == f"Slot {slot} read Empty at finish"]
+
+
 # ── 1. the 11-11 18:57 sequence ──────────────────────────────────────
 
 
@@ -136,14 +144,19 @@ def test_mid_print_runout_still_depletes(tmp_path):
     assert _has_log(app, "USAGE_SPOOL_DEPLETED")
 
 
-def test_real_runout_with_big_remainder_still_charges_remainder(tmp_path):
-    """Known to be Empty long before the finish: Spoolman was wrong, the spool is empty."""
+def test_known_runout_with_big_remainder_is_suspect_not_silent(tmp_path):
+    """IN-1048 (1): Empty 121 s before the finish but 817 g left in Spoolman: not believable.
+
+    The slicer figure is written and a push says so; the remainder is never charged silently.
+    """
     app = _app(tmp_path, empty_seconds_before_finish=NEAR_FINISH_EMPTY_S + 1)
-    app._use_remaining_override = {SPOOL: 0.0}
+    app._use_remaining_override = {SPOOL: REMAINING_G - SLICER_G}
     app._do_finish("finish")
-    assert _writes(app) == [pytest.approx(REMAINING_G)]
-    assert _has_log(app, "method=3mf_depleted")
-    assert not _has_log(app, "DEPLETION_SUSPECT")
+    assert _writes(app) == [pytest.approx(SLICER_G)]
+    assert _zeroed(app) == [] and _emptied(app) == []
+    assert _has_log(app, "method=3mf_depletion_suspect")
+    assert _has_log(app, "empty_age_s=121.0")
+    assert len(_suspect_pushes(app)) == 1
 
 
 @pytest.mark.parametrize("status", ["failed", "canceled"])
@@ -160,6 +173,43 @@ def test_failed_or_cancelled_print_keeps_depletion(tmp_path, status):
 
 
 # ── 3. age unknown: a doubtful depletion is never silent ─────────────
+
+
+def test_lift_at_finish_leaves_a_bell_not_a_push(tmp_path):
+    """IN-1048 (2): the slot stays bound, but a bell entry says so (a real last-minute runout)."""
+    app = _app(tmp_path, empty_seconds_before_finish=4.2)
+    app._use_remaining_override = {SPOOL: REMAINING_G - SLICER_G}
+    app._do_finish("finish")
+    bells = _bells(app)
+    assert len(bells) == 1
+    assert "Recorded 27.4 g" in bells[0]["message"]
+    assert "790 g" in bells[0]["message"]
+    assert _suspect_pushes(app) == []
+
+
+def test_suspect_push_after_a_failed_write_says_it_failed(tmp_path):
+    """IN-1048 (3): the push is sent after the write and never claims a write that failed."""
+    app = _app(tmp_path, empty_seconds_before_finish=None)
+    app._use_fail_spool_ids = {SPOOL}
+    app._do_finish("finish")
+    assert _writes(app) == []
+    pushes = _suspect_pushes(app)
+    assert len(pushes) == 1
+    assert "FAILED" in pushes[0]["message"]
+    assert "Recorded" not in pushes[0]["message"]
+    assert _has_log(app, "written=False")
+
+
+def test_suspect_push_comes_after_the_write(tmp_path):
+    app = _app(tmp_path, empty_seconds_before_finish=None)
+    app._use_remaining_override = {SPOOL: REMAINING_G - SLICER_G}
+    order = []
+    real_use, real_notify = app._spoolman_use, app.fiq_notify
+    app._spoolman_use = lambda *a, **k: (order.append("write"), real_use(*a, **k))[1]
+    app.fiq_notify = lambda *a, **k: (order.append("notify"), real_notify(*a, **k))[1]
+    app._do_finish("finish")
+    assert order.index("write") < order.index("notify")
+    assert "Spoolman now shows 790 g" in _suspect_pushes(app)[0]["message"]
 
 
 def test_unknown_age_big_remainder_is_suspect_and_alerts(tmp_path):
@@ -210,7 +260,11 @@ def _inp(**kw):
 
 @pytest.mark.parametrize("kw,method,grams", [
     (dict(normal_finish=True, empty_age_s=4.2), "3mf_empty_at_finish", SLICER_G),
-    (dict(normal_finish=True, empty_age_s=121.0), "3mf_depleted", REMAINING_G),
+    (dict(normal_finish=True, empty_age_s=121.0), "3mf_depletion_suspect", SLICER_G),
+    (dict(normal_finish=True, empty_age_s=121.0, spoolman_remaining=60.0), "3mf_depleted", 60.0),
+    # IN-1048 (2): the runout split handled it (spoolman_remaining = the split share): today's path
+    (dict(normal_finish=True, empty_age_s=4.2, threemf_method="runout_split_depleted",
+          threemf_used_g=12.0, spoolman_remaining=12.0), "3mf_depleted", 12.0),
     (dict(normal_finish=True, empty_age_s=None), "3mf_depletion_suspect", SLICER_G),
     (dict(normal_finish=False, empty_age_s=4.2), "3mf_depleted", REMAINING_G),
     (dict(normal_finish=False, empty_age_s=None), "3mf_depleted", REMAINING_G),
@@ -225,3 +279,42 @@ def test_engine_decision(kw, method, grams):
 def test_suspect_limit():
     assert depletion_suspect_limit(27.36) == pytest.approx(77.36)
     assert depletion_suspect_limit(200.0) == pytest.approx(300.0)
+
+
+def test_runout_split_in_last_120s_keeps_todays_path():
+    """IN-1048 (2), end to end: a real runout handed to a continuation slot 10 s before the
+    finish is not a lift. Same numbers as test_multi_spool_runout's end-to-end split."""
+    app = _TestableUsageSync(
+        state_map={
+            "input_text.ams_slot_3_spool_id": "65",
+            "input_text.ams_slot_4_spool_id": "0",  # reconciler cleared
+        },
+        args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
+    )
+    app._now_utc = lambda: NOW
+    app._trays_used = {3, 4}
+    app._start_snapshot = {3: 839.0}
+    app._spool_id_snapshot = {3: 65, 4: 58}
+    app._job_key = "desk_organizer_test"
+    app.threemf_enabled = True
+    app._threemf_data = [{"index": 0, "used_g": 160.72, "color_hex": "161616", "material": "pla"}]
+    e4, e3 = app._tray_entity_by_slot[4], app._tray_entity_by_slot[3]
+    app._state_map[e4] = "Empty"
+    app._state_map[f"{e4}::tag_uid"] = "0" * 16
+    app._state_map[f"{e4}::last_changed"] = (NOW - datetime.timedelta(seconds=10)).isoformat()
+    app._state_map[e3] = "loaded"
+    app._state_map[f"{e3}::tag_uid"] = "0" * 16
+    app._state_map[f"{e3}::color"] = "#161616FF"
+    app._state_map[f"{e3}::type"] = "PLA"
+    app._spoolman_get_override = lambda path: (
+        {"remaining_weight": 100.0, "id": 58} if "58" in path else {"remaining_weight": 500.0}
+    )
+    app._use_remaining_override = {58: 0.0, 65: 439.28}
+    app._do_finish("finish")
+
+    slot4 = [c["use_weight"] for c in app._use_calls if c["spool_id"] == 58]
+    assert slot4 == [pytest.approx(100.0)]
+    assert _has_log(app, "RUNOUT_SPLIT_DETECTED")
+    assert not _has_log(app, "RUNOUT_AT_FINISH_IGNORED")
+    assert not _has_log(app, "DEPLETION_SUSPECT")
+    assert _has_log(app, "method=3mf_depleted")

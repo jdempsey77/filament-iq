@@ -4,6 +4,13 @@
 
 ### Fixed
 
+- **Runout fix, round 2 (IN-1048).** A remainder far above the slicer figure at a
+  normal finish is now `3mf_depletion_suspect` whether or not the empty age is known
+  (before, a known age over 120 s still charged it silently). A runout the runout split
+  handled keeps today's path even inside the last 120 s. `3mf_empty_at_finish` leaves a
+  bell entry. The "Check Spool Weight" push (and the bell) are sent after the Spoolman
+  write and say what was actually recorded, or that the write failed.
+
 - **A spool lifted at the end of a print is no longer zeroed (IN-1045).** A non-RFID
   tray that went Empty at most 120 s before a normal finish is charged the slicer
   figure (`3mf_empty_at_finish`), not the whole remainder; it stays bound and is never

@@ -766,33 +766,65 @@ class AmsPrintUsageSync(FilamentIQBase):
         return decisions, patched, failed
 
     def _report_end_of_print_empties(self, decisions, slot_inputs, status) -> None:
-        """IN-1045: say when a tray reading Empty at the finish was NOT charged as a runout.
+        """IN-1045/IN-1048: say when a tray reading Empty at the finish was NOT charged as a runout.
 
-        3mf_empty_at_finish: one INFO line. 3mf_depletion_suspect: a WARNING line and
-        a push, so a doubtful depletion is never silent.
+        Runs after _execute_writes, so every message states what was actually written
+        (post_write_remaining is set only when the Spoolman write succeeded).
+        3mf_empty_at_finish: an INFO line and a bell entry (no push): the slot stays bound.
+        3mf_depletion_suspect: a WARNING line and a push, so a doubtful depletion is never silent.
         """
         from .consumption_engine import depletion_suspect_limit
         inputs_by_slot = {i.slot: i for i in slot_inputs}
         for d in decisions:
             inp = inputs_by_slot.get(d.slot)
-            if inp is None:
+            if inp is None or d.method not in self._NOT_RUN_OUT_METHODS:
                 continue
+            written = d.post_write_remaining is not None
+            if written:
+                outcome = (
+                    f"Recorded {d.consumption_g:.1f} g (slicer); Spoolman now shows "
+                    f"{d.post_write_remaining:.0f} g."
+                )
+            else:
+                outcome = (
+                    f"The Spoolman write of {d.consumption_g:.1f} g FAILED; nothing was "
+                    "recorded for this slot."
+                )
             if d.method == "3mf_empty_at_finish":
+                age = inp.empty_age_s if inp.empty_age_s is not None else -1.0
                 self.log(
                     f"RUNOUT_AT_FINISH_IGNORED slot={d.slot} spool_id={d.spool_id} "
-                    f"empty_age_s={inp.empty_age_s:.1f} used_g={d.consumption_g:.2f} "
-                    f"spoolman_remaining={inp.spoolman_remaining} status={status} "
-                    f"job_key={self._job_key}",
+                    f"empty_age_s={age:.1f} used_g={d.consumption_g:.2f} "
+                    f"spoolman_remaining={inp.spoolman_remaining} written={written} "
+                    f"status={status} job_key={self._job_key}",
                     level="INFO",
                 )
-            elif d.method == "3mf_depletion_suspect":
+                try:
+                    # Bell only: a spool lifted at the end is normal; this keeps a real
+                    # last-minute runout from leaving the slot bound to an empty spool silently.
+                    self.fiq_notify(
+                        f"Slot {d.slot} read Empty at finish",
+                        (
+                            f"Slot {d.slot} (spool {d.spool_id}) read Empty when the print "
+                            f"finished, so it was not treated as a runout. {outcome} "
+                            "If the spool really ran out, mark it empty."
+                        ),
+                        notification_id=f"fiq_empty_at_finish_slot_{d.slot}",
+                    )
+                except Exception as e:
+                    self.log(
+                        f"RUNOUT_AT_FINISH_NOTIFY_FAILED slot={d.slot}: {e}",
+                        level="WARNING",
+                    )
+            else:
                 self.log(
                     f"DEPLETION_SUSPECT slot={d.slot} spool_id={d.spool_id} "
                     f"used_g={d.consumption_g:.2f} "
                     f"spoolman_remaining={inp.spoolman_remaining} "
                     f"limit_g={depletion_suspect_limit(d.consumption_g):.1f} "
+                    f"empty_age_s={inp.empty_age_s} written={written} "
                     f"status={status} job_key={self._job_key} "
-                    f"— wrote the slicer figure, not the remainder",
+                    f"— the slicer figure, not the remainder",
                     level="WARNING",
                 )
                 try:
@@ -801,9 +833,8 @@ class AmsPrintUsageSync(FilamentIQBase):
                         (
                             f"Slot {d.slot} (spool {d.spool_id}) read Empty at the end of "
                             f"the print, but Spoolman had {inp.spoolman_remaining:.0f} g left "
-                            f"and the slicer used {d.consumption_g:.1f} g. Recorded "
-                            f"{d.consumption_g:.1f} g; weigh the spool and correct Spoolman "
-                            "if it really ran out."
+                            f"and the slicer used {d.consumption_g:.1f} g. {outcome} "
+                            "Weigh the spool and correct Spoolman if it really ran out."
                         ),
                         push=True,
                         push_service=self.notify_service,
@@ -1963,8 +1994,6 @@ class AmsPrintUsageSync(FilamentIQBase):
                     level="WARNING",
                 )
 
-        self._report_end_of_print_empties(all_decisions, slot_inputs, status)
-
         for d in all_decisions:
             if d.method == "no_evidence":
                 self.log(
@@ -2036,6 +2065,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         all_decisions, patched, failed = self._execute_writes(
             all_decisions, self._job_key
         )
+        self._report_end_of_print_empties(all_decisions, slot_inputs, status)
         self._apply_runout_zero_overrides(all_decisions)
 
         # ── FINALIZE ─────────────────────────────────────────────────────

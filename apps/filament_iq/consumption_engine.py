@@ -21,10 +21,13 @@ Decision tree per slot:
       normal finish + tray went Empty <= NEAR_FINISH_EMPTY_S before it
                                 → 3mf_empty_at_finish (spool lifted/read empty as the print
                                                         ended: use threemf_used_g, not depleted)
-      normal finish + empty age unknown + remainder far above the slicer figure
-                                → 3mf_depletion_suspect (use threemf_used_g, confidence=low;
-                                                        the caller logs DEPLETION_SUSPECT + alerts)
-      a real runout (Empty well before the finish) or a failed/cancelled print
+        (not when the runout split handled the slot: a real runout with a
+                                                        continuation slot keeps today's path)
+      normal finish + remainder far above the slicer figure (empty age known
+      or not)                   → 3mf_depletion_suspect (use threemf_used_g, confidence=low;
+                                                        the caller logs DEPLETION_SUSPECT + alerts
+                                                        after the write)
+      a runout whose remainder is believable, or a failed/cancelled print
                                   keeps 3mf_depleted
     no threemf + tray_empty     → depleted_nonrfid    (use spoolman_remaining, confidence=low)
     no threemf + not empty      → no_evidence         (nothing reliable available)
@@ -58,6 +61,9 @@ class SlotInput:
     # True only for status=finish (a print that completed normally).
     normal_finish: bool = False
 
+
+# 3MF methods set by the runout split: a real runout with a continuation slot.
+RUNOUT_SPLIT_METHODS = frozenset({"runout_split", "runout_split_depleted"})
 
 # A tray that went Empty this close to a normal finish was lifted off (or read
 # empty) as the print ended: not a runout (IN-1045, 2026-11-11 spool 118).
@@ -209,6 +215,7 @@ def _decide_nonrfid(inp: SlotInput) -> SlotDecision:
             inp.normal_finish
             and inp.empty_age_s is not None
             and inp.empty_age_s <= NEAR_FINISH_EMPTY_S
+            and inp.threemf_method not in RUNOUT_SPLIT_METHODS
         ):
             return SlotDecision(
                 slot=inp.slot,
@@ -220,7 +227,7 @@ def _decide_nonrfid(inp: SlotInput) -> SlotDecision:
             )
         if (
             inp.normal_finish
-            and inp.empty_age_s is None
+            and inp.threemf_method not in RUNOUT_SPLIT_METHODS
             and inp.spoolman_remaining is not None
             and inp.spoolman_remaining > depletion_suspect_limit(inp.threemf_used_g)
         ):
