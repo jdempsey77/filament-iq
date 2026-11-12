@@ -235,8 +235,9 @@ _HEX_6_RE = re.compile(r"^[0-9a-fA-F]{6}$")
 def _normalize_hex_color(s: str):
     """
     Normalize color hex to 6-char lowercase RRGGBB, or None if invalid.
-    Accepts #RRGGBB, RRGGBB, AARRGGBB (first 2 = alpha), RRGGBBAA (last 2 = alpha).
-    For 8-hex: if first two chars are ff/00 assume AARRGGBB and use last 6; else assume RRGGBBAA and use first 6.
+    Accepts #RRGGBB, RRGGBB and RRGGBBAA (last 2 = alpha). Every 8-hex input is RRGGBBAA: AMS tray
+    colours ("000000FF") and Spoolman color_hex use it, as _read_tray_color_hex already assumes. Guessing
+    AARRGGBB from a leading ff/00 read black "000000FF" as blue "0000ff".
     """
     if s is None:
         return None
@@ -246,8 +247,6 @@ def _normalize_hex_color(s: str):
     if len(raw) == 6 and _HEX_6_RE.match(raw):
         return raw
     if len(raw) == 8 and re.match(r"^[0-9a-f]{8}$", raw):
-        if raw[:2] in ("ff", "00"):
-            return raw[2:8]  # AARRGGBB → RRGGBB
         return raw[:6]  # RRGGBBAA → RRGGBB
     return None
 

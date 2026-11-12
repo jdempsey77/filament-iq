@@ -1345,15 +1345,16 @@ class TestAmsRfidReconcile(unittest.TestCase):
         self.assertEqual(len(comment_38), 0, "must not stamp HA_SIG on spool 38")
 
     def test_color_normalize_hex_color(self):
-        """Normalization: #RRGGBB, uppercase, 8-hex AARRGGBB / RRGGBBAA produce consistent 6-char lowercase."""
+        """Normalization: #RRGGBB, uppercase, and 8-hex RRGGBBAA (the AMS tray format) produce 6-char lowercase."""
         self.assertEqual(_normalize_hex_color("#c12e1f"), "c12e1f")
         self.assertEqual(_normalize_hex_color("C12E1F"), "c12e1f")
         self.assertEqual(_normalize_hex_color("c12e1f"), "c12e1f")
-        # 8-hex: AARRGGBB when first 2 are ff/00 -> last 6
-        self.assertEqual(_normalize_hex_color("ff0000ff"), "0000ff")
-        self.assertEqual(_normalize_hex_color("00ff0000"), "ff0000")
-        self.assertEqual(_normalize_hex_color("ff0000aa"), "0000aa")
-        # 8-hex: RRGGBBAA when first 2 not ff/00 -> first 6
+        # 8-hex is always RRGGBBAA, even when it starts ff/00 (it used to be read as AARRGGBB:
+        # black "000000FF" came out blue)
+        self.assertEqual(_normalize_hex_color("000000FF"), "000000")
+        self.assertEqual(_normalize_hex_color("00AE42FF"), "00ae42")
+        self.assertEqual(_normalize_hex_color("ff0000ff"), "ff0000")
+        self.assertEqual(_normalize_hex_color("FF6A13FF"), "ff6a13")
         self.assertEqual(_normalize_hex_color("ab0000ff"), "ab0000")
         self.assertIsNone(_normalize_hex_color(""))
         self.assertIsNone(_normalize_hex_color("xyz"))
