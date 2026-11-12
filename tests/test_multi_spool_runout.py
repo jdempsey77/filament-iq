@@ -454,8 +454,8 @@ def test_rfid_zero_delta_slicer_fallback_end_to_end():
     state_map = {
         "input_text.ams_slot_4_spool_id": "10",
         "sensor.p1s_tray_4_fuel_gauge_remaining": "200.0",  # end == start → delta 0
-        "sensor.p1s_01p00c5a3101668_print_weight": "120",
-        "sensor.p1s_01p00c5a3101668_task_name": "calibration.3mf",
+        "sensor.p1s_your_printer_serial_print_weight": "120",
+        "sensor.p1s_your_printer_serial_task_name": "calibration.3mf",
     }
     app = _make_app(state_map=state_map)
     app._job_key = "rfid_zero_delta_test"

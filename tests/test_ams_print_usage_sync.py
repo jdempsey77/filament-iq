@@ -52,7 +52,7 @@ from filament_iq.base import build_slot_mappings
 
 # Default test config: no hardcoded IPs/serials; use placeholder values
 _DEFAULT_TEST_ARGS = {
-    "printer_serial": "01p00c5a3101668",
+    "printer_serial": "your_printer_serial",
     "printer_model": "p1s",
     "spoolman_url": "http://192.0.2.1:7912",
 }
@@ -823,7 +823,7 @@ def test_3mf_fetch_runs_in_thread():
     """_fetch_3mf_background spawns a daemon thread, not blocking event loop."""
     app = _TestableUsageSync(
         state_map={
-            "sensor.p1s_01p00c5a3101668_task_name": "benchy",
+            "sensor.p1s_your_printer_serial_task_name": "benchy",
         },
         args={"lifecycle_phase2_enabled": True, "printer_access_code": "12345678"},
     )
@@ -867,7 +867,7 @@ def test_3mf_fetch_result_persisted_on_success():
     with tempfile.TemporaryDirectory() as tmp_dir:
         app = _TestableUsageSync(
             state_map={
-                "sensor.p1s_01p00c5a3101668_task_name": "benchy",
+                "sensor.p1s_your_printer_serial_task_name": "benchy",
             },
             args={"lifecycle_phase1_enabled": True, "data_dir": tmp_dir},
         )
@@ -931,7 +931,7 @@ def test_atomic_write_cleans_tmp_on_failure():
 def test_rehydrate_mid_print_restores_active():
     """If printer is 'running' on startup, _print_active set to True."""
     app = _TestableUsageSync(state_map={
-        f"sensor.p1s_01p00c5a3101668_print_status": "running",
+        f"sensor.p1s_your_printer_serial_print_status": "running",
     })
     assert app._print_active is False
     app._rehydrate_print_state()
@@ -942,7 +942,7 @@ def test_rehydrate_mid_print_restores_active():
 def test_rehydrate_idle_no_action():
     """If printer is idle on startup, no rehydration — _print_active stays False."""
     app = _TestableUsageSync(state_map={
-        f"sensor.p1s_01p00c5a3101668_print_status": "idle",
+        f"sensor.p1s_your_printer_serial_print_status": "idle",
     })
     app._rehydrate_print_state()
     assert app._print_active is False
@@ -952,7 +952,7 @@ def test_rehydrate_idle_no_action():
 def test_rehydrate_paused_restores_active():
     """Paused printer is still mid-print — should rehydrate."""
     app = _TestableUsageSync(state_map={
-        f"sensor.p1s_01p00c5a3101668_print_status": "pause",
+        f"sensor.p1s_your_printer_serial_print_status": "pause",
     })
     app._rehydrate_print_state()
     assert app._print_active is True
@@ -964,9 +964,9 @@ def test_rehydrate_phase1_recovers_start_json():
     app = _TestableUsageSync(
         args={"lifecycle_phase1_enabled": True},
         state_map={
-            f"sensor.p1s_01p00c5a3101668_print_status": "running",
+            f"sensor.p1s_your_printer_serial_print_status": "running",
             "input_text.filament_iq_start_json": '{"1": 500.0, "2": 800.0}',
-            f"sensor.p1s_01p00c5a3101668_task_name": "test_print",
+            f"sensor.p1s_your_printer_serial_task_name": "test_print",
         },
     )
     app._rehydrate_print_state()
@@ -979,9 +979,9 @@ def test_rehydrate_phase1_corrupt_json_rebuilds():
     app = _TestableUsageSync(
         args={"lifecycle_phase1_enabled": True},
         state_map={
-            f"sensor.p1s_01p00c5a3101668_print_status": "running",
+            f"sensor.p1s_your_printer_serial_print_status": "running",
             "input_text.filament_iq_start_json": "NOT_VALID_JSON{{{",
-            f"sensor.p1s_01p00c5a3101668_task_name": "test_print",
+            f"sensor.p1s_your_printer_serial_task_name": "test_print",
         },
     )
     app._rehydrate_print_state()
@@ -992,7 +992,7 @@ def test_rehydrate_phase1_corrupt_json_rebuilds():
 def test_rehydrate_empty_status_no_crash():
     """Empty/unavailable print_status → no rehydration, no crash."""
     app = _TestableUsageSync(state_map={
-        f"sensor.p1s_01p00c5a3101668_print_status": "",
+        f"sensor.p1s_your_printer_serial_print_status": "",
     })
     app._rehydrate_print_state()
     assert app._print_active is False
@@ -1531,8 +1531,8 @@ class TestActivePrintPersistence:
         with tempfile.TemporaryDirectory() as tmp_dir:
 
                 app = _TestableUsageSync(state_map={
-                    "sensor.p1s_01p00c5a3101668_task_name": "test_print",
-                    "sensor.p1s_01p00c5a3101668_print_status": "running",
+                    "sensor.p1s_your_printer_serial_task_name": "test_print",
+                    "sensor.p1s_your_printer_serial_print_status": "running",
                     "input_text.ams_slot_1_spool_id": "61",
                     "input_text.ams_slot_2_spool_id": "0",
                     "input_text.ams_slot_3_spool_id": "45",
@@ -1555,7 +1555,7 @@ class TestLifecycleMethods:
         """_on_print_start sets job_key and start_snapshot."""
         app = _TestableUsageSync(
             state_map={
-                "sensor.p1s_01p00c5a3101668_task_name": "benchy.3mf",
+                "sensor.p1s_your_printer_serial_task_name": "benchy.3mf",
                 "sensor.p1s_tray_1_fuel_gauge_remaining": "500.0",
                 "sensor.p1s_tray_2_fuel_gauge_remaining": "300.0",
             },
@@ -1634,8 +1634,8 @@ class TestLifecycleMethods:
             state_map={
                 **_default_state_map({4: 10}),
                 "sensor.p1s_tray_4_fuel_gauge_remaining": "370.0",
-                "sensor.p1s_01p00c5a3101668_print_weight": "50",
-                "sensor.p1s_01p00c5a3101668_task_name": "test.3mf",
+                "sensor.p1s_your_printer_serial_print_weight": "50",
+                "sensor.p1s_your_printer_serial_task_name": "test.3mf",
             },
             args={
                 "lifecycle_phase1_enabled": True,
@@ -1745,9 +1745,9 @@ class TestSnapshotPlausibility:
         """Stale 0.0 in HA helper JSON is removed during rehydration."""
         app = _TestableUsageSync(
             state_map={
-                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "sensor.p1s_your_printer_serial_print_status": "running",
                 "input_text.filament_iq_start_json": '{"2": 0.0, "3": 550.0}',
-                "sensor.p1s_01p00c5a3101668_task_name": "test_model",
+                "sensor.p1s_your_printer_serial_task_name": "test_model",
                 "input_text.filament_iq_active_job_key": "",
                 "input_text.ams_slot_2_spool_id": "20",
                 "input_text.ams_slot_3_spool_id": "30",
@@ -1851,7 +1851,7 @@ class TestRehydratePrintState:
 
     def test_not_printing_noop(self):
         app = _TestableUsageSync(
-            state_map={"sensor.p1s_01p00c5a3101668_print_status": "idle"},
+            state_map={"sensor.p1s_your_printer_serial_print_status": "idle"},
             args={"lifecycle_phase1_enabled": True},
         )
         app._rehydrate_print_state()
@@ -1860,9 +1860,9 @@ class TestRehydratePrintState:
     def test_printing_rehydrates(self):
         app = _TestableUsageSync(
             state_map={
-                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "sensor.p1s_your_printer_serial_print_status": "running",
                 "input_text.filament_iq_start_json": '{"1": 500.0}',
-                "sensor.p1s_01p00c5a3101668_task_name": "test_model",
+                "sensor.p1s_your_printer_serial_task_name": "test_model",
             },
             args={"lifecycle_phase1_enabled": True},
         )
@@ -1875,9 +1875,9 @@ class TestRehydratePrintState:
     def test_rehydrate_rebuilds_when_no_helper(self):
         app = _TestableUsageSync(
             state_map={
-                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "sensor.p1s_your_printer_serial_print_status": "running",
                 "sensor.p1s_tray_1_fuel_gauge_remaining": "450.0",
-                "sensor.p1s_01p00c5a3101668_task_name": "rebuild_test",
+                "sensor.p1s_your_printer_serial_task_name": "rebuild_test",
             },
             args={"lifecycle_phase1_enabled": True},
         )
@@ -1890,9 +1890,9 @@ class TestRehydratePrintState:
         """Rehydrate reads full job_key (with timestamp) from HA helper, not task_name."""
         app = _TestableUsageSync(
             state_map={
-                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "sensor.p1s_your_printer_serial_print_status": "running",
                 "input_text.filament_iq_start_json": '{"1": 500.0}',
-                "sensor.p1s_01p00c5a3101668_task_name": "test_model",
+                "sensor.p1s_your_printer_serial_task_name": "test_model",
                 "input_text.filament_iq_active_job_key": "test_model_1773438415",
             },
             args={"lifecycle_phase1_enabled": True},
@@ -1911,9 +1911,9 @@ class TestRehydratePrintState:
         """Rehydrate falls back to task_name when helper is empty/unknown."""
         app = _TestableUsageSync(
             state_map={
-                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "sensor.p1s_your_printer_serial_print_status": "running",
                 "input_text.filament_iq_start_json": '{"1": 500.0}',
-                "sensor.p1s_01p00c5a3101668_task_name": "test model fallback",
+                "sensor.p1s_your_printer_serial_task_name": "test model fallback",
                 "input_text.filament_iq_active_job_key": "unknown",
             },
             args={"lifecycle_phase1_enabled": True},
@@ -1926,9 +1926,9 @@ class TestRehydratePrintState:
         """Rehydrate falls back to task_name when helper entity returns None."""
         app = _TestableUsageSync(
             state_map={
-                "sensor.p1s_01p00c5a3101668_print_status": "running",
+                "sensor.p1s_your_printer_serial_print_status": "running",
                 "input_text.filament_iq_start_json": '{"1": 500.0}',
-                "sensor.p1s_01p00c5a3101668_task_name": "no helper print",
+                "sensor.p1s_your_printer_serial_task_name": "no helper print",
             },
             args={"lifecycle_phase1_enabled": True},
         )
@@ -1950,9 +1950,9 @@ class TestRehydratePrintState:
 
             app = _TestableUsageSync(
                 state_map={
-                    "sensor.p1s_01p00c5a3101668_print_status": "running",
+                    "sensor.p1s_your_printer_serial_print_status": "running",
                     "input_text.filament_iq_start_json": '{"1": 940.0}',
-                    "sensor.p1s_01p00c5a3101668_task_name": "0.28mm layer, 2 walls, 15% infill",
+                    "sensor.p1s_your_printer_serial_task_name": "0.28mm layer, 2 walls, 15% infill",
                     "input_text.filament_iq_active_job_key": "0.28mm_layer,_2_walls,_15%_infill_1773438415",
                 },
                 args={"lifecycle_phase1_enabled": True, "data_dir": tmp_dir},
@@ -1973,8 +1973,8 @@ class TestResolveActiveTraySlot:
 
     def test_resolves_correct_slot(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_active_tray::ams_index": "0",
-            "sensor.p1s_01p00c5a3101668_active_tray::tray_index": "0",
+            "sensor.p1s_your_printer_serial_active_tray::ams_index": "0",
+            "sensor.p1s_your_printer_serial_active_tray::tray_index": "0",
         })
         result = app._resolve_active_tray_slot()
         assert result == 1
@@ -2094,25 +2094,25 @@ class TestIsRfidSlot:
 
     def test_valid_rfid_tag(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": "AABBCCDD11223344",
+            "sensor.p1s_your_printer_serial_ams_1_tray_1::tag_uid": "AABBCCDD11223344",
         })
         assert app._is_rfid_slot(1) is True
 
     def test_zero_tag_not_rfid(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": "0000000000000000",
+            "sensor.p1s_your_printer_serial_ams_1_tray_1::tag_uid": "0000000000000000",
         })
         assert app._is_rfid_slot(1) is False
 
     def test_none_tag_not_rfid(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": None,
+            "sensor.p1s_your_printer_serial_ams_1_tray_1::tag_uid": None,
         })
         assert app._is_rfid_slot(1) is False
 
     def test_empty_tag_not_rfid(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": "",
+            "sensor.p1s_your_printer_serial_ams_1_tray_1::tag_uid": "",
         })
         assert app._is_rfid_slot(1) is False
 
@@ -2126,22 +2126,22 @@ class TestIsTrayPhysicallyPresent:
 
     def test_rfid_tag_present(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": "AABB",
-            "sensor.p1s_01p00c5a3101668_ams_1_tray_1": "PLA",
+            "sensor.p1s_your_printer_serial_ams_1_tray_1::tag_uid": "AABB",
+            "sensor.p1s_your_printer_serial_ams_1_tray_1": "PLA",
         })
         assert app._is_tray_physically_present(1) is True
 
     def test_no_tag_but_tray_state_present(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": "",
-            "sensor.p1s_01p00c5a3101668_ams_1_tray_1": "PLA Basic",
+            "sensor.p1s_your_printer_serial_ams_1_tray_1::tag_uid": "",
+            "sensor.p1s_your_printer_serial_ams_1_tray_1": "PLA Basic",
         })
         assert app._is_tray_physically_present(1) is True
 
     def test_empty_tray(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": "",
-            "sensor.p1s_01p00c5a3101668_ams_1_tray_1": "empty",
+            "sensor.p1s_your_printer_serial_ams_1_tray_1::tag_uid": "",
+            "sensor.p1s_your_printer_serial_ams_1_tray_1": "empty",
         })
         assert app._is_tray_physically_present(1) is False
 
@@ -2264,8 +2264,8 @@ class TestReconcileRfidWeightsDeferred:
             state_map={
                 **_default_state_map({4: 10}),
                 "sensor.p1s_tray_4_fuel_gauge_remaining": "370.0",
-                "sensor.p1s_01p00c5a3101668_print_weight": "50",
-                "sensor.p1s_01p00c5a3101668_task_name": "test.3mf",
+                "sensor.p1s_your_printer_serial_print_weight": "50",
+                "sensor.p1s_your_printer_serial_task_name": "test.3mf",
             },
             args={
                 "lifecycle_phase1_enabled": True,
@@ -2323,7 +2323,7 @@ class TestReconcileRfidWeightSlot:
 
     def _app_with_rfid(self, slot=1, remain=75, tray_weight=1000, remain_enabled=True,
                        spool_id="42", tag_uid="AABB"):
-        tray_entity = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+        tray_entity = "sensor.p1s_your_printer_serial_ams_1_tray_1"
         app = _TestableUsageSync(state_map={
             f"{tray_entity}::tag_uid": tag_uid,
             f"{tray_entity}::remain": remain,
@@ -2336,7 +2336,7 @@ class TestReconcileRfidWeightSlot:
 
     def test_non_rfid_slot_skips(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": "",
+            "sensor.p1s_your_printer_serial_ams_1_tray_1::tag_uid": "",
         })
         app._reconcile_rfid_weight_slot(1)  # no error
 
@@ -2421,7 +2421,7 @@ class TestReconcilerHardening:
 
     def _app_with_rfid(self, slot=1, remain=75, tray_weight=1000,
                        remain_enabled=True, spool_id="42", tag_uid="AABB"):
-        tray_entity = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+        tray_entity = "sensor.p1s_your_printer_serial_ams_1_tray_1"
         app = _TestableUsageSync(state_map={
             f"{tray_entity}::tag_uid": tag_uid,
             f"{tray_entity}::remain": remain,
@@ -2697,8 +2697,8 @@ class TestOnPrintFinish:
 
     def test_direct_do_finish(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_task_name": "benchy",
-            "sensor.p1s_01p00c5a3101668_print_weight": "15.0",
+            "sensor.p1s_your_printer_serial_task_name": "benchy",
+            "sensor.p1s_your_printer_serial_print_weight": "15.0",
             "input_text.ams_slot_1_spool_id": "10",
         })
         app._lifecycle_phase2 = True
@@ -2718,10 +2718,10 @@ class TestOnPrintStatusChange:
 
     def test_start_transition(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_active_tray": "unknown",
+            "sensor.p1s_your_printer_serial_active_tray": "unknown",
         })
         app._on_print_status_change(
-            "sensor.p1s_01p00c5a3101668_print_status", "state", "idle", "running", {}
+            "sensor.p1s_your_printer_serial_print_status", "state", "idle", "running", {}
         )
         assert app._print_active is True
         assert any("TRAY_TRACKING_START" in msg for msg, _ in app._log_calls)
@@ -2734,7 +2734,7 @@ class TestOnPrintStatusChange:
         import datetime
         app._tray_active_times = {1: [{"start": datetime.datetime.utcnow(), "end": None}]}
         app._on_print_status_change(
-            "sensor.p1s_01p00c5a3101668_print_status", "state", "running", "finish", {}
+            "sensor.p1s_your_printer_serial_print_status", "state", "running", "finish", {}
         )
         assert app._print_active is False
         assert any("TRAY_TRACKING_END" in msg for msg, _ in app._log_calls)
@@ -2754,7 +2754,7 @@ class TestOnPrintStatusChange:
             original_call(service, **kw)
         app.call_service = failing_call
         app._on_print_status_change(
-            "sensor.p1s_01p00c5a3101668_print_status", "state", "running", "finish", {}
+            "sensor.p1s_your_printer_serial_print_status", "state", "running", "finish", {}
         )
         assert any("Failed to update HA helper" in msg for msg, _ in app._log_calls)
 
@@ -2803,8 +2803,8 @@ class TestDoFinish:
 
     def test_offline_state_warning(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_task_name": "benchy",
-            "sensor.p1s_01p00c5a3101668_print_weight": "15",
+            "sensor.p1s_your_printer_serial_task_name": "benchy",
+            "sensor.p1s_your_printer_serial_print_weight": "15",
             "input_text.ams_slot_1_spool_id": "10",
         })
         app._lifecycle_phase2 = True
@@ -2820,8 +2820,8 @@ class TestDoFinish:
 
     def test_non_failed_stamps_dedup(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_task_name": "benchy",
-            "sensor.p1s_01p00c5a3101668_print_weight": "15",
+            "sensor.p1s_your_printer_serial_task_name": "benchy",
+            "sensor.p1s_your_printer_serial_print_weight": "15",
             "input_text.ams_slot_1_spool_id": "10",
         })
         app._lifecycle_phase2 = True
@@ -2837,8 +2837,8 @@ class TestDoFinish:
 
     def test_failed_does_not_stamp_dedup(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_task_name": "benchy",
-            "sensor.p1s_01p00c5a3101668_print_weight": "15",
+            "sensor.p1s_your_printer_serial_task_name": "benchy",
+            "sensor.p1s_your_printer_serial_print_weight": "15",
         })
         app._lifecycle_phase2 = True
         app._lifecycle_phase1 = True
@@ -2854,8 +2854,8 @@ class TestActiveSlotsNarrowing:
     def test_start_map_fallback_no_phantom_writes(self):
         """Only slot 2 in trays_used — slots 1,3,4,5,6 must not produce writes."""
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_task_name": "narrow_test",
-            "sensor.p1s_01p00c5a3101668_print_weight": "20",
+            "sensor.p1s_your_printer_serial_task_name": "narrow_test",
+            "sensor.p1s_your_printer_serial_print_weight": "20",
             "input_text.ams_slot_2_spool_id": "42",
         })
         app._lifecycle_phase1 = True
@@ -2885,8 +2885,8 @@ class TestActiveSlotsNarrowing:
     def test_empty_trays_used_produces_no_evidence(self):
         """Empty trays_used at finish → USAGE_SKIP, no writes."""
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_task_name": "empty_trays",
-            "sensor.p1s_01p00c5a3101668_print_weight": "10",
+            "sensor.p1s_your_printer_serial_task_name": "empty_trays",
+            "sensor.p1s_your_printer_serial_print_weight": "10",
         })
         app._lifecycle_phase1 = True
         app._lifecycle_phase2 = True
@@ -2902,8 +2902,8 @@ class TestActiveSlotsNarrowing:
     def test_empty_trays_used_rehydrated_warns(self):
         """Rehydrated print with empty trays_used → WARNING logged."""
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_task_name": "rehydrated_empty",
-            "sensor.p1s_01p00c5a3101668_print_weight": "10",
+            "sensor.p1s_your_printer_serial_task_name": "rehydrated_empty",
+            "sensor.p1s_your_printer_serial_print_weight": "10",
         })
         app._lifecycle_phase1 = True
         app._lifecycle_phase2 = True
@@ -2934,8 +2934,8 @@ class TestActiveSlotsNarrowing:
             }))
 
             app = _TestableUsageSync(state_map={
-                "sensor.p1s_01p00c5a3101668_print_status": "running",
-                "sensor.p1s_01p00c5a3101668_task_name": "rehydrate_test",
+                "sensor.p1s_your_printer_serial_print_status": "running",
+                "sensor.p1s_your_printer_serial_task_name": "rehydrate_test",
                 "input_text.filament_iq_active_job_key": "rehydrate_test",
                 "input_boolean.filament_iq_print_active": "on",
             }, args={"lifecycle_phase1_enabled": True, "data_dir": tmp_dir})
@@ -2958,8 +2958,8 @@ class TestActiveSlotsNarrowing:
             }))
 
             app = _TestableUsageSync(state_map={
-                "sensor.p1s_01p00c5a3101668_print_status": "running",
-                "sensor.p1s_01p00c5a3101668_task_name": "start_time_test",
+                "sensor.p1s_your_printer_serial_print_status": "running",
+                "sensor.p1s_your_printer_serial_task_name": "start_time_test",
                 "input_text.filament_iq_active_job_key": "start_time_test",
                 "input_boolean.filament_iq_print_active": "on",
             }, args={"lifecycle_phase1_enabled": True, "data_dir": tmp_dir})
@@ -2978,8 +2978,8 @@ class TestActiveSlotsNarrowing:
             }))
 
             app = _TestableUsageSync(state_map={
-                "sensor.p1s_01p00c5a3101668_print_status": "running",
-                "sensor.p1s_01p00c5a3101668_task_name": "no_start_time",
+                "sensor.p1s_your_printer_serial_print_status": "running",
+                "sensor.p1s_your_printer_serial_task_name": "no_start_time",
                 "input_text.filament_iq_active_job_key": "no_start_time",
                 "input_boolean.filament_iq_print_active": "on",
             }, args={"lifecycle_phase1_enabled": True, "data_dir": tmp_dir})
@@ -3050,17 +3050,17 @@ class TestOnActiveTrayChange:
     def test_not_printing_skips(self):
         app = _TestableUsageSync()
         app._print_active = False
-        app._on_active_tray_change("sensor.p1s_01p00c5a3101668_active_tray", "state", "none", "PLA", {})
+        app._on_active_tray_change("sensor.p1s_your_printer_serial_active_tray", "state", "none", "PLA", {})
         assert not app._trays_used
 
     def test_slot_change_during_print(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_active_tray::ams_index": 0,
-            "sensor.p1s_01p00c5a3101668_active_tray::tray_index": 0,
+            "sensor.p1s_your_printer_serial_active_tray::ams_index": 0,
+            "sensor.p1s_your_printer_serial_active_tray::tray_index": 0,
         })
         app._print_active = True
         app._current_active_slot = None
-        app._on_active_tray_change("sensor.p1s_01p00c5a3101668_active_tray", "state", "none", "PLA", {})
+        app._on_active_tray_change("sensor.p1s_your_printer_serial_active_tray", "state", "none", "PLA", {})
         assert 1 in app._trays_used
         assert app._current_active_slot == 1
 
@@ -3070,19 +3070,19 @@ class TestOnActiveTrayChange:
         app._print_active = True
         app._current_active_slot = 1
         app._tray_active_times = {1: [{"start": datetime.datetime.utcnow(), "end": None}]}
-        app._on_active_tray_change("sensor.p1s_01p00c5a3101668_active_tray", "state", "PLA", "unavailable", {})
+        app._on_active_tray_change("sensor.p1s_your_printer_serial_active_tray", "state", "PLA", "unavailable", {})
         assert app._current_active_slot is None
 
     def test_slot_switch(self):
         import datetime
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_active_tray::ams_index": 0,
-            "sensor.p1s_01p00c5a3101668_active_tray::tray_index": 1,
+            "sensor.p1s_your_printer_serial_active_tray::ams_index": 0,
+            "sensor.p1s_your_printer_serial_active_tray::tray_index": 1,
         })
         app._print_active = True
         app._current_active_slot = 1
         app._tray_active_times = {1: [{"start": datetime.datetime.utcnow(), "end": None}]}
-        app._on_active_tray_change("sensor.p1s_01p00c5a3101668_active_tray", "state", "PLA", "PETG", {})
+        app._on_active_tray_change("sensor.p1s_your_printer_serial_active_tray", "state", "PLA", "PETG", {})
         assert 2 in app._trays_used
         assert app._current_active_slot == 2
 
@@ -3118,25 +3118,25 @@ class TestRehydratePrintState:
 
     def test_not_running_skips(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_print_status": "idle",
+            "sensor.p1s_your_printer_serial_print_status": "idle",
         })
         app._rehydrate_print_state()
         assert app._print_active is False
 
     def test_running_activates(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_print_status": "running",
-            "sensor.p1s_01p00c5a3101668_active_tray": "unknown",
+            "sensor.p1s_your_printer_serial_print_status": "running",
+            "sensor.p1s_your_printer_serial_active_tray": "unknown",
         })
         app._rehydrate_print_state()
         assert app._print_active is True
 
     def test_phase1_recovers_from_helper(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_print_status": "running",
-            "sensor.p1s_01p00c5a3101668_active_tray": "unknown",
+            "sensor.p1s_your_printer_serial_print_status": "running",
+            "sensor.p1s_your_printer_serial_active_tray": "unknown",
             "input_text.filament_iq_start_json": '{"1": 500.0, "4": 400.0}',
-            "sensor.p1s_01p00c5a3101668_task_name": "benchy",
+            "sensor.p1s_your_printer_serial_task_name": "benchy",
         })
         app._lifecycle_phase1 = True
         app._rehydrate_print_state()
@@ -3145,10 +3145,10 @@ class TestRehydratePrintState:
 
     def test_phase1_rebuilds_when_empty(self):
         app = _TestableUsageSync(state_map={
-            "sensor.p1s_01p00c5a3101668_print_status": "running",
-            "sensor.p1s_01p00c5a3101668_active_tray": "unknown",
+            "sensor.p1s_your_printer_serial_print_status": "running",
+            "sensor.p1s_your_printer_serial_active_tray": "unknown",
             "input_text.filament_iq_start_json": "{}",
-            "sensor.p1s_01p00c5a3101668_task_name": "benchy",
+            "sensor.p1s_your_printer_serial_task_name": "benchy",
         })
         app._lifecycle_phase1 = True
         app._rehydrate_print_state()
@@ -3214,8 +3214,8 @@ class TestBuildSlotData:
     def test_returns_slot_data(self):
         app = _TestableUsageSync(state_map={
             "input_text.ams_slot_1_spool_id": "42",
-            "sensor.p1s_01p00c5a3101668_ams_1_tray_1::tag_uid": "AABB",
-            "sensor.p1s_01p00c5a3101668_ams_1_tray_1": "PLA Basic",
+            "sensor.p1s_your_printer_serial_ams_1_tray_1::tag_uid": "AABB",
+            "sensor.p1s_your_printer_serial_ams_1_tray_1": "PLA Basic",
         })
         app._spoolman_get_override = lambda path: {"id": 42, "remaining_weight": 500, "filament": {"color_hex": "FF0000", "material": "PLA"}}
         data = app._build_slot_data()
@@ -3425,7 +3425,7 @@ def test_threemf_state_cleared_on_print_end_allows_refetch():
 def test_spurious_startup_event_does_not_clobber_spool_snapshot():
     """Rehydrated print: running status event with job_key set must NOT reset _spool_id_snapshot."""
     app = _TestableUsageSync(state_map={
-        "sensor.p1s_01p00c5a3101668_active_tray": "unknown",
+        "sensor.p1s_your_printer_serial_active_tray": "unknown",
     }, args={"lifecycle_phase1_enabled": True})
     # Simulate post-rehydration state
     app._job_key = "active_print_123"
@@ -3434,7 +3434,7 @@ def test_spurious_startup_event_does_not_clobber_spool_snapshot():
 
     # HA fires spurious running event with old=None (typical after AppDaemon restart)
     app._on_print_status_change(
-        "sensor.p1s_01p00c5a3101668_print_status", "state", None, "running", {}
+        "sensor.p1s_your_printer_serial_print_status", "state", None, "running", {}
     )
 
     # Snapshot must be preserved
@@ -3488,8 +3488,8 @@ def test_usage_no_evidence_nonrfid_fires_mobile_notify():
     from filament_iq.consumption_engine import SlotDecision
 
     app = _TestableUsageSync(state_map={
-        "sensor.p1s_01p00c5a3101668_task_name": "gasket",
-        "sensor.p1s_01p00c5a3101668_print_weight": "10",
+        "sensor.p1s_your_printer_serial_task_name": "gasket",
+        "sensor.p1s_your_printer_serial_print_weight": "10",
         "input_text.ams_slot_4_spool_id": "68",
     }, args={
         "notify_service": "mobile_app_test_phone",
@@ -3527,8 +3527,8 @@ def test_usage_no_evidence_empty_tray_no_notify():
     from filament_iq import consumption_engine
 
     app = _TestableUsageSync(state_map={
-        "sensor.p1s_01p00c5a3101668_task_name": "test",
-        "sensor.p1s_01p00c5a3101668_print_weight": "5",
+        "sensor.p1s_your_printer_serial_task_name": "test",
+        "sensor.p1s_your_printer_serial_print_weight": "5",
         "input_text.ams_slot_4_spool_id": "68",
     })
     app._job_key = "empty_tray_test"
@@ -3560,8 +3560,8 @@ def test_usage_no_evidence_rfid_slot_no_notify():
     from filament_iq import consumption_engine
 
     app = _TestableUsageSync(state_map={
-        "sensor.p1s_01p00c5a3101668_task_name": "test",
-        "sensor.p1s_01p00c5a3101668_print_weight": "5",
+        "sensor.p1s_your_printer_serial_task_name": "test",
+        "sensor.p1s_your_printer_serial_print_weight": "5",
         "input_text.ams_slot_1_spool_id": "10",
     })
     # Make slot 1 appear RFID
@@ -3604,7 +3604,7 @@ def test_spool_id_snapshot_includes_slot_8():
     """Fix 2: _spool_id_snapshot captures slot 8 (external spool port) at print start."""
     app = _TestableUsageSync(
         state_map={
-            "sensor.p1s_01p00c5a3101668_task_name": "test_print",
+            "sensor.p1s_your_printer_serial_task_name": "test_print",
             "input_text.ams_slot_8_spool_id": "93",
         },
         args={"lifecycle_phase1_enabled": True, "ams_units": _AMS_UNITS_8_SLOTS},
@@ -3619,7 +3619,7 @@ def test_spool_id_snapshot_includes_slot_7():
     """Fix 2: _spool_id_snapshot captures slot 7 (AMS HT) at print start."""
     app = _TestableUsageSync(
         state_map={
-            "sensor.p1s_01p00c5a3101668_task_name": "test_print",
+            "sensor.p1s_your_printer_serial_task_name": "test_print",
             "input_text.ams_slot_7_spool_id": "77",
         },
         args={"lifecycle_phase1_enabled": True, "ams_units": _AMS_UNITS_8_SLOTS},

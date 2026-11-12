@@ -46,15 +46,15 @@ views:
                     }
                   card:
                     type: custom:button-card
-                    entity: image.p1s_01p00c5a3101668_cover_image
+                    entity: image.p1s_your_printer_serial_cover_image
                     show_entity_picture: |
                       [[[
-                        const status = states['sensor.p1s_01p00c5a3101668_print_status'].state;
+                        const status = states['sensor.p1s_your_printer_serial_print_status'].state;
                         return !['idle', 'offline', 'unavailable', 'unknown'].includes(status);
                       ]]]
                     show_icon: |
                       [[[
-                        const status = states['sensor.p1s_01p00c5a3101668_print_status'].state;
+                        const status = states['sensor.p1s_your_printer_serial_print_status'].state;
                         return ['idle', 'offline', 'unavailable', 'unknown'].includes(status);
                       ]]]
                     icon: mdi:printer-3d-nozzle
@@ -64,8 +64,8 @@ views:
                     layout: icon_name_state2nd
                     name: |
                       [[[
-                        const status = states['sensor.p1s_01p00c5a3101668_print_status'].state;
-                        const task = states['sensor.p1s_01p00c5a3101668_task_name'].state;
+                        const status = states['sensor.p1s_your_printer_serial_print_status'].state;
+                        const task = states['sensor.p1s_your_printer_serial_task_name'].state;
                         let primary = '';
                         if (status === 'running') primary = 'PRINTING';
                         else if (status === 'idle') primary = 'IDLE';
@@ -83,16 +83,16 @@ views:
                       ]]]
                     label: |
                       [[[
-                        const status = states['sensor.p1s_01p00c5a3101668_print_status'].state;
+                        const status = states['sensor.p1s_your_printer_serial_print_status'].state;
                         if (['idle', 'offline', 'unavailable', 'unknown'].includes(status))
                           return 'No active print';
                         if (['running', 'pause', 'prepare'].includes(status)) {
-                          const pct = parseInt(states['sensor.p1s_01p00c5a3101668_print_progress'].state) || 0;
-                          const t = parseFloat(states['sensor.p1s_01p00c5a3101668_remaining_time'].state) || 0;
+                          const pct = parseInt(states['sensor.p1s_your_printer_serial_print_progress'].state) || 0;
+                          const t = parseFloat(states['sensor.p1s_your_printer_serial_remaining_time'].state) || 0;
                           const h = Math.floor(t);
                           const m = Math.floor((t - h) * 60);
-                          const cur = states['sensor.p1s_01p00c5a3101668_current_layer'].state;
-                          const tot = states['sensor.p1s_01p00c5a3101668_total_layer_count'].state;
+                          const cur = states['sensor.p1s_your_printer_serial_current_layer'].state;
+                          const tot = states['sensor.p1s_your_printer_serial_total_layer_count'].state;
                           let text = pct + '% · ';
                           if (h > 0) text += h + 'h ';
                           text += m + 'm left';
@@ -108,7 +108,7 @@ views:
                       ]]]
                     tap_action:
                       action: more-info
-                      entity: sensor.p1s_01p00c5a3101668_print_status
+                      entity: sensor.p1s_your_printer_serial_print_status
                     styles:
                       grid:
                         - grid-template-areas: '"i n" "i l"'
@@ -156,19 +156,19 @@ views:
                 - type: conditional
                   conditions:
                     - condition: state
-                      entity: sensor.p1s_01p00c5a3101668_print_status
+                      entity: sensor.p1s_your_printer_serial_print_status
                       state_not: idle
                     - condition: state
-                      entity: sensor.p1s_01p00c5a3101668_print_status
+                      entity: sensor.p1s_your_printer_serial_print_status
                       state_not: finish
                     - condition: state
-                      entity: sensor.p1s_01p00c5a3101668_print_status
+                      entity: sensor.p1s_your_printer_serial_print_status
                       state_not: offline
                     - condition: state
-                      entity: sensor.p1s_01p00c5a3101668_print_status
+                      entity: sensor.p1s_your_printer_serial_print_status
                       state_not: unavailable
                     - condition: state
-                      entity: sensor.p1s_01p00c5a3101668_print_status
+                      entity: sensor.p1s_your_printer_serial_print_status
                       state_not: unknown
                   card:
                     type: custom:mod-card
@@ -227,15 +227,15 @@ views:
                                   height: 5px;
                                   border-radius: 3px;
                                   background: linear-gradient(90deg, #3b9fd8, #63cab7);
-                                  width: {{ states('sensor.p1s_01p00c5a3101668_print_progress') | int(0) }}%;
+                                  width: {{ states('sensor.p1s_your_printer_serial_print_progress') | int(0) }}%;
                                   z-index: 1;
                                 }
                         - type: custom:mushroom-template-card
                           primary: >-
                             {% set ai =
-                            state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                            state_attr('sensor.p1s_your_printer_serial_active_tray',
                             'ams_index') %} {% set ti =
-                            state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                            state_attr('sensor.p1s_your_printer_serial_active_tray',
                             'tray_index') %} {% if ai == 0 and ti is not none
                             %}{% set slot = ti + 1 %} {% elif ai == 128 %}{% set
                             slot = 5 %} {% elif ai == 129 %}{% set slot = 6 %}
@@ -249,9 +249,9 @@ views:
                             {% else %}No active tray {% endif %}
                           icon: >-
                             {% set ai =
-                            state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                            state_attr('sensor.p1s_your_printer_serial_active_tray',
                             'ams_index') %} {% set ti =
-                            state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                            state_attr('sensor.p1s_your_printer_serial_active_tray',
                             'tray_index') %} {% if ai == 0 and ti is not none
                             %}{% set slot = ti + 1 %} {% elif ai == 128 %}{% set
                             slot = 5 %} {% elif ai == 129 %}{% set slot = 6 %}
@@ -260,9 +260,9 @@ views:
                             {% else %}mdi:tray-alert {% endif %}
                           icon_color: >-
                             {% set ai =
-                            state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                            state_attr('sensor.p1s_your_printer_serial_active_tray',
                             'ams_index') %} {% set ti =
-                            state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                            state_attr('sensor.p1s_your_printer_serial_active_tray',
                             'tray_index') %} {% if ai == 0 and ti is not none
                             %}{% set slot = ti + 1 %} {% elif ai == 128 %}{% set
                             slot = 5 %} {% elif ai == 129 %}{% set slot = 6 %}
@@ -336,7 +336,7 @@ views:
                         [[[ return entity.state === 'on' ? '#1c1c1e' :
                         '#e8e8ea'; ]]]
               - type: custom:button-card
-                entity: light.p1s_01p00c5a3101668_chamber_light
+                entity: light.p1s_your_printer_serial_chamber_light
                 name: Light
                 show_icon: true
                 icon: mdi:lightbulb
@@ -379,35 +379,35 @@ views:
               # Example: fan.your_air_purifier_entity
             columns: 3
           - type: custom:button-card
-            entity: sensor.p1s_01p00c5a3101668_print_status
+            entity: sensor.p1s_your_printer_serial_print_status
             show_name: false
             show_icon: false
             show_state: false
             show_label: true
             triggers_update:
-              - fan.p1s_01p00c5a3101668_chamber_fan
-              - fan.p1s_01p00c5a3101668_cooling_fan
-              - fan.p1s_01p00c5a3101668_aux_fan
-              - sensor.p1s_01p00c5a3101668_nozzle_temperature
-              - sensor.p1s_01p00c5a3101668_nozzle_target_temperature
-              - sensor.p1s_01p00c5a3101668_bed_temperature
-              - sensor.p1s_01p00c5a3101668_bed_target_temperature
-              - sensor.p1s_01p00c5a3101668_wi_fi_signal
-              - sensor.p1s_01p00c5a3101668_total_usage
+              - fan.p1s_your_printer_serial_chamber_fan
+              - fan.p1s_your_printer_serial_cooling_fan
+              - fan.p1s_your_printer_serial_aux_fan
+              - sensor.p1s_your_printer_serial_nozzle_temperature
+              - sensor.p1s_your_printer_serial_nozzle_target_temperature
+              - sensor.p1s_your_printer_serial_bed_temperature
+              - sensor.p1s_your_printer_serial_bed_target_temperature
+              - sensor.p1s_your_printer_serial_wi_fi_signal
+              - sensor.p1s_your_printer_serial_total_usage
             label: |
               [[[
-                var chamberOn  = states['fan.p1s_01p00c5a3101668_chamber_fan'].state === 'on';
-                var coolingOn  = states['fan.p1s_01p00c5a3101668_cooling_fan'].state === 'on';
-                var auxOn      = states['fan.p1s_01p00c5a3101668_aux_fan'].state === 'on';
-                var chamberPct = chamberOn ? (states['fan.p1s_01p00c5a3101668_chamber_fan'].attributes.percentage || 0) : 0;
-                var coolingPct = coolingOn ? (states['fan.p1s_01p00c5a3101668_cooling_fan'].attributes.percentage || 0) : 0;
-                var auxPct     = auxOn ? (states['fan.p1s_01p00c5a3101668_aux_fan'].attributes.percentage || 0) : 0;
-                var nozzle    = Math.round(parseFloat(states['sensor.p1s_01p00c5a3101668_nozzle_temperature'].state) || 0);
-                var nozzleTgt = Math.round(parseFloat(states['sensor.p1s_01p00c5a3101668_nozzle_target_temperature'].state) || 0);
-                var bed       = Math.round(parseFloat(states['sensor.p1s_01p00c5a3101668_bed_temperature'].state) || 0);
-                var bedTgt    = Math.round(parseFloat(states['sensor.p1s_01p00c5a3101668_bed_target_temperature'].state) || 0);
-                var rssi      = parseInt(states['sensor.p1s_01p00c5a3101668_wi_fi_signal'].state) || 0;
-                var hours     = Math.round(parseFloat(states['sensor.p1s_01p00c5a3101668_total_usage'].state) || 0);
+                var chamberOn  = states['fan.p1s_your_printer_serial_chamber_fan'].state === 'on';
+                var coolingOn  = states['fan.p1s_your_printer_serial_cooling_fan'].state === 'on';
+                var auxOn      = states['fan.p1s_your_printer_serial_aux_fan'].state === 'on';
+                var chamberPct = chamberOn ? (states['fan.p1s_your_printer_serial_chamber_fan'].attributes.percentage || 0) : 0;
+                var coolingPct = coolingOn ? (states['fan.p1s_your_printer_serial_cooling_fan'].attributes.percentage || 0) : 0;
+                var auxPct     = auxOn ? (states['fan.p1s_your_printer_serial_aux_fan'].attributes.percentage || 0) : 0;
+                var nozzle    = Math.round(parseFloat(states['sensor.p1s_your_printer_serial_nozzle_temperature'].state) || 0);
+                var nozzleTgt = Math.round(parseFloat(states['sensor.p1s_your_printer_serial_nozzle_target_temperature'].state) || 0);
+                var bed       = Math.round(parseFloat(states['sensor.p1s_your_printer_serial_bed_temperature'].state) || 0);
+                var bedTgt    = Math.round(parseFloat(states['sensor.p1s_your_printer_serial_bed_target_temperature'].state) || 0);
+                var rssi      = parseInt(states['sensor.p1s_your_printer_serial_wi_fi_signal'].state) || 0;
+                var hours     = Math.round(parseFloat(states['sensor.p1s_your_printer_serial_total_usage'].state) || 0);
                 var wifiLabel = rssi >= -50 ? 'WiFi · Excellent' : rssi >= -60 ? 'WiFi · Good' : rssi >= -70 ? 'WiFi · Fair' : rssi >= -80 ? 'WiFi · Weak' : 'WiFi · Poor';
                 var fanPath   = 'M12,11A1,1 0 0,0 11,12A1,1 0 0,0 12,13A1,1 0 0,0 13,12A1,1 0 0,0 12,11M12.5,2C17,2 17.11,5.57 14.75,6.75C13.76,7.24 13.32,8.29 13.13,9.22C13.61,9.42 14.03,9.73 14.35,10.13C18.05,8.13 22.03,8.92 22.03,12.5C22.03,17 18.46,17.1 17.28,14.73C16.78,13.74 15.72,13.3 14.79,13.11C14.59,13.59 14.28,14 13.88,14.34C15.87,18.03 15.08,22 11.5,22C7,22 6.91,18.42 9.27,17.24C10.25,16.75 10.69,15.71 10.89,14.79C10.4,14.59 9.97,14.27 9.65,13.87C5.96,15.85 2,15.07 2,11.5C2,7 5.56,6.89 6.74,9.26C7.24,10.25 8.29,10.68 9.22,10.87C9.41,10.39 9.73,9.97 10.14,9.65C8.15,5.96 8.94,2 12.5,2Z';
                 var nozzlePath= 'M7,2H17V8H19V13H16.5L13,17H11L7.5,13H5V8H7V2M10,22H2V20H10A1,1 0 0,0 11,19V18H13V19A3,3 0 0,1 10,22Z';
@@ -469,7 +469,7 @@ views:
             camera_view: live
             fit_mode: cover
             type: picture-entity
-            entity: camera.p1s_01p00c5a3101668_camera
+            entity: camera.p1s_your_printer_serial_camera
             card_mod:
               style: |
                 background: #2c2c2e !important;
@@ -583,14 +583,14 @@ views:
                     primary: AMS Pro
                     secondary: >-
                       {% set h =
-                      states('sensor.p1s_01p00c5a3101668_ams_1_humidity') %} {%
+                      states('sensor.p1s_your_printer_serial_ams_1_humidity') %} {%
                       set t =
-                      states('sensor.p1s_01p00c5a3101668_ams_1_temperature') %}
+                      states('sensor.p1s_your_printer_serial_ams_1_temperature') %}
                       {% if h in ['unavailable', 'unknown', ''] %}Disconnected
                       {% else %}{{ h }}% humidity · {{ t }}°C{% endif %}
                     icon: mdi:printer-3d
                     icon_color: >-
-                      {% if states('sensor.p1s_01p00c5a3101668_ams_1_humidity')
+                      {% if states('sensor.p1s_your_printer_serial_ams_1_humidity')
                       in ['unavailable', 'unknown', ''] %}red{% else %}green{%
                       endif %}
                     tap_action:
@@ -609,7 +609,7 @@ views:
                   entity: sensor.ams_slot_1_status
                   primary: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_1_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_1_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_1_status') %} {% set r =
                     states('input_text.ams_slot_1_unbound_reason') %} {% if not
@@ -627,7 +627,7 @@ views:
                     states('sensor.ams_slot_1_material') }} {% endif %}
                   secondary: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_1_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_1_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_1_status') %} {% set r =
                     states('input_text.ams_slot_1_unbound_reason') %} {% if not
@@ -657,7 +657,7 @@ views:
                     %}mdi:numeric-1-circle {% endif %}
                   icon_color: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_1_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_1_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_1_status') %} {% set r =
                     states('input_text.ams_slot_1_unbound_reason') %} {% if not
@@ -670,22 +670,22 @@ views:
                     {% endif %}
                   badge_icon: >-
                     {% set printing =
-                    states('sensor.p1s_01p00c5a3101668_current_stage') ==
+                    states('sensor.p1s_your_printer_serial_current_stage') ==
                     'printing' %} {% set active_ams =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'ams_index') %} {% set active_tray =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'tray_index') %} {% set is_active = printing and active_ams
                     == 0 and active_tray == 0 %} {% set status =
                     states('sensor.ams_slot_1_status') %} {% if is_active and
                     status == 'ok' %}mdi:printer-3d-nozzle{% else %}{% endif %}
                   badge_color: >-
                     {% set printing =
-                    states('sensor.p1s_01p00c5a3101668_current_stage') ==
+                    states('sensor.p1s_your_printer_serial_current_stage') ==
                     'printing' %} {% set active_ams =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'ams_index') %} {% set active_tray =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'tray_index') %} {% set is_active = printing and active_ams
                     == 0 and active_tray == 0 %} {% set status =
                     states('sensor.ams_slot_1_status') %} {% if is_active and
@@ -770,9 +770,9 @@ views:
                         background: transparent !important;
                         {% set status = states('sensor.ams_slot_1_status') %}
                         {% set r = states('input_text.ams_slot_1_unbound_reason') %}
-                        {% set active_ams = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
-                        {% set active_tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
-                        {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') == 'printing' %}
+                        {% set active_ams = state_attr('sensor.p1s_your_printer_serial_active_tray', 'ams_index') %}
+                        {% set active_tray = state_attr('sensor.p1s_your_printer_serial_active_tray', 'tray_index') %}
+                        {% set printing = states('sensor.p1s_your_printer_serial_current_stage') == 'printing' %}
                         {% set is_active = printing and active_ams == 1 and active_tray == 0 %}
                         {% set hex = states('sensor.ams_slot_1_color_hex') %}
                         {% set safe_hex = hex if hex not in ['unknown', 'unavailable', ''] else '3b9fd8' %}
@@ -794,9 +794,9 @@ views:
                       .primary {
                         {% set status = states('sensor.ams_slot_1_status') %}
                         {% set r = states('input_text.ams_slot_1_unbound_reason') %}
-                        {% set active_ams = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
-                        {% set active_tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
-                        {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') == 'printing' %}
+                        {% set active_ams = state_attr('sensor.p1s_your_printer_serial_active_tray', 'ams_index') %}
+                        {% set active_tray = state_attr('sensor.p1s_your_printer_serial_active_tray', 'tray_index') %}
+                        {% set printing = states('sensor.p1s_your_printer_serial_current_stage') == 'printing' %}
                         {% set is_active = printing and active_ams == 1 and active_tray == 0 %}
                         {% set hex = states('sensor.ams_slot_1_color_hex') %}
                         {% set safe_hex = hex if hex not in ['unknown', 'unavailable', ''] else '3b9fd8' %}
@@ -820,7 +820,7 @@ views:
                   entity: sensor.ams_slot_2_status
                   primary: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_1_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_1_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_2_status') %} {% set r =
                     states('input_text.ams_slot_2_unbound_reason') %} {% if not
@@ -838,7 +838,7 @@ views:
                     states('sensor.ams_slot_2_material') }} {% endif %}
                   secondary: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_1_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_1_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_2_status') %} {% set r =
                     states('input_text.ams_slot_2_unbound_reason') %} {% if not
@@ -868,7 +868,7 @@ views:
                     %}mdi:numeric-2-circle {% endif %}
                   icon_color: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_1_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_1_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_2_status') %} {% set r =
                     states('input_text.ams_slot_2_unbound_reason') %} {% if not
@@ -881,22 +881,22 @@ views:
                     {% endif %}
                   badge_icon: >-
                     {% set printing =
-                    states('sensor.p1s_01p00c5a3101668_current_stage') ==
+                    states('sensor.p1s_your_printer_serial_current_stage') ==
                     'printing' %} {% set active_ams =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'ams_index') %} {% set active_tray =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'tray_index') %} {% set is_active = printing and active_ams
                     == 0 and active_tray == 0 %} {% set status =
                     states('sensor.ams_slot_2_status') %} {% if is_active and
                     status == 'ok' %}mdi:printer-3d-nozzle{% else %}{% endif %}
                   badge_color: >-
                     {% set printing =
-                    states('sensor.p1s_01p00c5a3101668_current_stage') ==
+                    states('sensor.p1s_your_printer_serial_current_stage') ==
                     'printing' %} {% set active_ams =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'ams_index') %} {% set active_tray =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'tray_index') %} {% set is_active = printing and active_ams
                     == 0 and active_tray == 0 %} {% set status =
                     states('sensor.ams_slot_2_status') %} {% if is_active and
@@ -981,9 +981,9 @@ views:
                         background: transparent !important;
                         {% set status = states('sensor.ams_slot_2_status') %}
                         {% set r = states('input_text.ams_slot_2_unbound_reason') %}
-                        {% set active_ams = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
-                        {% set active_tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
-                        {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') == 'printing' %}
+                        {% set active_ams = state_attr('sensor.p1s_your_printer_serial_active_tray', 'ams_index') %}
+                        {% set active_tray = state_attr('sensor.p1s_your_printer_serial_active_tray', 'tray_index') %}
+                        {% set printing = states('sensor.p1s_your_printer_serial_current_stage') == 'printing' %}
                         {% set is_active = printing and active_ams == 1 and active_tray == 1 %}
                         {% set hex = states('sensor.ams_slot_2_color_hex') %}
                         {% set safe_hex = hex if hex not in ['unknown', 'unavailable', ''] else '3b9fd8' %}
@@ -1005,9 +1005,9 @@ views:
                       .primary {
                         {% set status = states('sensor.ams_slot_2_status') %}
                         {% set r = states('input_text.ams_slot_2_unbound_reason') %}
-                        {% set active_ams = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
-                        {% set active_tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
-                        {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') == 'printing' %}
+                        {% set active_ams = state_attr('sensor.p1s_your_printer_serial_active_tray', 'ams_index') %}
+                        {% set active_tray = state_attr('sensor.p1s_your_printer_serial_active_tray', 'tray_index') %}
+                        {% set printing = states('sensor.p1s_your_printer_serial_current_stage') == 'printing' %}
                         {% set is_active = printing and active_ams == 1 and active_tray == 1 %}
                         {% set hex = states('sensor.ams_slot_2_color_hex') %}
                         {% set safe_hex = hex if hex not in ['unknown', 'unavailable', ''] else '3b9fd8' %}
@@ -1031,7 +1031,7 @@ views:
                   entity: sensor.ams_slot_3_status
                   primary: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_1_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_1_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_3_status') %} {% set r =
                     states('input_text.ams_slot_3_unbound_reason') %} {% if not
@@ -1049,7 +1049,7 @@ views:
                     states('sensor.ams_slot_3_material') }} {% endif %}
                   secondary: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_1_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_1_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_3_status') %} {% set r =
                     states('input_text.ams_slot_3_unbound_reason') %} {% if not
@@ -1079,7 +1079,7 @@ views:
                     %}mdi:numeric-3-circle {% endif %}
                   icon_color: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_1_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_1_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_3_status') %} {% set r =
                     states('input_text.ams_slot_3_unbound_reason') %} {% if not
@@ -1092,22 +1092,22 @@ views:
                     {% endif %}
                   badge_icon: >-
                     {% set printing =
-                    states('sensor.p1s_01p00c5a3101668_current_stage') ==
+                    states('sensor.p1s_your_printer_serial_current_stage') ==
                     'printing' %} {% set active_ams =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'ams_index') %} {% set active_tray =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'tray_index') %} {% set is_active = printing and active_ams
                     == 0 and active_tray == 0 %} {% set status =
                     states('sensor.ams_slot_3_status') %} {% if is_active and
                     status == 'ok' %}mdi:printer-3d-nozzle{% else %}{% endif %}
                   badge_color: >-
                     {% set printing =
-                    states('sensor.p1s_01p00c5a3101668_current_stage') ==
+                    states('sensor.p1s_your_printer_serial_current_stage') ==
                     'printing' %} {% set active_ams =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'ams_index') %} {% set active_tray =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'tray_index') %} {% set is_active = printing and active_ams
                     == 0 and active_tray == 0 %} {% set status =
                     states('sensor.ams_slot_3_status') %} {% if is_active and
@@ -1192,9 +1192,9 @@ views:
                         background: transparent !important;
                         {% set status = states('sensor.ams_slot_3_status') %}
                         {% set r = states('input_text.ams_slot_3_unbound_reason') %}
-                        {% set active_ams = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
-                        {% set active_tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
-                        {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') == 'printing' %}
+                        {% set active_ams = state_attr('sensor.p1s_your_printer_serial_active_tray', 'ams_index') %}
+                        {% set active_tray = state_attr('sensor.p1s_your_printer_serial_active_tray', 'tray_index') %}
+                        {% set printing = states('sensor.p1s_your_printer_serial_current_stage') == 'printing' %}
                         {% set is_active = printing and active_ams == 1 and active_tray == 2 %}
                         {% set hex = states('sensor.ams_slot_3_color_hex') %}
                         {% set safe_hex = hex if hex not in ['unknown', 'unavailable', ''] else '3b9fd8' %}
@@ -1216,9 +1216,9 @@ views:
                       .primary {
                         {% set status = states('sensor.ams_slot_3_status') %}
                         {% set r = states('input_text.ams_slot_3_unbound_reason') %}
-                        {% set active_ams = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
-                        {% set active_tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
-                        {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') == 'printing' %}
+                        {% set active_ams = state_attr('sensor.p1s_your_printer_serial_active_tray', 'ams_index') %}
+                        {% set active_tray = state_attr('sensor.p1s_your_printer_serial_active_tray', 'tray_index') %}
+                        {% set printing = states('sensor.p1s_your_printer_serial_current_stage') == 'printing' %}
                         {% set is_active = printing and active_ams == 1 and active_tray == 2 %}
                         {% set hex = states('sensor.ams_slot_3_color_hex') %}
                         {% set safe_hex = hex if hex not in ['unknown', 'unavailable', ''] else '3b9fd8' %}
@@ -1242,7 +1242,7 @@ views:
                   entity: sensor.ams_slot_4_status
                   primary: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_1_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_1_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_4_status') %} {% set r =
                     states('input_text.ams_slot_4_unbound_reason') %} {% if not
@@ -1260,7 +1260,7 @@ views:
                     states('sensor.ams_slot_4_material') }} {% endif %}
                   secondary: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_1_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_1_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_4_status') %} {% set r =
                     states('input_text.ams_slot_4_unbound_reason') %} {% if not
@@ -1290,7 +1290,7 @@ views:
                     %}mdi:numeric-4-circle {% endif %}
                   icon_color: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_1_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_1_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_4_status') %} {% set r =
                     states('input_text.ams_slot_4_unbound_reason') %} {% if not
@@ -1303,22 +1303,22 @@ views:
                     {% endif %}
                   badge_icon: >-
                     {% set printing =
-                    states('sensor.p1s_01p00c5a3101668_current_stage') ==
+                    states('sensor.p1s_your_printer_serial_current_stage') ==
                     'printing' %} {% set active_ams =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'ams_index') %} {% set active_tray =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'tray_index') %} {% set is_active = printing and active_ams
                     == 0 and active_tray == 0 %} {% set status =
                     states('sensor.ams_slot_4_status') %} {% if is_active and
                     status == 'ok' %}mdi:printer-3d-nozzle{% else %}{% endif %}
                   badge_color: >-
                     {% set printing =
-                    states('sensor.p1s_01p00c5a3101668_current_stage') ==
+                    states('sensor.p1s_your_printer_serial_current_stage') ==
                     'printing' %} {% set active_ams =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'ams_index') %} {% set active_tray =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'tray_index') %} {% set is_active = printing and active_ams
                     == 0 and active_tray == 0 %} {% set status =
                     states('sensor.ams_slot_4_status') %} {% if is_active and
@@ -1403,9 +1403,9 @@ views:
                         background: transparent !important;
                         {% set status = states('sensor.ams_slot_4_status') %}
                         {% set r = states('input_text.ams_slot_4_unbound_reason') %}
-                        {% set active_ams = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
-                        {% set active_tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
-                        {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') == 'printing' %}
+                        {% set active_ams = state_attr('sensor.p1s_your_printer_serial_active_tray', 'ams_index') %}
+                        {% set active_tray = state_attr('sensor.p1s_your_printer_serial_active_tray', 'tray_index') %}
+                        {% set printing = states('sensor.p1s_your_printer_serial_current_stage') == 'printing' %}
                         {% set is_active = printing and active_ams == 1 and active_tray == 3 %}
                         {% set hex = states('sensor.ams_slot_4_color_hex') %}
                         {% set safe_hex = hex if hex not in ['unknown', 'unavailable', ''] else '3b9fd8' %}
@@ -1427,9 +1427,9 @@ views:
                       .primary {
                         {% set status = states('sensor.ams_slot_4_status') %}
                         {% set r = states('input_text.ams_slot_4_unbound_reason') %}
-                        {% set active_ams = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
-                        {% set active_tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
-                        {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') == 'printing' %}
+                        {% set active_ams = state_attr('sensor.p1s_your_printer_serial_active_tray', 'ams_index') %}
+                        {% set active_tray = state_attr('sensor.p1s_your_printer_serial_active_tray', 'tray_index') %}
+                        {% set printing = states('sensor.p1s_your_printer_serial_current_stage') == 'printing' %}
                         {% set is_active = printing and active_ams == 1 and active_tray == 3 %}
                         {% set hex = states('sensor.ams_slot_4_color_hex') %}
                         {% set safe_hex = hex if hex not in ['unknown', 'unavailable', ''] else '3b9fd8' %}
@@ -1449,17 +1449,17 @@ views:
                 - type: conditional
                   conditions:
                     - condition: state
-                      entity: binary_sensor.p1s_01p00c5a3101668_ams_1_drying
+                      entity: binary_sensor.p1s_your_printer_serial_ams_1_drying
                       state: 'on'
                   card:
                     type: custom:mushroom-template-card
                     primary: >-
                       {% set temp =
-                      states('sensor.p1s_01p00c5a3101668_ams_1_temperature') %}
+                      states('sensor.p1s_your_printer_serial_ams_1_temperature') %}
                       Drying Active · {{ temp }}°C
                     secondary: >-
                       {% set t =
-                      states('sensor.p1s_01p00c5a3101668_ams_1_remaining_drying_time')
+                      states('sensor.p1s_your_printer_serial_ams_1_remaining_drying_time')
                       | float(0) %} {% set h = t | int %} {% set m = ((t - h) *
                       60) | round(0) | int %} {% if h > 0 %}{{ h }}h {% endif
                       %}{{ m }}m remaining
@@ -1506,14 +1506,14 @@ views:
                     primary: AMS HT 1
                     secondary: >-
                       {% set h =
-                      states('sensor.p1s_01p00c5a3101668_ams_128_humidity') %} {%
+                      states('sensor.p1s_your_printer_serial_ams_128_humidity') %} {%
                       set t =
-                      states('sensor.p1s_01p00c5a3101668_ams_128_temperature') %}
+                      states('sensor.p1s_your_printer_serial_ams_128_temperature') %}
                       {% if h in ['unavailable', 'unknown', ''] %}Disconnected
                       {% else %}{{ h }}% humidity · {{ t }}°C{% endif %}
                     icon: mdi:printer-3d
                     icon_color: >-
-                      {% if states('sensor.p1s_01p00c5a3101668_ams_128_humidity')
+                      {% if states('sensor.p1s_your_printer_serial_ams_128_humidity')
                       in ['unavailable', 'unknown', ''] %}red{% else %}green{%
                       endif %}
                     tap_action:
@@ -1532,7 +1532,7 @@ views:
                   entity: sensor.ams_slot_5_status
                   primary: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_128_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_128_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_5_status') %} {% set r =
                     states('input_text.ams_slot_5_unbound_reason') %} {% if not
@@ -1550,7 +1550,7 @@ views:
                     states('sensor.ams_slot_5_material') }} {% endif %}
                   secondary: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_128_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_128_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_5_status') %} {% set r =
                     states('input_text.ams_slot_5_unbound_reason') %} {% if not
@@ -1580,7 +1580,7 @@ views:
                     %}mdi:circle {% endif %}
                   icon_color: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_128_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_128_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_5_status') %} {% set r =
                     states('input_text.ams_slot_5_unbound_reason') %} {% if not
@@ -1593,22 +1593,22 @@ views:
                     {% endif %}
                   badge_icon: >-
                     {% set printing =
-                    states('sensor.p1s_01p00c5a3101668_current_stage') ==
+                    states('sensor.p1s_your_printer_serial_current_stage') ==
                     'printing' %} {% set active_ams =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'ams_index') %} {% set active_tray =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'tray_index') %} {% set is_active = printing and active_ams
                     == 0 and active_tray == 0 %} {% set status =
                     states('sensor.ams_slot_5_status') %} {% if is_active and
                     status == 'ok' %}mdi:printer-3d-nozzle{% else %}{% endif %}
                   badge_color: >-
                     {% set printing =
-                    states('sensor.p1s_01p00c5a3101668_current_stage') ==
+                    states('sensor.p1s_your_printer_serial_current_stage') ==
                     'printing' %} {% set active_ams =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'ams_index') %} {% set active_tray =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'tray_index') %} {% set is_active = printing and active_ams
                     == 0 and active_tray == 0 %} {% set status =
                     states('sensor.ams_slot_5_status') %} {% if is_active and
@@ -1693,9 +1693,9 @@ views:
                         background: transparent !important;
                         {% set status = states('sensor.ams_slot_5_status') %}
                         {% set r = states('input_text.ams_slot_5_unbound_reason') %}
-                        {% set active_ams = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
-                        {% set active_tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
-                        {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') == 'printing' %}
+                        {% set active_ams = state_attr('sensor.p1s_your_printer_serial_active_tray', 'ams_index') %}
+                        {% set active_tray = state_attr('sensor.p1s_your_printer_serial_active_tray', 'tray_index') %}
+                        {% set printing = states('sensor.p1s_your_printer_serial_current_stage') == 'printing' %}
                         {% set is_active = printing and active_ams == 128 and active_tray == 0 %}
                         {% set hex = states('sensor.ams_slot_5_color_hex') %}
                         {% set safe_hex = hex if hex not in ['unknown', 'unavailable', ''] else '3b9fd8' %}
@@ -1717,9 +1717,9 @@ views:
                       .primary {
                         {% set status = states('sensor.ams_slot_5_status') %}
                         {% set r = states('input_text.ams_slot_5_unbound_reason') %}
-                        {% set active_ams = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
-                        {% set active_tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
-                        {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') == 'printing' %}
+                        {% set active_ams = state_attr('sensor.p1s_your_printer_serial_active_tray', 'ams_index') %}
+                        {% set active_tray = state_attr('sensor.p1s_your_printer_serial_active_tray', 'tray_index') %}
+                        {% set printing = states('sensor.p1s_your_printer_serial_current_stage') == 'printing' %}
                         {% set is_active = printing and active_ams == 128 and active_tray == 0 %}
                         {% set hex = states('sensor.ams_slot_5_color_hex') %}
                         {% set safe_hex = hex if hex not in ['unknown', 'unavailable', ''] else '3b9fd8' %}
@@ -1739,17 +1739,17 @@ views:
                 - type: conditional
                   conditions:
                     - condition: state
-                      entity: binary_sensor.p1s_01p00c5a3101668_ams_128_drying
+                      entity: binary_sensor.p1s_your_printer_serial_ams_128_drying
                       state: 'on'
                   card:
                     type: custom:mushroom-template-card
                     primary: >-
                       {% set temp =
-                      states('sensor.p1s_01p00c5a3101668_ams_128_temperature') %}
+                      states('sensor.p1s_your_printer_serial_ams_128_temperature') %}
                       Drying Active · {{ temp }}°C
                     secondary: >-
                       {% set t =
-                      states('sensor.p1s_01p00c5a3101668_ams_128_remaining_drying_time')
+                      states('sensor.p1s_your_printer_serial_ams_128_remaining_drying_time')
                       | float(0) %} {% set h = t | int %} {% set m = ((t - h) *
                       60) | round(0) | int %} {% if h > 0 %}{{ h }}h {% endif
                       %}{{ m }}m remaining
@@ -1796,14 +1796,14 @@ views:
                     primary: AMS HT 2
                     secondary: >-
                       {% set h =
-                      states('sensor.p1s_01p00c5a3101668_ams_129_humidity') %} {%
+                      states('sensor.p1s_your_printer_serial_ams_129_humidity') %} {%
                       set t =
-                      states('sensor.p1s_01p00c5a3101668_ams_129_temperature') %}
+                      states('sensor.p1s_your_printer_serial_ams_129_temperature') %}
                       {% if h in ['unavailable', 'unknown', ''] %}Disconnected
                       {% else %}{{ h }}% humidity · {{ t }}°C{% endif %}
                     icon: mdi:printer-3d
                     icon_color: >-
-                      {% if states('sensor.p1s_01p00c5a3101668_ams_129_humidity')
+                      {% if states('sensor.p1s_your_printer_serial_ams_129_humidity')
                       in ['unavailable', 'unknown', ''] %}red{% else %}green{%
                       endif %}
                     tap_action:
@@ -1822,7 +1822,7 @@ views:
                   entity: sensor.ams_slot_6_status
                   primary: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_129_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_129_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_6_status') %} {% set r =
                     states('input_text.ams_slot_6_unbound_reason') %} {% if not
@@ -1840,7 +1840,7 @@ views:
                     states('sensor.ams_slot_6_material') }} {% endif %}
                   secondary: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_129_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_129_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_6_status') %} {% set r =
                     states('input_text.ams_slot_6_unbound_reason') %} {% if not
@@ -1870,7 +1870,7 @@ views:
                     %}mdi:circle {% endif %}
                   icon_color: >-
                     {% set ams_ok =
-                    states('sensor.p1s_01p00c5a3101668_ams_129_humidity') not in
+                    states('sensor.p1s_your_printer_serial_ams_129_humidity') not in
                     ['unavailable', 'unknown', ''] %} {% set status =
                     states('sensor.ams_slot_6_status') %} {% set r =
                     states('input_text.ams_slot_6_unbound_reason') %} {% if not
@@ -1883,22 +1883,22 @@ views:
                     {% endif %}
                   badge_icon: >-
                     {% set printing =
-                    states('sensor.p1s_01p00c5a3101668_current_stage') ==
+                    states('sensor.p1s_your_printer_serial_current_stage') ==
                     'printing' %} {% set active_ams =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'ams_index') %} {% set active_tray =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'tray_index') %} {% set is_active = printing and active_ams
                     == 0 and active_tray == 0 %} {% set status =
                     states('sensor.ams_slot_6_status') %} {% if is_active and
                     status == 'ok' %}mdi:printer-3d-nozzle{% else %}{% endif %}
                   badge_color: >-
                     {% set printing =
-                    states('sensor.p1s_01p00c5a3101668_current_stage') ==
+                    states('sensor.p1s_your_printer_serial_current_stage') ==
                     'printing' %} {% set active_ams =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'ams_index') %} {% set active_tray =
-                    state_attr('sensor.p1s_01p00c5a3101668_active_tray',
+                    state_attr('sensor.p1s_your_printer_serial_active_tray',
                     'tray_index') %} {% set is_active = printing and active_ams
                     == 0 and active_tray == 0 %} {% set status =
                     states('sensor.ams_slot_6_status') %} {% if is_active and
@@ -1983,9 +1983,9 @@ views:
                         background: transparent !important;
                         {% set status = states('sensor.ams_slot_6_status') %}
                         {% set r = states('input_text.ams_slot_6_unbound_reason') %}
-                        {% set active_ams = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
-                        {% set active_tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
-                        {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') == 'printing' %}
+                        {% set active_ams = state_attr('sensor.p1s_your_printer_serial_active_tray', 'ams_index') %}
+                        {% set active_tray = state_attr('sensor.p1s_your_printer_serial_active_tray', 'tray_index') %}
+                        {% set printing = states('sensor.p1s_your_printer_serial_current_stage') == 'printing' %}
                         {% set is_active = printing and active_ams == 129 and active_tray == 0 %}
                         {% set hex = states('sensor.ams_slot_6_color_hex') %}
                         {% set safe_hex = hex if hex not in ['unknown', 'unavailable', ''] else '3b9fd8' %}
@@ -2007,9 +2007,9 @@ views:
                       .primary {
                         {% set status = states('sensor.ams_slot_6_status') %}
                         {% set r = states('input_text.ams_slot_6_unbound_reason') %}
-                        {% set active_ams = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'ams_index') %}
-                        {% set active_tray = state_attr('sensor.p1s_01p00c5a3101668_active_tray', 'tray_index') %}
-                        {% set printing = states('sensor.p1s_01p00c5a3101668_current_stage') == 'printing' %}
+                        {% set active_ams = state_attr('sensor.p1s_your_printer_serial_active_tray', 'ams_index') %}
+                        {% set active_tray = state_attr('sensor.p1s_your_printer_serial_active_tray', 'tray_index') %}
+                        {% set printing = states('sensor.p1s_your_printer_serial_current_stage') == 'printing' %}
                         {% set is_active = printing and active_ams == 129 and active_tray == 0 %}
                         {% set hex = states('sensor.ams_slot_6_color_hex') %}
                         {% set safe_hex = hex if hex not in ['unknown', 'unavailable', ''] else '3b9fd8' %}
@@ -2029,17 +2029,17 @@ views:
                 - type: conditional
                   conditions:
                     - condition: state
-                      entity: binary_sensor.p1s_01p00c5a3101668_ams_129_drying
+                      entity: binary_sensor.p1s_your_printer_serial_ams_129_drying
                       state: 'on'
                   card:
                     type: custom:mushroom-template-card
                     primary: >-
                       {% set temp =
-                      states('sensor.p1s_01p00c5a3101668_ams_129_temperature') %}
+                      states('sensor.p1s_your_printer_serial_ams_129_temperature') %}
                       Drying Active · {{ temp }}°C
                     secondary: >-
                       {% set t =
-                      states('sensor.p1s_01p00c5a3101668_ams_129_remaining_drying_time')
+                      states('sensor.p1s_your_printer_serial_ams_129_remaining_drying_time')
                       | float(0) %} {% set h = t | int %} {% set m = ((t - h) *
                       60) | round(0) | int %} {% if h > 0 %}{{ h }}h {% endif
                       %}{{ m }}m remaining
