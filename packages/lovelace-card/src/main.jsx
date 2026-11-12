@@ -14,7 +14,7 @@ import cardCSS from './styles/card.css?inline'
 
 // Printer serial comes from card config (`printer_serial`). This default is
 // only a fallback when config omits it (e.g. card embedded with empty config).
-const DEFAULT_SERIAL = '01p00c5b2201397'
+const DEFAULT_SERIAL = 'your_printer_serial'
 
 class FilamentIQManagerElement extends HTMLElement {
   constructor() {

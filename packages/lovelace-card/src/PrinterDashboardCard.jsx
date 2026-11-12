@@ -3,7 +3,7 @@ import { useState } from 'preact/hooks'
 
 // Printer serial comes from card config (`printer_serial`). This default is
 // only a fallback when config omits it.
-const DEFAULT_SERIAL = '01p00c5b2201397'
+const DEFAULT_SERIAL = 'your_printer_serial'
 
 
 // ── MDI SVG paths — inline, no external dependency ──────────
