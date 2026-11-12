@@ -586,7 +586,7 @@ class FiqSegment extends Component {
     if (!this.containerRef) return
     try {
       const card = document.createElement('filament-iq-manager')
-      card.setConfig({})
+      card.setConfig({ printer_serial: this.props.printer_serial })
       card.hass = this.props.getHass()
       this.containerRef.appendChild(card)
       this._card = card
@@ -835,7 +835,7 @@ export function PrinterDashboardCard({ config, getHass }) {
       seg === 'printer' && h(PrinterSegment, { getHass, printer_serial: serial }),
       seg === 'cameras' && h(CamerasSegment, { getHass, printer_serial: serial }),
       seg === 'slots'   && h(SlotsSegment,   { getHass, onPopup: setPopup, printer_serial: serial }),
-      seg === 'fiq'     && h(FiqSegment, { getHass }),
+      seg === 'fiq'     && h(FiqSegment, { getHass, printer_serial: serial }),
     ),
     popup && h(SlotPopup, { popup, getHass, onClose: () => setPopup(null) })
   )
