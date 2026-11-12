@@ -68,6 +68,8 @@ _METHOD_LABELS = {
     "rfid_delta_depleted":     "RFID sensor (depleted)",
     "3mf":                     "Slicer data",
     "3mf_depleted":            "Slicer data (depleted)",
+    "3mf_empty_at_finish":     "Slicer data (spool lifted at finish)",
+    "3mf_depletion_suspect":   "Slicer data (depletion doubtful)",
     "depleted_nonrfid":        "Depleted",
     "no_evidence":             "—",
     "runout_split":            "Recorded — runout split",
@@ -462,6 +464,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         end_snapshot: dict,
         threemf_matched_slots: dict,
         spools_cache: dict,
+        status: str = "",
     ) -> list:
         """
         Build SlotInput for every bound slot in trays_used.
@@ -501,6 +504,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             entity = self._tray_entity_by_slot.get(slot)
             tray_state = str(self.get_state(entity) or "").strip() if entity else ""
             tray_empty = tray_state == "Empty"
+            empty_age_s = self._tray_empty_age_s(entity) if tray_empty else None
             tray_active_seconds = self._summarize_tray_times().get(slot, 0.0)
 
             # RFID fuel gauge readings
@@ -558,9 +562,30 @@ class AmsPrintUsageSync(FilamentIQBase):
                 threemf_used_g=threemf_used_g,
                 threemf_method=threemf_method,
                 spoolman_remaining=spoolman_remaining,
+                empty_age_s=empty_age_s,
+                normal_finish=str(status or "").strip().lower() == "finish",
             ))
 
         return inputs
+
+    def _now_utc(self) -> datetime.datetime:
+        return datetime.datetime.now(datetime.timezone.utc)
+
+    def _tray_empty_age_s(self, entity):
+        """Seconds since the tray entity last changed (to Empty); None if unknown."""
+        if not entity:
+            return None
+        try:
+            raw = self.get_state(entity, attribute="last_changed")
+            if not raw:
+                return None
+            changed = datetime.datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            if changed.tzinfo is None:
+                changed = changed.replace(tzinfo=datetime.timezone.utc)
+            age = (self._now_utc() - changed).total_seconds()
+        except (TypeError, ValueError):
+            return None
+        return age if age >= 0 else None
 
     # ── execute phase ────────────────────────────────────────────────
 
@@ -740,6 +765,59 @@ class AmsPrintUsageSync(FilamentIQBase):
 
         return decisions, patched, failed
 
+    def _report_end_of_print_empties(self, decisions, slot_inputs, status) -> None:
+        """IN-1045: say when a tray reading Empty at the finish was NOT charged as a runout.
+
+        3mf_empty_at_finish: one INFO line. 3mf_depletion_suspect: a WARNING line and
+        a push, so a doubtful depletion is never silent.
+        """
+        from .consumption_engine import depletion_suspect_limit
+        inputs_by_slot = {i.slot: i for i in slot_inputs}
+        for d in decisions:
+            inp = inputs_by_slot.get(d.slot)
+            if inp is None:
+                continue
+            if d.method == "3mf_empty_at_finish":
+                self.log(
+                    f"RUNOUT_AT_FINISH_IGNORED slot={d.slot} spool_id={d.spool_id} "
+                    f"empty_age_s={inp.empty_age_s:.1f} used_g={d.consumption_g:.2f} "
+                    f"spoolman_remaining={inp.spoolman_remaining} status={status} "
+                    f"job_key={self._job_key}",
+                    level="INFO",
+                )
+            elif d.method == "3mf_depletion_suspect":
+                self.log(
+                    f"DEPLETION_SUSPECT slot={d.slot} spool_id={d.spool_id} "
+                    f"used_g={d.consumption_g:.2f} "
+                    f"spoolman_remaining={inp.spoolman_remaining} "
+                    f"limit_g={depletion_suspect_limit(d.consumption_g):.1f} "
+                    f"status={status} job_key={self._job_key} "
+                    f"— wrote the slicer figure, not the remainder",
+                    level="WARNING",
+                )
+                try:
+                    self.fiq_notify(
+                        "Check Spool Weight",
+                        (
+                            f"Slot {d.slot} (spool {d.spool_id}) read Empty at the end of "
+                            f"the print, but Spoolman had {inp.spoolman_remaining:.0f} g left "
+                            f"and the slicer used {d.consumption_g:.1f} g. Recorded "
+                            f"{d.consumption_g:.1f} g; weigh the spool and correct Spoolman "
+                            "if it really ran out."
+                        ),
+                        push=True,
+                        push_service=self.notify_service,
+                        tag=f"fiq-depletion-suspect-slot-{d.slot}",
+                    )
+                except Exception as e:
+                    self.log(
+                        f"DEPLETION_SUSPECT_NOTIFY_FAILED slot={d.slot}: {e}",
+                        level="WARNING",
+                    )
+
+    # Methods that mean "the spool did not run out": never zeroed by the ran_out boolean.
+    _NOT_RUN_OUT_METHODS = frozenset({"3mf_empty_at_finish", "3mf_depletion_suspect"})
+
     def _apply_runout_zero_overrides(self, decisions: list) -> None:
         """After _execute_writes, zero out Spoolman remaining for slots whose spool ran out.
 
@@ -749,6 +827,8 @@ class AmsPrintUsageSync(FilamentIQBase):
         """
         for decision in decisions:
             if decision.method == "no_evidence":
+                continue
+            if decision.method in self._NOT_RUN_OUT_METHODS:
                 continue
             ran_out_entity = f"input_boolean.ams_slot_{decision.slot}_ran_out"
             if self.get_state(ran_out_entity) != "on":
@@ -1826,6 +1906,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             end_snapshot=self._end_snapshot,
             threemf_matched_slots=threemf_matched_slots,
             spools_cache=spools_cache,
+            status=status,
         )
 
         if not slot_inputs:
@@ -1881,6 +1962,8 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"threemf_used_g={d.consumption_g:.1f}",
                     level="WARNING",
                 )
+
+        self._report_end_of_print_empties(all_decisions, slot_inputs, status)
 
         for d in all_decisions:
             if d.method == "no_evidence":
