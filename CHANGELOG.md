@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A spool lifted at the end of a print is no longer zeroed (IN-1045).** A non-RFID
+  tray that went Empty at most 120 s before a normal finish is charged the slicer
+  figure (`3mf_empty_at_finish`), not the whole remainder; it stays bound and is never
+  zeroed by the ran-out boolean. If how long the tray has been Empty is unknown and the
+  remainder is far above the slicer figure (> max(1.5x, +50 g)), the slicer figure is
+  written (`3mf_depletion_suspect`), `DEPLETION_SUSPECT` is logged and a "Check Spool
+  Weight" push goes out. A real runout (Empty well before the finish) and failed or
+  cancelled prints are unchanged. Seen 2026-11-11: spool 118 charged 817 g for a
+  27.36 g print.
+
 ### Changed
 
 - **Notification standard.** Phone pushes from the AppDaemon apps now go through

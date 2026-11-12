@@ -18,6 +18,14 @@ Decision tree per slot:
     threemf_used_g + not empty  → 3mf                 (use threemf_used_g, confidence varies)
     threemf_used_g + tray_empty → 3mf_depleted        (use max(threemf_used_g,
                                                         spoolman_remaining), confidence=medium)
+      normal finish + tray went Empty <= NEAR_FINISH_EMPTY_S before it
+                                → 3mf_empty_at_finish (spool lifted/read empty as the print
+                                                        ended: use threemf_used_g, not depleted)
+      normal finish + empty age unknown + remainder far above the slicer figure
+                                → 3mf_depletion_suspect (use threemf_used_g, confidence=low;
+                                                        the caller logs DEPLETION_SUSPECT + alerts)
+      a real runout (Empty well before the finish) or a failed/cancelled print
+                                  keeps 3mf_depleted
     no threemf + tray_empty     → depleted_nonrfid    (use spoolman_remaining, confidence=low)
     no threemf + not empty      → no_evidence         (nothing reliable available)
 
@@ -45,6 +53,20 @@ class SlotInput:
     threemf_used_g: float | None
     threemf_method: str | None
     spoolman_remaining: float | None
+    # Seconds the tray had been "Empty" when the finish was processed (None = unknown).
+    empty_age_s: float | None = None
+    # True only for status=finish (a print that completed normally).
+    normal_finish: bool = False
+
+
+# A tray that went Empty this close to a normal finish was lifted off (or read
+# empty) as the print ended: not a runout (IN-1045, 2026-11-11 spool 118).
+NEAR_FINISH_EMPTY_S = 120.0
+
+
+def depletion_suspect_limit(threemf_used_g: float) -> float:
+    """Above this, charging the remainder on a normal finish is not believable."""
+    return max(threemf_used_g * 1.5, threemf_used_g + 50.0)
 
 
 @dataclass
@@ -80,7 +102,9 @@ def _decide_slot(inp: SlotInput, min_g: float, max_g: float) -> SlotDecision:
         decision = _decide_nonrfid(inp)
 
     # Sanity gates
-    _METHODS_EXEMPT_FROM_MIN = frozenset({"3mf", "3mf_depleted"})
+    _METHODS_EXEMPT_FROM_MIN = frozenset({
+        "3mf", "3mf_depleted", "3mf_empty_at_finish", "3mf_depletion_suspect",
+    })
 
     if decision.method != "no_evidence":
         if decision.consumption_g > max_g:
@@ -181,6 +205,33 @@ def _decide_nonrfid(inp: SlotInput) -> SlotDecision:
         )
 
     if inp.threemf_used_g is not None and inp.tray_empty:
+        if (
+            inp.normal_finish
+            and inp.empty_age_s is not None
+            and inp.empty_age_s <= NEAR_FINISH_EMPTY_S
+        ):
+            return SlotDecision(
+                slot=inp.slot,
+                spool_id=inp.spool_id,
+                consumption_g=inp.threemf_used_g,
+                method="3mf_empty_at_finish",
+                skip_reason=None,
+                confidence=_threemf_confidence(inp.threemf_method),
+            )
+        if (
+            inp.normal_finish
+            and inp.empty_age_s is None
+            and inp.spoolman_remaining is not None
+            and inp.spoolman_remaining > depletion_suspect_limit(inp.threemf_used_g)
+        ):
+            return SlotDecision(
+                slot=inp.slot,
+                spool_id=inp.spool_id,
+                consumption_g=inp.threemf_used_g,
+                method="3mf_depletion_suspect",
+                skip_reason=None,
+                confidence="low",
+            )
         if inp.spoolman_remaining is not None:
             consumption_g = max(inp.threemf_used_g, inp.spoolman_remaining)
         else:
