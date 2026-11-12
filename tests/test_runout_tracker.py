@@ -33,9 +33,9 @@ if _APPS not in sys.path:
 from filament_iq.base import build_slot_mappings
 from filament_iq.runout_tracker import RunoutTracker
 
-_TEST_PREFIX = "p1s_01p00c5a3101668"
+_TEST_PREFIX = "p1s_your_printer_serial"
 _DEFAULT_ARGS = {
-    "printer_serial": "01p00c5a3101668",
+    "printer_serial": "your_printer_serial",
     "printer_model": "p1s",
 }
 

@@ -115,7 +115,7 @@ def _reconcile_slot4_scenario(switch_state):
         state_map[f"input_text.ams_slot_{slot}_spool_id"] = "0"
         state_map[f"input_text.ams_slot_{slot}_expected_spool_id"] = "0"
         state_map[f"input_text.ams_slot_{slot}_status"] = ""
-    args = {"printer_serial": "01p00c5a3101668", "spoolman_url": "http://192.0.2.1:7912",
+    args = {"printer_serial": "your_printer_serial", "spoolman_url": "http://192.0.2.1:7912",
             "enabled": True, "debug_logs": False,
             "nonrfid_enabled_entity": "input_boolean.filament_iq_nonrfid_enabled"}
     r = _RealWriteReconcile(sm, state_map, args=args)

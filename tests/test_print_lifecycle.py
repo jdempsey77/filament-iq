@@ -69,7 +69,7 @@ class TestPrintLifecycle:
             state_map={
                 "input_text.ams_slot_1_spool_id": "10",
                 "sensor.p1s_tray_1_fuel_gauge_remaining": "900.0",
-                "sensor.p1s_01p00c5a3101668_task_name": "test model",
+                "sensor.p1s_your_printer_serial_task_name": "test model",
             },
             args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
         )

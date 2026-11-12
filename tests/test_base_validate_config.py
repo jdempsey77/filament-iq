@@ -217,7 +217,7 @@ class TestEntityPrefix:
         """_build_slot_mappings delegates to module-level function."""
         app = _TestableBase(args={
             "printer_model": "p1s",
-            "printer_serial": "01p00c5a3101668",
+            "printer_serial": "your_printer_serial",
         })
         tray_by_slot, slot_by_tray, ams_tray, canonical = app._build_slot_mappings()
         assert 1 in tray_by_slot
@@ -227,7 +227,7 @@ class TestEntityPrefix:
         """_get_all_slots returns sorted slot list."""
         app = _TestableBase(args={
             "printer_model": "p1s",
-            "printer_serial": "01p00c5a3101668",
+            "printer_serial": "your_printer_serial",
         })
         slots = app._get_all_slots()
         assert slots == [1, 2, 3, 4, 5, 6, 7]

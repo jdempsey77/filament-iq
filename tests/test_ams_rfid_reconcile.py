@@ -37,7 +37,7 @@ if _APPS not in sys.path:
 from filament_iq.base import build_slot_mappings
 
 # Build default slot mappings for test fixtures (no hardcoded IPs/serials)
-_TEST_PREFIX = "p1s_01p00c5a3101668"
+_TEST_PREFIX = "p1s_your_printer_serial"
 _TRAY_ENTITY_BY_SLOT, _, _, _CANONICAL_LOCATION_BY_SLOT = build_slot_mappings(
     _TEST_PREFIX
 )
@@ -212,7 +212,7 @@ class TestableReconcile(AmsRfidReconcile):
     """Reconcile with injected FakeSpoolman and state map."""
 
     def __init__(self, spoolman, state_map, ad=None, args=None, *rest, **k):
-        a = dict({"printer_serial": "01p00c5a3101668", "spoolman_url": "http://192.0.2.1:7912"})
+        a = dict({"printer_serial": "your_printer_serial", "spoolman_url": "http://192.0.2.1:7912"})
         a.update(args or k.get("args", {}))
         super().__init__(ad, "test", None, a, None, None, None)
         self._spoolman = spoolman
@@ -350,7 +350,7 @@ class StartupWaiterHarness(AmsRfidReconcile):
     """Minimal harness to test _run_reconcile_startup; does not override _run_reconcile_startup."""
 
     def __init__(self, state_map, args=None):
-        a = dict({"printer_serial": "01p00c5a3101668", "spoolman_url": "http://192.0.2.1:7912"})
+        a = dict({"printer_serial": "your_printer_serial", "spoolman_url": "http://192.0.2.1:7912"})
         a.update(args or {})
         super().__init__(None, "test", None, a, None, None, None)
         self._state_map = dict(state_map)
@@ -396,7 +396,7 @@ def _tray_entity(slot):
 class TestAmsRfidReconcile(unittest.TestCase):
     def setUp(self):
         self.args = {
-            "printer_serial": "01p00c5a3101668",
+            "printer_serial": "your_printer_serial",
             "spoolman_url": "http://192.0.2.1:7912",
             "enabled": True,
             "debug_logs": False,
@@ -3612,7 +3612,7 @@ class TestStartupWaiter(unittest.TestCase):
 # ── Parameterized non-RFID tests across all 6 slots ──
 
 _DEFAULT_ARGS = {
-    "printer_serial": "01p00c5a3101668",
+    "printer_serial": "your_printer_serial",
     "spoolman_url": "http://192.0.2.1:7912",
     "enabled": True,
     "debug_logs": False,
@@ -4532,7 +4532,7 @@ class TestActiveRunResetOnFailure(unittest.TestCase):
 
     def setUp(self):
         self.args = {
-            "printer_serial": "01p00c5a3101668",
+            "printer_serial": "your_printer_serial",
             "spoolman_url": "http://192.0.2.1:7912",
             "enabled": True,
             "debug_logs": False,
@@ -4984,7 +4984,7 @@ class TestWriteLastMappingJson:
     def test_short_mapping(self):
         sm = FakeSpoolman([], [])
         r = TestableReconcile(sm, {
-            "input_text.p1s_01p00c5a3101668_last_mapping_json": "old",
+            "input_text.p1s_your_printer_serial_last_mapping_json": "old",
         })
         r._active_run = {"writes": [], "no_write_paths": [], "decisions": [],
                          "conflicts": [], "validation_transcripts": []}
@@ -4998,7 +4998,7 @@ class TestWriteLastMappingJson:
     def test_long_mapping_truncated(self):
         sm = FakeSpoolman([], [])
         r = TestableReconcile(sm, {
-            "input_text.p1s_01p00c5a3101668_last_mapping_json": "old",
+            "input_text.p1s_your_printer_serial_last_mapping_json": "old",
         })
         r._active_run = {"writes": [], "no_write_paths": [], "decisions": [],
                          "conflicts": [], "validation_transcripts": []}
@@ -5410,7 +5410,7 @@ class TestOnTrayStateChange:
     def test_triggers_schedule(self):
         fm = FakeSpoolman([], [])
         r = _EventTestReconcile(fm, {}, args={})
-        tray_entity = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+        tray_entity = "sensor.p1s_your_printer_serial_ams_1_tray_1"
         r._on_tray_state_change(tray_entity, "state", "old", "new", {})
         assert len(r._schedule_calls) == 1
         assert len(r._rfid_pending_calls) == 1
@@ -5494,22 +5494,22 @@ class TestReadTrayColorHex:
         return r
 
     def test_6char_hex(self):
-        tray = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+        tray = "sensor.p1s_your_printer_serial_ams_1_tray_1"
         r = self._app({f"{tray}::all": {"state": "PLA", "attributes": {"color": "FF0000"}}})
         assert r._read_tray_color_hex(1) == "FF0000"
 
     def test_8char_strips_alpha(self):
-        tray = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+        tray = "sensor.p1s_your_printer_serial_ams_1_tray_1"
         r = self._app({f"{tray}::all": {"state": "PLA", "attributes": {"color": "FF0000FF"}}})
         assert r._read_tray_color_hex(1) == "FF0000"
 
     def test_hash_prefix(self):
-        tray = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+        tray = "sensor.p1s_your_printer_serial_ams_1_tray_1"
         r = self._app({f"{tray}::all": {"state": "PLA", "attributes": {"color": "#161616"}}})
         assert r._read_tray_color_hex(1) == "161616"
 
     def test_empty_returns_none(self):
-        tray = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+        tray = "sensor.p1s_your_printer_serial_ams_1_tray_1"
         r = self._app({f"{tray}::all": {"state": "PLA", "attributes": {"color": ""}}})
         assert r._read_tray_color_hex(1) is None
 
@@ -5518,7 +5518,7 @@ class TestReadTrayColorHex:
         assert r._read_tray_color_hex(99) is None
 
     def test_bad_length_returns_none(self):
-        tray = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+        tray = "sensor.p1s_your_printer_serial_ams_1_tray_1"
         r = self._app({f"{tray}::all": {"state": "PLA", "attributes": {"color": "FF00"}}})
         assert r._read_tray_color_hex(1) is None
 
@@ -5944,7 +5944,7 @@ class TestSyncFilamentColorOnBind:
         assert any("SYNC_COLOR_NO_TRAY_COLOR" in m for m, _ in r._log_calls)
 
     def test_auto_patches_filament_color(self):
-        prefix = "p1s_01p00c5a3101668"
+        prefix = "p1s_your_printer_serial"
         tray_entity = f"sensor.{prefix}_ams_1_tray_1"
         sm = {
             tray_entity: {"state": "loaded", "attributes": {"color": "FF0000"}},
@@ -5980,7 +5980,7 @@ class TestSyncFilamentColorOnBind:
         assert any("SYNC_COLOR_INVALID_MODE" in m for m, _ in r._log_calls)
 
     def test_already_matching_color_returns_false(self):
-        prefix = "p1s_01p00c5a3101668"
+        prefix = "p1s_your_printer_serial"
         tray_entity = f"sensor.{prefix}_ams_1_tray_1"
         sm = {tray_entity: {"state": "loaded", "attributes": {"color": "FF0000"}}}
         spool = _spoolman_spool(10, "PLA", "FF0000", "Bambu", 800, "Shelf")
@@ -6015,7 +6015,7 @@ class TestOnSlotAssigned:
 
     def test_rfid_tray_skips_lot_sig(self):
         """RFID tray (non-zero tag_uid) → skip lot_sig enrollment, just reconcile."""
-        prefix = "p1s_01p00c5a3101668"
+        prefix = "p1s_your_printer_serial"
         tray_entity = f"sensor.{prefix}_ams_1_tray_1"
         sm = {
             tray_entity: {"state": "loaded", "attributes": {"tag_uid": "AABB1234", "tray_uuid": "CCDD5678"}},
@@ -6029,7 +6029,7 @@ class TestOnSlotAssigned:
 
     def test_nonrfid_enrolls_lot_sig(self):
         """Non-RFID tray → build lot_sig, enroll, reconcile."""
-        prefix = "p1s_01p00c5a3101668"
+        prefix = "p1s_your_printer_serial"
         tray_entity = f"sensor.{prefix}_ams_1_tray_1"
         sm = {
             tray_entity: {"state": "loaded", "attributes": {
@@ -6603,7 +6603,7 @@ class TestPrintActiveFreeze:
         state.update(extra_state)
 
         args = {
-            "printer_serial": "01p00c5a3101668",
+            "printer_serial": "your_printer_serial",
             "spoolman_url": "http://192.0.2.1:7912",
             "nonrfid_enabled_entity": "input_boolean.filament_iq_nonrfid_enabled",
         }
@@ -6780,7 +6780,7 @@ class TestReconcilerStatus:
             state[f"{te}::all"] = state[te]
         state.update(extra_state)
         args = {
-            "printer_serial": "01p00c5a3101668",
+            "printer_serial": "your_printer_serial",
             "spoolman_url": "http://192.0.2.1:7912",
             "nonrfid_enabled_entity": "input_boolean.filament_iq_nonrfid_enabled",
         }
@@ -7152,7 +7152,7 @@ def test_sync_color_skips_000000():
     """_sync_filament_color_on_bind must skip PATCH when AMS tray reports 000000."""
     spool = _spool(42, filament_id=10, color_hex="555555")
     sm = FakeSpoolman([spool], [_bambu_filament(fid=10, color_hex="555555")])
-    tray_entity = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+    tray_entity = "sensor.p1s_your_printer_serial_ams_1_tray_1"
     state_map = {
         tray_entity: _tray_state("AABB", color="000000"),
     }
@@ -7176,7 +7176,7 @@ def test_sync_color_applies_valid_color():
         if "/filament/" in path:
             return {"id": 10, "color_hex": payload.get("color_hex", "")}
     sm.patch = _patch_with_filament_return
-    tray_entity = "sensor.p1s_01p00c5a3101668_ams_1_tray_1"
+    tray_entity = "sensor.p1s_your_printer_serial_ams_1_tray_1"
     state_map = {
         tray_entity: _tray_state("AABB", color="FF0000"),
     }

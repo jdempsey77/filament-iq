@@ -53,7 +53,7 @@ def _serial_state(value):
     }
 
 
-def _build_app(persisted_serial, *, slots=None, current_serial="01p00c5a3101668",
+def _build_app(persisted_serial, *, slots=None, current_serial="your_printer_serial",
                ams_units=None, include_serial_helper=True):
     """Build a TestableReconcile with serial-delta detection wired up.
 
@@ -95,7 +95,7 @@ def test_s1_fresh_install_records_serial_no_quarantine():
     r._maybe_quarantine_for_serial_change()
     assert _logged(r, "SERIAL_DELTA_FRESH_INSTALL")
     serial_writes = _writes_for(r, SERIAL_ENTITY)
-    assert serial_writes and serial_writes[-1]["value"] == "01p00c5a3101668"
+    assert serial_writes and serial_writes[-1]["value"] == "your_printer_serial"
     # No slot was quarantined.
     assert not _writes_for(r, "input_text.ams_slot_1_status")
     assert not _logged(r, "SERIAL_QUARANTINE_APPLIED")
@@ -104,7 +104,7 @@ def test_s1_fresh_install_records_serial_no_quarantine():
 # ── 2. Same serial across restart ─────────────────────────────────────────────
 
 def test_s2_same_serial_no_writes():
-    r = _build_app("01p00c5a3101668", slots={1: {"spool_id": 5, "expected": 5}})
+    r = _build_app("your_printer_serial", slots={1: {"spool_id": 5, "expected": 5}})
     r._maybe_quarantine_for_serial_change()
     assert _logged(r, "SERIAL_DELTA_NONE")
     assert r._helper_writes == []  # nothing written at all
@@ -127,7 +127,7 @@ def test_s3_changed_serial_quarantines_preserving_ids():
         assert not _writes_for(r, f"input_text.ams_slot_{slot}_expected_spool_id")
     # Serial persisted AFTER quarantine.
     serial_writes = _writes_for(r, SERIAL_ENTITY)
-    assert serial_writes and serial_writes[-1]["value"] == "01p00c5a3101668"
+    assert serial_writes and serial_writes[-1]["value"] == "your_printer_serial"
     assert _logged(r, "SERIAL_DELTA_PERSISTED")
 
 
@@ -177,7 +177,7 @@ def test_s8_disabled_detection_never_writes_serial():
 # ── 9. Serial normalization (case + whitespace) ───────────────────────────────
 
 def test_s9_normalization_no_false_quarantine():
-    r = _build_app("  01P00C5A3101668  ", slots={1: {"spool_id": 11, "expected": 11}})
+    r = _build_app("  YOUR_PRINTER_SERIAL  ", slots={1: {"spool_id": 11, "expected": 11}})
     r._maybe_quarantine_for_serial_change()
     assert _logged(r, "SERIAL_DELTA_NONE")
     assert not _logged(r, "SERIAL_QUARANTINE_APPLIED")
@@ -236,7 +236,7 @@ def test_s5_post_quarantine_rfid_match_heals():
     spool_helper = _spool(10, rfid_tag_uid=tag, location="Shelf", material="PLA", color_hex="ff0000")
     sm = FakeSpoolman([spool_helper], [_bambu_filament()])
     state_map = _reconcile_state_map(slot, tag, 10)
-    r = Reconcile(sm, state_map, args={"printer_serial": "01p00c5a3101668",
+    r = Reconcile(sm, state_map, args={"printer_serial": "your_printer_serial",
                                                "spoolman_url": "http://192.0.2.1:7912"})
     r._run_reconcile("test")
     reason_writes = _writes_for(r, f"input_text.ams_slot_{slot}_unbound_reason")
@@ -259,7 +259,7 @@ def test_s6_post_quarantine_different_spool_normal_mismatch():
     spool_other = _spool(20, rfid_tag_uid=tray_tag, location="Shelf", material="PLA", color_hex="ff0000")
     sm = FakeSpoolman([spool_helper, spool_other], [_bambu_filament()])
     state_map = _reconcile_state_map(slot, tray_tag, 10)
-    r = Reconcile(sm, state_map, args={"printer_serial": "01p00c5a3101668",
+    r = Reconcile(sm, state_map, args={"printer_serial": "your_printer_serial",
                                                "spoolman_url": "http://192.0.2.1:7912"})
     r._run_reconcile("test")
     reason_writes = _writes_for(r, f"input_text.ams_slot_{slot}_unbound_reason")

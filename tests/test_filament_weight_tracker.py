@@ -40,7 +40,7 @@ from filament_iq.filament_weight_tracker import FilamentWeightTracker
 # ── test harness ──────────────────────────────────────────────────────
 
 _DEFAULT_TEST_ARGS = {
-    "printer_serial": "01p00c5a3101668",
+    "printer_serial": "your_printer_serial",
     "printer_model": "p1s",
     "spoolman_url": "http://192.0.2.1:7912",
     "report_path": "/dev/null",
