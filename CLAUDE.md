@@ -124,6 +124,6 @@ All bug fixes and features are committed here first.
 Never accept changes that flow FROM the HA repo INTO filament-iq.
 
 ### Before every commit
-Run: grep -ri "192\.168\.\|ff62e17b\|jd_pixel\|01p00c5a" . --include="*.py" --include="*.yaml" --include="*.md" --include="*.js" --include="*.mjs" | grep -v ".git" | grep -v "192\.168\.1\." | grep -v ".pyc"
+Run: grep -ri "192\.168\.\|ff62e17b\|jd_pixel\|01p00c5" . --include="*.py" --include="*.yaml" --include="*.md" --include="*.js" --include="*.mjs" --include="*.jsx" | grep -v ".git" | grep -v "192\.168\.1\." | grep -v ".pyc"
 
 If any output appears, fix it before committing.

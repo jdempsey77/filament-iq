@@ -73,7 +73,7 @@ function fireEvent(getHass, eventType, eventData) {
 
 // Printer serial comes from card config, fed in by main.jsx via getSerial.
 // This default is only a fallback when config omits it.
-const DEFAULT_SERIAL = '01p00c5b2201397'
+const DEFAULT_SERIAL = 'your_printer_serial'
 
 // Slot -> AMS unit identity, and the ams_index/tray_index pair HA reports on
 // sensor.p1s_<serial>_active_tray when that slot is the one loaded in the
