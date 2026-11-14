@@ -119,6 +119,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self.threemf_enabled = False
         self._spool_id_snapshot = {}
         self._start_tray_uuid = {}
+        self._gauge_stuck = None   # IN-1170
         self._start_rfid_slots = set()
         self._threemf_source_mtime = 0.0
 
