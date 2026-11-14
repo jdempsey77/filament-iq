@@ -141,3 +141,38 @@ def test_never_pairs_to_a_tray_the_print_did_not_use():
     assert unmatched == []
     assert 2 not in _by_slot(matches)
     assert _by_slot(matches)[7]["method"] == "leftover_tray_material"
+
+
+# ── IN-1160 (gate follow-up on #128): a stale 3MF can't vouch for an elimination match ──
+
+import sys as _sys
+import types as _types
+
+if "hassapi" not in _sys.modules:
+    _h = _types.ModuleType("hassapi")
+
+    class _FakeHass:
+        def __init__(self, *a, **k):
+            self.args = {}
+
+    _h.Hass = _FakeHass
+    _sys.modules["hassapi"] = _h
+
+from filament_iq.ams_print_usage_sync import stale_elimination_slots  # noqa: E402
+
+START = 1_794_601_786.0
+MATCHED = {2: (36.62, "leftover_tray_material"), 4: (2.30, "exact_color_material"),
+           5: (1.0, "single_filament_force")}
+
+
+def test_stale_3mf_drops_leftover_and_force_matches_but_keeps_colour_matches():
+    assert sorted(stale_elimination_slots(MATCHED, START - 31, START)) == [2, 5]
+
+
+def test_fresh_3mf_keeps_everything():
+    assert stale_elimination_slots(MATCHED, START - 30, START) == []
+    assert stale_elimination_slots(MATCHED, START + 600, START) == []
+
+
+def test_only_colour_matches_from_a_stale_3mf_are_kept():
+    assert stale_elimination_slots({4: (2.3, "exact_color_material")}, 0.0, START) == []
