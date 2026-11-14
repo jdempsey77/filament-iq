@@ -172,3 +172,23 @@ def test_the_full_mark_clears_when_the_gauge_moves(tmp_path):
     assert app._gauge_marks() == {}
     assert app._patch_calls[0]["data"] == {"remaining_weight": 950.0}   # RFID wins again
     assert _has_log(app, "RFID_GAUGE_STUCK_CLEARED slot=4 spool_id=10")
+
+
+def test_dry_run_keeps_the_mark_in_memory_but_writes_no_file(tmp_path):
+    # IN-1175 (gate on hac#76): dry run writes nothing, not even Filament IQ's own gauge_stuck.json
+    app = _stuck_app(tmp_path)
+    app.dry_run = True
+    app._mark_gauge_stuck(4, 10)
+    assert not (tmp_path / "gauge_stuck.json").exists()
+    assert app._gauge_marks() == {"10": 100.0}
+    app._reconcile_rfid_weights()
+    assert app._patch_calls == [] and _has_log(app, "RFID_GAUGE_STUCK_DRYRUN")
+
+
+def test_dry_run_clearing_a_mark_leaves_the_file_alone(tmp_path):
+    app = _stuck_app(tmp_path)
+    app._mark_gauge_stuck(4, 10)                     # a real run saved it
+    app.dry_run = True
+    app._state_map[f"{app._tray_entity_by_slot[4]}::remain"] = 92
+    app._reconcile_rfid_weights()
+    assert json.loads((tmp_path / "gauge_stuck.json").read_text()) == {"10": 100.0}

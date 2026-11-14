@@ -3331,6 +3331,11 @@ class AmsPrintUsageSync(FilamentIQBase):
         path = getattr(self, "_gauge_stuck_path", None)
         if path is None:
             return
+        if self.dry_run:
+            # IN-1175 (gate on hac#76): dry run writes nothing, local state included. The mark still holds in
+            # memory for this run, so its decisions match what a real run would do.
+            self.log("RFID_GAUGE_STUCK_DRYRUN marks not saved (dry_run)", level="INFO")
+            return
         try:
             tmp = pathlib.Path(str(path) + ".tmp")
             tmp.write_text(json.dumps(self._gauge_marks(), sort_keys=True))
