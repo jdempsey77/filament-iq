@@ -35,7 +35,7 @@ if _APPS not in sys.path:
 from filament_iq.ams_print_usage_sync import AmsPrintUsageSync
 from filament_iq.ams_rfid_reconcile import AmsRfidReconcile
 
-from test_ams_print_usage_sync import _TestableUsageSync
+from test_ams_print_usage_sync import _TestableUsageSync, _rfid_tag_uid_for_slots
 from test_ams_rfid_reconcile import (
     FakeSpoolman,
     TestableReconcile,
@@ -229,6 +229,8 @@ class TestUsageSyncGate:
             args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True},
         )
         app._job_key = "swap_gate_test"
+        # IN-1161: the negative-delta swap needs a real (RFID) gauge, so slot 1 carries a tag
+        app._state_map.update(_rfid_tag_uid_for_slots(app, [1]))
         app._start_snapshot = {1: 100.0}   # end 900 => raw_delta -800 => swap
         app._spool_id_snapshot = {1: 10}
         app._trays_used = {1}
