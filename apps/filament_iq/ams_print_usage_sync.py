@@ -195,6 +195,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._seen_jobs_path = os.path.join(_data_dir, "seen_job_keys.json")
         self._active_print_file = pathlib.Path(_data_dir) / "active_print.json"
         self._print_history_dir = pathlib.Path(_data_dir) / "print_history"
+        self._gauge_stuck_path = pathlib.Path(_data_dir) / "gauge_stuck.json"   # IN-1170
         self._seen_job_keys = self._load_seen_job_keys()
         self._ensure_data_dir()
 
@@ -236,6 +237,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._print_start_time = None
         self._start_snapshot = {}  # {slot_int: grams_float}
         self._start_tray_uuid = {}  # {slot_int: str} tray_uuid at print start
+        self._gauge_stuck = None  # IN-1170: {spool_id str: gauge remain% when marked}; loaded on first use
         self._start_rfid_slots = set()  # slots with an RFID tag at print start (IN-1161 swap rule)
         self._fuel_gauge_pattern = str(
             self.args.get(
@@ -1993,6 +1995,12 @@ class AmsPrintUsageSync(FilamentIQBase):
             min_consumption_g=self.min_consumption_g,
             max_consumption_g=self.max_consumption_g,
         )
+        # IN-1170: an RFID slot whose gauge moved < min while the slicer says it used >= min has a stuck gauge
+        # (spool 98, 11-13: 1000 g at start and end of a 65.5 g print). The deferred RFID-wins reconcile must not
+        # reset Spoolman to that gauge, or it undoes this print's charge and every hand correction.
+        for d in all_decisions:
+            if d.skip_reason == "RFID_DELTA_ZERO_SLICER_FALLBACK":
+                self._mark_gauge_stuck(d.slot, d.spool_id)
 
         # Change 4 safety net: a 3mf_depleted decision in a multi-slot finish
         # context means a depleted slot is about to claim the full slicer
@@ -3287,6 +3295,66 @@ class AmsPrintUsageSync(FilamentIQBase):
                     level="WARNING",
                 )
 
+    # ── IN-1170: stuck RFID gauges ──────────────────────────────────────
+    # A spool is marked when a finish fell back to the slicer because its gauge moved < min (the gauge read the same
+    # before and after a print that used it). The mark is per spool and persisted, so it holds across later finishes
+    # that don't use that slot and across AppDaemon restarts. It is dropped as soon as the gauge reading changes
+    # (the AMS re-read the tag, or the spool moved), so RFID wins again from then on. A swapped-in spool has its own
+    # id and no mark.
+    def _gauge_remain(self, slot):
+        entity = self._tray_entity_by_slot.get(slot)
+        if not entity:
+            return None
+        try:
+            return float(self.get_state(entity, attribute="remain"))
+        except (TypeError, ValueError):
+            return None
+
+    def _gauge_marks(self) -> dict:
+        if self._gauge_stuck is None:
+            self._gauge_stuck = {}
+            path = getattr(self, "_gauge_stuck_path", None)
+            if path is not None:
+                try:
+                    data = json.loads(pathlib.Path(path).read_text())
+                    if isinstance(data, dict):
+                        self._gauge_stuck = {str(k): float(v) for k, v in data.items()}
+                except (OSError, ValueError, TypeError):
+                    pass
+        return self._gauge_stuck
+
+    def _save_gauge_marks(self) -> None:
+        path = getattr(self, "_gauge_stuck_path", None)
+        if path is None:
+            return
+        try:
+            tmp = pathlib.Path(str(path) + ".tmp")
+            tmp.write_text(json.dumps(self._gauge_marks(), sort_keys=True))
+            os.replace(tmp, path)
+        except OSError as exc:
+            self.log(f"RFID_GAUGE_STUCK_SAVE_FAILED {exc}", level="WARNING")
+
+    def _mark_gauge_stuck(self, slot, spool_id) -> None:
+        remain = self._gauge_remain(slot)
+        if remain is None or not spool_id or spool_id <= 0:
+            return
+        self._gauge_marks()[str(spool_id)] = remain
+        self._save_gauge_marks()
+        self.log(f"RFID_GAUGE_STUCK_MARKED slot={slot} spool_id={spool_id} remain={remain}", level="INFO")
+
+    def _gauge_still_stuck(self, slot, spool_id) -> bool:
+        marks = self._gauge_marks()
+        key = str(spool_id)
+        if key not in marks:
+            return False
+        remain = self._gauge_remain(slot)
+        if remain is not None and remain == marks[key]:
+            return True
+        del marks[key]                       # the gauge moved (or can't be read): RFID wins again
+        self._save_gauge_marks()
+        self.log(f"RFID_GAUGE_STUCK_CLEARED slot={slot} spool_id={spool_id} remain={remain}", level="INFO")
+        return False
+
     def _reconcile_rfid_weight_slot(self, slot):
         """Reconcile a single slot's RFID weight against Spoolman."""
         ran_out_entity = f"input_boolean.ams_slot_{slot}_ran_out"
@@ -3297,6 +3365,13 @@ class AmsPrintUsageSync(FilamentIQBase):
             return
         spool_id = self._read_spool_id(slot)
         if spool_id <= 0:
+            return
+        if self._gauge_still_stuck(slot, spool_id):
+            self.log(
+                f"RFID_GAUGE_STUCK slot={slot} spool_id={spool_id} — this spool's gauge hasn't moved since a print "
+                f"used it; keeping Spoolman's value (no RFID-wins reset until the gauge reading changes)",
+                level="WARNING",
+            )
             return
         entity = self._tray_entity_by_slot[slot]
         try:
