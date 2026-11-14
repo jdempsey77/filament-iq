@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- **Dry run writes no gauge marks (IN-1175).** With `dry_run` on, a stuck-gauge mark
+  (IN-1170) still holds in memory for that run but is no longer saved to
+  `gauge_stuck.json`, and clearing one leaves the file alone.
+
 - **Runout fix, round 2 (IN-1048).** A remainder far above the slicer figure at a
   normal finish is now `3mf_depletion_suspect` whether or not the empty age is known
   (before, a known age over 120 s still charged it silently). A runout the runout split
