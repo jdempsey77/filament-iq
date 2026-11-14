@@ -236,6 +236,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._print_start_time = None
         self._start_snapshot = {}  # {slot_int: grams_float}
         self._start_tray_uuid = {}  # {slot_int: str} tray_uuid at print start
+        self._gauge_stuck_slots = set()  # IN-1170: RFID slots whose gauge didn't move on the last finish
         self._start_rfid_slots = set()  # slots with an RFID tag at print start (IN-1161 swap rule)
         self._fuel_gauge_pattern = str(
             self.args.get(
@@ -1993,6 +1994,12 @@ class AmsPrintUsageSync(FilamentIQBase):
             min_consumption_g=self.min_consumption_g,
             max_consumption_g=self.max_consumption_g,
         )
+        # IN-1170: an RFID slot whose gauge moved < min while the slicer says it used >= min has a stuck gauge
+        # (spool 98, 11-13: 1000 g at start and end of a 65.5 g print). The deferred RFID-wins reconcile must not
+        # reset Spoolman to that gauge, or it undoes this print's charge and every hand correction.
+        self._gauge_stuck_slots = {
+            d.slot for d in all_decisions if d.skip_reason == "RFID_DELTA_ZERO_SLICER_FALLBACK"
+        }
 
         # Change 4 safety net: a 3mf_depleted decision in a multi-slot finish
         # context means a depleted slot is about to claim the full slicer
@@ -3278,14 +3285,17 @@ class AmsPrintUsageSync(FilamentIQBase):
         """After print finish, correct Spoolman remaining_weight using RFID ground truth."""
         if not self._weight_reconcile_enabled:
             return
-        for slot in sorted(self._tray_entity_by_slot.keys()):
-            try:
-                self._reconcile_rfid_weight_slot(slot)
-            except Exception as exc:
-                self.log(
-                    f"RFID_WEIGHT_RECONCILE_SLOT_ERROR slot={slot}: {exc}",
-                    level="WARNING",
-                )
+        try:
+            for slot in sorted(self._tray_entity_by_slot.keys()):
+                try:
+                    self._reconcile_rfid_weight_slot(slot)
+                except Exception as exc:
+                    self.log(
+                        f"RFID_WEIGHT_RECONCILE_SLOT_ERROR slot={slot}: {exc}",
+                        level="WARNING",
+                    )
+        finally:
+            self._gauge_stuck_slots = set()   # IN-1170: one finish's verdict covers that finish's reconcile only
 
     def _reconcile_rfid_weight_slot(self, slot):
         """Reconcile a single slot's RFID weight against Spoolman."""
@@ -3297,6 +3307,13 @@ class AmsPrintUsageSync(FilamentIQBase):
             return
         spool_id = self._read_spool_id(slot)
         if spool_id <= 0:
+            return
+        if slot in getattr(self, "_gauge_stuck_slots", set()):
+            self.log(
+                f"RFID_GAUGE_STUCK slot={slot} spool_id={spool_id} — the gauge didn't move on a print that used "
+                f"this slot; keeping Spoolman's value (no RFID-wins reset this time)",
+                level="WARNING",
+            )
             return
         entity = self._tray_entity_by_slot[slot]
         try:
