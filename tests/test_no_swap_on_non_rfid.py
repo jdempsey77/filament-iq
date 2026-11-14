@@ -49,3 +49,19 @@ def test_non_rfid_small_rise_logs_nothing():
     app._start_snapshot = {2: 400.0}       # +24 g: under the 50 g threshold
     app._do_finish("finish")
     assert not _logs(app, "SPOOL_SWAP_DETECTED") and not _logs(app, "SPOOL_SWAP_IGNORED")
+
+
+def test_tagged_at_start_untagged_at_finish_is_still_a_swap():
+    # IN-1167 (gate follow-up on #130): an RFID spool swapped mid-print for an untagged one.
+    app = _app(rfid=False)              # no tag at finish
+    app._start_rfid_slots = {2}         # but slot 2 had one when the print started
+    app._do_finish("finish")
+    assert _logs(app, "SPOOL_SWAP_DETECTED")
+    assert not _logs(app, "SPOOL_SWAP_IGNORED")
+
+
+def test_start_snapshot_records_rfid_slots():
+    app = _app(rfid=True)
+    app._start_rfid_slots = set()
+    app._build_start_snapshot()
+    assert 2 in app._start_rfid_slots

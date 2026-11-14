@@ -236,6 +236,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._print_start_time = None
         self._start_snapshot = {}  # {slot_int: grams_float}
         self._start_tray_uuid = {}  # {slot_int: str} tray_uuid at print start
+        self._start_rfid_slots = set()  # slots with an RFID tag at print start (IN-1161 swap rule)
         self._fuel_gauge_pattern = str(
             self.args.get(
                 "fuel_gauge_pattern",
@@ -1368,6 +1369,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         """Read fuel gauge for all slots, return {slot_int: grams} for slots with valid readings."""
         snapshot = {}
         self._start_tray_uuid = {}
+        self._start_rfid_slots = set()
         for slot in sorted(self._tray_entity_by_slot.keys()):
             grams = self._read_fuel_gauge(slot)
             if grams < 0:
@@ -1388,6 +1390,8 @@ class AmsPrintUsageSync(FilamentIQBase):
                     )
                     continue
             snapshot[slot] = grams
+            if self._is_rfid_slot(slot):
+                self._start_rfid_slots.add(slot)
             entity_id = self._tray_entity_by_slot.get(slot)
             if entity_id:
                 tray_uuid = self.get_state(entity_id, attribute="tray_uuid") or ""
@@ -1509,6 +1513,8 @@ class AmsPrintUsageSync(FilamentIQBase):
         if grams < 0:
             return
         self._start_snapshot[slot] = max(0.0, round(grams, 1))
+        if self._is_rfid_slot(slot):
+            self._start_rfid_slots.add(slot)
         entity_id = self._tray_entity_by_slot.get(slot)
         if entity_id:
             tray_uuid = self.get_state(entity_id, attribute="tray_uuid") or ""
@@ -1525,6 +1531,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._print_start_time = None
         self._start_snapshot = {}
         self._start_tray_uuid = {}
+        self._start_rfid_slots = set()
         self._job_key = ""
         self._job_task_name = ""
         self._threemf_filename = None
@@ -1915,7 +1922,10 @@ class AmsPrintUsageSync(FilamentIQBase):
             # tray has one. A non-RFID slot's "gauge" is HA's Spoolman sensor, which lags a direct Spoolman
             # edit: on 11-13 it read 297 at start (pre-correction) and 424 at end, and this branch charged
             # spool 119 the whole 297 g for a 2.13 g print.
-            delta_swapped = raw_delta < -50.0 and self._is_rfid_slot(slot)
+            # RFID at start OR now: a tagged spool swapped for an untagged one mid-print still counts
+            # (gate follow-up on #130); start-time tags aren't persisted, so a restart falls back to now.
+            had_gauge = slot in self._start_rfid_slots or self._is_rfid_slot(slot)
+            delta_swapped = raw_delta < -50.0 and had_gauge
             if raw_delta < -50.0 and not delta_swapped and not uuid_swapped:
                 self.log(
                     f"SPOOL_SWAP_IGNORED slot={slot} reason=non_rfid_reading_rose "
