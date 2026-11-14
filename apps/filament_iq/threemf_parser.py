@@ -576,6 +576,8 @@ def match_filaments_to_slots(filaments, slot_data, trays_used=None):
     2. Close color (distance < 30) + material match
     2.5. Exact lot_nr_color + material match (fallback when tray/Spoolman color differs)
     3. Material-only match (if only one candidate)
+    4. Leftover pairing (see _pair_leftovers): the unmatched filaments and the unmatched trays
+       the print used, paired only when it is unambiguous ("leftover_tray_material").
     Each slot can only be matched once.
     """
     matches = []
@@ -685,4 +687,59 @@ def match_filaments_to_slots(filaments, slot_data, trays_used=None):
         else:
             unmatched.append(fil)
 
+    if unmatched and trays_used:
+        paired = _pair_leftovers(unmatched, available_slots, trays_used, used_slots)
+        if paired:
+            matches.extend(paired)
+            unmatched = []
+
     return matches, unmatched
+
+
+# Tier 4 margin: in a multi-leftover pairing, each filament's nearest leftover tray must be
+# at least this much nearer (RGB distance) than its second choice. Twice the close-colour limit.
+LEFTOVER_CLEAR_MARGIN = 60.0
+
+
+def _pair_leftovers(unmatched, available_slots, trays_used, used_slots):
+    """Tier 4 (IN-1148 / IN-1155): pair the filaments no colour tier caught with the trays the
+    print used that nothing matched. All or nothing; returns [] to leave every one unmatched.
+
+    Only when the leftover filaments and the leftover used trays are equal in number, every
+    leftover tray has a bound spool, each filament has a same-material leftover tray, each
+    filament's nearest same-material tray is a different tray, and (where a filament has more
+    than one same-material candidate) that tray is LEFTOVER_CLEAR_MARGIN nearer than the next.
+    Never across materials, never to a tray outside trays_used.
+    """
+    leftover_trays = [s for s in sorted(trays_used) if s not in used_slots]
+    if len(leftover_trays) != len(unmatched):
+        return []
+    if any(s not in available_slots for s in leftover_trays):
+        return []
+
+    picks = []
+    for fil in unmatched:
+        ranked = sorted(
+            (color_distance(fil["color_hex"], available_slots[s]["color_hex"]), s)
+            for s in leftover_trays
+            if _materials_match(available_slots[s]["material"], fil["material"])
+        )
+        if not ranked:
+            return []
+        if len(ranked) > 1 and ranked[1][0] - ranked[0][0] < LEFTOVER_CLEAR_MARGIN:
+            return []
+        picks.append((fil, ranked[0][1]))
+
+    if len({slot for _, slot in picks}) != len(picks):
+        return []
+
+    return [
+        {
+            "slot": slot,
+            "spool_id": available_slots[slot]["spool_id"],
+            "used_g": fil["used_g"],
+            "filament_index": fil["index"],
+            "method": "leftover_tray_material",
+        }
+        for fil, slot in picks
+    ]

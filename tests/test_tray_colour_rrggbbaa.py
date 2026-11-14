@@ -86,12 +86,14 @@ def test_two_colour_print_matches_both_slots(tmp_path):
 
 def test_the_old_reading_left_black_unmatched(tmp_path):
     # What the 14:34 print logged (3MF_UNMATCHED count=1 total_g=0.32): with the tray read as blue,
-    # black PLA can't match slot 1.
+    # black PLA can't match slot 1 by colour. Since IN-1155 the leftover tier pairs it anyway (one
+    # leftover filament, one leftover used tray, same material), so the grams still land on slot 1.
     filaments, slot_data = _two_colour_print(tmp_path, black_g=0.32)
     slot_data[1]["color_hex"] = slot_data[3]["color_hex"] = "0000ff"
     matches, unmatched = match_filaments_to_slots(filaments, slot_data, trays_used={1, 4})
-    assert [m["slot"] for m in matches] == [4]
-    assert [round(f["used_g"], 2) for f in unmatched] == [0.32]
+    assert {m["slot"]: m["method"] for m in matches} == {4: "exact_color_material",
+                                                        1: "leftover_tray_material"}
+    assert unmatched == []
 
 
 def _rfid_black(threemf_g):

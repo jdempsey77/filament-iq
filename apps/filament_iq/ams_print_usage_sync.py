@@ -58,6 +58,21 @@ SEEN_JOBS_PATH = os.path.join(_DEFAULT_DATA_DIR, "seen_job_keys.json")
 
 _APP_VERSION = "1.10.2"
 
+# 3MF match methods that pair by elimination, not by colour: only trusted from a 3MF fetched for this
+# print (BUG-04 stale guard; IN-1160 added leftover_tray_material).
+_ELIMINATION_METHODS = frozenset({"single_filament_force", "leftover_tray_material"})
+
+
+def stale_elimination_slots(matched_slots, threemf_mtime, print_start_time):
+    """Slots whose 3MF match rests on elimination and whose 3MF predates the print by over 30 s.
+
+    matched_slots: {slot: (used_g, method)}. A file that old may be another print's, and only a
+    colour match can vouch for it.
+    """
+    if (threemf_mtime or 0) >= (print_start_time or 0) - 30:
+        return []
+    return [s for s, (_g, method) in matched_slots.items() if method in _ELIMINATION_METHODS]
+
 MAX_SEEN_JOBS = 50
 ACTIVE_PRINT_FILE = pathlib.Path(_DEFAULT_DATA_DIR) / "active_print.json"
 PRINT_HISTORY_DIR = pathlib.Path(_DEFAULT_DATA_DIR) / "print_history"
@@ -1796,24 +1811,23 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"total_g={unmatched_total:.2f}",
                     level="WARNING",
                 )
-            # BUG-04: discard single_filament_force matches from stale 3MF
-            stale_threshold = (self._print_start_time or 0) - 30
-            if self._threemf_source_mtime < stale_threshold:
-                stale_slots = [
-                    slot for slot, (used_g, method) in threemf_matched_slots.items()
-                    if method == "single_filament_force"
-                ]
-                if stale_slots:
-                    self.log(
-                        f"3MF_STALE_FORCE: single_filament_force matched but 3MF mtime "
-                        f"{self._threemf_source_mtime:.0f} predates print_start "
-                        f"{self._print_start_time:.0f} by "
-                        f"{self._print_start_time - self._threemf_source_mtime:.0f}s "
-                        f"— discarding slots {stale_slots}",
-                        level="WARNING",
-                    )
-                    for slot in stale_slots:
-                        del threemf_matched_slots[slot]
+            # BUG-04: discard matches from a stale 3MF that rest on elimination, not colour:
+            # single_filament_force and (IN-1160) leftover_tray_material.
+            stale_slots = stale_elimination_slots(
+                threemf_matched_slots, self._threemf_source_mtime, self._print_start_time
+            )
+            if stale_slots:
+                self.log(
+                    f"3MF_STALE_FORCE: {sorted({threemf_matched_slots[s][1] for s in stale_slots})} "
+                    f"matched but 3MF mtime "
+                    f"{self._threemf_source_mtime:.0f} predates print_start "
+                    f"{self._print_start_time:.0f} by "
+                    f"{self._print_start_time - self._threemf_source_mtime:.0f}s "
+                    f"— discarding slots {stale_slots}",
+                    level="WARNING",
+                )
+                for slot in stale_slots:
+                    del threemf_matched_slots[slot]
             # For rehydrated prints, active_slots narrowing ran before matching
             # and may have excluded slots active pre-restart. Re-admit any slot
             # the 3MF matcher identified as having real consumption.
