@@ -238,3 +238,28 @@ def test_set_helper_reports_whether_the_value_is_set():
     r._state_map["input_text.ams_slot_2_status"] = "x"
     assert r._set_helper("input_text.ams_slot_2_status", "x") is True             # already equal
     assert r._set_helper("input_text.no_such_helper", "1") is False               # missing in HA
+
+
+@pytest.mark.parametrize("fail,tried", [
+    ("lot_nr", ["rfid_lot_nr"]),
+    ("location", ["rfid_lot_nr", "rfid_previous_occupant", "rfid_location"]),
+])
+def test_an_rfid_enroll_failing_after_a_write_is_an_error_not_refused(fail, tried):
+    # gate on 551f56d: a RuntimeError from _manual_enroll after its lot_nr write was answered "refused" (= nothing
+    # written). Now: refused only if it failed before any write was tried; else error, listing what was tried.
+    r = world(rfid=True)
+    real = r._patch_spool_fields
+    def patch(spool_id, fields):
+        if fail in fields:
+            raise RuntimeError("HTTP 500 from Spoolman")
+        return real(spool_id, fields)
+    r._patch_spool_fields = patch
+    state, a = bind(r)
+    assert state == "error" and "part way" in a["why"] and "HTTP 500" in a["why"], a
+    assert a["done"] == tried
+
+
+def test_the_manual_enroll_event_path_is_unchanged():
+    r = world(rfid=True)
+    r._manual_enroll(2, 42)                    # no progress list: the existing caller's path still works
+    assert any("lot_nr" in p["payload"] for p in r._spoolman.patches)

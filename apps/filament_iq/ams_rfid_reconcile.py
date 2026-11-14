@@ -1113,13 +1113,17 @@ class AmsRfidReconcile(FilamentIQBase):
         if rfid:
             # First: _manual_enroll checks every conflict (tag on another spool, lot_nr conflict, zero tray_uuid)
             # before it writes anything, so its refusal leaves the slot untouched.
+            # A failure before any write is a refusal; one after a write was tried is an error that lists the steps
+            # tried (gate on 551f56d: an HTTP failure after the lot_nr write used to be answered "refused").
+            tried = []
             try:
-                self._manual_enroll(slot, spool_id)
-            except RuntimeError as exc:
-                return self._bind_answer("bind", request_id, "refused", slot, spool_id, 0, f"RFID enroll: {exc}")
+                self._manual_enroll(slot, spool_id, progress=tried)
             except Exception as exc:
+                if not tried and isinstance(exc, RuntimeError):
+                    return self._bind_answer("bind", request_id, "refused", slot, spool_id, 0, f"RFID enroll: {exc}")
                 return self._bind_answer("bind", request_id, "error", slot, spool_id, 0,
-                                         f"RFID enroll stopped ({type(exc).__name__}: {exc})")
+                                         f"RFID enroll stopped part way ({type(exc).__name__}: {exc}); the steps "
+                                         "tried are listed, the last may not have been written", tried)
             done.append("rfid_enroll")
         try:
             self._bind_set_helper(f"input_text.ams_slot_{slot}_spool_id", str(spool_id))
@@ -3198,8 +3202,11 @@ class AmsRfidReconcile(FilamentIQBase):
                 level="WARNING",
             )
 
-    def _manual_enroll(self, slot, spool_id):
-        """v4: manual enrollment writes tray_uuid to lot_nr + moves location."""
+    def _manual_enroll(self, slot, spool_id, progress=None):
+        """v4: manual enrollment writes tray_uuid to lot_nr + moves location. Every conflict raises before the first
+        write. `progress` (IN-1052 S7a): a list that gets each write step's name just BEFORE it's tried, so a caller
+        can tell "refused, nothing written" (empty) from "stopped part way" (not empty)."""
+        step = progress.append if progress is not None else (lambda _name: None)
         tray = self.get_state(self._tray_entity_by_slot[slot], attribute="all") or {}
         attrs = tray.get("attributes", {}) if isinstance(tray, dict) else {}
         raw_tag = attrs.get("tag_uid")
@@ -3229,9 +3236,12 @@ class AmsRfidReconcile(FilamentIQBase):
             raise RuntimeError(f"lot_nr conflict on spool_id={spool_id} existing={existing_lot}")
 
         spool_index = {self._safe_int(s.get("id"), 0): s for s in spools}
+        step("rfid_lot_nr")
         self._enroll_lot_nr(spool_id, enroll_tray_uuid, spool_index, reason="manual_enroll")
         self._pending_lot_nr_writes[spool_id] = enroll_tray_uuid
+        step("rfid_previous_occupant")
         self._clear_previous_occupant_guarded(slot, spool_id, spool_index)
+        step("rfid_location")
         self._patch_spool_fields(spool_id, {"location": self._canonical_location_by_slot[slot]})
         self.log(
             f"MANUAL_ENROLL_LOT_NR_WRITTEN slot={slot} spool_id={spool_id} tray_uuid={enroll_tray_uuid}",
