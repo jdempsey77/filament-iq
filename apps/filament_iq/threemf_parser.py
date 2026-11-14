@@ -370,7 +370,10 @@ def find_best_3mf(file_list, task_name):
     Match priority:
     1. Exact normalized match
     2. Contains match (either direction)
-    3. Newest (last in list, assuming alphabetical or MLSD order)
+    With a task name and no match: None (IN-1159). Never guess another file: on 11-13 the
+    "newest" guess took an unrelated 165 g 3MF out of 258 for a 72 g print. None lets the
+    caller fall back to the finish-time cache lookup, which finds the right file.
+    Without a task name: the last file (unchanged legacy behaviour).
     """
     if not file_list:
         return None
@@ -388,7 +391,25 @@ def find_best_3mf(file_list, task_name):
         if norm_task in norm_f or norm_f in norm_task:
             return f
 
-    return file_list[-1]
+    return None
+
+
+def slicer_weight_mismatch(total_g, print_weight_g):
+    """Why a parsed 3MF's total can't be this print's, or "" if it can (IN-1159).
+
+    print_weight_g is the printer's own figure for the running job; 0 or less = unknown,
+    which never rejects. Allows 30% or 15 g, whichever is larger, for rounding and purge.
+    """
+    try:
+        total, expected = float(total_g), float(print_weight_g)
+    except (TypeError, ValueError):
+        return ""
+    if expected <= 0:
+        return ""
+    allowed = max(15.0, 0.30 * expected)
+    if abs(total - expected) > allowed:
+        return f"3MF total {total:.1f} g vs printer {expected:.1f} g (allowed +/-{allowed:.1f} g)"
+    return ""
 
 
 def _parse_slice_info_xml(xml_content: bytes) -> list:

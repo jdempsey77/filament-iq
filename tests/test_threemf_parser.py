@@ -257,9 +257,10 @@ class TestFindBest3mf:
         files = ["Short.3mf", "Other.3mf"]
         assert find_best_3mf(files, "Short Name With More Words") == "Short.3mf"
 
-    def test_fallback_newest(self):
+    def test_no_match_returns_none_not_newest(self):
+        # IN-1159: was "c.3mf" (newest); a guess put an unrelated print's slicer data on this one.
         files = ["a.3mf", "b.3mf", "c.3mf"]
-        assert find_best_3mf(files, "nonexistent") == "c.3mf"
+        assert find_best_3mf(files, "nonexistent") is None
 
     def test_no_task_name_returns_newest(self):
         files = ["a.3mf", "b.3mf"]
@@ -998,9 +999,9 @@ class TestFindBest3mfEdges:
         result = find_best_3mf(["benchy_v2_plate1.3mf", "other.3mf"], "benchy_v2")
         assert result == "benchy_v2_plate1.3mf"
 
-    def test_no_match_returns_last(self):
+    def test_no_match_returns_none(self):
         result = find_best_3mf(["foo.3mf", "bar.3mf"], "completely_different")
-        assert result == "bar.3mf"
+        assert result is None
 
 
 class TestFtpsListDir:

@@ -47,6 +47,7 @@ try:
         parse_3mf_metadata,
         parse_lot_nr_color,
         parse_slice_info_file,
+        slicer_weight_mismatch,
     )
     THREEMF_AVAILABLE = True
 except ImportError:
@@ -2762,6 +2763,23 @@ class AmsPrintUsageSync(FilamentIQBase):
             best_file = result["filename"]
             found_dir = result["found_dir"]
             mw_meta = result.get("mw_meta", {})
+            # IN-1159: a file whose total is far from the printer's own weight for this job is
+            # not this print's. Drop it, so the finish-time cache lookup can find the right one.
+            try:
+                print_weight_g = float(self.get_state(self._print_weight_entity) or 0)
+            except (TypeError, ValueError):
+                print_weight_g = 0.0
+            mismatch = slicer_weight_mismatch(
+                sum(f["used_g"] for f in filaments), print_weight_g
+            )
+            if mismatch:
+                self.log(
+                    f"3MF_WEIGHT_MISMATCH file={best_file} task={task_name} {mismatch} "
+                    f"— not this print's file, discarding",
+                    level="WARNING",
+                )
+                self._persist_active_print(threemf_unavailable=True)
+                return
             self._threemf_data = filaments
             self._threemf_source_mtime = result.get("threemf_mtime", 0.0)
             self._threemf_filename = best_file
@@ -2805,7 +2823,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             file_list = result.get("file_list", [])
             self.log(
                 f"3MF_FETCH: No match for task={task_name} "
-                f"in {file_list}",
+                f"in {len(file_list)} files (first: {file_list[:5]})",
                 level="WARNING",
             )
             self._persist_active_print(threemf_unavailable=True)
