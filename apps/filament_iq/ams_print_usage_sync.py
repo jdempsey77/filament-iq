@@ -137,6 +137,7 @@ def _label_skip_reason(skip_reason):
 TRAY_WEIGHT_MIN_G = 50.0    # Bambu AMS Lite spools are 250g; 50g gives safe headroom
 TRAY_WEIGHT_MAX_G = 2000.0  # Largest Bambu spool is 1000g; 2000g catches factory/clone errors
 RECONCILE_MIN_DELTA_G = 5.0 # remain% is integer 0-100; on 1000g spool, resolution = 10g
+FULL_GAUGE_USED_MIN_G = 2.0  # IN-1170 B: a gauge at 100% while Spoolman shows more used than this is stuck
 
 # tag_uid values that indicate non-RFID (no chip or empty)
 _INVALID_TAG_UIDS = frozenset({"", "0000000000000000", "unknown", "unavailable"})
@@ -3300,7 +3301,10 @@ class AmsPrintUsageSync(FilamentIQBase):
     # before and after a print that used it). The mark is per spool and persisted, so it holds across later finishes
     # that don't use that slot and across AppDaemon restarts. It is dropped as soon as the gauge reading changes
     # (the AMS re-read the tag, or the spool moved), so RFID wins again from then on. A swapped-in spool has its own
-    # id and no mark.
+    # id and no mark. The reconcile also marks a spool whose gauge reads exactly 100% while Spoolman shows more than
+    # FULL_GAUGE_USED_MIN_G used (IN-1170 B): that catches a stuck gauge with no fallback finish on record, e.g.
+    # after a hand correction. It can't catch a spool RFID-wins already reset to full (Spoolman then shows 0 used):
+    # correct that spool once and the next reconcile marks it.
     def _gauge_remain(self, slot):
         entity = self._tray_entity_by_slot.get(slot)
         if not entity:
@@ -3354,6 +3358,18 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._save_gauge_marks()
         self.log(f"RFID_GAUGE_STUCK_CLEARED slot={slot} spool_id={spool_id} remain={remain}", level="INFO")
         return False
+
+    @staticmethod
+    def _spoolman_used_g(spool_data):
+        """Spoolman's used_weight, else initial_weight - remaining_weight; None when neither is readable."""
+        try:
+            if spool_data.get("used_weight") is not None:
+                return float(spool_data["used_weight"])
+            if spool_data.get("initial_weight") is not None:
+                return float(spool_data["initial_weight"]) - float(spool_data.get("remaining_weight", 0))
+        except (TypeError, ValueError):
+            pass
+        return None
 
     def _reconcile_rfid_weight_slot(self, slot):
         """Reconcile a single slot's RFID weight against Spoolman."""
@@ -3426,6 +3442,20 @@ class AmsPrintUsageSync(FilamentIQBase):
                 f"rfid={rfid_weight_g}g delta={delta:.1f}g < "
                 f"{RECONCILE_MIN_DELTA_G}g threshold",
                 level="INFO",
+            )
+            return
+        used_g = self._spoolman_used_g(spool_data)
+        if remain >= 100.0 and rfid_weight_g > spoolman_weight_g and used_g is not None \
+                and used_g > FULL_GAUGE_USED_MIN_G:
+            # IN-1170 B: the gauge reads full but Spoolman has charged this spool more than a purge. A Bambu gauge
+            # that never left 100% after prints is stuck (spools 98 and 10, 11-13/14), so RFID-wins would undo real
+            # usage. Mark it: the #132 mark keeps Spoolman's value until the gauge reading changes.
+            self._mark_gauge_stuck(slot, spool_id)
+            self.log(
+                f"RFID_GAUGE_STUCK_FULL slot={slot} spool_id={spool_id} rfid={rfid_weight_g}g "
+                f"spoolman={spoolman_weight_g}g used={used_g:.1f}g — gauge reads full but Spoolman shows filament "
+                f"used; keeping Spoolman's value",
+                level="WARNING",
             )
             return
         if self.dry_run:
