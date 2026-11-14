@@ -121,7 +121,7 @@ Pure utility module — no AppDaemon or HA dependencies. Used by `ams_print_usag
 
 - `ftps_list_cache()` — lists `.3mf` files on printer via `curl --ssl-reqd`
 - `ftps_download_3mf()` — downloads a specific file using CWD+RETR (handles unicode/emoji filenames)
-- `find_best_3mf()` — matches task name to filename (exact → contains → newest)
+- `find_best_3mf()` — matches task name to filename (exact → contains → none: never guesses, IN-1159); `slicer_weight_mismatch()` drops a fetched 3MF whose total is far from the printer's print_weight
 - `parse_3mf_filaments()` — extracts `<filament>` elements from `Metadata/slice_info.config` inside the ZIP
 - `match_filaments_to_slots()` — matches filaments to physical slots by color+material with three-tier fallback (exact → close color → material-only single)
 
