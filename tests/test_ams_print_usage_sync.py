@@ -119,6 +119,7 @@ class _TestableUsageSync(AmsPrintUsageSync):
         self.threemf_enabled = False
         self._spool_id_snapshot = {}
         self._start_tray_uuid = {}
+        self._start_rfid_slots = set()
         self._threemf_source_mtime = 0.0
 
         # Lifecycle phase flags (must mirror ams_print_usage_sync.py init)
