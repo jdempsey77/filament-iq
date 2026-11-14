@@ -191,3 +191,50 @@ def test_missing_expected_is_refused():
     r._on_bind_request(SLOT_BIND_EVENT, {"request_id": "r", "slot": 2, "spool_id": 42}, {})
     state, a = r.answer()
     assert state == "refused" and "expected_spool_id is required" in a["why"] and nothing_written(r)
+
+
+def _hide(r, *entity_ids):
+    """Make these helpers look missing in HA (as _get_helper_state sees them)."""
+    real = r._get_helper_state
+    r._get_helper_state = lambda e: None if e in entity_ids else real(e)
+
+
+@pytest.mark.parametrize("suffix", ["spool_id", "expected_spool_id", "unbound_reason"])
+def test_a_missing_helper_refuses_before_anything_is_written(suffix):
+    r = world(rfid=True)
+    _hide(r, f"input_text.ams_slot_2_{suffix}")
+    state, a = bind(r)
+    assert state == "refused" and f"ams_slot_2_{suffix} is missing" in a["why"] and nothing_written(r), a
+
+
+def test_unbind_with_a_missing_helper_refuses():
+    r = world(bound=7)
+    _hide(r, "input_text.ams_slot_2_expected_spool_id")
+    state, a = unbind(r)
+    assert state == "refused" and "missing" in a["why"] and nothing_written(r), a
+
+
+def test_a_skipped_helper_write_is_an_error_not_ok():
+    # gate follow-up (filament-iq#134): _set_helper skipping a write must not be reported as done
+    r = world()
+    real = r._set_helper
+    r._set_helper = lambda e, v: False if e.endswith("_unbound_reason") else real(e, v)
+    state, a = bind(r)
+    assert state == "error" and "unbound_reason was not written" in a["why"], a
+    assert a["done"] == ["helpers", "location", "slot_assigned_event"]
+
+
+def test_a_skipped_spool_id_write_stops_before_location():
+    r = world(bound=7)
+    real = r._set_helper
+    r._set_helper = lambda e, v: False if e.endswith("_expected_spool_id") else real(e, v)
+    state, a = unbind(r)
+    assert state == "error" and a["done"] == [] and r._spoolman.patches == [], a
+
+
+def test_set_helper_reports_whether_the_value_is_set():
+    r = world()
+    assert r._set_helper("input_text.ams_slot_2_spool_id", "42") is True          # written
+    r._state_map["input_text.ams_slot_2_status"] = "x"
+    assert r._set_helper("input_text.ams_slot_2_status", "x") is True             # already equal
+    assert r._set_helper("input_text.no_such_helper", "1") is False               # missing in HA

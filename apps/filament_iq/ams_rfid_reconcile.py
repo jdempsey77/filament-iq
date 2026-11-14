@@ -1019,6 +1019,11 @@ class AmsRfidReconcile(FilamentIQBase):
             self.log(f"SLOT_BIND_RESULT_PUBLISH_FAILED request_id={request_id} error={exc}", level="ERROR")
         return outcome
 
+    def _bind_set_helper(self, entity_id, value):
+        """_set_helper for bind/unbind: a skipped write stops the request (answer 'error', done so far listed)."""
+        if not self._set_helper(entity_id, value):
+            raise RuntimeError(f"{entity_id} was not written (helper missing in HA or its domain unavailable)")
+
     def _bind_settled(self):
         """'' when no print is running and the last one ended >= SLOT_BIND_SETTLE_S ago; else why not (fail closed)."""
         st = self.get_state(self._print_active_entity, attribute="all")
@@ -1058,6 +1063,9 @@ class AmsRfidReconcile(FilamentIQBase):
         why = self._bind_settled()
         if why:
             return request_id, slot, expected, why
+        for suffix in ("spool_id", "expected_spool_id", "unbound_reason"):
+            if self._get_helper_state(f"input_text.ams_slot_{slot}_{suffix}") is None:
+                return request_id, slot, expected, f"helper input_text.ams_slot_{slot}_{suffix} is missing in HA"
         current = self._safe_int(self._get_helper_state(f"input_text.ams_slot_{slot}_spool_id"), 0)
         if current != expected:
             return request_id, slot, expected, (f"slot {slot} is bound to {current}, not {expected} as the page "
@@ -1114,8 +1122,8 @@ class AmsRfidReconcile(FilamentIQBase):
                                          f"RFID enroll stopped ({type(exc).__name__}: {exc})")
             done.append("rfid_enroll")
         try:
-            self._set_helper(f"input_text.ams_slot_{slot}_spool_id", str(spool_id))
-            self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", str(spool_id))
+            self._bind_set_helper(f"input_text.ams_slot_{slot}_spool_id", str(spool_id))
+            self._bind_set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", str(spool_id))
             done.append("helpers")
             self._spoolman_patch(f"/api/v1/spool/{spool_id}",
                                  {"location": self._canonical_location_by_slot.get(slot, "")})
@@ -1123,7 +1131,7 @@ class AmsRfidReconcile(FilamentIQBase):
             self.fire_event("FILAMENT_IQ_SLOT_ASSIGNED", slot=slot, spool_id=spool_id,
                             sync_color_hex=str(payload.get("sync_color_hex", "auto") or ""))
             done.append("slot_assigned_event")
-            self._set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+            self._bind_set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
             done.append("unbound_reason_cleared")
         except Exception as exc:
             return self._bind_answer("bind", request_id, "error", slot, spool_id, 0,
@@ -1142,8 +1150,8 @@ class AmsRfidReconcile(FilamentIQBase):
             return self._bind_answer("unbind", request_id, "refused", slot, 0, expected, why)
         done = []
         try:
-            self._set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
-            self._set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
+            self._bind_set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
+            self._bind_set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
             done.append("helpers")
             self._spoolman_patch(f"/api/v1/spool/{expected}", {"location": "Shelf"})
             done.append("location_shelf")
@@ -4355,6 +4363,8 @@ class AmsRfidReconcile(FilamentIQBase):
         self._append_evidence_line(msg)
 
     def _set_helper(self, entity_id, value):
+        """Write a helper. Returns True when it now holds the value (written or already equal), False when the
+        write was skipped (helper missing in HA, or its domain unavailable). Most callers ignore the result."""
         next_value = "" if value is None else str(value).strip()
         self.log(f"_SET_HELPER_ENTER entity_id={entity_id} next_value={next_value}", level="DEBUG")
         # Use _get_helper_state (attribute='all') to bypass AppDaemon stale-cache bug
@@ -4365,12 +4375,12 @@ class AmsRfidReconcile(FilamentIQBase):
                 self.log(f"helper {entity_id} missing in HA configuration", level="WARNING")
                 self._missing_helper_warned.add(entity_id)
             self._record_no_write(entity_id, "helper_missing_in_ha_configuration", {"entity_id": entity_id})
-            return
+            return False
 
         current = str(state_raw).strip()
         if current == next_value:
             self._record_no_write(entity_id, "helper_already_equal", {"entity_id": entity_id, "value": next_value})
-            return
+            return True
 
         # Route by entity domain: input_text.* -> input_text/set_value, text.* -> text/set_value.
         if entity_id.startswith("input_text."):
@@ -4385,12 +4395,12 @@ class AmsRfidReconcile(FilamentIQBase):
                         )
                         self._domain_exception_class_logged = True
                     self._record_no_write(entity_id, "domain_not_available", {"entity_id": entity_id})
-                    return
+                    return False
             else:
                 self.call_service("input_text/set_value", entity_id=entity_id, value=next_value)
             self.log(f"_SET_HELPER_WROTE entity_id={entity_id} service=input_text/set_value value={next_value}", level="DEBUG")
             self._record_write("ha_helper_set", {"entity_id": entity_id, "value": next_value})
-            return
+            return True
         if entity_id.startswith("text."):
             if DomainException is not None:
                 try:
@@ -4403,12 +4413,12 @@ class AmsRfidReconcile(FilamentIQBase):
                         )
                         self._domain_exception_class_logged = True
                     self._record_no_write(entity_id, "domain_not_available", {"entity_id": entity_id})
-                    return
+                    return False
             else:
                 self.call_service("text/set_value", entity_id=entity_id, value=next_value)
             self.log(f"_SET_HELPER_WROTE entity_id={entity_id} service=text/set_value value={next_value}", level="DEBUG")
             self._record_write("ha_helper_set", {"entity_id": entity_id, "value": next_value})
-            return
+            return True
         raise ValueError(f"_set_helper: unsupported entity domain for entity_id={entity_id}")
 
     _LAST_MAPPING_JSON_MAX = 255
