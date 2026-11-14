@@ -143,6 +143,16 @@ NO_CANDIDATE          = "NO_CANDIDATE"           # Python-internal sentinel, no 
 # DO NOT change this string value without coordinating across all three Jinja files.
 FORCE_ACCEPTED = "FORCE_ACCEPTED"
 
+# IN-1052 S7a: bind / unbind a spool to a slot on request (print-ops' slot card, via HA's REST /api/events).
+# The caller fires the request event with a request_id, then reads SLOT_BIND_RESULT_ENTITY until its
+# request_id attribute matches. Every refusal and every outcome is answered there and logged SLOT_BIND_RESULT.
+SLOT_BIND_EVENT = "FILAMENT_IQ_BIND_REQUEST"
+SLOT_UNBIND_EVENT = "FILAMENT_IQ_UNBIND_REQUEST"
+SLOT_BIND_RESULT_ENTITY = "sensor.filament_iq_slot_bind_result"
+SLOT_BIND_SETTLE_S = 300   # no bind/unbind for 5 min after a print ends: the post-finish reconcile runs ~60 s after it
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_RFID_LOT_RE = re.compile(r"^[0-9A-Fa-f]{32}$")
+
 # Sentinel written to input_text.ams_slot_N_unbound_reason when a printer hardware
 # swap is detected on startup (persisted serial != configured serial). Slot bindings
 # are quarantined (spool_id/expected_spool_id PRESERVED) so RFID can self-heal without
@@ -516,6 +526,9 @@ class AmsRfidReconcile(FilamentIQBase):
         )
         self.listen_event(self._on_manual_enroll_event, "bambu_rfid_manual_enroll_tag_to_spool")
         self.listen_event(self._on_slot_assigned, "FILAMENT_IQ_SLOT_ASSIGNED")
+        # IN-1052 S7a: guarded bind / unbind requests (print-ops' slot card), answered on SLOT_BIND_RESULT_ENTITY
+        self.listen_event(self._on_bind_request, SLOT_BIND_EVENT)
+        self.listen_event(self._on_unbind_request, SLOT_UNBIND_EVENT)
         self.listen_event(self._on_validate_event, "AMS_RFID_VALIDATE")
         self.listen_event(self._on_homeassistant_start, "homeassistant_started")
 
@@ -990,6 +1003,162 @@ class AmsRfidReconcile(FilamentIQBase):
 
         # Single-slot reconcile
         self._run_reconcile(f"slot_assigned_slot_{slot}", slots_filter=[slot])
+
+    # ---- IN-1052 S7a: guarded bind / unbind -------------------------------------------------------------------------
+    def _bind_answer(self, action, request_id, outcome, slot=0, spool_id=0, old_spool_id=0, why="", done=()):
+        """Publish one request's outcome on SLOT_BIND_RESULT_ENTITY (state ok|refused|error) and log it."""
+        attrs = {"request_id": request_id, "action": action, "slot": slot, "spool_id": spool_id,
+                 "old_spool_id": old_spool_id, "why": str(why)[:300], "done": list(done),
+                 "at": datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"}
+        self.log(f"SLOT_BIND_RESULT action={action} request_id={request_id} outcome={outcome} slot={slot} "
+                 f"spool_id={spool_id} old_spool_id={old_spool_id} why={attrs['why']} done={','.join(done)}",
+                 level="INFO" if outcome == "ok" else "WARNING")
+        try:
+            self.set_state(SLOT_BIND_RESULT_ENTITY, state=outcome, attributes=attrs)
+        except Exception as exc:
+            self.log(f"SLOT_BIND_RESULT_PUBLISH_FAILED request_id={request_id} error={exc}", level="ERROR")
+        return outcome
+
+    def _bind_set_helper(self, entity_id, value):
+        """_set_helper for bind/unbind: a skipped write stops the request (answer 'error', done so far listed)."""
+        if not self._set_helper(entity_id, value):
+            raise RuntimeError(f"{entity_id} was not written (helper missing in HA or its domain unavailable)")
+
+    def _bind_settled(self):
+        """'' when no print is running and the last one ended >= SLOT_BIND_SETTLE_S ago; else why not (fail closed)."""
+        st = self.get_state(self._print_active_entity, attribute="all")
+        if not isinstance(st, dict) or str(st.get("state") or "").lower() != "off":
+            state = st.get("state") if isinstance(st, dict) else st
+            return f"print_active is {state!r}, not off: no slot changes during a print or when unknown"
+        raw = str(st.get("last_changed") or "").strip().replace("Z", "+00:00")
+        try:
+            ended = datetime.datetime.fromisoformat(raw)
+        except ValueError:
+            return "when the last print ended is unreadable (print_active last_changed): refused"
+        if ended.tzinfo is None:
+            return "print_active last_changed has no time zone: refused"
+        age = time.time() - ended.timestamp()
+        if age < SLOT_BIND_SETTLE_S:
+            return (f"a print ended {max(int(age), 0)} s ago: no slot changes for {SLOT_BIND_SETTLE_S // 60} min "
+                    "after a finish (the post-finish reconcile)")
+        return ""
+
+    def _bind_common(self, action, payload):
+        """Shared checks. Returns (request_id, slot, expected, why); why != '' = refuse."""
+        request_id = str(payload.get("request_id") or "")
+        if not _REQUEST_ID_RE.match(request_id):
+            return "", 0, 0, "request_id must be 1-64 letters, digits, _ or -"
+        slot = self._safe_int(payload.get("slot"), 0)
+        if slot not in self._tray_entity_by_slot:
+            return request_id, slot, 0, f"slot {payload.get('slot')!r} is not a physical AMS slot"
+        if "expected_spool_id" not in payload:
+            return request_id, slot, 0, "expected_spool_id is required (the binding the page showed)"
+        expected = self._safe_int(payload.get("expected_spool_id"), -1)
+        if expected < 0:
+            return request_id, slot, 0, "expected_spool_id must be a whole number >= 0"
+        if not self.fiq_enabled():
+            return request_id, slot, expected, "Filament IQ is paused (filament_iq_enabled off)"
+        if self._active_run is not None:
+            return request_id, slot, expected, "a reconcile is running: try again in a moment"
+        why = self._bind_settled()
+        if why:
+            return request_id, slot, expected, why
+        for suffix in ("spool_id", "expected_spool_id", "unbound_reason"):
+            if self._get_helper_state(f"input_text.ams_slot_{slot}_{suffix}") is None:
+                return request_id, slot, expected, f"helper input_text.ams_slot_{slot}_{suffix} is missing in HA"
+        current = self._safe_int(self._get_helper_state(f"input_text.ams_slot_{slot}_spool_id"), 0)
+        if current != expected:
+            return request_id, slot, expected, (f"slot {slot} is bound to {current}, not {expected} as the page "
+                                                "showed: reload and try again")
+        return request_id, slot, expected, ""
+
+    def _on_bind_request(self, event_name, data, kwargs):
+        """Bind spool_id to an EMPTY slot (decision 3: no one-step replace), with the side effects of HA's
+        script.ams_slot_assign_and_update: helpers spool_id + expected_spool_id, the spool's location, an RFID
+        enroll of the tray's tray_uuid into lot_nr on a tagged tray (IN-1174 decision B), FILAMENT_IQ_SLOT_ASSIGNED
+        (non-RFID lot_sig enroll + colour sync + reconcile), and unbound_reason cleared."""
+        payload = data or {}
+        request_id, slot, expected, why = self._bind_common("bind", payload)
+        spool_id = self._safe_int(payload.get("spool_id"), 0)
+        if not why and spool_id <= 0:
+            why = "spool_id must be a positive whole number"
+        if not why and expected != 0:
+            why = f"slot {slot} is bound to {expected}: unbind it first (no one-step replace)"
+        if why:
+            return self._bind_answer("bind", request_id, "refused", slot, spool_id, expected, why)
+        try:
+            spool = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+        except Exception as exc:
+            return self._bind_answer("bind", request_id, "refused", slot, spool_id, 0, f"Spoolman unreadable: {exc}")
+        if not isinstance(spool, dict) or self._safe_int(spool.get("id"), 0) != spool_id:
+            return self._bind_answer("bind", request_id, "refused", slot, spool_id, 0, f"no spool {spool_id}")
+        if spool.get("archived"):
+            return self._bind_answer("bind", request_id, "refused", slot, spool_id, 0, f"spool {spool_id} is archived")
+        for other in self._physical_ams_slots:
+            if other != slot and self._safe_int(
+                    self._get_helper_state(f"input_text.ams_slot_{other}_spool_id"), 0) == spool_id:
+                return self._bind_answer("bind", request_id, "refused", slot, spool_id, 0,
+                                         f"spool {spool_id} is already bound to slot {other}: unbind it there first")
+        tray = self.get_state(self._tray_entity_by_slot[slot], attribute="all") or {}
+        attrs = tray.get("attributes", {}) if isinstance(tray, dict) else {}
+        rfid = not self._is_all_zero_identity(str(attrs.get("tag_uid") or "").strip(),
+                                              str(attrs.get("tray_uuid") or "").strip())
+        lot = str(spool.get("lot_nr") or "").strip()
+        tray_uuid = str(attrs.get("tray_uuid") or "").strip().replace(" ", "").replace("-", "").upper()
+        if rfid and _RFID_LOT_RE.match(lot) and lot.upper() != tray_uuid:
+            return self._bind_answer("bind", request_id, "refused", slot, spool_id, 0,
+                                     f"spool {spool_id} is enrolled to another RFID tag, not slot {slot}'s")
+        done = []
+        self._suppress_helper_change_until[slot] = datetime.datetime.utcnow() + datetime.timedelta(seconds=10)
+        if rfid:
+            # First: _manual_enroll checks every conflict (tag on another spool, lot_nr conflict, zero tray_uuid)
+            # before it writes anything, so its refusal leaves the slot untouched.
+            try:
+                self._manual_enroll(slot, spool_id)
+            except RuntimeError as exc:
+                return self._bind_answer("bind", request_id, "refused", slot, spool_id, 0, f"RFID enroll: {exc}")
+            except Exception as exc:
+                return self._bind_answer("bind", request_id, "error", slot, spool_id, 0,
+                                         f"RFID enroll stopped ({type(exc).__name__}: {exc})")
+            done.append("rfid_enroll")
+        try:
+            self._bind_set_helper(f"input_text.ams_slot_{slot}_spool_id", str(spool_id))
+            self._bind_set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", str(spool_id))
+            done.append("helpers")
+            self._spoolman_patch(f"/api/v1/spool/{spool_id}",
+                                 {"location": self._canonical_location_by_slot.get(slot, "")})
+            done.append("location")
+            self.fire_event("FILAMENT_IQ_SLOT_ASSIGNED", slot=slot, spool_id=spool_id,
+                            sync_color_hex=str(payload.get("sync_color_hex", "auto") or ""))
+            done.append("slot_assigned_event")
+            self._bind_set_helper(f"input_text.ams_slot_{slot}_unbound_reason", "")
+            done.append("unbound_reason_cleared")
+        except Exception as exc:
+            return self._bind_answer("bind", request_id, "error", slot, spool_id, 0,
+                                     f"stopped part way ({type(exc).__name__}: {exc}); done so far is listed", done)
+        return self._bind_answer("bind", request_id, "ok", slot, spool_id, 0, "", done)
+
+    def _on_unbind_request(self, event_name, data, kwargs):
+        """Unbind a slot's spool: helpers to 0 and the spool to Shelf. lot_nr is left alone. If the spool is still
+        in the tray, the next reconcile reads the tray and may bind it again: unbind an empty tray, or archive the
+        spool right after (an archived spool is never a candidate)."""
+        payload = data or {}
+        request_id, slot, expected, why = self._bind_common("unbind", payload)
+        if not why and expected <= 0:
+            why = f"slot {slot} has no spool bound: nothing to unbind"
+        if why:
+            return self._bind_answer("unbind", request_id, "refused", slot, 0, expected, why)
+        done = []
+        try:
+            self._bind_set_helper(f"input_text.ams_slot_{slot}_spool_id", "0")
+            self._bind_set_helper(f"input_text.ams_slot_{slot}_expected_spool_id", "0")
+            done.append("helpers")
+            self._spoolman_patch(f"/api/v1/spool/{expected}", {"location": "Shelf"})
+            done.append("location_shelf")
+        except Exception as exc:
+            return self._bind_answer("unbind", request_id, "error", slot, 0, expected,
+                                     f"stopped part way ({type(exc).__name__}: {exc}); done so far is listed", done)
+        return self._bind_answer("unbind", request_id, "ok", slot, 0, expected, "", done)
 
     def _on_validate_event(self, event_name, data, kwargs):
         """Field validation runner: reconcile single slot and log compact transcript."""
@@ -4194,6 +4363,8 @@ class AmsRfidReconcile(FilamentIQBase):
         self._append_evidence_line(msg)
 
     def _set_helper(self, entity_id, value):
+        """Write a helper. Returns True when it now holds the value (written or already equal), False when the
+        write was skipped (helper missing in HA, or its domain unavailable). Most callers ignore the result."""
         next_value = "" if value is None else str(value).strip()
         self.log(f"_SET_HELPER_ENTER entity_id={entity_id} next_value={next_value}", level="DEBUG")
         # Use _get_helper_state (attribute='all') to bypass AppDaemon stale-cache bug
@@ -4204,12 +4375,12 @@ class AmsRfidReconcile(FilamentIQBase):
                 self.log(f"helper {entity_id} missing in HA configuration", level="WARNING")
                 self._missing_helper_warned.add(entity_id)
             self._record_no_write(entity_id, "helper_missing_in_ha_configuration", {"entity_id": entity_id})
-            return
+            return False
 
         current = str(state_raw).strip()
         if current == next_value:
             self._record_no_write(entity_id, "helper_already_equal", {"entity_id": entity_id, "value": next_value})
-            return
+            return True
 
         # Route by entity domain: input_text.* -> input_text/set_value, text.* -> text/set_value.
         if entity_id.startswith("input_text."):
@@ -4224,12 +4395,12 @@ class AmsRfidReconcile(FilamentIQBase):
                         )
                         self._domain_exception_class_logged = True
                     self._record_no_write(entity_id, "domain_not_available", {"entity_id": entity_id})
-                    return
+                    return False
             else:
                 self.call_service("input_text/set_value", entity_id=entity_id, value=next_value)
             self.log(f"_SET_HELPER_WROTE entity_id={entity_id} service=input_text/set_value value={next_value}", level="DEBUG")
             self._record_write("ha_helper_set", {"entity_id": entity_id, "value": next_value})
-            return
+            return True
         if entity_id.startswith("text."):
             if DomainException is not None:
                 try:
@@ -4242,12 +4413,12 @@ class AmsRfidReconcile(FilamentIQBase):
                         )
                         self._domain_exception_class_logged = True
                     self._record_no_write(entity_id, "domain_not_available", {"entity_id": entity_id})
-                    return
+                    return False
             else:
                 self.call_service("text/set_value", entity_id=entity_id, value=next_value)
             self.log(f"_SET_HELPER_WROTE entity_id={entity_id} service=text/set_value value={next_value}", level="DEBUG")
             self._record_write("ha_helper_set", {"entity_id": entity_id, "value": next_value})
-            return
+            return True
         raise ValueError(f"_set_helper: unsupported entity domain for entity_id={entity_id}")
 
     _LAST_MAPPING_JSON_MAX = 255

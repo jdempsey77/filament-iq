@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Bind or unbind a spool to a slot on request (IN-1052 S7a).** For print-ops' slot card (S7b/S7c).
+  - **Events.** The caller fires `FILAMENT_IQ_BIND_REQUEST` `{request_id, slot, spool_id, expected_spool_id,
+    sync_color_hex?}` or `FILAMENT_IQ_UNBIND_REQUEST` `{request_id, slot, expected_spool_id}`, through HA's REST
+    `/api/events`.
+  - **Answer.** Every request is answered on `sensor.filament_iq_slot_bind_result`: state `ok`, `refused` or
+    `error`. The attributes are request_id, action, slot, spool_id, old_spool_id, why, done (the steps that ran)
+    and at. Each answer is also logged as `SLOT_BIND_RESULT`.
+  - **Bind** does what HA's `script.ams_slot_assign_and_update` does:
+    - It sets the slot's spool_id and expected_spool_id helpers and the spool's location.
+    - On a tagged tray it enrolls the tray_uuid into lot_nr (Jerry 11-14, IN-1174 B: enroll, not refuse). This
+      runs first, and any conflict it finds refuses before anything is written.
+    - It fires `FILAMENT_IQ_SLOT_ASSIGNED`, for the non-RFID lot_sig enroll and colour sync.
+    - It clears unbound_reason.
+    - It binds an empty slot only: no one-step replace.
+  - **Unbind** sets the helpers to 0 and moves the spool to Shelf; lot_nr is left alone. A spool still in the tray
+    may be bound again by the next reconcile, so unbind an empty tray or archive the spool right after.
+  - **Both refuse and write nothing** in these cases:
+    - a print is running, or `print_active` turned off less than 5 min ago, or its time can't be read;
+    - Filament IQ is paused, or a reconcile is running;
+    - the slot isn't bound to `expected_spool_id` (compare-before-write);
+    - the spool is missing, archived or bound to another slot;
+    - the tray's tag already belongs to another spool, or the spool is enrolled to another tag.
+
 ### Fixed
 
 - **Runout fix, round 2 (IN-1048).** A remainder far above the slicer figure at a
