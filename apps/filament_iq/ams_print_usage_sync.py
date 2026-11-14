@@ -1897,7 +1897,18 @@ class AmsPrintUsageSync(FilamentIQBase):
             raw_delta = start_g - end_g
 
             uuid_swapped = bool(start_uuid and end_uuid and start_uuid != end_uuid)
-            delta_swapped = raw_delta < -50.0
+            # IN-1161: the negative-delta fallback trusts the start/end readings as a gauge. Only an RFID
+            # tray has one. A non-RFID slot's "gauge" is HA's Spoolman sensor, which lags a direct Spoolman
+            # edit: on 11-13 it read 297 at start (pre-correction) and 424 at end, and this branch charged
+            # spool 119 the whole 297 g for a 2.13 g print.
+            delta_swapped = raw_delta < -50.0 and self._is_rfid_slot(slot)
+            if raw_delta < -50.0 and not delta_swapped and not uuid_swapped:
+                self.log(
+                    f"SPOOL_SWAP_IGNORED slot={slot} reason=non_rfid_reading_rose "
+                    f"start_g={start_g} end_g={end_g} raw_delta={raw_delta:.1f} "
+                    f"— a Spoolman correction or refill, not a swap; no swap charge",
+                    level="WARNING",
+                )
 
             if uuid_swapped or delta_swapped:
                 signal = "tray_uuid_mismatch" if uuid_swapped else "negative_delta"
