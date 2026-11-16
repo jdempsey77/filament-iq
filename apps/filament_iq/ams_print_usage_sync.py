@@ -2170,22 +2170,34 @@ class AmsPrintUsageSync(FilamentIQBase):
         )
 
     def _rehydrate_print_state(self):
-        """Restore print-active state if printer is mid-print (replaces automation G)."""
+        """Restore print-active state if printer is mid-print (replaces automation G).
+
+        Also: a print that FINISHED (or failed) while AppDaemon was down leaves print_active on and the job open,
+        and no status change will ever arrive for it. When the printer reads finish/failed and print_active is
+        still on, restore the job the same way and run the normal finish once (seen_job_keys dedups a job that
+        was already written)."""
         try:
             current_status = str(self.get_state(self._print_status_entity) or "").strip().lower()
         except Exception:
             return
+        finished_while_down = False
         if current_status not in ("running", "printing", "pause", "paused"):
-            return
+            if current_status not in ("finish", "failed") or not self._helper_print_active():
+                return
+            finished_while_down = True
         self._print_active = True
-        self.log(f"REHYDRATE_PRINT_ACTIVE status={current_status}", level="INFO")
-        try:
-            self.call_service(
-                "input_boolean/turn_on",
-                entity_id=self._print_active_entity,
-            )
-        except Exception as e:
-            self.log(f"REHYDRATE: Failed to set print_active: {e}", level="WARNING")
+        if finished_while_down:
+            self.log(f"REHYDRATE_FINISHED_WHILE_DOWN status={current_status} — closing the open job",
+                     level="WARNING")
+        else:
+            self.log(f"REHYDRATE_PRINT_ACTIVE status={current_status}", level="INFO")
+            try:
+                self.call_service(
+                    "input_boolean/turn_on",
+                    entity_id=self._print_active_entity,
+                )
+            except Exception as e:
+                self.log(f"REHYDRATE: Failed to set print_active: {e}", level="WARNING")
         # Phase 1: rebuild start snapshot
         if self._lifecycle_phase1:
             # Try to recover from HA helper first
@@ -2323,6 +2335,29 @@ class AmsPrintUsageSync(FilamentIQBase):
                     self.log("3MF_CACHE_REHYDRATE_HIT", level="INFO")
                 else:
                     self.log("3MF_CACHE_REHYDRATE_MISS", level="INFO")
+        if finished_while_down:
+            # Let HA's entities settle after the restart, then finish through the normal path.
+            self.run_in(self._finish_after_rehydrate, 10, status=current_status)
+
+    def _helper_print_active(self) -> bool:
+        try:
+            return str(self.get_state(self._print_active_entity) or "").strip().lower() == "on"
+        except Exception:
+            return False
+
+    def _finish_after_rehydrate(self, kwargs):
+        """The deferred finish for a print that ended while AppDaemon was down. Skips if a new print began meanwhile
+        (that path closes the old job itself) or the job was already closed."""
+        status = str(kwargs.get("status") or "").strip().lower()
+        try:
+            now = str(self.get_state(self._print_status_entity) or "").strip().lower()
+        except Exception:
+            now = ""
+        if not self._print_active or now not in ("finish", "failed"):
+            self.log(f"REHYDRATE_FINISH_SKIP status_now={now!r} print_active={self._print_active}", level="INFO")
+            return
+        self.log(f"REHYDRATE_FINISH_RUN status={status} job_key={self._job_key}", level="INFO")
+        self._on_print_finish(status)
 
     def _on_ha_start(self, event_name, data, kwargs):
         """Handle HA restart while AppDaemon is running (replaces automation G)."""
