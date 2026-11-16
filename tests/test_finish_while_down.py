@@ -55,6 +55,11 @@ def _finish_timers(app):
     return [c for c in app._run_in_calls if getattr(c["callback"], "__name__", "") == "_finish_after_rehydrate"]
 
 
+def _fire(timer):
+    """Run a recorded run_in timer with the kwargs it was scheduled with (as AppDaemon does)."""
+    timer["callback"]({k: v for k, v in timer.items() if k not in ("callback", "delay")})
+
+
 def _service(app, service, entity):
     return [c for c in app._service_calls if c["service"] == service and c.get("entity_id") == entity]
 
@@ -71,11 +76,11 @@ def test_a_print_that_ended_while_down_is_restored_and_finished(tmp_path, status
     assert app._start_snapshot == {1: 510.0}
     assert not [c for c in app._service_calls if c["service"] == "input_boolean/turn_on"]   # never re-armed
     timers = _finish_timers(app)
-    assert [(t["delay"], t["status"]) for t in timers] == [(10, status)]
+    assert [(t["delay"], t["status"], t["start_recovered"]) for t in timers] == [(10, status, True)]
 
     finished = []
     app._on_print_finish = lambda s: finished.append(s)
-    timers[0]["callback"]({"status": status})
+    _fire(timers[0])
     assert finished == [status]
     # the same steps as a terminal state from a non-running state: tray tracking ended and published first
     assert app._print_active is False
@@ -88,7 +93,7 @@ def test_with_phase2_off_the_job_is_ended_not_finished(tmp_path):
     app._rehydrate_print_state()
     finished = []
     app._on_print_finish = lambda s: finished.append(s)
-    _finish_timers(app)[0]["callback"]({"status": "finish"})
+    _fire(_finish_timers(app)[0])
     assert finished == []                                        # no Spoolman writes with phase 2 off
     assert app._print_active is False and app._job_key == ""     # the real _on_print_end ran
     assert _service(app, "input_boolean/turn_off", app._print_active_entity)
@@ -111,7 +116,7 @@ def test_the_deferred_finish_skips_when_the_printer_moved_on(tmp_path, now):
     app._state_map[app._print_status_entity] = now               # a new print began in the 10 s
     finished = []
     app._on_print_finish = lambda s: finished.append(s)
-    _finish_timers(app)[0]["callback"]({"status": "finish"})
+    _fire(_finish_timers(app)[0])
     assert finished == []
 
 
@@ -121,7 +126,7 @@ def test_the_deferred_finish_skips_a_job_already_closed(tmp_path):
     app._print_active = False                                    # closed by another path meanwhile
     finished = []
     app._on_print_finish = lambda s: finished.append(s)
-    _finish_timers(app)[0]["callback"]({"status": "finish"})
+    _fire(_finish_timers(app)[0])
     assert finished == []
 
 
@@ -131,3 +136,41 @@ def test_a_running_print_still_rehydrates_as_before(tmp_path):
     assert app._print_active is True
     assert [c for c in app._service_calls if c["service"] == "input_boolean/turn_on"]
     assert _finish_timers(app) == []
+
+
+# ---- IN-1236: the start weights were lost -> close the job, write nothing ------------------------------------------
+@pytest.mark.parametrize("helper", ["", "{}", "unknown", "unavailable", "not json"])
+def test_no_start_weights_closes_the_job_without_a_write(tmp_path, helper):
+    app = _app(tmp_path, "finish")
+    app._state_map[app._start_json_entity] = helper
+    app._rehydrate_print_state()
+    timers = _finish_timers(app)
+    assert [(t["status"], t["start_recovered"]) for t in timers] == [("finish", False)]
+    finished = []
+    app._on_print_finish = lambda s: finished.append(s)
+    _fire(timers[0])
+    assert finished == []                                        # no usage write from post-print gauges
+    assert app._print_active is False and app._job_key == ""     # the real _on_print_end closed the job
+    assert _service(app, "input_boolean/turn_off", app._print_active_entity)
+    assert [m for m, lvl in app._log_calls
+            if m.startswith(f"REHYDRATE_FINISH_NO_START_WEIGHTS job_key={JOB} status=finish") and lvl == "WARNING"]
+
+
+def test_a_timer_without_the_flag_fails_closed(tmp_path):
+    # a timer scheduled by an older build (no start_recovered kwarg) must not write either
+    app = _app(tmp_path, "finish")
+    app._rehydrate_print_state()
+    finished = []
+    app._on_print_finish = lambda s: finished.append(s)
+    _finish_timers(app)[0]["callback"]({"status": "finish"})
+    assert finished == [] and app._print_active is False
+
+
+def test_recovered_start_weights_still_finish_normally(tmp_path):
+    app = _app(tmp_path, "failed")
+    app._rehydrate_print_state()
+    finished = []
+    app._on_print_finish = lambda s: finished.append(s)
+    _fire(_finish_timers(app)[0])
+    assert finished == ["failed"]
+    assert not [m for m, _ in app._log_calls if m.startswith("REHYDRATE_FINISH_NO_START_WEIGHTS")]

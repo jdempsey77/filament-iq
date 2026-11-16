@@ -2199,9 +2199,9 @@ class AmsPrintUsageSync(FilamentIQBase):
             except Exception as e:
                 self.log(f"REHYDRATE: Failed to set print_active: {e}", level="WARNING")
         # Phase 1: rebuild start snapshot
+        recovered = False   # start weights came from the helper (taken at print start), not rebuilt now
         if self._lifecycle_phase1:
             # Try to recover from HA helper first
-            recovered = False
             try:
                 raw = str(self.get_state(self._start_json_entity) or "").strip()
                 if raw and raw not in ("{}", "unknown", "unavailable"):
@@ -2337,7 +2337,8 @@ class AmsPrintUsageSync(FilamentIQBase):
                     self.log("3MF_CACHE_REHYDRATE_MISS", level="INFO")
         if finished_while_down:
             # Let HA's entities settle after the restart, then finish through the normal path.
-            self.run_in(self._finish_after_rehydrate, 10, status=current_status)
+            # IN-1236: say whether the start weights survived; a snapshot rebuilt now reads the gauges AFTER the print.
+            self.run_in(self._finish_after_rehydrate, 10, status=current_status, start_recovered=recovered)
 
     def _helper_print_active(self) -> bool:
         try:
@@ -2359,7 +2360,13 @@ class AmsPrintUsageSync(FilamentIQBase):
             return
         self.log(f"REHYDRATE_FINISH_RUN status={status} job_key={self._job_key}", level="INFO")
         self._end_tray_tracking()
-        if self._lifecycle_phase2:
+        if self._lifecycle_phase2 and not kwargs.get("start_recovered"):
+            # IN-1236: no start weights from print start. A finish now would compare post-print gauges with
+            # themselves and write ~0 g as if the job were done. Close the job without a Spoolman write instead.
+            self.log(f"REHYDRATE_FINISH_NO_START_WEIGHTS job_key={self._job_key} status={status} "
+                     "— closing without a usage write", level="WARNING")
+            self._on_print_end()
+        elif self._lifecycle_phase2:
             self._on_print_finish(status)
         elif self._lifecycle_phase1:
             self._on_print_end()
