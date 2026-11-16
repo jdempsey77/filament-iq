@@ -34,10 +34,10 @@ from test_ams_print_usage_sync import _TestableUsageSync  # noqa: E402
 JOB = "Widget_plate_1-abc.gcode.3mf_1700000000"
 
 
-def _app(tmp_path, status, print_active="on"):
+def _app(tmp_path, status, print_active="on", phase2=True):
     app = _TestableUsageSync(
         state_map={"input_text.ams_slot_1_spool_id": "97"},
-        args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": True, "data_dir": str(tmp_path)},
+        args={"lifecycle_phase1_enabled": True, "lifecycle_phase2_enabled": phase2, "data_dir": str(tmp_path)},
     )
     app._state_map[app._print_status_entity] = status
     app._state_map[app._print_active_entity] = print_active
@@ -55,7 +55,11 @@ def _finish_timers(app):
     return [c for c in app._run_in_calls if getattr(c["callback"], "__name__", "") == "_finish_after_rehydrate"]
 
 
-@pytest.mark.parametrize("status", ["finish", "failed"])
+def _service(app, service, entity):
+    return [c for c in app._service_calls if c["service"] == service and c.get("entity_id") == entity]
+
+
+@pytest.mark.parametrize("status", ["finish", "failed", "error", "cancelled"])
 def test_a_print_that_ended_while_down_is_restored_and_finished(tmp_path, status):
     app = _app(tmp_path, status)
     app._rehydrate_print_state()
@@ -73,9 +77,25 @@ def test_a_print_that_ended_while_down_is_restored_and_finished(tmp_path, status
     app._on_print_finish = lambda s: finished.append(s)
     timers[0]["callback"]({"status": status})
     assert finished == [status]
+    # the same steps as a terminal state from a non-running state: tray tracking ended and published first
+    assert app._print_active is False
+    assert [c["value"] for c in _service(app, "input_text/set_value", app._trays_used_entity)] == ["1"]
 
 
-@pytest.mark.parametrize("status,helper", [("finish", "off"), ("failed", "off"), ("idle", "on"), ("finish", "unknown")])
+def test_with_phase2_off_the_job_is_ended_not_finished(tmp_path):
+    # gate on #136: the deferred close must honour lifecycle_phase2_enabled like the normal paths
+    app = _app(tmp_path, "finish", phase2=False)
+    app._rehydrate_print_state()
+    finished = []
+    app._on_print_finish = lambda s: finished.append(s)
+    _finish_timers(app)[0]["callback"]({"status": "finish"})
+    assert finished == []                                        # no Spoolman writes with phase 2 off
+    assert app._print_active is False and app._job_key == ""     # the real _on_print_end ran
+    assert _service(app, "input_boolean/turn_off", app._print_active_entity)
+
+
+@pytest.mark.parametrize("status,helper", [("finish", "off"), ("error", "off"), ("idle", "on"), ("prepare", "on"),
+                                           ("finish", "unknown")])
 def test_nothing_happens_without_an_open_job(tmp_path, status, helper):
     app = _app(tmp_path, status, print_active=helper)
     app._rehydrate_print_state()

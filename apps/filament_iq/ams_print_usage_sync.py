@@ -2172,17 +2172,17 @@ class AmsPrintUsageSync(FilamentIQBase):
     def _rehydrate_print_state(self):
         """Restore print-active state if printer is mid-print (replaces automation G).
 
-        Also: a print that FINISHED (or failed) while AppDaemon was down leaves print_active on and the job open,
-        and no status change will ever arrive for it. When the printer reads finish/failed and print_active is
-        still on, restore the job the same way and run the normal finish once (seen_job_keys dedups a job that
-        was already written)."""
+        Also: a print that ENDED (any terminal state) while AppDaemon was down leaves print_active on and the job
+        open, and no status change will ever arrive for it. When the printer reads a terminal state and
+        print_active is still on, restore the job the same way and close it once through the same steps as a
+        terminal state reached from a non-running state (seen_job_keys dedups a job that was already written)."""
         try:
             current_status = str(self.get_state(self._print_status_entity) or "").strip().lower()
         except Exception:
             return
         finished_while_down = False
         if current_status not in ("running", "printing", "pause", "paused"):
-            if current_status not in ("finish", "failed") or not self._helper_print_active():
+            if current_status not in self._TERMINAL_STATES or not self._helper_print_active():
                 return
             finished_while_down = True
         self._print_active = True
@@ -2346,18 +2346,23 @@ class AmsPrintUsageSync(FilamentIQBase):
             return False
 
     def _finish_after_rehydrate(self, kwargs):
-        """The deferred finish for a print that ended while AppDaemon was down. Skips if a new print began meanwhile
-        (that path closes the old job itself) or the job was already closed."""
+        """The deferred close for a print that ended while AppDaemon was down: the same steps as the
+        PRINT_FINISH_FROM_NON_RUNNING branch (end tray tracking, then phase 2 finish or phase 1 end). Skips if a new
+        print began meanwhile (that path closes the old job itself) or the job was already closed."""
         status = str(kwargs.get("status") or "").strip().lower()
         try:
             now = str(self.get_state(self._print_status_entity) or "").strip().lower()
         except Exception:
             now = ""
-        if not self._print_active or now not in ("finish", "failed"):
+        if not self._print_active or now not in self._TERMINAL_STATES:
             self.log(f"REHYDRATE_FINISH_SKIP status_now={now!r} print_active={self._print_active}", level="INFO")
             return
         self.log(f"REHYDRATE_FINISH_RUN status={status} job_key={self._job_key}", level="INFO")
-        self._on_print_finish(status)
+        self._end_tray_tracking()
+        if self._lifecycle_phase2:
+            self._on_print_finish(status)
+        elif self._lifecycle_phase1:
+            self._on_print_end()
 
     def _on_ha_start(self, event_name, data, kwargs):
         """Handle HA restart while AppDaemon is running (replaces automation G)."""
