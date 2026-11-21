@@ -4,6 +4,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+# IN-1333 D: a new push to a PR cancels that PR's run still in flight (its result would be stale), freeing the
+# runner. Pushes to main always finish: each one is a deploy candidate.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
