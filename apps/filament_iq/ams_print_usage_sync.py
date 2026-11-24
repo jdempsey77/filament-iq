@@ -34,6 +34,7 @@ from .base import FilamentIQBase, build_slot_mappings, TERMINAL_PRINT_STATES
 
 try:
     from .threemf_parser import (
+        color_distance,
         ftps_connect,
         ftps_download_3mf,
         ftps_download_native,
@@ -60,7 +61,11 @@ _APP_VERSION = "1.10.2"
 
 # 3MF match methods that pair by elimination, not by colour: only trusted from a 3MF fetched for this
 # print (BUG-04 stale guard; IN-1160 added leftover_tray_material).
-_ELIMINATION_METHODS = frozenset({"single_filament_force", "leftover_tray_material"})
+_ELIMINATION_METHODS = frozenset({"single_filament_force", "leftover_tray_material", "runout_chain_force"})
+
+# Two spools the AMS can chain (auto-switch on runout) are the same filament: when Spoolman does not say so by
+# filament id, their colours must be this close (RGB distance).
+RUNOUT_CHAIN_COLOR_MAX = 30.0
 
 
 def stale_elimination_slots(matched_slots, threemf_mtime, print_start_time):
@@ -383,6 +388,78 @@ class AmsPrintUsageSync(FilamentIQBase):
         return max(self._tray_entity_by_slot.keys()) if self._tray_entity_by_slot else 6
 
     # ── collect phase ────────────────────────────────────────────────
+
+    def _spool_filament(self, spool_id: int, spools_cache: dict) -> dict:
+        """The Spoolman filament record of a spool ({} when Spoolman does not answer)."""
+        spool = (spools_cache or {}).get(spool_id)
+        if not spool or not isinstance(spool.get("filament"), dict):
+            spool = self._spoolman_get(f"/api/v1/spool/{spool_id}")
+        fil = (spool or {}).get("filament")
+        return fil if isinstance(fil, dict) else {}
+
+    def _match_runout_chain(self, spools_cache: dict) -> dict:
+        """IN-1405. {finishing_slot: (used_g, "runout_chain_force")} or {}.
+
+        The slicer file names one filament and its colour matched no tray (sliced as one colour, printed with
+        another), yet the print used exactly two bound trays: one reads Empty now (it ran out) and the other
+        finished the print. The AMS only chains spools of the same filament, so the slicer weight belongs to
+        that pair; _detect_runout_split then divides it. Fail closed on anything else: a stale 3MF, any tray
+        count but two, no or two Empty trays, a tray that was never active, a spool Spoolman does not know,
+        a material that differs from the slicer's, or two spools that are not the same filament.
+        """
+        active = [f for f in self._threemf_data if (f.get("used_g") or 0) > 0]
+        if len(active) != 1 or len(self._trays_used) != 2:
+            return {}
+        fil = active[0]
+
+        def skip(reason):
+            self.log(f"RUNOUT_CHAIN_SKIP reason={reason} trays={sorted(self._trays_used)}", level="INFO")
+            return {}
+
+        empty, loaded = [], []
+        for slot in sorted(self._trays_used):
+            entity = self._tray_entity_by_slot.get(slot)
+            state = str(self.get_state(entity) or "").strip() if entity else ""
+            (empty if state == "Empty" else loaded).append(slot)
+        if len(empty) != 1 or len(loaded) != 1:
+            return skip("need_one_empty_one_loaded")
+        depleted_slot, finishing_slot = empty[0], loaded[0]
+
+        times = self._summarize_tray_times()
+        if times.get(depleted_slot, 0.0) <= 0 or times.get(finishing_slot, 0.0) <= 0:
+            return skip("a_tray_was_never_active")
+
+        if (self._threemf_source_mtime or 0) < (self._print_start_time or 0) - 30:
+            return skip("stale_3mf")
+
+        want = normalize_material(fil.get("material") or "")
+        records = []
+        for slot in (depleted_slot, finishing_slot):
+            spool_id = self._read_spool_id(slot)
+            if spool_id <= 0:
+                spool_id = self._spool_id_snapshot.get(slot, 0)
+            rec = self._spool_filament(spool_id, spools_cache) if spool_id > 0 else {}
+            if not rec:
+                return skip(f"no_spoolman_filament_slot_{slot}")
+            if not want or normalize_material(str(rec.get("material") or "")) != want:
+                return skip(f"material_differs_slot_{slot}")
+            records.append((spool_id, rec))
+        (_, a), (finishing_spool_id, b) = records
+        same = a.get("id") is not None and a.get("id") == b.get("id")
+        if not same:
+            ca = normalize_color_hex(str(a.get("color_hex") or ""))
+            cb = normalize_color_hex(str(b.get("color_hex") or ""))
+            same = bool(ca and cb) and color_distance(ca, cb) <= RUNOUT_CHAIN_COLOR_MAX
+        if not same:
+            return skip("spools_are_not_the_same_filament")
+
+        used_g = float(fil["used_g"])
+        self.log(
+            f"3MF_MATCH slot={finishing_slot} spool_id={finishing_spool_id} used_g={used_g:.2f} "
+            f"method=runout_chain_force depleted_slot={depleted_slot}",
+            level="INFO",
+        )
+        return {finishing_slot: (used_g, "runout_chain_force")}
 
     def _detect_runout_split(
         self,
@@ -1894,6 +1971,16 @@ class AmsPrintUsageSync(FilamentIQBase):
         # and a slot depletes, the runout split path — not 3mf_depleted — is the
         # correct handler. Captured here as a safety net for Change 4 below.
         multi_slot_context = len(self._trays_used) > 1
+
+        # IN-1405: a one-filament print whose slicer colour matched no tray, but that ran one spool out and
+        # finished on its twin. Pin the filament to the finishing tray so the runout split below can run.
+        if (
+            self._threemf_data
+            and self.threemf_enabled
+            and status in self._SUCCESS_STATES
+            and not threemf_matched_slots
+        ):
+            threemf_matched_slots = self._match_runout_chain(spools_cache)
 
         # Detect and handle single-color multi-spool runout
         if self._threemf_data and len(threemf_matched_slots) > 0:
