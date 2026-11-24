@@ -579,3 +579,14 @@ def test_runout_chain_leaves_a_three_tray_print_alone():
     app = _chain_app()
     app._trays_used = {1, 2, 3}
     assert app._match_runout_chain({}) == {}
+
+
+def test_runout_chain_skips_when_spoolman_does_not_know_a_spool():
+    app = _chain_app()
+    app._spoolman_get_override = lambda path: None            # Spoolman answers nothing
+    assert app._match_runout_chain({}) == {}
+    assert _has_log(app, "RUNOUT_CHAIN_SKIP reason=no_spoolman_filament_slot_1")
+    app = _chain_app()
+    app._spool_id_snapshot = {3: 98}                          # the empty tray's spool id is unknown (0)
+    assert app._match_runout_chain({}) == {}
+    assert _has_log(app, "RUNOUT_CHAIN_SKIP reason=no_spoolman_filament_slot_1")
