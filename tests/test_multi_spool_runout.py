@@ -497,3 +497,85 @@ def test_rfid_zero_delta_slicer_fallback_end_to_end():
     assert any(level == "WARNING" for _, level in fallback_logs)
     assert any("slot=4" in msg and "threemf_used_g=120.7" in msg
                for msg, _ in fallback_logs)
+
+
+# ── IN-1405: one-filament print, slicer colour matches no tray, runout + auto-switch ──
+
+def _chain_app(colour_3mf="008000", spool_a=None, spool_b=None, empty_slot=1, times=None, mtime_ok=True):
+    """Slot 1 (spool 97) ran out, slot 3 (spool 98) finished. Sliced green, printed black."""
+    state_map = {
+        "input_text.ams_slot_1_spool_id": "0",      # reconciler cleared the empty tray
+        "input_text.ams_slot_3_spool_id": "98",
+    }
+    app = _make_app(state_map=state_map)
+    app._trays_used = {1, 3}
+    app._start_snapshot = {}
+    app._spool_id_snapshot = {1: 97, 3: 98}
+    app._job_key = "chain_test"
+    app.threemf_enabled = True
+    app._threemf_data = [{"index": 0, "used_g": 441.19, "color_hex": colour_3mf, "material": "pla"}]
+    app._print_start_time = 1000.0
+    app._threemf_source_mtime = 1100.0 if mtime_ok else 10.0
+    for slot in (1, 3):
+        entity = app._tray_entity_by_slot[slot]
+        app._state_map[entity] = "Empty" if slot == empty_slot else "loaded"
+        app._state_map[f"{entity}::tag_uid"] = "0000000000000000"
+        if slot != empty_slot:
+            app._state_map[f"{entity}::color"] = "#000000FF"
+            app._state_map[f"{entity}::type"] = "PLA"
+    # As on 2026-11-24: the app restored the print at the finish, so the matcher looked at every tray, and
+    # two more PLA trays (red, white) made "the only PLA tray" ambiguous.
+    app._rehydrated = True
+    for slot, sid, colour in ((2, "119", "#F72323FF"), (4, "124", "#FFFFFFFF")):
+        entity = app._tray_entity_by_slot[slot]
+        app._state_map[f"input_text.ams_slot_{slot}_spool_id"] = sid
+        app._state_map[entity] = "loaded"
+        app._state_map[f"{entity}::tag_uid"] = "0000000000000000"
+        app._state_map[f"{entity}::color"] = colour
+        app._state_map[f"{entity}::type"] = "PLA"
+    a = spool_a or {"id": 9, "material": "PLA", "color_hex": "000000"}
+    b = spool_b or {"id": 9, "material": "PLA", "color_hex": "000000"}
+    app._spoolman_get_override = lambda path: (
+        {"id": 97, "remaining_weight": 420.0, "filament": a} if path.endswith("/97")
+        else {"id": 98, "remaining_weight": 934.5, "filament": b}
+    )
+    app._summarize_tray_times = lambda: (times if times is not None else {1: 46258.3, 3: 3862.4})
+    app._use_remaining_override = {97: 12.7, 98: 900.6}
+    return app
+
+
+def test_runout_chain_charges_both_spools_when_slicer_colour_matches_no_tray():
+    app = _chain_app()
+    app._do_finish("finish")
+    by_spool = {c["spool_id"]: c["use_weight"] for c in app._use_calls}
+    assert set(by_spool) == {97, 98}, app._use_calls
+    assert abs(by_spool[97] + by_spool[98] - 441.19) < 0.1
+    assert abs(by_spool[97] - 407.19) < 0.5          # 46258 of 50121 s
+    assert abs(by_spool[98] - 34.0) < 0.5
+    assert _has_log(app, "method=runout_chain_force")
+    assert _has_log(app, "RUNOUT_SPLIT_DETECTED")
+
+
+@pytest.mark.parametrize("kwargs,reason", [
+    ({"spool_b": {"id": 55, "material": "PLA", "color_hex": "F72323"}}, "spools_are_not_the_same_filament"),
+    ({"spool_b": {"id": 23, "material": "PETG", "color_hex": "000000"}}, "material_differs_slot_3"),
+    ({"times": {1: 46258.3}}, "a_tray_was_never_active"),
+    ({"mtime_ok": False}, "stale_3mf"),
+    ({"empty_slot": 0}, "need_one_empty_one_loaded"),
+])
+def test_runout_chain_fails_closed(kwargs, reason):
+    app = _chain_app(**kwargs)
+    assert app._match_runout_chain({}) == {}
+    assert _has_log(app, f"RUNOUT_CHAIN_SKIP reason={reason}")
+
+
+def test_runout_chain_accepts_twin_spools_of_two_filament_records_by_colour():
+    app = _chain_app(spool_a={"id": 9, "material": "PLA", "color_hex": "000000"},
+                     spool_b={"id": 12, "material": "PLA", "color_hex": "050505"})
+    assert app._match_runout_chain({}) == {3: (441.19, "runout_chain_force")}
+
+
+def test_runout_chain_leaves_a_three_tray_print_alone():
+    app = _chain_app()
+    app._trays_used = {1, 2, 3}
+    assert app._match_runout_chain({}) == {}

@@ -29,6 +29,16 @@
 
 ### Fixed
 
+- **A runout + auto-switch print was charged almost nothing when the slicer colour matched no tray (IN-1405).**
+  A one-filament print sliced in one colour and printed with another ran spool A out and finished on its twin B.
+  The app restores the print at the finish, so the 3MF matcher looked at every tray, found several of the same
+  material and matched none; the runout split never ran. A kept its weight and was not marked depleted, and B got
+  only its coarse gauge delta. Now: no 3MF match, one filament, exactly two bound trays used, one Empty and one
+  loaded, both active, both spools the slicer's material and the same filament in Spoolman (same filament id, or
+  colours within `RUNOUT_CHAIN_COLOR_MAX`), and a 3MF from this print -> the filament is pinned to the finishing
+  tray (`runout_chain_force`) and the existing runout split divides the slicer weight by active time. Anything
+  else logs `RUNOUT_CHAIN_SKIP reason=...` and changes nothing.
+
 - **Dry run writes no gauge marks (IN-1175).** With `dry_run` on, a stuck-gauge mark
   (IN-1170) still holds in memory for that run but is no longer saved to
   `gauge_stuck.json`, and clearing one leaves the file alone.
