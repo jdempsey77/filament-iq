@@ -29,6 +29,7 @@
 
 ### Fixed
 
+- **A 3MF match by close colour is rated medium confidence, not low (IN-1108).** `_threemf_confidence` now matches the `close_color_material(dist=N)` prefix the parser emits. Label only: what is charged to a spool is unchanged.
 - **A runout + auto-switch print was charged almost nothing when the slicer colour matched no tray (IN-1405).**
   A one-filament print sliced in one colour and printed with another ran spool A out and finished on its twin B.
   The app restores the print at the finish, so the 3MF matcher looked at every tray, found several of the same

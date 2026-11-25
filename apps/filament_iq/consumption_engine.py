@@ -284,8 +284,10 @@ def _decide_nonrfid(inp: SlotInput) -> SlotDecision:
 def _threemf_confidence(threemf_method: str | None) -> str:
     if threemf_method in ("exact_color_material", "single_filament_force"):
         return "high"
-    if threemf_method in ("close_color_material", "lot_nr_color_material",
-                          "material_only_single"):
+    # The parser emits "close_color_material(dist=N)", so match the prefix.
+    if threemf_method and threemf_method.startswith("close_color_material"):
+        return "medium"
+    if threemf_method in ("lot_nr_color_material", "material_only_single"):
         return "medium"
     return "low"
 
