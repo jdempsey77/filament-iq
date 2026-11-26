@@ -75,7 +75,7 @@ class _App:
         self._threemf_from_disk_restore = False
         self.logs, self.persisted = [], []
 
-    def get_state(self, entity):
+    def get_state(self, entity, attribute=None):
         return self._state.get(entity)
 
     def log(self, msg, level="INFO"):
