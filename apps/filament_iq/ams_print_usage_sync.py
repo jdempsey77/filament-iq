@@ -156,6 +156,35 @@ _INVALID_TAG_UIDS = frozenset({"", "0000000000000000", "unknown", "unavailable"}
 _RUNOUT_SPLIT_METHODS = frozenset({"runout_split", "runout_split_depleted"})
 
 
+WEIGHT_STALE_MARGIN_S = 60
+
+
+def _parse_ha_ts(value):
+    """HA ISO timestamp (or epoch number) -> epoch seconds, or None if unreadable."""
+    if value in (None, "", "unknown", "unavailable"):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        text = str(value).strip().replace("Z", "+00:00")
+        dt = datetime.datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        return dt.timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
+def weight_is_stale(changed_ts, task_seen_ts):
+    """True only when print_weight last changed > 60 s before this job's task was first seen.
+
+    Unknown on either side = not stale (today's behaviour).
+    """
+    if changed_ts is None or task_seen_ts is None:
+        return False
+    return changed_ts < task_seen_ts - WEIGHT_STALE_MARGIN_S
+
+
 class AmsPrintUsageSync(FilamentIQBase):
 
     def initialize(self):
@@ -243,6 +272,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         # Task name the open job was started under. Used to tell a reconnect
         # of the same print from a different print starting over an open job.
         self._job_task_name = ""
+        self._task_seen_ts = None
         self._print_start_time = None
         self._start_snapshot = {}  # {slot_int: grams_float}
         self._start_tray_uuid = {}  # {slot_int: str} tray_uuid at print start
@@ -1251,6 +1281,20 @@ class AmsPrintUsageSync(FilamentIQBase):
             level="INFO",
         )
         self._job_task_name = name
+        self._task_seen_ts = self._task_first_seen_ts()
+
+    def _task_first_seen_ts(self):
+        """When this job's task name was first seen, on Home Assistant's own clock: the task
+        entity's last_changed. Unreadable = None (unknown: the weight is never called stale),
+        so the staleness rule compares two HA timestamps and AppDaemon/HA clock skew can't
+        flip it (IN-1178 review)."""
+        try:
+            full = self.get_state(self._task_name_entity, attribute="all")
+        except Exception:
+            full = None
+        if not isinstance(full, dict):
+            return None
+        return _parse_ha_ts(full.get("last_changed"))
 
     def _is_different_job(self) -> bool:
         """True when the printer is now running a different task than the open job.
@@ -1521,6 +1565,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         task_name = str(self.get_state(self._task_name_entity) or "")
         self._job_key = f"{task_name.replace(' ', '_')}_{int(time.time())}"
         self._job_task_name = task_name.strip()
+        self._task_seen_ts = self._task_first_seen_ts()
         self._start_snapshot = self._build_start_snapshot()
 
         # Write HA helpers (bridge for automation D)
@@ -1617,6 +1662,7 @@ class AmsPrintUsageSync(FilamentIQBase):
         self._start_rfid_slots = set()
         self._job_key = ""
         self._job_task_name = ""
+        self._task_seen_ts = None
         self._threemf_filename = None
         self._threemf_data = None
         self._threemf_source_mtime = 0.0
@@ -1718,6 +1764,8 @@ class AmsPrintUsageSync(FilamentIQBase):
                     self._trays_used = restored["trays_used"]
                 if restored["spool_id_snapshot"]:
                     self._spool_id_snapshot = restored["spool_id_snapshot"]
+                if restored.get("task_seen_ts") is not None and self._task_seen_ts is None:
+                    self._task_seen_ts = restored["task_seen_ts"]
                 if restored.get("print_start_time") is not None:
                     if self._print_start_time is None:
                         self._print_start_time = restored["print_start_time"]
@@ -2377,6 +2425,9 @@ class AmsPrintUsageSync(FilamentIQBase):
                 self._job_task_name = _task
             restored = self._load_active_print(self._job_key)
             if restored is not None:
+                # Rehydrate mid-print (AppDaemon restart): keep the stale-weight anchor (IN-1178).
+                if restored.get("task_seen_ts") is not None and getattr(self, "_task_seen_ts", None) is None:
+                    self._task_seen_ts = restored["task_seen_ts"]
                 self._threemf_data = restored["threemf_data"]
                 self._threemf_source_mtime = 0.0
                 if self._threemf_data is not None:
@@ -2944,14 +2995,39 @@ class AmsPrintUsageSync(FilamentIQBase):
             mw_meta = result.get("mw_meta", {})
             # IN-1159: a file whose total is far from the printer's own weight for this job is
             # not this print's. Drop it, so the finish-time cache lookup can find the right one.
+            # print_weight state and last_changed are read together. Stale = it last changed
+            # more than 60 s before this job's task name was first seen (IN-1178).
+            _pw = self.get_state(self._print_weight_entity, attribute="all")
+            if isinstance(_pw, dict):
+                _pw_raw, _pw_changed = _pw.get("state"), _parse_ha_ts(_pw.get("last_changed"))
+            else:
+                _pw_raw, _pw_changed = _pw, None
             try:
-                print_weight_g = float(self.get_state(self._print_weight_entity) or 0)
+                print_weight_g = float(_pw_raw or 0)
             except (TypeError, ValueError):
                 print_weight_g = 0.0
+            task_seen = getattr(self, "_task_seen_ts", None)
+            weight_stale = weight_is_stale(_pw_changed, task_seen)
+            if weight_stale:
+                self.log(
+                    f"3MF_WEIGHT_STALE print_weight={print_weight_g:g} "
+                    f"changed={_pw_changed:.0f} task_seen={task_seen:.0f}",
+                    level="INFO",
+                )
+                # The task/file-name match stays mandatory: no task name = no proof = discard.
+                if not task_name or not find_best_3mf([best_file], task_name):
+                    self.log(
+                        f"3MF_NAME_MISMATCH file={best_file} task={task_name} "
+                        f"— weight stale and name differs, discarding",
+                        level="WARNING",
+                    )
+                    self._persist_active_print(threemf_unavailable=True)
+                    return
             # Multi-plate file: use only the plate being printed (explicit index, else the
-            # one plate whose weight fits). No unique plate: fall through to today's check.
+            # one plate whose weight fits). Stale weight: explicit index only.
+            plates = result.get("plates") or []
             plate, plate_reason = select_plate(
-                result.get("plates") or [], print_weight_g, result.get("plate_hint")
+                plates, 0 if weight_stale else print_weight_g, result.get("plate_hint")
             )
             if plate is not None and plate["filaments"]:
                 filaments = plate["filaments"]
@@ -2960,9 +3036,21 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"file={best_file} plate_total_g={plate['total_g']:.2f}",
                     level="INFO",
                 )
-            mismatch = slicer_weight_mismatch(
-                sum(f["used_g"] for f in filaments), print_weight_g
-            )
+            if weight_stale:
+                if len(plates) > 1 and plate is None:
+                    self.log(
+                        f"3MF_WEIGHT_MISMATCH file={best_file} task={task_name} "
+                        f"multi-plate, stale weight and no plate hint "
+                        f"— not this print's file, discarding",
+                        level="WARNING",
+                    )
+                    self._persist_active_print(threemf_unavailable=True)
+                    return
+                mismatch = ""
+            else:
+                mismatch = slicer_weight_mismatch(
+                    sum(f["used_g"] for f in filaments), print_weight_g
+                )
             if mismatch:
                 self.log(
                     f"3MF_WEIGHT_MISMATCH file={best_file} task={task_name} {mismatch} "
@@ -3219,6 +3307,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             "job_key": self._job_key,
             "task_name": task_name,
             "print_start_time": getattr(self, "_print_start_time", None),
+            "task_seen_ts": getattr(self, "_task_seen_ts", None),
             "start_snapshot": self._start_snapshot,
             "trays_used": sorted(self._trays_used) if self._trays_used else [],
             "spool_id_snapshot": self._spool_id_snapshot if hasattr(self, "_spool_id_snapshot") else {},
@@ -3267,6 +3356,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                 "trays_used": set(data.get("trays_used", [])),
                 "spool_id_snapshot": {int(k): int(v) for k, v in raw_snapshot.items()},
                 "print_start_time": data.get("print_start_time"),
+                "task_seen_ts": data.get("task_seen_ts"),
             }
             self.log(
                 f"ACTIVE_PRINT_RESTORED job_key={job_key} "
