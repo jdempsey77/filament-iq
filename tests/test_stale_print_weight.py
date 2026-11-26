@@ -107,5 +107,26 @@ def test_task_first_seen_uses_entity_last_changed():
 
     ts = aps.AmsPrintUsageSync._task_first_seen_ts(App())
     assert ts == aps._parse_ha_ts("2026-11-26T08:00:00+00:00")
+    # Unreadable last_changed: unknown (None), never AppDaemon's own clock (skew-proof).
     App.get_state = lambda self, e, attribute=None: "x"
-    assert abs(aps.AmsPrintUsageSync._task_first_seen_ts(App()) - time.time()) < 5
+    assert aps.AmsPrintUsageSync._task_first_seen_ts(App()) is None
+
+
+def test_stale_weight_with_empty_task_name_is_discarded():
+    app = _A("105", SEEN - 3600)
+    _fetch(app, 150.4, task="")
+    assert app._threemf_data is None
+    assert app.persisted == [True]
+
+
+def test_late_task_name_adoption_uses_ha_last_changed():
+    src = open(aps.__file__).read()
+    i = src.find("JOB_TASK_NAME_UPDATED")
+    block = src[i:i + 400]
+    assert "self._task_seen_ts = self._task_first_seen_ts()" in block
+    assert "time.time()" not in block
+
+
+def test_rehydrate_restores_task_seen_ts():
+    src = open(aps.__file__).read()
+    assert src.count('self._task_seen_ts = restored["task_seen_ts"]') >= 2
