@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Multi-plate .gcode.3mf: Tier 1 now uses only the plate being printed (#1273).** The 3MF total used by the
+  `3MF_WEIGHT_MISMATCH` check, the per-filament weights and the slot matching used to be the sum of every plate, so
+  plate 1 of 3 (105 g printed vs 150.4 g in the file) was discarded and its slots recorded nothing.
+  - The plate comes from the `plate_<n>` in the printer's gcode file name when present, else from the one plate whose
+    total is within the existing tolerance of the printer's print_weight. None or several match: discarded as before.
+  - Logged as `PLATE_SELECTED plate=<n> reason=<index|weight>`. Single-plate files are unchanged.
+
 ### Added
 
 - **Bind or unbind a spool to a slot on request (IN-1052 S7a).** For print-ops' slot card (S7b/S7c).

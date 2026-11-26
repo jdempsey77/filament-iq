@@ -46,6 +46,9 @@ try:
         normalize_material,
         parse_3mf_filaments,
         parse_3mf_metadata,
+        parse_3mf_plates,
+        plate_index_from_name,
+        select_plate,
         parse_lot_nr_color,
         parse_slice_info_file,
         slicer_weight_mismatch,
@@ -2750,14 +2753,22 @@ class AmsPrintUsageSync(FilamentIQBase):
                 "ftps_port": self.printer_ftps_port,
                 "method": method,
                 "job_key": self._job_key,
+                "plate_hint": self._plate_hint(),
             },
             daemon=True,
             name=f"3mf-fetch-{attempt}",
         )
         t.start()
 
+    def _plate_hint(self):
+        """Plate number the printer says it is printing (plate_<n> in the gcode path), or None."""
+        try:
+            return plate_index_from_name(self.get_state(self._gcode_file_entity))
+        except Exception:
+            return None
+
     def _fetch_3mf_thread(self, attempt, access_code, task_name,
-                           printer_ip, ftps_port, method, job_key):
+                           printer_ip, ftps_port, method, job_key, plate_hint=None):
         """Background thread: blocking FTPS I/O + parse.
 
         No AppDaemon API calls (get_state, call_service, log) — those are
@@ -2772,6 +2783,8 @@ class AmsPrintUsageSync(FilamentIQBase):
             "found_dir": None,
             "file_count": 0,
             "task_name": task_name,
+            "plate_hint": plate_hint,
+            "plates": [],
             "file_list": [],
             "error": None,
             "timing": {},
@@ -2816,6 +2829,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                         return
 
                     filaments = parse_3mf_filaments(local_path)
+                    result["plates"] = parse_3mf_plates(local_path)
                     result["mw_meta"] = parse_3mf_metadata(local_path)
                     result["threemf_mtime"] = os.path.getmtime(local_path)
                     result["timing"]["parse"] = time.monotonic() - t_download
@@ -2862,6 +2876,7 @@ class AmsPrintUsageSync(FilamentIQBase):
                         return
 
                     filaments = parse_3mf_filaments(local_path)
+                    result["plates"] = parse_3mf_plates(local_path)
                     result["mw_meta"] = parse_3mf_metadata(local_path)
                     result["threemf_mtime"] = os.path.getmtime(local_path)
                     result["timing"]["parse"] = time.monotonic() - t_download
@@ -2933,6 +2948,18 @@ class AmsPrintUsageSync(FilamentIQBase):
                 print_weight_g = float(self.get_state(self._print_weight_entity) or 0)
             except (TypeError, ValueError):
                 print_weight_g = 0.0
+            # Multi-plate file: use only the plate being printed (explicit index, else the
+            # one plate whose weight fits). No unique plate: fall through to today's check.
+            plate, plate_reason = select_plate(
+                result.get("plates") or [], print_weight_g, result.get("plate_hint")
+            )
+            if plate is not None and plate["filaments"]:
+                filaments = plate["filaments"]
+                self.log(
+                    f"PLATE_SELECTED plate={plate['index']} reason={plate_reason} "
+                    f"file={best_file} plate_total_g={plate['total_g']:.2f}",
+                    level="INFO",
+                )
             mismatch = slicer_weight_mismatch(
                 sum(f["used_g"] for f in filaments), print_weight_g
             )

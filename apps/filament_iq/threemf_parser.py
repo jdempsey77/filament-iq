@@ -412,6 +412,30 @@ def slicer_weight_mismatch(total_g, print_weight_g):
     return ""
 
 
+def _filament_from_elem(elem, default_idx):
+    """One <filament> element -> filament dict (raises ValueError/TypeError if malformed)."""
+    return {
+        "index": int(elem.get("id", default_idx)),
+        "used_g": float(elem.get("used_g", 0)),
+        "used_m": float(elem.get("used_m", 0)),
+        "color_hex": normalize_color(elem.get("color", "")),
+        "material": normalize_material(elem.get("type", "")),
+        "tray_info_idx": elem.get("tray_info_idx", ""),
+    }
+
+
+def _parse_filament_elems(elems) -> list:
+    filaments = []
+    for elem in elems:
+        try:
+            filaments.append(_filament_from_elem(elem, len(filaments)))
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Skipping malformed filament element: {e}")
+            continue
+    filaments.sort(key=lambda f: f["index"])
+    return filaments
+
+
 def _parse_slice_info_xml(xml_content: bytes) -> list:
     """Parse slice_info.config XML bytes into a list of filament dicts.
 
@@ -421,35 +445,99 @@ def _parse_slice_info_xml(xml_content: bytes) -> list:
          "material": "pla", "tray_info_idx": "0"},
         ...
     ]
+    All <filament> rows of every plate are returned (for a multi-plate file that is the
+    sum of all plates; use parse_3mf_plates / select_plate for one plate).
     """
     root = ET.fromstring(xml_content)
+    return _parse_filament_elems(root.iter("filament"))
 
-    filaments = []
-    for elem in root.iter("filament"):
-        try:
-            idx = int(elem.get("id", len(filaments)))
-            used_g = float(elem.get("used_g", 0))
-            used_m = float(elem.get("used_m", 0))
-            color = normalize_color(elem.get("color", ""))
-            material = normalize_material(elem.get("type", ""))
-            tray_idx = elem.get("tray_info_idx", "")
 
-            filaments.append(
-                {
-                    "index": idx,
-                    "used_g": used_g,
-                    "used_m": used_m,
-                    "color_hex": color,
-                    "material": material,
-                    "tray_info_idx": tray_idx,
-                }
-            )
-        except (ValueError, TypeError) as e:
-            logger.warning(f"Skipping malformed filament element: {e}")
-            continue
+def _parse_plates_xml(xml_content: bytes) -> list:
+    """Per-plate data from slice_info.config.
 
-    filaments.sort(key=lambda f: f["index"])
-    return filaments
+    Returns [{"index": 1, "total_g": 105.0, "filaments": [filament dicts as above]}, ...]
+    sorted by plate index. A <plate> without a metadata index gets its position (1-based).
+    """
+    root = ET.fromstring(xml_content)
+    plates = []
+    for pos, plate in enumerate(root.iter("plate"), start=1):
+        idx = pos
+        for md in plate.findall("metadata"):
+            if md.get("key") == "index":
+                try:
+                    idx = int(md.get("value"))
+                except (TypeError, ValueError):
+                    pass
+        filaments = _parse_filament_elems(plate.iter("filament"))
+        plates.append({
+            "index": idx,
+            "total_g": sum(f["used_g"] for f in filaments),
+            "filaments": filaments,
+        })
+    plates.sort(key=lambda p: p["index"])
+    return plates
+
+
+def _read_slice_info(local_path):
+    with zipfile.ZipFile(local_path, "r") as zf:
+        names = zf.namelist()
+        config_path = None
+        for candidate in ("Metadata/slice_info.config", "Metadata/Slice_info.config"):
+            if candidate in names:
+                config_path = candidate
+                break
+        if config_path is None:
+            for name in names:
+                if "slice_info" in name.lower() and name.endswith(".config"):
+                    config_path = name
+                    break
+        if config_path is None:
+            return None
+        with zf.open(config_path) as f:
+            return f.read()
+
+
+def parse_3mf_plates(local_path):
+    """Per-plate data of a 3MF: [{index, total_g, filaments:[...]}]. [] on any error."""
+    try:
+        xml_content = _read_slice_info(local_path)
+        if xml_content is None:
+            return []
+        return _parse_plates_xml(xml_content)
+    except (zipfile.BadZipFile, ET.ParseError, OSError) as e:
+        logger.error(f"Failed to parse 3MF plates {local_path}: {e}")
+        return []
+
+
+def plate_index_from_name(text):
+    """Plate number from a path/name like 'Metadata/plate_2.gcode', else None."""
+    m = re.search(r"plate_(\d+)", str(text or ""), re.IGNORECASE)
+    return int(m.group(1)) if m else None
+
+
+def select_plate(plates, print_weight_g, plate_hint=None):
+    """Pick the plate being printed from a multi-plate 3MF.
+
+    Returns (plate, reason). reason is "index" (plate_hint matches a plate), "weight"
+    (exactly one plate's total is within slicer_weight_mismatch tolerance of the printer's
+    print_weight), "single" (<=1 plate: caller keeps today's behaviour, plate is None) or
+    "none" (no/ambiguous match: plate is None, caller keeps today's discard behaviour).
+    """
+    if len(plates) <= 1:
+        return None, "single"
+    if plate_hint is not None:
+        for p in plates:
+            if p["index"] == plate_hint:
+                return p, "index"
+    try:
+        if float(print_weight_g) <= 0:
+            return None, "none"
+    except (TypeError, ValueError):
+        return None, "none"
+    close = [p for p in plates if not slicer_weight_mismatch(p["total_g"], print_weight_g)]
+    if len(close) == 1:
+        return close[0], "weight"
+    return None, "none"
 
 
 def parse_slice_info_file(path: str) -> list:
