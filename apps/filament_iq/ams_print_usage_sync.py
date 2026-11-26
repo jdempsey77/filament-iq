@@ -1281,20 +1281,20 @@ class AmsPrintUsageSync(FilamentIQBase):
             level="INFO",
         )
         self._job_task_name = name
-        self._task_seen_ts = time.time()
+        self._task_seen_ts = self._task_first_seen_ts()
 
     def _task_first_seen_ts(self):
-        """When this job's task name was first seen: the task entity's last_changed when it
-        is readable and not in the future, else now."""
-        now = time.time()
+        """When this job's task name was first seen, on Home Assistant's own clock: the task
+        entity's last_changed. Unreadable = None (unknown: the weight is never called stale),
+        so the staleness rule compares two HA timestamps and AppDaemon/HA clock skew can't
+        flip it (IN-1178 review)."""
         try:
             full = self.get_state(self._task_name_entity, attribute="all")
         except Exception:
             full = None
-        changed = _parse_ha_ts(full.get("last_changed")) if isinstance(full, dict) else None
-        if changed is not None and changed <= now:
-            return changed
-        return now
+        if not isinstance(full, dict):
+            return None
+        return _parse_ha_ts(full.get("last_changed"))
 
     def _is_different_job(self) -> bool:
         """True when the printer is now running a different task than the open job.
@@ -2425,6 +2425,9 @@ class AmsPrintUsageSync(FilamentIQBase):
                 self._job_task_name = _task
             restored = self._load_active_print(self._job_key)
             if restored is not None:
+                # Rehydrate mid-print (AppDaemon restart): keep the stale-weight anchor (IN-1178).
+                if restored.get("task_seen_ts") is not None and getattr(self, "_task_seen_ts", None) is None:
+                    self._task_seen_ts = restored["task_seen_ts"]
                 self._threemf_data = restored["threemf_data"]
                 self._threemf_source_mtime = 0.0
                 if self._threemf_data is not None:
@@ -3011,8 +3014,8 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"changed={_pw_changed:.0f} task_seen={task_seen:.0f}",
                     level="INFO",
                 )
-                # The task/file-name match stays mandatory.
-                if task_name and not find_best_3mf([best_file], task_name):
+                # The task/file-name match stays mandatory: no task name = no proof = discard.
+                if not task_name or not find_best_3mf([best_file], task_name):
                     self.log(
                         f"3MF_NAME_MISMATCH file={best_file} task={task_name} "
                         f"— weight stale and name differs, discarding",
