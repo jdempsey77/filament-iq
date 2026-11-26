@@ -156,6 +156,49 @@ _INVALID_TAG_UIDS = frozenset({"", "0000000000000000", "unknown", "unavailable"}
 _RUNOUT_SPLIT_METHODS = frozenset({"runout_split", "runout_split_depleted"})
 
 
+
+def read_print_weight_for_3mf(app):
+    """(print_weight_g, stale). A print_weight last changed before this print started
+    is left over from an earlier print: report it as unknown (0.0) and log 3MF_WEIGHT_STALE."""
+    try:
+        raw = app.get_state(app._print_weight_entity, attribute="all")
+    except TypeError:
+        raw = app.get_state(app._print_weight_entity)
+    changed = None
+    if isinstance(raw, dict):
+        changed = raw.get("last_changed")
+        raw = raw.get("state")
+    try:
+        weight = float(raw or 0)
+    except (TypeError, ValueError):
+        return 0.0, False
+    start = getattr(app, "_print_start_time", None)
+    if weight <= 0 or changed is None or start is None:
+        return weight, False
+    try:
+        if isinstance(changed, (int, float)):
+            changed_ts = float(changed)
+        else:
+            dt = datetime.datetime.fromisoformat(str(changed).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=datetime.timezone.utc)
+            changed_ts = dt.timestamp()
+    except (TypeError, ValueError):
+        return weight, False
+    if changed_ts >= start:
+        return weight, False
+
+    def _fmt(ts):
+        return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).isoformat()
+
+    app.log(
+        f"3MF_WEIGHT_STALE print_weight={weight:.1f} changed={_fmt(changed_ts)} "
+        f"print_start={_fmt(start)} - using 3MF",
+        level="WARNING",
+    )
+    return 0.0, True
+
+
 class AmsPrintUsageSync(FilamentIQBase):
 
     def initialize(self):
@@ -2944,10 +2987,7 @@ class AmsPrintUsageSync(FilamentIQBase):
             mw_meta = result.get("mw_meta", {})
             # IN-1159: a file whose total is far from the printer's own weight for this job is
             # not this print's. Drop it, so the finish-time cache lookup can find the right one.
-            try:
-                print_weight_g = float(self.get_state(self._print_weight_entity) or 0)
-            except (TypeError, ValueError):
-                print_weight_g = 0.0
+            print_weight_g, weight_stale = read_print_weight_for_3mf(self)
             # Multi-plate file: use only the plate being printed (explicit index, else the
             # one plate whose weight fits). No unique plate: fall through to today's check.
             plate, plate_reason = select_plate(
@@ -2960,6 +3000,16 @@ class AmsPrintUsageSync(FilamentIQBase):
                     f"file={best_file} plate_total_g={plate['total_g']:.2f}",
                     level="INFO",
                 )
+            if weight_stale and plate is None and len(result.get("plates") or []) > 1:
+                # Stale weight can't pick a plate and there is no plate_hint: keep today's discard.
+                self.log(
+                    f"3MF_WEIGHT_MISMATCH file={best_file} task={task_name} "
+                    f"multi-plate file, no plate_hint and print_weight is stale "
+                    f"— no unique plate, discarding",
+                    level="WARNING",
+                )
+                self._persist_active_print(threemf_unavailable=True)
+                return
             mismatch = slicer_weight_mismatch(
                 sum(f["used_g"] for f in filaments), print_weight_g
             )
