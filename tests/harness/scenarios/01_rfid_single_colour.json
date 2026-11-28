@@ -1,0 +1,15 @@
+{
+ "id": "01_rfid_single_colour",
+ "title": "RFID single colour",
+ "notes": "One RFID spool, gauge 85% -> 81% (40 g); the slicer agrees (41 g). RFID delta wins; reconcile finds a match.",
+ "slots": [
+  {"slot": 1, "spool_id": 10, "rfid": true, "material": "PLA", "color": "FF0000", "filament_id": "GFA00", "filament_db_id": 101, "remain": 85}
+ ],
+ "timeline": [
+  {"t": 0, "event": "print_start", "task": "fake_single_rfid", "active_slot": 1, "threemf": [{"used_g": 41.0, "used_m": 13.67, "color": "FF0000", "material": "PLA", "filament_id": "GFA00"}]},
+  {"t": 1200, "event": "rfid", "slot": 1, "remain": 83},
+  {"t": 2400, "event": "rfid", "slot": 1, "remain": 81},
+  {"t": 3600, "event": "end", "status": "finish"}
+ ],
+ "expect": {"charged": {"10": 40.0}, "remaining_g": {"10": 810.0}, "methods": {"10": "rfid_delta"}, "not_emptied": [10], "alerts": [], "tolerance_g": 1.0}
+}
