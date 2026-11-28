@@ -1,0 +1,55 @@
+{
+ "id": "13_external_spool",
+ "title": "External spool (slot 8)",
+ "notes": "A non-RFID spool on the external holder (active tray ams_index 255). Slicer: 25 g.",
+ "slots": [
+  {
+   "slot": 8,
+   "spool_id": 30,
+   "rfid": false,
+   "material": "PLA",
+   "color": "00FF00",
+   "filament_id": "GFL97",
+   "filament_db_id": 105,
+   "spoolman_remaining_g": 500
+  }
+ ],
+ "timeline": [
+  {
+   "t": 0,
+   "event": "print_start",
+   "task": "fake_external",
+   "active_slot": 8,
+   "threemf": [
+    {
+     "used_g": 25.0,
+     "used_m": 8.33,
+     "color": "00FF00",
+     "material": "PLA",
+     "filament_id": "GFL97"
+    }
+   ]
+  },
+  {
+   "t": 1800,
+   "event": "end",
+   "status": "finish"
+  }
+ ],
+ "expect": {
+  "charged": {
+   "30": 25.0
+  },
+  "remaining_g": {
+   "30": 475.0
+  },
+  "methods": {
+   "30": "3mf"
+  },
+  "not_emptied": [
+   30
+  ],
+  "alerts": [],
+  "tolerance_g": 0.5
+ }
+}

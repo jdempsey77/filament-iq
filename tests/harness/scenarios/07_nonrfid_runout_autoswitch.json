@@ -1,0 +1,75 @@
+{
+ "id": "07_nonrfid_runout_autoswitch",
+ "title": "Non-RFID spool runs out, auto-switch to a second spool of the same filament",
+ "notes": "Spool 20 has 25 g and feeds the first 25% of a 100 g print, runs out; spool 21 (same filament) finishes it. Spool 20 must end at 0 g and Empty, spool 21 charged 75 g. Near-black 1A1A1A here; pure black is 07b. Runout model: the AMS reports the ran-out tray Empty with tag_uid/tray_uuid zeros and colour #00000000 (to confirm from a real runout); the active tray reads none while it switches.",
+ "slots": [
+  {
+   "slot": 3,
+   "spool_id": 20,
+   "rfid": false,
+   "material": "PLA",
+   "color": "1A1A1A",
+   "filament_id": "GFL99",
+   "filament_db_id": 103,
+   "spoolman_remaining_g": 25
+  },
+  {
+   "slot": 4,
+   "spool_id": 21,
+   "rfid": false,
+   "material": "PLA",
+   "color": "1A1A1A",
+   "filament_id": "GFL99",
+   "filament_db_id": 103,
+   "spoolman_remaining_g": 1000
+  }
+ ],
+ "timeline": [
+  {
+   "t": 0,
+   "event": "print_start",
+   "task": "fake_nonrfid_runout",
+   "active_slot": 3,
+   "threemf": [
+    {
+     "used_g": 100.0,
+     "used_m": 33.33,
+     "color": "1A1A1A",
+     "material": "PLA",
+     "filament_id": "GFL99"
+    }
+   ]
+  },
+  {
+   "t": 900,
+   "event": "runout",
+   "slot": 3,
+   "to": 4
+  },
+  {
+   "t": 3600,
+   "event": "end",
+   "status": "finish"
+  }
+ ],
+ "expect": {
+  "charged": {
+   "20": 25.0,
+   "21": 75.0
+  },
+  "remaining_g": {
+   "20": 0.0,
+   "21": 925.0
+  },
+  "emptied": [
+   20
+  ],
+  "not_emptied": [
+   21
+  ],
+  "alerts": [
+   "spool depleted"
+  ],
+  "tolerance_g": 2.0
+ }
+}

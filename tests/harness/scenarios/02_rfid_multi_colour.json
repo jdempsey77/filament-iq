@@ -1,0 +1,125 @@
+{
+ "id": "02_rfid_multi_colour",
+ "title": "RFID multi colour",
+ "notes": "Two RFID spools, colours alternate. Red 85% -> 83% (20 g), white 60% -> 55% (50 g).",
+ "slots": [
+  {
+   "slot": 1,
+   "spool_id": 10,
+   "rfid": true,
+   "material": "PLA",
+   "color": "FF0000",
+   "filament_id": "GFA00",
+   "filament_db_id": 101,
+   "remain": 85
+  },
+  {
+   "slot": 2,
+   "spool_id": 11,
+   "rfid": true,
+   "material": "PLA",
+   "color": "FFFFFF",
+   "filament_id": "GFA01",
+   "filament_db_id": 102,
+   "remain": 60
+  }
+ ],
+ "timeline": [
+  {
+   "t": 0,
+   "event": "print_start",
+   "task": "fake_multi_rfid",
+   "active_slot": 1,
+   "threemf": [
+    {
+     "used_g": 19.6,
+     "used_m": 6.53,
+     "color": "FF0000",
+     "material": "PLA",
+     "filament_id": "GFA00"
+    },
+    {
+     "used_g": 50.8,
+     "used_m": 16.93,
+     "color": "FFFFFF",
+     "material": "PLA",
+     "filament_id": "GFA01"
+    }
+   ]
+  },
+  {
+   "t": 300,
+   "event": "active_slot",
+   "slot": 2
+  },
+  {
+   "t": 900,
+   "event": "active_slot",
+   "slot": 1
+  },
+  {
+   "t": 1000,
+   "event": "rfid",
+   "slot": 1,
+   "remain": 84
+  },
+  {
+   "t": 1500,
+   "event": "active_slot",
+   "slot": 2
+  },
+  {
+   "t": 1800,
+   "event": "rfid",
+   "slot": 2,
+   "remain": 57
+  },
+  {
+   "t": 2000,
+   "event": "active_slot",
+   "slot": 1
+  },
+  {
+   "t": 2100,
+   "event": "rfid",
+   "slot": 1,
+   "remain": 83
+  },
+  {
+   "t": 2400,
+   "event": "active_slot",
+   "slot": 2
+  },
+  {
+   "t": 3000,
+   "event": "rfid",
+   "slot": 2,
+   "remain": 55
+  },
+  {
+   "t": 3600,
+   "event": "end",
+   "status": "finish"
+  }
+ ],
+ "expect": {
+  "charged": {
+   "10": 20.0,
+   "11": 50.0
+  },
+  "remaining_g": {
+   "10": 830.0,
+   "11": 550.0
+  },
+  "methods": {
+   "10": "rfid_delta",
+   "11": "rfid_delta"
+  },
+  "not_emptied": [
+   10,
+   11
+  ],
+  "alerts": [],
+  "tolerance_g": 1.0
+ }
+}

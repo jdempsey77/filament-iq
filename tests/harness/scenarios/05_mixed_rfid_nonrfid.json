@@ -1,0 +1,108 @@
+{
+ "id": "05_mixed_rfid_nonrfid",
+ "title": "Mixed RFID and non-RFID",
+ "notes": "RFID red 85% -> 82% (30 g, slicer 29.4); non-RFID black 15 g from the slicer.",
+ "slots": [
+  {
+   "slot": 1,
+   "spool_id": 10,
+   "rfid": true,
+   "material": "PLA",
+   "color": "FF0000",
+   "filament_id": "GFA00",
+   "filament_db_id": 101,
+   "remain": 85
+  },
+  {
+   "slot": 3,
+   "spool_id": 20,
+   "rfid": false,
+   "material": "PLA",
+   "color": "1A1A1A",
+   "filament_id": "GFL99",
+   "filament_db_id": 103,
+   "spoolman_remaining_g": 700
+  }
+ ],
+ "timeline": [
+  {
+   "t": 0,
+   "event": "print_start",
+   "task": "fake_mixed",
+   "active_slot": 1,
+   "threemf": [
+    {
+     "used_g": 29.4,
+     "used_m": 9.8,
+     "color": "FF0000",
+     "material": "PLA",
+     "filament_id": "GFA00"
+    },
+    {
+     "used_g": 15.0,
+     "used_m": 5.0,
+     "color": "1A1A1A",
+     "material": "PLA",
+     "filament_id": "GFL99"
+    }
+   ]
+  },
+  {
+   "t": 600,
+   "event": "active_slot",
+   "slot": 3
+  },
+  {
+   "t": 1200,
+   "event": "active_slot",
+   "slot": 1
+  },
+  {
+   "t": 1500,
+   "event": "rfid",
+   "slot": 1,
+   "remain": 83
+  },
+  {
+   "t": 2400,
+   "event": "active_slot",
+   "slot": 3
+  },
+  {
+   "t": 2700,
+   "event": "active_slot",
+   "slot": 1
+  },
+  {
+   "t": 3200,
+   "event": "rfid",
+   "slot": 1,
+   "remain": 82
+  },
+  {
+   "t": 3600,
+   "event": "end",
+   "status": "finish"
+  }
+ ],
+ "expect": {
+  "charged": {
+   "10": 30.0,
+   "20": 15.0
+  },
+  "remaining_g": {
+   "10": 820.0,
+   "20": 685.0
+  },
+  "methods": {
+   "10": "rfid_delta",
+   "20": "3mf"
+  },
+  "not_emptied": [
+   10,
+   20
+  ],
+  "alerts": [],
+  "tolerance_g": 1.0
+ }
+}

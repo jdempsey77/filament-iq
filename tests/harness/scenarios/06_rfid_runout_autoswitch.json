@@ -1,0 +1,109 @@
+{
+ "id": "06_rfid_runout_autoswitch",
+ "title": "RFID spool runs out, auto-switch to a second spool of the same filament",
+ "notes": "Spool 10 has 30 g (3%); it feeds the first 30% of the print and runs out, the AMS switches to spool 11 (same filament) which uses 70 g (100% -> 93%). Slicer: 100 g. Spool 10 must end at 0 g and location Empty; spool 11 charged its own 70 g; no alert. Runout model: the AMS reports the ran-out tray Empty with tag_uid/tray_uuid zeros and colour #00000000 (to confirm from a real runout); the active tray reads none while it switches.",
+ "slots": [
+  {
+   "slot": 1,
+   "spool_id": 10,
+   "rfid": true,
+   "material": "PLA",
+   "color": "FFFFFF",
+   "filament_id": "GFA01",
+   "filament_db_id": 102,
+   "remain": 3
+  },
+  {
+   "slot": 2,
+   "spool_id": 11,
+   "rfid": true,
+   "material": "PLA",
+   "color": "FFFFFF",
+   "filament_id": "GFA01",
+   "filament_db_id": 102,
+   "remain": 100
+  }
+ ],
+ "timeline": [
+  {
+   "t": 0,
+   "event": "print_start",
+   "task": "fake_rfid_runout",
+   "active_slot": 1,
+   "threemf": [
+    {
+     "used_g": 100.0,
+     "used_m": 33.33,
+     "color": "FFFFFF",
+     "material": "PLA",
+     "filament_id": "GFA01"
+    }
+   ]
+  },
+  {
+   "t": 500,
+   "event": "rfid",
+   "slot": 1,
+   "remain": 2
+  },
+  {
+   "t": 900,
+   "event": "rfid",
+   "slot": 1,
+   "remain": 1
+  },
+  {
+   "t": 1080,
+   "event": "runout",
+   "slot": 1,
+   "to": 2
+  },
+  {
+   "t": 2000,
+   "event": "rfid",
+   "slot": 2,
+   "remain": 97
+  },
+  {
+   "t": 3000,
+   "event": "rfid",
+   "slot": 2,
+   "remain": 95
+  },
+  {
+   "t": 3590,
+   "event": "rfid",
+   "slot": 2,
+   "remain": 93
+  },
+  {
+   "t": 3600,
+   "event": "end",
+   "status": "finish"
+  }
+ ],
+ "expect": {
+  "charged": {
+   "10": 30.0,
+   "11": 70.0
+  },
+  "remaining_g": {
+   "10": 0.0,
+   "11": 930.0
+  },
+  "emptied": [
+   10
+  ],
+  "not_emptied": [
+   11
+  ],
+  "alerts": [
+   "spool depleted"
+  ],
+  "tolerance_g": 2.0
+ },
+ "xfail": {
+  "reason": "an all-zero tray_uuid after the runout reads as a spool swap: spool never set Empty, no depletion alert",
+  "in": "IN-1496"
+ }
+}

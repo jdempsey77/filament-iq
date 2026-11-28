@@ -1,0 +1,106 @@
+{
+ "id": "06b_rfid_runout_tag_kept",
+ "title": "RFID runout, the AMS keeps the tag on the ran-out tray",
+ "notes": "As 06, but the ran-out tray keeps its tag_uid/tray_uuid (the other possible AMS behaviour).",
+ "slots": [
+  {
+   "slot": 1,
+   "spool_id": 10,
+   "rfid": true,
+   "material": "PLA",
+   "color": "FFFFFF",
+   "filament_id": "GFA01",
+   "filament_db_id": 102,
+   "remain": 3
+  },
+  {
+   "slot": 2,
+   "spool_id": 11,
+   "rfid": true,
+   "material": "PLA",
+   "color": "FFFFFF",
+   "filament_id": "GFA01",
+   "filament_db_id": 102,
+   "remain": 100
+  }
+ ],
+ "timeline": [
+  {
+   "t": 0,
+   "event": "print_start",
+   "task": "fake_rfid_runout",
+   "active_slot": 1,
+   "threemf": [
+    {
+     "used_g": 100.0,
+     "used_m": 33.33,
+     "color": "FFFFFF",
+     "material": "PLA",
+     "filament_id": "GFA01"
+    }
+   ]
+  },
+  {
+   "t": 500,
+   "event": "rfid",
+   "slot": 1,
+   "remain": 2
+  },
+  {
+   "t": 900,
+   "event": "rfid",
+   "slot": 1,
+   "remain": 1
+  },
+  {
+   "t": 1080,
+   "event": "runout",
+   "slot": 1,
+   "to": 2,
+   "keep_tag": true
+  },
+  {
+   "t": 2000,
+   "event": "rfid",
+   "slot": 2,
+   "remain": 97
+  },
+  {
+   "t": 3000,
+   "event": "rfid",
+   "slot": 2,
+   "remain": 95
+  },
+  {
+   "t": 3590,
+   "event": "rfid",
+   "slot": 2,
+   "remain": 93
+  },
+  {
+   "t": 3600,
+   "event": "end",
+   "status": "finish"
+  }
+ ],
+ "expect": {
+  "charged": {
+   "10": 30.0,
+   "11": 70.0
+  },
+  "remaining_g": {
+   "10": 0.0,
+   "11": 930.0
+  },
+  "emptied": [
+   10
+  ],
+  "not_emptied": [
+   11
+  ],
+  "alerts": [
+   "spool depleted"
+  ],
+  "tolerance_g": 2.0
+ }
+}

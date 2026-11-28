@@ -1,0 +1,91 @@
+{
+ "id": "04_nonrfid_multi_colour",
+ "title": "Non-RFID multi colour",
+ "notes": "Jerry's list repeated #2 here; read as non-RFID multi colour. Two non-RFID spools, colours alternate.",
+ "slots": [
+  {
+   "slot": 3,
+   "spool_id": 20,
+   "rfid": false,
+   "material": "PLA",
+   "color": "1A1A1A",
+   "filament_id": "GFL99",
+   "filament_db_id": 103,
+   "spoolman_remaining_g": 700
+  },
+  {
+   "slot": 4,
+   "spool_id": 21,
+   "rfid": false,
+   "material": "PLA",
+   "color": "0000FF",
+   "filament_id": "GFL98",
+   "filament_db_id": 104,
+   "spoolman_remaining_g": 400
+  }
+ ],
+ "timeline": [
+  {
+   "t": 0,
+   "event": "print_start",
+   "task": "fake_multi_nonrfid",
+   "active_slot": 3,
+   "threemf": [
+    {
+     "used_g": 22.5,
+     "used_m": 7.5,
+     "color": "1A1A1A",
+     "material": "PLA",
+     "filament_id": "GFL99"
+    },
+    {
+     "used_g": 12.1,
+     "used_m": 4.03,
+     "color": "0000FF",
+     "material": "PLA",
+     "filament_id": "GFL98"
+    }
+   ]
+  },
+  {
+   "t": 600,
+   "event": "active_slot",
+   "slot": 4
+  },
+  {
+   "t": 1200,
+   "event": "active_slot",
+   "slot": 3
+  },
+  {
+   "t": 1800,
+   "event": "active_slot",
+   "slot": 4
+  },
+  {
+   "t": 2400,
+   "event": "end",
+   "status": "finish"
+  }
+ ],
+ "expect": {
+  "charged": {
+   "20": 22.5,
+   "21": 12.1
+  },
+  "remaining_g": {
+   "20": 677.5,
+   "21": 387.9
+  },
+  "methods": {
+   "20": "3mf",
+   "21": "3mf"
+  },
+  "not_emptied": [
+   20,
+   21
+  ],
+  "alerts": [],
+  "tolerance_g": 0.5
+ }
+}

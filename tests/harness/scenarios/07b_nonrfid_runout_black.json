@@ -1,0 +1,79 @@
+{
+ "id": "07b_nonrfid_runout_black",
+ "title": "Non-RFID BLACK spool runs out, auto-switch to a second black spool",
+ "notes": "As 07 with pure black (000000) filament. The ran-out tray's colour #00000000 is also black, so the matcher can pick the empty tray. Runout model: the AMS reports the ran-out tray Empty with tag_uid/tray_uuid zeros and colour #00000000 (to confirm from a real runout); the active tray reads none while it switches.",
+ "slots": [
+  {
+   "slot": 3,
+   "spool_id": 20,
+   "rfid": false,
+   "material": "PLA",
+   "color": "000000",
+   "filament_id": "GFL96",
+   "filament_db_id": 107,
+   "spoolman_remaining_g": 25
+  },
+  {
+   "slot": 4,
+   "spool_id": 21,
+   "rfid": false,
+   "material": "PLA",
+   "color": "000000",
+   "filament_id": "GFL96",
+   "filament_db_id": 107,
+   "spoolman_remaining_g": 1000
+  }
+ ],
+ "timeline": [
+  {
+   "t": 0,
+   "event": "print_start",
+   "task": "fake_nonrfid_runout_black",
+   "active_slot": 3,
+   "threemf": [
+    {
+     "used_g": 100.0,
+     "used_m": 33.33,
+     "color": "000000",
+     "material": "PLA",
+     "filament_id": "GFL96"
+    }
+   ]
+  },
+  {
+   "t": 900,
+   "event": "runout",
+   "slot": 3,
+   "to": 4
+  },
+  {
+   "t": 3600,
+   "event": "end",
+   "status": "finish"
+  }
+ ],
+ "expect": {
+  "charged": {
+   "20": 25.0,
+   "21": 75.0
+  },
+  "remaining_g": {
+   "20": 0.0,
+   "21": 925.0
+  },
+  "emptied": [
+   20
+  ],
+  "not_emptied": [
+   21
+  ],
+  "alerts": [
+   "spool depleted"
+  ],
+  "tolerance_g": 2.0
+ },
+ "xfail": {
+  "reason": "the 3MF matches the EMPTY black tray: it is charged the whole print (-75 g), the live spool 0 g, and 'Consumption Not Recorded' fires",
+  "in": "IN-1497"
+ }
+}

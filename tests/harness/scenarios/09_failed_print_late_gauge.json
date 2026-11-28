@@ -1,0 +1,118 @@
+{
+ "id": "09_failed_print_late_gauge",
+ "title": "Failed print, RFID delta 0 at its end, gauge drops during the next print (prints 57/58)",
+ "notes": "Real data 11-27/28, spool 98: print 57 failed at 80% (its slicer 139.25 g, so ~111.4 g used); the gauge did not move until print 58 was running, so 58's delta took both prints (440 g) while its 3MF says 328.6 g. Each print must get its own grams. IN-1493.",
+ "slots": [
+  {
+   "slot": 1,
+   "spool_id": 98,
+   "rfid": true,
+   "material": "PLA",
+   "color": "FFFFFF",
+   "filament_id": "GFA01",
+   "filament_db_id": 102,
+   "remain": 85
+  }
+ ],
+ "timeline": [
+  {
+   "t": 0,
+   "event": "print_start",
+   "label": "57",
+   "task": "fake_tape_bin_a",
+   "active_slot": 1,
+   "threemf": [
+    {
+     "used_g": 139.25,
+     "used_m": 46.42,
+     "color": "FFFFFF",
+     "material": "PLA",
+     "filament_id": "GFA01"
+    }
+   ]
+  },
+  {
+   "t": 1500,
+   "event": "progress",
+   "pct": 40
+  },
+  {
+   "t": 2900,
+   "event": "progress",
+   "pct": 80
+  },
+  {
+   "t": 3000,
+   "event": "end",
+   "status": "failed"
+  },
+  {
+   "t": 3100,
+   "event": "idle"
+  },
+  {
+   "t": 3600,
+   "event": "print_start",
+   "label": "58",
+   "task": "fake_tape_bin_b",
+   "active_slot": 1,
+   "threemf": [
+    {
+     "used_g": 328.6,
+     "used_m": 109.53,
+     "color": "FFFFFF",
+     "material": "PLA",
+     "filament_id": "GFA01"
+    }
+   ]
+  },
+  {
+   "t": 3700,
+   "event": "rfid",
+   "slot": 1,
+   "remain": 74
+  },
+  {
+   "t": 6000,
+   "event": "rfid",
+   "slot": 1,
+   "remain": 55
+  },
+  {
+   "t": 8900,
+   "event": "rfid",
+   "slot": 1,
+   "remain": 41
+  },
+  {
+   "t": 9000,
+   "event": "end",
+   "status": "finish"
+  }
+ ],
+ "expect": {
+  "per_print": {
+   "57": {
+    "98": 111.4
+   },
+   "58": {
+    "98": 328.6
+   }
+  },
+  "charged": {
+   "98": 440.0
+  },
+  "remaining_g": {
+   "98": 410.0
+  },
+  "not_emptied": [
+   98
+  ],
+  "alerts": [],
+  "tolerance_g": 3.0
+ },
+ "xfail": {
+  "reason": "failed print with a zero RFID delta is charged 0 g; the next print's delta takes both",
+  "in": "IN-1493"
+ }
+}
