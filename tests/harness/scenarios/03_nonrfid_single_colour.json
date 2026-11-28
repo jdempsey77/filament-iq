@@ -1,0 +1,13 @@
+{
+ "id": "03_nonrfid_single_colour",
+ "title": "Non-RFID single colour",
+ "notes": "One non-RFID spool; only the slicer knows the grams.",
+ "slots": [
+  {"slot": 3, "spool_id": 20, "rfid": false, "material": "PETG", "color": "000000", "filament_id": "GFG99", "filament_db_id": 106, "spoolman_remaining_g": 700}
+ ],
+ "timeline": [
+  {"t": 0, "event": "print_start", "task": "fake_single_nonrfid", "active_slot": 3, "threemf": [{"used_g": 35.2, "used_m": 11.73, "color": "000000", "material": "PETG", "filament_id": "GFG99"}]},
+  {"t": 2400, "event": "end", "status": "finish"}
+ ],
+ "expect": {"charged": {"20": 35.2}, "remaining_g": {"20": 664.8}, "methods": {"20": "3mf"}, "not_emptied": [20], "alerts": [], "tolerance_g": 0.5}
+}
